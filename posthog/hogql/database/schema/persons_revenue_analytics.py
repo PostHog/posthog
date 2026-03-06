@@ -113,7 +113,10 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                     ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
                     ast.Alias(alias="mrr", expr=ast.Call(name="sum", args=[ast.Field(chain=["mrr"])])),
                 ],
-                select_from=ast.JoinExpr(table=ast.Field(chain=[mrr_view.name])),
+                select_from=ast.JoinExpr(
+                    alias=RevenueAnalyticsMRRView.get_generic_view_alias(),
+                    table=ast.Field(chain=[mrr_view.name]),
+                ),
                 group_by=[ast.Field(chain=["customer_id"])],
             )
 

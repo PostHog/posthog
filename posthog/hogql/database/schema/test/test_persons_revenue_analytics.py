@@ -476,6 +476,7 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.setup_schema_sources()
             self.join.source_table_key = "id"
             self.join.save()
+
             # Create persons matching customer IDs from the stripe data
             distinct_id_to_person_id: dict[str, str] = {}
             for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:

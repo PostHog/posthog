@@ -109,8 +109,8 @@
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-               sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -188,7 +188,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
@@ -313,8 +313,8 @@
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-               sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -392,7 +392,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
@@ -516,8 +516,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -605,7 +605,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons__revenue_analytics.revenue ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -729,8 +729,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -818,7 +818,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons__revenue_analytics.revenue ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -944,8 +944,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -1033,7 +1033,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -1158,8 +1158,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -1247,7 +1247,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -1372,8 +1372,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -1461,7 +1461,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -1586,8 +1586,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -1675,7 +1675,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -1800,8 +1800,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -1889,7 +1889,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -2015,8 +2015,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -2104,7 +2104,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -2221,8 +2221,8 @@
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-               sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -2324,7 +2324,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.person_id ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -2441,8 +2441,8 @@
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-               sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -2544,7 +2544,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.person_id ASC
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -2663,8 +2663,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -2752,7 +2752,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.mrr DESC,
            persons_revenue_analytics.revenue DESC
@@ -2872,8 +2872,8 @@
               WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
         GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
      LEFT JOIN
-       (SELECT `stripe.posthog_test.mrr_revenue_view`.customer_id AS customer_id,
-               sum(`stripe.posthog_test.mrr_revenue_view`.mrr) AS mrr
+       (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+               sum(revenue_analytics_mrr.mrr) AS mrr
         FROM
           (SELECT union.source_label AS source_label,
                   union.customer_id AS customer_id,
@@ -2961,7 +2961,7 @@
                     customer_id,
                     subscription_id
            ORDER BY customer_id ASC,
-                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+                    subscription_id ASC) AS revenue_analytics_mrr
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS persons_revenue_analytics
   ORDER BY persons_revenue_analytics.mrr DESC,
            persons_revenue_analytics.revenue DESC
@@ -3128,8 +3128,8 @@
                     ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
                  GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
               LEFT JOIN
-                (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                        sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+                        sum(revenue_analytics_mrr.mrr) AS mrr
                  FROM
                    (SELECT union.source_label AS source_label,
                            union.customer_id AS customer_id,
@@ -3207,7 +3207,7 @@
                              customer_id,
                              subscription_id
                     ORDER BY customer_id ASC,
-                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             subscription_id ASC) AS revenue_analytics_mrr
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
@@ -3347,8 +3347,8 @@
                     ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
                  GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
               LEFT JOIN
-                (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                        sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+                        sum(revenue_analytics_mrr.mrr) AS mrr
                  FROM
                    (SELECT union.source_label AS source_label,
                            union.customer_id AS customer_id,
@@ -3419,7 +3419,7 @@
                              customer_id,
                              subscription_id
                     ORDER BY customer_id ASC,
-                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             subscription_id ASC) AS revenue_analytics_mrr
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
@@ -3580,8 +3580,8 @@
                     ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
                  GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
               LEFT JOIN
-                (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                        sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+                        sum(revenue_analytics_mrr.mrr) AS mrr
                  FROM
                    (SELECT union.source_label AS source_label,
                            union.customer_id AS customer_id,
@@ -3659,7 +3659,7 @@
                              customer_id,
                              subscription_id
                     ORDER BY customer_id ASC,
-                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             subscription_id ASC) AS revenue_analytics_mrr
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
@@ -3833,8 +3833,8 @@
                     ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
                  GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
               LEFT JOIN
-                (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                        sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+                        sum(revenue_analytics_mrr.mrr) AS mrr
                  FROM
                    (SELECT union.source_label AS source_label,
                            union.customer_id AS customer_id,
@@ -3912,7 +3912,7 @@
                              customer_id,
                              subscription_id
                     ORDER BY customer_id ASC,
-                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             subscription_id ASC) AS revenue_analytics_mrr
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
@@ -4083,8 +4083,8 @@
                     ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
                  GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
               LEFT JOIN
-                (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                        sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+                        sum(revenue_analytics_mrr.mrr) AS mrr
                  FROM
                    (SELECT union.source_label AS source_label,
                            union.customer_id AS customer_id,
@@ -4162,7 +4162,7 @@
                              customer_id,
                              subscription_id
                     ORDER BY customer_id ASC,
-                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             subscription_id ASC) AS revenue_analytics_mrr
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
@@ -4352,8 +4352,8 @@
                     ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
                  GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
               LEFT JOIN
-                (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                        sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+                        sum(revenue_analytics_mrr.mrr) AS mrr
                  FROM
                    (SELECT union.source_label AS source_label,
                            union.customer_id AS customer_id,
@@ -4424,7 +4424,7 @@
                              customer_id,
                              subscription_id
                     ORDER BY customer_id ASC,
-                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             subscription_id ASC) AS revenue_analytics_mrr
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
@@ -4635,8 +4635,8 @@
                     ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
                  GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
               LEFT JOIN
-                (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                        sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+                        sum(revenue_analytics_mrr.mrr) AS mrr
                  FROM
                    (SELECT union.source_label AS source_label,
                            union.customer_id AS customer_id,
@@ -4714,7 +4714,7 @@
                              customer_id,
                              subscription_id
                     ORDER BY customer_id ASC,
-                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             subscription_id ASC) AS revenue_analytics_mrr
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
@@ -4938,8 +4938,8 @@
                     ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
                  GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
               LEFT JOIN
-                (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                        sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                (SELECT revenue_analytics_mrr.customer_id AS customer_id,
+                        sum(revenue_analytics_mrr.mrr) AS mrr
                  FROM
                    (SELECT union.source_label AS source_label,
                            union.customer_id AS customer_id,
@@ -5017,7 +5017,7 @@
                              customer_id,
                              subscription_id
                     ORDER BY customer_id ASC,
-                             subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             subscription_id ASC) AS revenue_analytics_mrr
                  GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
