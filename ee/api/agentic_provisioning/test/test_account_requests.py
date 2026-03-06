@@ -39,6 +39,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
         data = res.json()
+        assert data["id"] == "acctreq_test123"
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
         assert len(data["oauth"]["code"]) > 0
@@ -57,6 +58,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
         data = res.json()
+        assert data["id"] == "acctreq_test123"
         assert data["type"] == "requires_auth"
         assert data["requires_auth"]["type"] == "redirect"
         assert "url" in data["requires_auth"]["redirect"]
