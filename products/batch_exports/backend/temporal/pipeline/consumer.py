@@ -413,7 +413,7 @@ class ConsumerGroup(typing.Protocol[_C]):
 
     @property
     def records_exported_per_second_window(self) -> float:
-        """Return the rate of exported bytes per second for the last window."""
+        """Return the rate of exported records per second for the last window."""
         try:
             return self.records_exported_window / self.time_elapsed_window
         except ZeroDivisionError:
