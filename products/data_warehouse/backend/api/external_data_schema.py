@@ -197,25 +197,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
 
-        if should_sync is True and sync_type is None and instance.sync_type is None and source.supports_scheduled_sync:
-            raise ValidationError("Sync type must be set up first before enabling schema")
-
-        # Direct query sources never create Temporal schedules.
-        # Toggling the schema only exposes or hides the live table definition.
-        # We use "should_sync" to determine if the table should be exposed or hidden.
-        if source.is_direct_postgres:
-            if should_sync is True and instance.should_sync is False:
-                validated_data["table"] = upsert_direct_postgres_table(
-                    instance.table,
-                    schema_name=instance.name,
-                    source=source,
-                    columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
-                )
-
-            if should_sync is False and instance.should_sync is True:
-                hide_direct_postgres_table(instance.table)
-
         if source.supports_scheduled_sync:
+            if should_sync is True and sync_type is None and instance.sync_type is None:
+                raise ValidationError("Sync type must be set up first before enabling schema")
+
             schedule_exists = external_data_workflow_exists(str(instance.id))
 
             if schedule_exists:
@@ -229,6 +214,19 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             if was_sync_frequency_updated or was_sync_time_of_day_updated:
                 sync_external_data_job_workflow(instance, create=False, should_sync=should_sync)
+
+        if source.is_direct_postgres:
+            # We use "should_sync" to determine if the table should be exposed or hidden.
+            if should_sync is True and instance.should_sync is False:
+                validated_data["table"] = upsert_direct_postgres_table(
+                    instance.table,
+                    schema_name=instance.name,
+                    source=source,
+                    columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
+                )
+
+            if should_sync is False and instance.should_sync is True:
+                hide_direct_postgres_table(instance.table)
 
         if trigger_refresh:
             instance.sync_type_config.update({"reset_pipeline": True})
