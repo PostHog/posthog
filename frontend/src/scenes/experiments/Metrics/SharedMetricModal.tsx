@@ -198,80 +198,82 @@ export function SharedMetricModal({
                                                 key={index}
                                                 size="xsmall"
                                                 type="secondary"
-                                                onClick={() => {
-                                                    setSelectedMetricIds(
-                                                        availableSharedMetrics
-                                                            .filter((metric: SharedMetric) => metric.tags?.includes(tag))
-                                                            .map((metric: SharedMetric) => metric.id)
+                                        onClick={() => {
+                                            setSelectedMetricIds(
+                                                availableSharedMetrics
+                                                    .filter((metric: SharedMetric) =>
+                                                        metric.tags?.includes(tag)
                                                     )
-                                                }}
+                                                    .map((metric: SharedMetric) => metric.id)
+                                            )
+                                        }}
                                             >
                                                 {tag}
                                             </LemonButton>
                                         ))}
                                     </div>
                                     <LemonTable
-                                dataSource={availableSharedMetrics}
-                                columns={[
-                                    {
-                                        title: '',
-                                        key: 'checkbox',
-                                        render: (_, metric: SharedMetric) => (
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedMetricIds.includes(metric.id)}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setSelectedMetricIds([...selectedMetricIds, metric.id])
-                                                    } else {
-                                                        setSelectedMetricIds(
-                                                            selectedMetricIds.filter((id) => id !== metric.id)
-                                                        )
+                                        dataSource={availableSharedMetrics}
+                                        columns={[
+                                            {
+                                                title: '',
+                                                key: 'checkbox',
+                                                render: (_, metric: SharedMetric) => (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedMetricIds.includes(metric.id)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setSelectedMetricIds([...selectedMetricIds, metric.id])
+                                                            } else {
+                                                                setSelectedMetricIds(
+                                                                    selectedMetricIds.filter((id) => id !== metric.id)
+                                                                )
+                                                            }
+                                                        }}
+                                                    />
+                                                ),
+                                            },
+                                            {
+                                                title: 'Name',
+                                                dataIndex: 'name',
+                                                key: 'name',
+                                                sorter: (a, b) => a.name.localeCompare(b.name),
+                                            },
+                                            {
+                                                title: 'Description',
+                                                dataIndex: 'description',
+                                                key: 'description',
+                                            },
+                                            {
+                                                title: 'Tags',
+                                                dataIndex: 'tags' as keyof SharedMetric,
+                                                key: 'tags',
+                                                render: (_: any, metric: SharedMetric) => (
+                                                    <ObjectTags tags={metric.tags || []} staticOnly />
+                                                ),
+                                            },
+                                            {
+                                                title: 'Type',
+                                                key: 'type',
+                                                render: (_, metric: SharedMetric) => {
+                                                    if (metric.query.kind === NodeKind.ExperimentMetric) {
+                                                        return metric.query.metric_type
                                                     }
-                                                }}
-                                            />
-                                        ),
-                                    },
-                                    {
-                                        title: 'Name',
-                                        dataIndex: 'name',
-                                        key: 'name',
-                                        sorter: (a, b) => a.name.localeCompare(b.name),
-                                    },
-                                    {
-                                        title: 'Description',
-                                        dataIndex: 'description',
-                                        key: 'description',
-                                    },
-                                    {
-                                        title: 'Tags',
-                                        dataIndex: 'tags' as keyof SharedMetric,
-                                        key: 'tags',
-                                        render: (_: any, metric: SharedMetric) => (
-                                            <ObjectTags tags={metric.tags || []} staticOnly />
-                                        ),
-                                    },
-                                    {
-                                        title: 'Type',
-                                        key: 'type',
-                                        render: (_, metric: SharedMetric) => {
-                                            if (metric.query.kind === NodeKind.ExperimentMetric) {
-                                                return metric.query.metric_type
-                                            }
-                                            return metric.query.kind === NodeKind.ExperimentTrendsQuery
-                                                ? 'Trend'
-                                                : 'Funnel'
-                                        },
-                                    },
-                                ]}
-                                footer={
-                                    <div className="flex items-center justify-center m-2">
-                                        <Link to={`${urls.experiments()}?tab=shared-metrics`} target="_blank">
-                                            See all shared metrics
-                                        </Link>
-                                    </div>
-                                }
-                            />
+                                                    return metric.query.kind === NodeKind.ExperimentTrendsQuery
+                                                        ? 'Trend'
+                                                        : 'Funnel'
+                                                },
+                                            },
+                                        ]}
+                                        footer={
+                                            <div className="flex items-center justify-center m-2">
+                                                <Link to={`${urls.experiments()}?tab=shared-metrics`} target="_blank">
+                                                    See all shared metrics
+                                                </Link>
+                                            </div>
+                                        }
+                                    />
                                 </>
                             ) : (
                                 <LemonBanner type="info">No metrics match your search.</LemonBanner>
