@@ -39,6 +39,13 @@ Run the full pipeline: `hogli build:openapi`
        --output ../../products/your_product/mcp/tools.yaml
    ```
 
+   `--product` is a **substring match** on URL paths:
+   it selects every endpoint whose path contains `/<name>/`
+   (hyphens are normalized to underscores before matching).
+   The value doesn't have to be an exact product name —
+   any string that appears as a path segment will work
+   (e.g. `--product actions` matches `/api/projects/{project_id}/actions/`).
+
 2. **Configure** — edit the YAML to enable the tools you want. Each enabled tool needs
    `scopes`, `annotations`, and ideally a `description`:
 

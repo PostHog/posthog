@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
@@ -369,7 +371,8 @@ class TestTable(BaseTest):
         )
         assert table.csv_allow_double_quotes is None
 
-    def test_validate_csv_double_quotes_raises_on_parse_failure(self):
+    @parameterized.expand([27, 117, 636])
+    def test_validate_csv_double_quotes_raises_on_parse_failure(self, code):
         from clickhouse_driver.errors import ServerException
 
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -384,7 +387,7 @@ class TestTable(BaseTest):
 
         with patch(
             "products.data_warehouse.backend.models.table.sync_execute",
-            side_effect=ServerException("Expected end of line", code=117),
+            side_effect=ServerException("Expected end of line", code=code),
         ):
             with pytest.raises(Exception, match="CSV parsing failed"):
                 table._validate_csv_double_quotes_setting()

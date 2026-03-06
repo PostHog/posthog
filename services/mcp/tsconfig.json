@@ -21,10 +21,14 @@
         "types": ["node", "./worker-configuration.d.ts"],
         "baseUrl": ".",
         "paths": {
+            "products/*": ["../../products/*"],
             "@/*": ["src/*", "tests/*"],
-            "@shared/*": ["shared/*"]
+            "@shared/*": ["shared/*"],
+            "@posthog/mosaic": ["../../common/mosaic/src/index.ts"],
+            "@posthog/mosaic/*": ["../../common/mosaic/src/*"],
+            "@common/*": ["../../common/*"]
         }
     },
-    "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
+    "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
     "exclude": ["node_modules", "dist"]
 }
