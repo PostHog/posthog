@@ -462,6 +462,22 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 }
             )
 
+        report_user_action(
+            request.user,
+            "llma evaluation hog code tested",
+            {
+                "sample_count": sample_count,
+                "allows_na": allows_na,
+                "condition_count": len(conditions),
+                "result_count": len(results),
+                "pass_count": sum(1 for r in results if r["result"] is True),
+                "fail_count": sum(1 for r in results if r["result"] is False),
+                "error_count": sum(1 for r in results if r["error"]),
+            },
+            team=self.team,
+            request=self.request,
+        )
+
         return Response({"results": results})
 
 
