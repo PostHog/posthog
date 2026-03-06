@@ -824,7 +824,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                     </LemonTag>
                     {linkedContextLabel ? (
                         <LemonTag type="highlight" size="small" className="max-w-[260px] truncate">
-                            {linkedContextLabel}
+                            Editing {linkedContextLabel}
                         </LemonTag>
                     ) : null}
                     {collapsed && (
