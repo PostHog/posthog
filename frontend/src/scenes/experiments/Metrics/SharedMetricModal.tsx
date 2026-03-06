@@ -198,15 +198,15 @@ export function SharedMetricModal({
                                                 key={index}
                                                 size="xsmall"
                                                 type="secondary"
-                                        onClick={() => {
-                                            setSelectedMetricIds(
-                                                availableSharedMetrics
-                                                    .filter((metric: SharedMetric) =>
-                                                        metric.tags?.includes(tag)
+                                                onClick={() => {
+                                                    setSelectedMetricIds(
+                                                        availableSharedMetrics
+                                                            .filter((metric: SharedMetric) =>
+                                                                metric.tags?.includes(tag)
+                                                            )
+                                                            .map((metric: SharedMetric) => metric.id)
                                                     )
-                                                    .map((metric: SharedMetric) => metric.id)
-                                            )
-                                        }}
+                                                }}
                                             >
                                                 {tag}
                                             </LemonButton>
