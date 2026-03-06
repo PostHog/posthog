@@ -1,3 +1,6 @@
+import { useValues } from 'kea'
+import { useCallback } from 'react'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -9,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { DataWarehouseSavedQuery } from '~/types'
 
 import { ViewsTab } from '../data-warehouse/scene/ViewsTab'
 import { modelsSceneLogic } from './modelsSceneLogic'
@@ -20,6 +24,16 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
+    const { savedQueryIdToNodeId } = useValues(modelsSceneLogic)
+
+    const getViewUrl = useCallback(
+        (view: DataWarehouseSavedQuery): string => {
+            const nodeId = savedQueryIdToNodeId[view.id]
+            return nodeId ? urls.nodeDetail(nodeId) : urls.sqlEditor({ view_id: view.id })
+        },
+        [savedQueryIdToNodeId]
+    )
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -50,7 +64,7 @@ export function ModelsScene(): JSX.Element {
                     </div>
                 }
             />
-            <ViewsTab />
+            <ViewsTab getViewUrl={getViewUrl} />
         </SceneContent>
     )
 }

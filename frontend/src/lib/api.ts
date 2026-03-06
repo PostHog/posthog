@@ -4680,6 +4680,11 @@ const api = {
         async dagIds(): Promise<{ dag_ids: string[] }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
+        async lineage(
+            nodeId: DataModelingNode['id']
+        ): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
+            return await new ApiRequest().dataModelingNode(nodeId).withAction('lineage').get()
+        },
     },
 
     dataModelingEdges: {
