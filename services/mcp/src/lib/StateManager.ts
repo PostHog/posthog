@@ -40,7 +40,7 @@ export class StateManager {
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
 
         if (!introspectionResult.success) {
-            throw new Error(`Failed to get API key: ${introspectionResult.error.message}`)
+            throw new Error(ErrorCode.INVALID_API_KEY)
         }
 
         if (!introspectionResult.data.active) {

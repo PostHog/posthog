@@ -69,7 +69,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
         ],
         lastState: [
             (s) => [s.replChunks],
-            (replChunks): VMState | undefined => {
+            (replChunks): ReplChunk['state'] | undefined => {
                 for (let i = replChunks.length - 1; i >= 0; i--) {
                     if (replChunks[i].state) {
                         return replChunks[i].state

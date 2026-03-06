@@ -25,15 +25,17 @@ Manual operations:
     clear_flags_cache(team_id)
 """
 
-import time
 from collections import defaultdict
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -374,25 +376,19 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     return field_diffs
 
 
-def _get_team_ids_with_flags() -> set[int]:
+def get_teams_with_flags_queryset() -> "QuerySet[Team]":
     """
-    Get the set of team IDs that have at least one active, non-deleted flag.
+    Return a queryset of teams that have ever had a feature flag.
 
-    Used by verification to skip expensive DB loads for the ~90% of teams
-    that have zero flags. For those teams, we just verify the cache contains
-    {"flags": []}.
+    Queries via ``objects_including_soft_deleted`` so that teams whose flags
+    were all soft-deleted still get their cache verified (the cache should
+    contain ``{"flags": []}``, not be absent).
+
+    Used as the single source of truth for scoping both Celery verification
+    tasks and management commands to the ~10% of teams that have flags.
     """
-    start_time = time.time()
-    result = set(FeatureFlag.objects.filter(active=True).values_list("team_id", flat=True).distinct())
-    duration_ms = (time.time() - start_time) * 1000
-
-    logger.info(
-        "Loaded team IDs with flags",
-        count=len(result),
-        duration_ms=round(duration_ms, 2),
-    )
-
-    return result
+    has_flags = FeatureFlag.objects_including_soft_deleted.filter(team_id=OuterRef("pk"))
+    return Team.objects.filter(Exists(has_flags))
 
 
 def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
@@ -431,8 +427,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flags_hypercache,
     update_fn=update_flags_cache,
     cache_name="flags",
-    get_team_ids_needing_full_verification_fn=_get_team_ids_with_flags,
-    empty_cache_value={"flags": []},
+    get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_flags,
 )
 

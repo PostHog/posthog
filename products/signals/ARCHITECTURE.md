@@ -37,8 +37,6 @@ A long-running entity workflow that serializes all signal grouping for a single 
 
 Step 1 runs two activities in parallel. Step 2 depends on step 1 (needs the type examples). Steps 3+4 fan out in parallel for each query/embedding.
 
-> **Note:** The legacy `EmitSignalWorkflow` (`emit-signal`) is kept registered temporarily for any in-flight workflows from before the migration. It runs the same `_process_one_signal()` logic but as a one-shot workflow per signal. It will be removed once all existing executions have completed.
-
 **Future opportunities the entity model unlocks:**
 
 - **Batching:** Process N signals in a single LLM call instead of 1:1.
@@ -68,6 +66,37 @@ Runs when a report is promoted to `candidate` status. Summarizes the signal grou
 On any unhandled exception, the workflow catches and calls `mark_report_failed_activity`.
 
 The grouping workflow uses a 1-hour `run_timeout` (resets on each `continue_as_new`). The summary workflow uses a 30-minute `execution_timeout`. Both use 3-attempt retry policies on individual activities.
+
+### `SignalReportReingestionWorkflow` (`signal-report-reingestion`)
+
+Deletes a report and re-ingests its signals through the grouping pipeline. Useful when grouping decisions need to be re-evaluated (e.g., after improving LLM prompts, or when signals were incorrectly grouped).
+
+Defined in `backend/temporal/reingestion.py`. Workflow ID: `signal-report-reingestion-{team_id}-{report_id}`.
+
+**Flow:**
+
+1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity` (reused from summary workflow). If no signals found, skips to step 3 (delete-only).
+2. **Soft-delete signals** in ClickHouse → `soft_delete_report_signals_activity` — wraps the existing `soft_delete_report_signals()` helper from `api.py`, re-emitting each signal row with `metadata.deleted = true`.
+   2b. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity` (reused from grouping workflow) — polls until the last soft-deleted signal lands, so re-ingested signals don't find stale rows during semantic search.
+3. **Delete report** in Postgres → `delete_report_activity` — transitions the report to `deleted` status via `SignalReport.transition_to()`. Idempotent (no-ops if already deleted).
+4. **Re-ingest signals** → `reingest_signals_activity` — converts each `SignalData` to an `emit_signal()` call, which handles org guards and `signal_with_start` into the per-team `TeamSignalGroupingWorkflow`. Signals go through the full grouping pipeline (embed → search → LLM match → assign) and may end up in different reports.
+
+All activities use 3-attempt retry policies. The soft-delete activity (step 2) is idempotent by design.
+
+### `SignalReportDeletionWorkflow` (`signal-report-deletion`)
+
+Soft-deletes a report and all its signals. Triggered by the `DELETE /signal_reports/{id}/` endpoint.
+
+Defined in `backend/temporal/deletion.py`. Workflow ID: `signal-report-deletion-{team_id}-{report_id}`.
+
+**Flow:**
+
+1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity`. If no signals found, skips to step 3 (delete-only).
+2. **Soft-delete signals** in ClickHouse → `soft_delete_report_signals_activity`.
+   2b. **Wait for ClickHouse** → `wait_for_signal_in_clickhouse_activity` — polls until the last soft-deleted signal lands.
+3. **Delete report** in Postgres → `delete_report_activity`.
+
+Shares all activities with the reingestion workflow — the only difference is that it stops after deletion (no re-ingestion step).
 
 ---
 
@@ -208,7 +237,7 @@ The primary programmatic entry point. Called by other PostHog products to emit s
 
 ### Utility: `soft_delete_report_signals()` (`backend/api.py`)
 
-Centralized sync helper that soft-deletes all ClickHouse signals for a given report by re-emitting them with `metadata.deleted = true`, preserving original timestamps so rows replace originals via `ReplacingMergeTree`. Intentionally fetches all signals (including already-deleted ones) to be idempotent. Called by `SignalReportViewSet.destroy()`.
+Centralized sync helper that soft-deletes all ClickHouse signals for a given report by re-emitting them with `metadata.deleted = true`, preserving original timestamps so rows replace originals via `ReplacingMergeTree`. Intentionally fetches all signals (including already-deleted ones) to be idempotent. Called by `soft_delete_report_signals_activity` (used by both deletion and reingestion workflows).
 
 ```python
 await emit_signal(
@@ -252,13 +281,15 @@ Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `A
 
 #### `SignalReportViewSet`
 
-Read-only + state transitions. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`). Extends `ReadOnlyModelViewSet`. Deleted reports are excluded from all endpoints via `safely_get_queryset`.
+Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`). Composed from `RetrieveModelMixin`, `ListModelMixin`, `DestroyModelMixin`, and `GenericViewSet`. Deleted reports are excluded from all endpoints via `safely_get_queryset`.
 
 | Method | Path                              | Description                                                                                                                                                                                                                                                                   |
 | ------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/signal_reports/`                | List reports (excludes `deleted` always, excludes `suppressed` by default), filterable by `?status=` query param, ordered by `-signal_count` by default                                                                                                                       |
 | GET    | `/signal_reports/{id}/`           | Retrieve a single report                                                                                                                                                                                                                                                      |
+| DELETE | `/signal_reports/{id}/`           | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow` and returns `202 Accepted`.                                                                                                                                                                       |
 | POST   | `/signal_reports/{id}/state/`     | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Validates transitions via `SignalReport.transition_to()`. Returns 409 on invalid transition, 400 on bad arguments. |
+| POST   | `/signal_reports/{id}/reingest/`  | **Staff-only.** Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow` and returns `202 Accepted`. Returns `403` for non-staff users.                                                                                                            |
 | GET    | `/signal_reports/{id}/artefacts/` | List video segment artefacts for a report                                                                                                                                                                                                                                     |
 | GET    | `/signal_reports/{id}/signals/`   | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                       |
 
@@ -332,20 +363,22 @@ Stores result as an `actionability_judgment` artefact on the report. **Extended 
 
 ## Data Types (`backend/temporal/types.py`)
 
-| Type                                | Description                                                                                                                          |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `EmitSignalInputs`                  | Workflow input: `team_id`, `source_product`, `source_type`, `source_id`, `description`, `weight`, `extra`                            |
-| `TeamSignalGroupingInput`           | Entity workflow input: `team_id`, `pending_signals: list[EmitSignalInputs]` (carried over on `continue_as_new`)                      |
-| `SignalCandidate`                   | Search result: `signal_id`, `report_id`, `content`, `source_product`, `source_type`, `distance`                                      |
-| `MatchedMetadata`                   | Metadata when matched to existing report: `parent_signal_id`, `match_query`, `reason`                                                |
-| `NoMatchMetadata`                   | Metadata when no match found: `reason`, `rejected_signal_ids`                                                                        |
-| `MatchMetadata`                     | Union type: `MatchedMetadata \| NoMatchMetadata`                                                                                     |
-| `ExistingReportMatch`               | LLM decided signal matches existing report: `report_id`, `match_metadata: MatchedMetadata`                                           |
-| `NewReportMatch`                    | LLM decided signal needs new group: `title`, `summary`, `match_metadata: NoMatchMetadata`                                            |
-| `MatchResult`                       | Union: `ExistingReportMatch \| NewReportMatch`                                                                                       |
-| `SignalReportSummaryWorkflowInputs` | Summary workflow input: `team_id`, `report_id`                                                                                       |
-| `SignalTypeExample`                 | One example per `(source_product, source_type)` pair: `source_product`, `source_type`, `content`, `timestamp`, `extra`               |
-| `SignalData`                        | Signal fetched from ClickHouse: `signal_id`, `content`, `source_product`, `source_type`, `source_id`, `weight`, `timestamp`, `extra` |
+| Type                                    | Description                                                                                                                          |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `EmitSignalInputs`                      | Workflow input: `team_id`, `source_product`, `source_type`, `source_id`, `description`, `weight`, `extra`                            |
+| `TeamSignalGroupingInput`               | Entity workflow input: `team_id`, `pending_signals: list[EmitSignalInputs]` (carried over on `continue_as_new`)                      |
+| `SignalCandidate`                       | Search result: `signal_id`, `report_id`, `content`, `source_product`, `source_type`, `distance`                                      |
+| `MatchedMetadata`                       | Metadata when matched to existing report: `parent_signal_id`, `match_query`, `reason`                                                |
+| `NoMatchMetadata`                       | Metadata when no match found: `reason`, `rejected_signal_ids`                                                                        |
+| `MatchMetadata`                         | Union type: `MatchedMetadata \| NoMatchMetadata`                                                                                     |
+| `ExistingReportMatch`                   | LLM decided signal matches existing report: `report_id`, `match_metadata: MatchedMetadata`                                           |
+| `NewReportMatch`                        | LLM decided signal needs new group: `title`, `summary`, `match_metadata: NoMatchMetadata`                                            |
+| `MatchResult`                           | Union: `ExistingReportMatch \| NewReportMatch`                                                                                       |
+| `SignalReportSummaryWorkflowInputs`     | Summary workflow input: `team_id`, `report_id`                                                                                       |
+| `SignalReportDeletionWorkflowInputs`    | Deletion workflow input: `team_id`, `report_id`                                                                                      |
+| `SignalReportReingestionWorkflowInputs` | Reingestion workflow input: `team_id`, `report_id`                                                                                   |
+| `SignalTypeExample`                     | One example per `(source_product, source_type)` pair: `source_product`, `source_type`, `content`, `timestamp`, `extra`               |
+| `SignalData`                            | Signal fetched from ClickHouse: `signal_id`, `content`, `source_product`, `source_type`, `source_id`, `weight`, `timestamp`, `extra` |
 
 ### Rendering Helpers
 
@@ -406,8 +439,10 @@ products/signals/
 │   └── temporal/
 │       ├── __init__.py             # Registers all workflows and activities (WORKFLOWS + ACTIVITIES lists)
 │       ├── emit_eval_signal.py     # EmitEvalSignalWorkflow + activity — LLMA eval → signal (fire-and-forget from evals queue)
-│       ├── grouping.py             # TeamSignalGroupingWorkflow, EmitSignalWorkflow (legacy) + grouping activities
+│       ├── grouping.py             # TeamSignalGroupingWorkflow + grouping activities
 │       ├── llm.py                  # call_llm() helper + shared LLM config + grouping LLM calls
+│       ├── deletion.py             # SignalReportDeletionWorkflow — soft-delete signals + delete report
+│       ├── reingestion.py          # SignalReportReingestionWorkflow + soft-delete/delete/reingest activities
 │       ├── summary.py              # SignalReportSummaryWorkflow + state management activities
 │       ├── summarize_signals.py    # Summarization LLM prompt + activity
 │       ├── safety_judge.py         # Safety judge LLM prompt + activity (stores artefact, uses thinking)

@@ -18,20 +18,17 @@ from posthog.rbac.user_access_control import (
 class TestFieldAccessControlDecorator(BaseTest):
     def test_decorator_adds_metadata_to_field(self):
         """Test that the decorator adds access control metadata to fields"""
-        # Get the Team model's session_recording_opt_in field
         field = Team._meta.get_field("session_recording_opt_in")
 
-        # Check that the decorator added the metadata
         assert hasattr(field, "_access_control_resource")
         assert hasattr(field, "_access_control_level")
-        assert field._access_control_resource == "session_recording"
-        assert field._access_control_level == "editor"
+        assert field._access_control_resource == "project"
+        assert field._access_control_level == "admin"
 
     def test_get_field_access_control_map_returns_decorated_fields(self):
         """Test that get_field_access_control_map correctly finds decorated fields"""
         field_map = get_field_access_control_map(Team)
 
-        # Check that all session recording fields are in the map
         expected_fields = [
             "session_recording_opt_in",
             "session_recording_sample_rate",
@@ -48,10 +45,10 @@ class TestFieldAccessControlDecorator(BaseTest):
 
         for field_name in expected_fields:
             assert field_name in field_map
-            assert field_map[field_name] == ("session_recording", "editor")
+            assert field_map[field_name] == ("project", "admin")
 
     def test_serializer_validation_with_decorator(self):
-        """Test that serializer validation works with decorated fields"""
+        """Test that serializer validation blocks a non-admin from editing a project-admin-guarded field"""
         team = Team.objects.create(
             organization=self.organization,
             api_token="token123abc",
@@ -62,22 +59,14 @@ class TestFieldAccessControlDecorator(BaseTest):
                 model = Team
                 fields = ["session_recording_opt_in", "session_recording_sample_rate"]
 
-        # Create a user with no access to session recordings
         user_no_access = self._create_user("no_access@test.com")
         self.organization_membership.save()
 
-        # Create serializer context with access control
         user_access_control = UserAccessControl(user_no_access, team)
 
-        # Mock the access control check to return False
-        def mock_check_access(resource, level):
-            if resource == "session_recording":
-                return False
-            return True
+        # Simulate a non-admin: object-level check returns False
+        user_access_control.check_access_level_for_object = lambda obj, level: False  # type: ignore
 
-        user_access_control.check_access_level_for_resource = mock_check_access  # type: ignore
-
-        # Try to update a protected field
         serializer = TeamSerializer(
             instance=team, data={"session_recording_opt_in": True}, context={"user_access_control": user_access_control}
         )
@@ -90,7 +79,7 @@ class TestFieldAccessControlDecorator(BaseTest):
         assert "session_recording_opt_in" in detail
         error_detail = detail["session_recording_opt_in"]
         error_msg = error_detail[0] if isinstance(error_detail, list) else str(error_detail)
-        assert "You need editor access to session recordings" in str(error_msg)
+        assert "You need admin access to projects" in str(error_msg)
 
     def test_field_access_control_helper(self):
         """Test the field_access_control helper function"""
@@ -113,3 +102,42 @@ class TestFieldAccessControlDecorator(BaseTest):
         assert hasattr(field, "_access_control_level")
         assert field._access_control_resource == "notebook"
         assert field._access_control_level == "viewer"
+
+    def test_project_resource_uses_object_level_check(self):
+        """
+        field_access_control with resource="project" must check the user's actual
+        project-level (object-level) access, not the resource default which is always "admin".
+        A regular project member must be blocked from editing an "admin"-guarded field
+        even though access_level_for_resource("project") always returns "admin".
+        """
+        team = Team.objects.create(
+            organization=self.organization,
+            api_token="token456def",
+        )
+
+        # session_recording_opt_in is decorated with ("project", "admin") on the Team model
+        class TeamSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+            class Meta:
+                model = Team
+                fields = ["session_recording_opt_in"]
+
+        user_member = self._create_user("member@test.com")
+        user_access_control = UserAccessControl(user_member, team)
+
+        # Simulate a non-admin project member: object-level check returns False.
+        # resource-level check would incorrectly return True (the bug), so we confirm
+        # the fix routes through the object-level check for "project" resources.
+        user_access_control.check_access_level_for_object = lambda obj, level: False  # type: ignore
+        user_access_control.check_access_level_for_resource = lambda resource, level: True  # type: ignore
+
+        serializer = TeamSerializer(
+            instance=team,
+            data={"session_recording_opt_in": True},
+            context={"user_access_control": user_access_control},
+        )
+
+        with pytest.raises(ValidationError) as exc_info:
+            serializer.is_valid(raise_exception=True)
+
+        detail = exc_info.value.detail
+        assert "session_recording_opt_in" in detail

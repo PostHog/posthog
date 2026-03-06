@@ -1203,6 +1203,16 @@ export interface PatchedIntegrationApi {
     readonly display_name?: string
 }
 
+export interface GitHubRepoApi {
+    id: number
+    name: string
+    full_name: string
+}
+
+export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
+}
+
 /**
  * * `DateTime` - DateTime
  * `String` - String

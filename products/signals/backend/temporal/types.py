@@ -96,6 +96,22 @@ class SignalReportSummaryWorkflowInputs:
 
 
 @dataclass
+class SignalReportReingestionWorkflowInputs:
+    """Inputs for the signal report reingestion workflow."""
+
+    team_id: int
+    report_id: str
+
+
+@dataclass
+class SignalReportDeletionWorkflowInputs:
+    """Inputs for the signal report deletion workflow."""
+
+    team_id: int
+    report_id: str
+
+
+@dataclass
 class SignalTypeExample:
     """One example signal per unique (source_product, source_type) pair, used to give the LLM context."""
 

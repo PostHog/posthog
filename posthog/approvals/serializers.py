@@ -180,6 +180,14 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
 
+    def validate_bypass_org_membership_levels(self, value):
+        if not value:
+            return value
+        try:
+            return [int(lvl) for lvl in value]
+        except (ValueError, TypeError):
+            raise serializers.ValidationError("All membership levels must be integers")
+
     def validate_bypass_roles(self, value):
         if not value:
             return value
