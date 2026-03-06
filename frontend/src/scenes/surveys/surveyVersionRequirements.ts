@@ -110,11 +110,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.234.11',
             'posthog-react-native': '4.27.0',
             'posthog-ios': '3.43.0',
+            'posthog-android': '3.35.0',
+            posthog_flutter: '5.18.0',
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/389' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/260' },
-        ],
+        unsupportedSdks: [],
         check: (s) => s.schedule === SurveySchedule.Always,
     },
     {
@@ -282,12 +281,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: {
             'posthog-js': '1.105.7',
             'posthog-ios': '3.44.0',
+            'posthog-android': '3.35.0',
+            posthog_flutter: '5.18.0',
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3192' },
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/447' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/321' },
-        ],
+        unsupportedSdks: [{ sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3192' }],
         check: (s) => (s.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0,
     },
     {
