@@ -45,7 +45,11 @@ from products.data_warehouse.backend.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
-from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table, upsert_direct_postgres_table
+from products.data_warehouse.backend.direct_postgres import (
+    postgres_schema_metadata,
+    reconcile_direct_postgres_schemas,
+    upsert_direct_postgres_table,
+)
 from products.data_warehouse.backend.models import (
     DataWarehouseManagedViewSet,
     ExternalDataJob,
@@ -58,21 +62,6 @@ from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
-
-
-def postgres_schema_metadata(
-    columns: list[tuple[str, str, bool]], foreign_keys: list[tuple[str, str, str]] | None = None
-) -> dict[str, Any]:
-    return {
-        "columns": [
-            {"name": column_name, "data_type": postgres_type, "is_nullable": nullable}
-            for column_name, postgres_type, nullable in columns
-        ],
-        "foreign_keys": [
-            {"column": column_name, "target_table": target_table, "target_column": target_column}
-            for column_name, target_table, target_column in (foreign_keys or [])
-        ],
-    }
 
 
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
@@ -773,53 +762,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
             if instance.is_direct_postgres:
-                schema_models = {
-                    schema.name: schema
-                    for schema in ExternalDataSchema.objects.filter(
-                        team_id=self.team_id, source_id=instance.id, deleted=False
-                    )
-                }
-
-                for source_schema in schemas:
-                    schema_model = schema_models.get(source_schema.name)
-                    if schema_model is None:
-                        continue
-
-                    expected_columns = postgres_columns_to_dwh_columns(source_schema.columns)
-                    schema_metadata = postgres_schema_metadata(source_schema.columns, source_schema.foreign_keys)
-
-                    existing_sync_type_config = schema_model.sync_type_config if schema_model.sync_type_config else {}
-                    schema_model.sync_type_config = {**existing_sync_type_config, "schema_metadata": schema_metadata}
-                    schema_model.save(update_fields=["sync_type_config", "updated_at"])
-
-                    table_model = schema_model.table
-                    if not schema_model.should_sync:
-                        hide_direct_postgres_table(table_model)
-                        continue
-
-                    table_model = upsert_direct_postgres_table(
-                        table_model,
-                        schema_name=source_schema.name,
-                        source=instance,
-                        columns=expected_columns,
-                    )
-                    if schema_model.table_id != table_model.id:
-                        schema_model.table = table_model
-                        schema_model.save(update_fields=["table"])
-
-                stale_schemas = ExternalDataSchema.objects.filter(
-                    Q(team_id=self.team_id, source_id=instance.id),
-                    Q(deleted=False) | Q(table__deleted=False),
-                ).exclude(name__in=schema_names)
-                stale_count = 0
-                for stale_schema in stale_schemas:
-                    stale_count += 1
-                    hide_direct_postgres_table(stale_schema.table)
-                    if not stale_schema.deleted:
-                        stale_schema.soft_delete()
-
-                if stale_count > 0:
-                    schemas_deleted = list({*schemas_deleted, *list(stale_schemas.values_list("name", flat=True))})
+                reconciled_deleted_schemas = reconcile_direct_postgres_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
