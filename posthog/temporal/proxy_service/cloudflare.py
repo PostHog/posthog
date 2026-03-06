@@ -15,6 +15,8 @@ from django.conf import settings
 
 import requests
 
+from posthog.security.outbound_proxy import external_requests
+
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 
 
@@ -24,6 +26,9 @@ class CloudflareAPIError(Exception):
     def __init__(self, message: str, errors: t.Optional[list[dict]] = None):
         super().__init__(message)
         self.errors = errors or []
+
+    def is_rate_limited(self) -> bool:
+        return any(err.get("code") == 10000 for err in self.errors) or "rate limit" in str(self).lower()
 
 
 class CustomHostnameSSLStatus(str, Enum):
@@ -130,7 +135,7 @@ def create_custom_hostname(domain: str) -> CustomHostnameInfo:
         },
     }
 
-    response = requests.post(url, headers=_get_headers(), json=payload, timeout=30)
+    response = external_requests.post(url, headers=_get_headers(), json=payload, timeout=30)
     data = _handle_response(response)
 
     result = data["result"]
@@ -160,7 +165,7 @@ def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
     """
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames/{hostname_id}"
 
-    response = requests.get(url, headers=_get_headers(), timeout=30)
+    response = external_requests.get(url, headers=_get_headers(), timeout=30)
 
     if response.status_code == 404:
         return None
@@ -195,7 +200,7 @@ def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostnameInfo]
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames"
     params = {"hostname": domain}
 
-    response = requests.get(url, headers=_get_headers(), params=params, timeout=30)
+    response = external_requests.get(url, headers=_get_headers(), params=params, timeout=30)
     data = _handle_response(response)
 
     results = data.get("result", [])
@@ -229,7 +234,7 @@ def delete_custom_hostname(hostname_id: str) -> bool:
     """
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames/{hostname_id}"
 
-    response = requests.delete(url, headers=_get_headers(), timeout=30)
+    response = external_requests.delete(url, headers=_get_headers(), timeout=30)
 
     if response.status_code == 404:
         # Resource already gone, treat as success (idempotent delete)
@@ -265,7 +270,7 @@ def create_worker_route(domain: str) -> WorkerRouteInfo:
         "script": settings.CLOUDFLARE_WORKER_NAME,
     }
 
-    response = requests.post(url, headers=_get_headers(), json=payload, timeout=30)
+    response = external_requests.post(url, headers=_get_headers(), json=payload, timeout=30)
     data = _handle_response(response)
 
     result = data["result"]
@@ -291,7 +296,7 @@ def get_worker_route_by_pattern(domain: str) -> t.Optional[WorkerRouteInfo]:
     """
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/workers/routes"
 
-    response = requests.get(url, headers=_get_headers(), timeout=30)
+    response = external_requests.get(url, headers=_get_headers(), timeout=30)
     data = _handle_response(response)
 
     pattern = f"{domain}/*"
@@ -321,7 +326,7 @@ def delete_worker_route(route_id: str) -> bool:
     """
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/workers/routes/{route_id}"
 
-    response = requests.delete(url, headers=_get_headers(), timeout=30)
+    response = external_requests.delete(url, headers=_get_headers(), timeout=30)
 
     if response.status_code == 404:
         # Resource already gone, treat as success (idempotent delete)

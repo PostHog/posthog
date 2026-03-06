@@ -3,16 +3,16 @@ import { useValues } from 'kea'
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
-import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
+import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
 import { useOpenLogsSettingsPanel } from './hooks/useOpenLogsSettingsPanel'
 import { logsSceneLogic } from './logsSceneLogic'
@@ -25,7 +25,7 @@ export const scene: SceneExport = {
 
 export function LogsScene(): JSX.Element {
     return (
-        <SceneContent>
+        <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
             <LogsSceneContent />
         </SceneContent>
     )
@@ -71,7 +71,7 @@ const LogsSceneContent = (): JSX.Element => {
                 </LemonBanner>
             )}
             <LogsSetupPrompt>
-                <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
+                <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
                     <LogsViewer id={tabId} />
                 </div>
             </LogsSetupPrompt>

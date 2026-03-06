@@ -11,6 +11,7 @@ class NodeType(models.TextChoices):
     TABLE = "table"
     VIEW = "view"
     MAT_VIEW = "matview"
+    ENDPOINT = "endpoint"
 
 
 class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -33,7 +34,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             self.name = self.saved_query.name
         elif not self.name:
             raise ValueError("Node without a saved_query must have a name")
-        self.dag_id_text = self.dag_id
+        self.dag_id = self.dag_id_text
         super().save(*args, **kwargs)
 
     class Meta:

@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-conversations",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
@@ -12,6 +15,7 @@
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
         "@tiptap/core": "*",
+        "@tiptap/extension-code-block-lowlight": "*",
         "@tiptap/extension-document": "*",
         "@tiptap/extension-image": "*",
         "@tiptap/extension-link": "*",
@@ -22,6 +26,7 @@
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
+        "lowlight": "*",
         "react": "*",
         "react-dom": "*"
     }

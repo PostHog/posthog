@@ -8,13 +8,15 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { JSSnippet, JSSnippetV2 as JSSnippetV2Component } from 'lib/components/JSSnippet'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { debounce, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -27,23 +29,27 @@ export function TeamDisplayName({ updateInline = false }: { updateInline?: boole
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const [name, setName] = useState(currentTeam?.name || '')
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const debouncedUpdateCurrentTeam = useMemo(() => debounce(updateCurrentTeam, 500), [updateCurrentTeam])
     const handleChange = (value: string): void => {
         setName(value)
-        if (updateInline) {
+        if (updateInline && !restrictedReason) {
             debouncedUpdateCurrentTeam({ name: value })
         }
     }
 
     return (
         <div className="deprecated-space-y-4 max-w-160">
-            <LemonInput value={name} onChange={handleChange} />
+            <LemonInput value={name} onChange={handleChange} disabledReason={restrictedReason} />
             {!updateInline && (
                 <LemonButton
                     type="primary"
                     onClick={() => updateCurrentTeam({ name })}
-                    disabled={!name || !currentTeam || name === currentTeam.name}
+                    disabled={!name || !currentTeam || name === currentTeam.name || !!restrictedReason}
                     loading={currentTeamLoading}
                 >
                     Rename project
@@ -128,9 +134,9 @@ export function TeamVariables(): JSX.Element {
     const openDialog = (): void => {
         LemonDialog.openForm({
             maxWidth: 480,
-            title: 'Reset project API key?',
+            title: 'Reset project token?',
             description:
-                'This will immediately invalidate your current API key. Any apps, websites, or services using it will stop sending data to PostHog until you update them with the new key. This action cannot be undone.',
+                'This will immediately invalidate your current project token. Any apps, websites, or services using it will stop sending data to PostHog until you update them with the new token. This action cannot be undone.',
             initialValues: { confirmation: '' },
             content: (
                 <LemonField name="confirmation">
@@ -149,7 +155,7 @@ export function TeamVariables(): JSX.Element {
             },
             primaryButtonProps: {
                 status: 'danger',
-                children: 'Reset API key',
+                children: 'Reset token',
             },
             onSubmit: () => {
                 resetToken()
@@ -160,18 +166,13 @@ export function TeamVariables(): JSX.Element {
     return (
         <div className="space-y-4 max-w-200">
             <div className="border rounded p-4 space-y-3 bg-bg-light">
-                <LemonLabel className="mb-0">Project API key</LemonLabel>
+                <LemonLabel className="mb-0">Project token</LemonLabel>
                 <CodeSnippet
                     compact
-                    thing="project API key"
+                    thing="project token"
                     actions={
                         isTeamTokenResetAvailable ? (
-                            <LemonButton
-                                icon={<IconRefresh />}
-                                noPadding
-                                onClick={openDialog}
-                                tooltip="Reset API key"
-                            />
+                            <LemonButton icon={<IconRefresh />} noPadding onClick={openDialog} tooltip="Reset token" />
                         ) : undefined
                     }
                 >
@@ -238,7 +239,7 @@ export function TeamAuthorizedURLs(): JSX.Element {
     const canEdit =
         inStorybook() || inStorybookTestRunner()
             ? true
-            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
+            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Manager)
 
     return (
         <AuthorizedUrlList
@@ -246,6 +247,7 @@ export function TeamAuthorizedURLs(): JSX.Element {
             allowWildCards={false}
             allowAdd={canEdit}
             allowDelete={canEdit}
+            displaySuggestions={canEdit}
         />
     )
 }

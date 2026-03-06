@@ -1,6 +1,6 @@
 import classNames from 'classnames'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
@@ -40,8 +40,8 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -53,22 +53,29 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
-import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
-import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
-import { LLMInputOutput } from './LLMInputOutput'
-import { SearchHighlight } from './SearchHighlight'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
+import { SentimentBar } from './components/SentimentTag'
+import {
+    ConversationDisplayOption,
+    ConversationMessagesDisplay,
+} from './ConversationDisplay/ConversationMessagesDisplay'
+import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
+import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
-import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
+import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
+import { SearchHighlight } from './SearchHighlight'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -83,20 +90,24 @@ import {
     getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
+    normalizeMessages,
     removeMilliseconds,
+    sanitizeTraceUrlSearchParams,
 } from './utils'
 
 function TraceNavigation(): JSX.Element {
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
     const { viewMode, newerTraceId, newerTimestamp, olderTraceId, olderTimestamp, neighborsLoading } =
-        useValues(llmAnalyticsTraceLogic)
+        useValues(traceLogic)
     const { searchParams } = useValues(router)
+    const baseSearchParams = sanitizeTraceUrlSearchParams(searchParams)
 
     // Navigate to newer (more recent) or older traces
     const goToNewer = (): void => {
         if (newerTraceId) {
             router.actions.push(
                 combineUrl(urls.llmAnalyticsTrace(newerTraceId), {
-                    ...searchParams,
+                    ...baseSearchParams,
                     timestamp: newerTimestamp ?? undefined,
                     tab: viewMode,
                 }).url
@@ -108,7 +119,7 @@ function TraceNavigation(): JSX.Element {
         if (olderTraceId) {
             router.actions.push(
                 combineUrl(urls.llmAnalyticsTrace(olderTraceId), {
-                    ...searchParams,
+                    ...baseSearchParams,
                     timestamp: olderTimestamp ?? undefined,
                     tab: viewMode,
                 }).url
@@ -153,18 +164,29 @@ export const scene: SceneExport = {
     logic: llmAnalyticsTraceLogic,
 }
 
-export function LLMAnalyticsTraceScene(): JSX.Element {
-    const { traceId, query } = useValues(llmAnalyticsTraceLogic)
+export function LLMAnalyticsTraceScene({ tabId }: { tabId?: string }): JSX.Element {
+    const traceLogic = llmAnalyticsTraceLogic({ tabId })
+    const { traceId, query, searchQuery } = useValues(traceLogic)
+    const logicProps = { traceId, query, cachedResults: null, searchQuery, tabId }
+    const traceDataLogic = llmAnalyticsTraceDataLogic(logicProps)
+
+    useAttachedLogic(traceDataLogic, traceLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
-            <TraceSceneWrapper />
+        <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
+            <BindLogic logic={llmAnalyticsTraceLogic} props={{ tabId }}>
+                <BindLogic logic={llmAnalyticsTraceDataLogic} props={logicProps}>
+                    <TraceSceneWrapper />
+                </BindLogic>
+            </BindLogic>
         </BindLogic>
     )
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
+    const { searchQuery, commentCount } = useValues(traceLogic)
     const { searchParams } = useValues(router)
     const {
         enrichedTree,
@@ -176,7 +198,7 @@ function TraceSceneWrapper(): JSX.Element {
         metricEvents,
         eventMetadata,
         effectiveEventId,
-    } = useValues(llmAnalyticsTraceDataLogic)
+    } = useValues(traceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -197,7 +219,7 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative flex flex-col gap-3">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-4">
                         <SceneTitleSection
                             name={trace.id}
                             resourceType={{ type: 'llm_analytics' }}
@@ -314,15 +336,18 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
-    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+    const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
+    const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+
+    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+    const sentimentResult = showSentiment ? getTraceSentiment(trace.id) : undefined
+    const sentimentLoading = showSentiment ? isTraceLoading(trace.id) : false
+    if (showSentiment && sentimentResult === undefined && !sentimentLoading) {
+        ensureSentimentLoaded(trace.id)
+    }
 
     const cached = personsCache[trace.distinctId]
-    const loading = isDistinctIdLoading(trace.distinctId)
-
-    if (cached === undefined && !loading) {
-        ensurePersonLoaded(trace.distinctId)
-    }
 
     const personData = cached
         ? { distinct_id: cached.distinct_id, properties: cached.properties }
@@ -405,6 +430,15 @@ function TraceMetadata({
             {feedbackEvents.map((feedback) => (
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
+            {sentimentResult && !sentimentLoading && (
+                <Chip title="Sentiment">
+                    <SentimentBar
+                        label={sentimentResult.label ?? 'neutral'}
+                        score={sentimentResult.score ?? 0}
+                        messages={sentimentResult.messages}
+                    />
+                </Chip>
+            )}
         </header>
     )
 }
@@ -420,10 +454,12 @@ function TraceSidebar({
     tree: EnrichedTraceTreeNode[]
     showBillingInfo?: boolean
 }): JSX.Element {
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
     const ref = useRef<HTMLDivElement | null>(null)
-    const { mostRelevantEvent, searchOccurrences } = useValues(llmAnalyticsTraceDataLogic)
-    const { searchQuery } = useValues(llmAnalyticsTraceLogic)
-    const { setSearchQuery, setEventId } = useActions(llmAnalyticsTraceLogic)
+    const { mostRelevantEvent, searchOccurrences } = useValues(traceDataLogic)
+    const { searchQuery } = useValues(traceLogic)
+    const { setSearchQuery, setEventId } = useActions(traceLogic)
 
     const [searchValue, setSearchValue] = useState(searchQuery)
 
@@ -559,8 +595,12 @@ const TreeNode = React.memo(function TraceNode({
     const usage = node.displayUsage
     const item = node.event
 
-    const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const { eventTypeExpanded } = useValues(traceLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { getGenerationSentiment, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
+    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
     const isBillable =
@@ -568,6 +608,13 @@ const TreeNode = React.memo(function TraceNode({
         isLLMEvent(item) &&
         (item as LLMTraceEvent).event === '$ai_generation' &&
         !!(item as LLMTraceEvent).properties?.$ai_billable
+
+    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+    const isGeneration = isLLMEvent(item) && (item as LLMTraceEvent).event === '$ai_generation'
+    const genSentiment = showSentiment && isGeneration ? getGenerationSentiment(item.id) : undefined
+    if (showSentiment && isGeneration && genSentiment === undefined && !isGenerationLoading(item.id)) {
+        ensureGenerationSentimentLoaded(item.id)
+    }
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (
@@ -614,6 +661,13 @@ const TreeNode = React.memo(function TraceNode({
                         <span title="Billable" aria-label="Billable" className="text-base">
                             💰
                         </span>
+                    )}
+                    {genSentiment && (
+                        <SentimentBar
+                            label={genSentiment.label}
+                            score={genSentiment.score}
+                            messages={genSentiment.messages}
+                        />
                     )}
                     {!isCollapsedDueToFilter && (
                         <Tooltip title={formatLLMEventTitle(item)}>
@@ -712,18 +766,33 @@ function TreeNodeChildren({
 function EventContentDisplay({
     input,
     output,
-    raisedError,
+    searchQuery,
+    displayOption,
 }: {
     input: unknown
     output: unknown
-    raisedError?: boolean
+    searchQuery?: string
+    displayOption?: ConversationDisplayOption
 }): JSX.Element {
-    const { searchQuery } = useValues(llmAnalyticsTraceLogic)
     if (!input && !output) {
-        // If we have no data here we should not render anything
-        // In future plan to point docs to show how to add custom trace events
         return <></>
     }
+
+    const inputMessages = normalizeMessages(input, 'user')
+    const outputMessages = normalizeMessages(output, 'assistant')
+
+    if (inputMessages.length > 0 || outputMessages.length > 0) {
+        return (
+            <ConversationMessagesDisplay
+                inputNormalized={inputMessages}
+                outputNormalized={outputMessages}
+                errorData={undefined}
+                searchQuery={searchQuery}
+                displayOption={displayOption}
+            />
+        )
+    }
+
     return (
         <LLMInputOutput
             inputDisplay={
@@ -736,14 +805,7 @@ function EventContentDisplay({
                 </div>
             }
             outputDisplay={
-                <div
-                    className={cn(
-                        'p-2 text-xs border rounded',
-                        !raisedError
-                            ? 'bg-[var(--color-bg-fill-success-tertiary)]'
-                            : 'bg-[var(--color-bg-fill-error-tertiary)]'
-                    )}
-                >
+                <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-success-tertiary)]">
                     {isObject(output) ? (
                         <HighlightedJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
                     ) : (
@@ -786,10 +848,11 @@ const EventContent = React.memo(
         eventMetadata?: Record<string, unknown>
         showBillingInfo?: boolean
     }): JSX.Element => {
-        const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
+        const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+        const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const { displayOption, lineNumber, initialTab, viewMode } = useValues(llmAnalyticsTraceLogic)
-        const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(llmAnalyticsTraceLogic)
+        const { displayOption, lineNumber, initialTab, viewMode } = useValues(traceLogic)
+        const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -801,6 +864,7 @@ const EventContent = React.memo(
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
         const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
+        const promptVersion = event && isLLMEvent(event) ? event.properties['$ai_prompt_version'] : null
         const showPromptButton = !!promptName
 
         const showPlaygroundButton = isGenerationEvent
@@ -839,9 +903,10 @@ const EventContent = React.memo(
             }
 
             const model = event.properties.$ai_model
+            const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            setupPlaygroundFromEvent({ model, input: loadedInput, tools })
+            setupPlaygroundFromEvent({ model, provider, input: loadedInput, tools })
         }
 
         return (
@@ -919,7 +984,14 @@ const EventContent = React.memo(
                                             type="secondary"
                                             size="xsmall"
                                             icon={<IconAIText />}
-                                            to={urls.llmAnalyticsPrompt(promptName)}
+                                            to={
+                                                promptVersion
+                                                    ? combineUrl(
+                                                          urls.llmAnalyticsPrompt(promptName),
+                                                          promptVersion ? { version: String(promptVersion) } : {}
+                                                      ).url
+                                                    : urls.llmAnalyticsPrompt(promptName)
+                                            }
                                             tooltip="View the prompt used for this generation"
                                             data-attr="view-prompt-trace"
                                         >
@@ -1013,6 +1085,7 @@ const EventContent = React.memo(
                                                         event.event === '$ai_generation' ? (
                                                             <EventContentGeneration
                                                                 eventId={event.id}
+                                                                traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput={
                                                                     event.properties.$ai_output_choices ??
@@ -1023,6 +1096,7 @@ const EventContent = React.memo(
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
                                                             <EventContentDisplayAsync
@@ -1047,6 +1121,8 @@ const EventContent = React.memo(
                                                             <EventContentDisplay
                                                                 input={event.inputState}
                                                                 output={event.outputState}
+                                                                searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         </>
                                                     )}
@@ -1069,14 +1145,7 @@ const EventContent = React.memo(
                                     ? [
                                           {
                                               key: TraceViewMode.Summary,
-                                              label: (
-                                                  <>
-                                                      Summary{' '}
-                                                      <LemonTag className="ml-1" type="completion">
-                                                          Beta
-                                                      </LemonTag>
-                                                  </>
-                                              ),
+                                              label: 'Summary',
                                               'data-attr': 'llma-trace-summary-tab',
                                               content: (
                                                   <SummaryViewDisplay
@@ -1175,9 +1244,11 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
 }
 
 function EventTypeFilters(): JSX.Element {
-    const { availableEventTypes } = useValues(llmAnalyticsTraceDataLogic)
-    const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
-    const { toggleEventTypeExpanded } = useActions(llmAnalyticsTraceLogic)
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
+    const { availableEventTypes } = useValues(traceDataLogic)
+    const { eventTypeExpanded } = useValues(traceLogic)
+    const { toggleEventTypeExpanded } = useActions(traceLogic)
 
     if (availableEventTypes.length === 0) {
         return <></>
@@ -1221,8 +1292,9 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
 }
 
 function DisplayOptionsSelect(): JSX.Element {
-    const { displayOption } = useValues(llmAnalyticsTraceLogic)
-    const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const { displayOption } = useValues(traceLogic)
+    const { setDisplayOption } = useActions(traceLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const displayOptions = [
@@ -1263,7 +1335,8 @@ function DisplayOptionsSelect(): JSX.Element {
 }
 
 function TraceMetricsTable(): JSX.Element | null {
-    const { metricsAndFeedbackEvents } = useValues(llmAnalyticsTraceDataLogic)
+    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
+    const { metricsAndFeedbackEvents } = useValues(traceDataLogic)
 
     if (!metricsAndFeedbackEvents?.length) {
         return null

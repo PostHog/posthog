@@ -15,10 +15,12 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.mcp_store.backend.api as mcp_store
 import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -46,6 +48,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingStackFrameViewSet,
     ErrorTrackingSuppressionRuleViewSet,
     ErrorTrackingSymbolSetViewSet,
@@ -53,12 +56,14 @@ from products.error_tracking.backend.api import (
 )
 from products.llm_analytics.backend.api import (
     ClusteringConfigViewSet,
+    ClusteringJobViewSet,
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
+    LLMAnalyticsSentimentViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
@@ -143,7 +148,7 @@ from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
-from .oauth import OAuthApplicationPublicMetadataViewSet
+from .oauth import OAuthApplicationPublicMetadataViewSet, OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
 from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
@@ -270,8 +275,14 @@ project_features_router = projects_router.register(
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
 
+# PostHog Code invites (not project-scoped)
+router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
+
 # Signal reports endpoints
 projects_router.register(r"signal_reports", signals.SignalReportViewSet, "project_signal_reports", ["team_id"])
+projects_router.register(
+    r"signal_source_configs", signals.SignalSourceConfigViewSet, "project_signal_source_configs", ["team_id"]
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -557,6 +568,12 @@ organizations_router.register(
     r"integrations",
     organization_integration.OrganizationIntegrationViewSet,
     "organization_integrations",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"oauth_applications",
+    OrganizationOAuthApplicationViewSet,
+    "organization_oauth_applications",
     ["organization_id"],
 )
 organizations_router.register(
@@ -910,6 +927,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/spike_detection_config",
+    ErrorTrackingSpikeDetectionConfigViewSet,
+    "environment_error_tracking_spike_detection_config",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
     "environment_error_tracking_git_provider_file_links",
@@ -1117,6 +1141,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"marketing_analytics",
+    marketing_analytics.MarketingAnalyticsViewSet,
+    "environment_marketing_analytics",
+    ["team_id"],
+)
+
+environments_router.register(
     r"revenue_analytics/taxonomy",
     revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
     "environment_revenue_analytics_taxonomy",
@@ -1229,6 +1260,20 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"llm_analytics/clustering_jobs",
+    ClusteringJobViewSet,
+    "environment_llm_analytics_clustering_jobs",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/sentiment",
+    LLMAnalyticsSentimentViewSet,
+    "environment_llm_analytics_sentiment",
+    ["team_id"],
+)
+
+environments_router.register(
     r"change_requests",
     approval_api.ChangeRequestViewSet,
     "environment_change_requests",
@@ -1253,5 +1298,19 @@ environments_router.register(
     r"mcp_tools",
     MCPToolsViewSet,
     "environment_mcp_tools",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"mcp_servers",
+    mcp_store.MCPServerViewSet,
+    "environment_mcp_servers",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"mcp_server_installations",
+    mcp_store.MCPServerInstallationViewSet,
+    "environment_mcp_server_installations",
     ["team_id"],
 )

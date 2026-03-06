@@ -7,8 +7,8 @@ import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
-import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -17,8 +17,8 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
@@ -60,6 +60,8 @@ export function EditSubscription({
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { previewLoading, previewError, previewImageUrl } = useValues(logic)
+    const { generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations } = useValues(integrationsLogic)
@@ -85,7 +87,7 @@ export function EditSubscription({
             props={logicProps}
             formKey="subscription"
             enableFormOnSubmit
-            className="LemonModal__layout"
+            className="flex flex-1 flex-col min-h-0"
         >
             <LemonModal.Header>
                 <div className="flex items-center gap-2">
@@ -95,7 +97,7 @@ export function EditSubscription({
                 </div>
             </LemonModal.Header>
 
-            <LemonModal.Content className="deprecated-space-y-2">
+            <LemonModal.Content className="deprecated-space-y-2 flex-1 min-h-0">
                 {!subscription ? (
                     subscriptionLoading ? (
                         <div className="deprecated-space-y-4">
@@ -335,6 +337,39 @@ export function EditSubscription({
                                 </LemonField>
                             </div>
                         </div>
+
+                        {insightShortId && (
+                            <div>
+                                <LemonLabel className="mb-2">Preview</LemonLabel>
+                                <div className="border rounded p-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={generatePreview}
+                                        loading={previewLoading}
+                                        disabled={previewLoading}
+                                        size="small"
+                                    >
+                                        Generate preview
+                                    </LemonButton>
+
+                                    {previewError && (
+                                        <LemonBanner type="error" className="mt-2">
+                                            {previewError}
+                                        </LemonBanner>
+                                    )}
+
+                                    {previewImageUrl && (
+                                        <div className="mt-2 border rounded">
+                                            <img
+                                                src={previewImageUrl}
+                                                alt="Subscription export preview"
+                                                className="w-full"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </>
                 )}
             </LemonModal.Content>

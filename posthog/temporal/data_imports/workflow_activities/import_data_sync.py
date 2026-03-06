@@ -14,7 +14,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
@@ -27,7 +27,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.base import ResumableSource
+from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSource
@@ -160,9 +160,13 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
                     config, resumable_source_manager, source_inputs
                 )
-            else:
+            elif isinstance(new_source, SimpleSource):
                 source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
                     config, source_inputs
+                )
+            else:
+                raise TypeError(
+                    f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
                 )
 
             return await _run(
@@ -195,7 +199,7 @@ async def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) ->
                 "organization": {"id": str(team.organization_id)},
                 "project": {"id": str(team.id)},
             },
-            only_evaluate_locally=True,
+            only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
         if enabled:

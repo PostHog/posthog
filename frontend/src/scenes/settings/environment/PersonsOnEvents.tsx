@@ -4,6 +4,8 @@ import { useState } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -57,6 +59,11 @@ export function PersonsOnEvents(): JSX.Element {
     const savedPoEMode: PoEMode =
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
     const [poeMode, setPoeMode] = useState<PoEMode>(savedPoEMode)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    const poeOptions = POE_OPTIONS.map((o) => ({ ...o, disabledReason: restrictedReason ?? undefined }))
 
     const handleChange = (mode: PoEMode): void => {
         updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, personsOnEventsMode: mode } })
@@ -66,12 +73,12 @@ export function PersonsOnEvents(): JSX.Element {
 
     return (
         <>
-            <LemonRadio value={poeMode} onChange={setPoeMode} options={POE_OPTIONS} />
+            <LemonRadio value={poeMode} onChange={setPoeMode} options={poeOptions} />
             <div className="mt-4">
                 <LemonButton
                     type="primary"
                     onClick={() => handleChange(poeMode)}
-                    disabledReason={poeMode === savedPoEMode ? 'No changes to save' : undefined}
+                    disabledReason={poeMode === savedPoEMode ? 'No changes to save' : restrictedReason}
                 >
                     Save
                 </LemonButton>

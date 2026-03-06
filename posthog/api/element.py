@@ -9,7 +9,6 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.models.element.element import chain_to_elements
@@ -49,12 +48,12 @@ class ElementStatsSerializer(serializers.Serializer):
 
 @extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "element"
+    scope_object_read_actions = ["list", "retrieve", "stats", "values"]
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:

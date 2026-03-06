@@ -30,7 +30,10 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             }),
             ['batchExportConfig'],
         ],
-        actions: [batchExportBackfillModalLogic(props), ['submitBackfillFormSuccess', 'openBackfillModal']],
+        actions: [
+            batchExportBackfillModalLogic(props),
+            ['submitBackfillFormSuccess', 'openBackfillModal', 'backfillCreated'],
+        ],
     })),
     actions({
         loadBackfills: true,
@@ -116,6 +119,50 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             setTimeout(() => {
                 actions.loadBackfills()
             }, 1000)
+        },
+        backfillCreated: async ({ backfillId }, breakpoint) => {
+            const MAX_POLL_ATTEMPTS = 10
+            const POLL_INTERVAL_MS = 1000
+
+            for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
+                await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+                // Abort if the logic was unmounted or a newer backfillCreated action fired
+                breakpoint()
+
+                try {
+                    const backfill = await api.batchExports.getBackfill(props.id, backfillId)
+
+                    if (backfill?.total_records_count != null) {
+                        if (backfill.total_records_count === 0) {
+                            lemonToast.warning(
+                                'No rows found to export for the selected time range. The backfill will finish with nothing to export.'
+                            )
+                        } else {
+                            lemonToast.info(
+                                `Estimated ~${backfill.total_records_count.toLocaleString()} rows to export`,
+                                {
+                                    button: {
+                                        label: 'Cancel backfill',
+                                        action: async () => {
+                                            try {
+                                                await api.batchExports.cancelBackfill(props.id, backfill.id)
+                                                lemonToast.success('Backfill cancelled')
+                                                actions.loadBackfills()
+                                            } catch {
+                                                lemonToast.error('Failed to cancel backfill')
+                                            }
+                                        },
+                                    },
+                                }
+                            )
+                        }
+                        actions.loadBackfills()
+                        return
+                    }
+                } catch (e) {
+                    console.warn('Failed to poll for backfill estimate', e)
+                }
+            }
         },
     })),
     afterMount(({ actions }) => {

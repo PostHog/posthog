@@ -15,6 +15,7 @@ import {
     IntervalType,
     PropertyOperator,
     PropertyType,
+    SessionActorType,
     TimeUnitType,
 } from '~/types'
 
@@ -687,12 +688,18 @@ export function clearDOMTextSelection(): void {
     }
 }
 
-export function slugify(text: string): string {
-    return text
-        .toString() // Cast to string
-        .toLowerCase() // Convert the string to lowercase letters
+// trimBothEnds=false is useful when the input is slugified as the user is typing to allow them hitting space and continue typing
+export function slugify(
+    text: string,
+    { trimBothEnds = true, lowercase = true }: { trimBothEnds?: boolean; lowercase?: boolean } = {}
+): string {
+    let result = text.toString()
+    if (lowercase) {
+        result = result.toLowerCase()
+    }
+    return result
         .normalize('NFD') // The normalize() method returns the Unicode Normalization Form of a given string.
-        .trim() // Remove whitespace from both sides of a string
+        [trimBothEnds ? 'trim' : 'trimStart']()
         .replace(/\s+/g, '-') // Replace spaces with -
         .replace(/[^\w-]+/g, '') // Remove all non-word chars
         .replace(/--+/g, '-')
@@ -1133,10 +1140,10 @@ export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs):
             fromComponents = fromComponents.filter((x) => x !== YEAR)
         }
 
-        if (dateFrom.date() === dateTo.date()) {
+        if (dateFrom.isSame(dateTo, 'day')) {
             toComponents = toComponents.filter((x) => x !== MONTHDAY)
             toComponents = toComponents.filter((x) => x !== COMMA)
-            if (dateTo.date() === dayjs().date()) {
+            if (dateFrom.isSame(dayjs(), 'day')) {
                 fromComponents = fromComponents.filter((x) => x !== MONTHDAY)
                 fromComponents = fromComponents.filter((x) => x !== COMMA)
             }
@@ -2150,6 +2157,10 @@ export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: n
 
 export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
+}
+
+export function isSessionType(actor: ActorType): actor is SessionActorType {
+    return actor.type === 'session'
 }
 
 export function getEventNamesForAction(actionId: string | number, allActions: ActionType[]): string[] {

@@ -1,4 +1,3 @@
-import json
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -6,7 +5,6 @@ from django.contrib.auth.models import AbstractUser
 from django.http import HttpResponse
 from django.shortcuts import redirect
 
-import requests
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -22,6 +20,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
+from posthog.security.outbound_proxy import external_requests
 from posthog.utils import relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
@@ -376,7 +375,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         license = License(key=serializer.validated_data["license"])
-        res = requests.get(
+        res = external_requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=BillingManager(license).get_auth_headers(organization),
         )
@@ -510,7 +509,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
             params_to_pass["organization_id"] = organization.id
-            params_to_pass["teams_map"] = json.dumps(teams_map)
+            params_to_pass["teams_map"] = teams_map
             res = billing_manager.get_usage_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
@@ -548,7 +547,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
             params_to_pass["organization_id"] = organization.id
-            params_to_pass["teams_map"] = json.dumps(teams_map)
+            params_to_pass["teams_map"] = teams_map
             res = billing_manager.get_spend_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:

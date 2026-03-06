@@ -40,10 +40,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -95,10 +95,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -150,10 +150,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -205,10 +205,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -260,10 +260,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -315,10 +315,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -370,10 +370,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -425,10 +425,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -480,10 +480,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -528,10 +528,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -593,10 +593,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -648,10 +648,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -703,10 +703,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -758,10 +758,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -813,10 +813,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -868,10 +868,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -926,10 +926,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -981,10 +981,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -1049,10 +1049,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -1104,10 +1104,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -1167,10 +1167,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -1222,10 +1222,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -1277,10 +1277,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -1332,10 +1332,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -1403,10 +1403,10 @@
          sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,
@@ -1501,10 +1501,10 @@
          sum(multiply(entity_metrics.numerator_value, entity_metrics.denominator_value)) AS numerator_denominator_sum_product
   FROM entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
                      max_execution_time=600,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=39728447488,

@@ -10,6 +10,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -17,28 +18,29 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
+import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
+import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
-import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
-import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
-import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
-import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { SurveyViewRedesign } from 'scenes/surveys/SurveyViewRedesign'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { QueryContextColumn } from '~/queries/types'
 import {
@@ -55,7 +57,6 @@ import {
 } from '~/types'
 
 import { SurveyHeadline } from './SurveyHeadline'
-import { SurveysDisabledBanner } from './SurveySettings'
 import { getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
@@ -79,10 +80,19 @@ export const getThumbIcon = (value: unknown): JSX.Element | null => {
 }
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
+    const isRedesignEnabled = useFeatureFlag('SURVEYS_REDESIGNED_VIEW')
+
+    if (isRedesignEnabled) {
+        return <SurveyViewRedesign />
+    }
+
+    return <SurveyViewLegacy id={id} />
+}
+
+function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
-    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
@@ -95,7 +105,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         type: 'survey',
         ref: surveyId,
         enabled: Boolean(surveyId && !surveyLoading),
-        deps: [surveyId, surveyLoading],
     })
 
     useEffect(() => {
@@ -171,7 +180,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         )}
                     </ScenePanel>
 
-                    <SurveysDisabledBanner />
                     <SceneTitleSection
                         name={survey.name}
                         description={survey.description}
@@ -199,15 +207,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         data-attr="edit-survey"
                                         onClick={
-                                            guidedEditorEnabled && survey.type === SurveyType.Popover
-                                                ? undefined
-                                                : () => editingSurvey(true)
+                                            survey.type === SurveyType.Popover ? undefined : () => editingSurvey(true)
                                         }
-                                        to={
-                                            guidedEditorEnabled && survey.type === SurveyType.Popover
-                                                ? urls.surveyWizard(id)
-                                                : undefined
-                                        }
+                                        to={survey.type === SurveyType.Popover ? urls.surveyWizard(id) : undefined}
                                         type="secondary"
                                         size="small"
                                     >
@@ -393,7 +395,12 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         processedSurveyStats,
         archivedResponseUuids,
         isSurveyHeadlineEnabled,
+        hasActiveFilters,
+        hasActiveAnswerFilters,
+        hasActiveDateRange,
+        propertyFilters,
     } = useValues(surveyLogic)
+    const { clearFilters } = useActions(surveyLogic)
 
     /**
      * custom column renderer that does:
@@ -486,9 +493,10 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                                 return {}
                                             }
                                             return {
-                                                className: archivedResponseUuids.has(result[0].uuid)
-                                                    ? 'opacity-50'
-                                                    : undefined,
+                                                className:
+                                                    result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
+                                                        ? 'opacity-50'
+                                                        : undefined,
                                             }
                                         },
                                     }}
@@ -497,7 +505,16 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                         ))}
                 </>
             ) : (
-                <SurveyNoResponsesBanner type="survey" />
+                <SurveyNoResponsesBanner
+                    type="survey"
+                    isFiltered={hasActiveFilters}
+                    onClearFilters={hasActiveFilters ? clearFilters : undefined}
+                    activeFilterTypes={{
+                        dateRange: hasActiveDateRange,
+                        answerFilters: hasActiveAnswerFilters,
+                        propertyFilters: propertyFilters.length > 0,
+                    }}
+                />
             )}
         </div>
     )

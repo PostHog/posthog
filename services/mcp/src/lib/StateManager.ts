@@ -40,14 +40,18 @@ export class StateManager {
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
 
         if (!introspectionResult.success) {
-            throw new Error(`Failed to get API key: ${introspectionResult.error.message}`)
+            throw new Error(ErrorCode.INVALID_API_KEY)
         }
 
         if (!introspectionResult.data.active) {
             throw new Error(ErrorCode.INACTIVE_OAUTH_TOKEN)
         }
 
-        const { scope, scoped_teams, scoped_organizations } = introspectionResult.data
+        const { scope, scoped_teams, scoped_organizations, client_name } = introspectionResult.data
+
+        if (client_name) {
+            await this._cache.set('clientName', client_name)
+        }
 
         return {
             scopes: scope ? scope.split(' ') : [],

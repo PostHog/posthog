@@ -1,3 +1,5 @@
+import { getUserAgent } from '@/lib/constants'
+
 import type { ApiConfig } from './client'
 import type { createApiClient } from './generated'
 import { globalRateLimiter } from './rate-limiter'
@@ -16,6 +18,12 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
 
                 const headers = new Headers()
                 headers.set('Authorization', `Bearer ${config.apiToken}`)
+                headers.set('User-Agent', getUserAgent(config.clientUserAgent))
+                if (config.clientUserAgent) {
+                    // Forward the originating client's User-Agent so the PostHog API can
+                    // attach it to analytics events for MCP source attribution.
+                    headers.set('x-posthog-mcp-user-agent', config.clientUserAgent)
+                }
 
                 // Handle query parameters
                 if (input.urlSearchParams) {

@@ -1,31 +1,43 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
-import { EventHeaders, PipelineEvent, Team } from '../../types'
-import { normalizeEventStep } from '../../worker/ingestion/event-pipeline/normalizeEventStep'
+import { EventHeaders } from '../../types'
+import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
+import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-export function createNormalizeEventStep<
-    TInput extends { event: PluginEvent; headers: EventHeaders; team: Team; processPerson: boolean },
->(
-    timestampComparisonLoggingSampleRate: number
-): ProcessingStep<TInput, TInput & { normalizedEvent: PipelineEvent; timestamp: DateTime }> {
-    return async function normalizeEventStepWrapper(
-        input: TInput
-    ): Promise<PipelineResult<TInput & { normalizedEvent: PipelineEvent; timestamp: DateTime }>> {
-        const [normalizedEvent, timestamp] = await normalizeEventStep(
-            input.event,
-            input.processPerson,
-            input.headers,
-            timestampComparisonLoggingSampleRate
-        )
+type NormalizeEventInput = {
+    event: PluginEvent
+    headers: EventHeaders
+    processPerson: boolean
+}
 
-        return ok({
-            ...input,
-            normalizedEvent,
-            timestamp,
-        })
+type NormalizeEventOutput = {
+    normalizedEvent: PluginEvent
+    timestamp: DateTime
+}
+
+export function createNormalizeEventStep<TInput extends NormalizeEventInput>(): ProcessingStep<
+    TInput,
+    Omit<TInput, 'event'> & NormalizeEventOutput
+> {
+    return function normalizeEventStepWrapper(
+        input: TInput
+    ): Promise<PipelineResult<Omit<TInput, 'event'> & NormalizeEventOutput>> {
+        const { event, ...restInput } = input
+        const normalizedEvent = normalizeEvent(event)
+        normalizeProcessPerson(normalizedEvent, input.processPerson)
+
+        const timestamp = parseEventTimestamp(normalizedEvent)
+
+        return Promise.resolve(
+            ok({
+                ...restInput,
+                normalizedEvent,
+                timestamp,
+            })
+        )
     }
 }

@@ -2,8 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { actionToUrl } from 'kea-router'
 
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
-import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -37,6 +37,7 @@ import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
+    findSchemaByFieldName,
     generateUniqueName,
     validColumnsForTiles,
 } from './utils'
@@ -62,7 +63,7 @@ function getSourceStatus(
             ] || []
         const schemaStatuses = requiredFields
             .map((fieldName) => {
-                const schema = nativeSource.schemas?.find((schema) => schema.name === fieldName)
+                const schema = findSchemaByFieldName(nativeSource.schemas, fieldName, nativeSource.source_type)
                 return schema?.status
             })
             .filter(Boolean)
@@ -199,7 +200,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
+        setDateInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
             dateFrom,
             dateTo,
@@ -295,7 +296,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         interval: getDefaultInterval(dateFrom, dateTo),
                     }
                 },
-                setInterval: (state, { interval }) => {
+                setDateInterval: (state, { interval }) => {
                     const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
                     return {
                         dateFrom,
@@ -475,7 +476,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource] || []
 
                     const syncingSchemas = requiredFields.filter((fieldName) => {
-                        const schema = source.schemas?.find((s) => s.name === fieldName)
+                        const schema = findSchemaByFieldName(source.schemas, fieldName, source.source_type)
                         return schema?.should_sync ?? false
                     })
 
@@ -722,7 +723,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
         return {
             setDates: buildUrl,
-            setInterval: buildUrl,
+            setDateInterval: buildUrl,
             setDatesAndInterval: buildUrl,
             setCompareFilter: buildUrl,
             setIntegrationFilter: buildUrl,
@@ -748,7 +749,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         return {
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
-            setInterval: trackDashboardInteraction,
+            setDateInterval: trackDashboardInteraction,
             setCompareFilter: trackDashboardInteraction,
             setIntegrationFilter: trackDashboardInteraction,
             setChartDisplayType: trackDashboardInteraction,

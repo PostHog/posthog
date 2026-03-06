@@ -4,11 +4,9 @@ use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
     issue_resolution::Issue,
     metric_consts::SPIKE_ALERT_STAGE,
-    pipeline::exception::spike_detection::do_spike_detection,
-    stages::pipeline::ExceptionEventPipelineItem,
+    stages::{alerting::spike_detection::do_spike_detection, pipeline::ExceptionEventPipelineItem},
     types::{
         batch::Batch,
         stage::{Stage, StageResult},
@@ -31,7 +29,6 @@ impl SpikeAlertStage {
 impl Stage for SpikeAlertStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         SPIKE_ALERT_STAGE
@@ -65,7 +62,7 @@ impl Stage for SpikeAlertStage {
             .map(|issue| (issue.id, issue))
             .collect::<HashMap<_, _>>();
 
-        do_spike_detection(self.context, issues_by_id, issues_count_by_id).await;
+        do_spike_detection(self.context, issues_by_id, issues_count_by_id).await?;
 
         Ok(batch)
     }

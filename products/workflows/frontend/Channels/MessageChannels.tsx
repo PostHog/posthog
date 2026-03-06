@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'

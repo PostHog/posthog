@@ -44,7 +44,9 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     time,
     title,
     displayTimezone,
-}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & { time: dayjs.Dayjs }): JSX.Element {
+}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & {
+    time: dayjs.Dayjs
+}): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
@@ -203,7 +205,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             : displayTime.fromNow()
     }, [formatDate, formatTime, displayTime, timestampStyle, displayTimezone])
 
-    const [formattedContent, setFormattedContent] = useState(format())
+    const [formattedContent, setFormattedContent] = useState(format)
 
     const { isVisible: isPageVisible } = usePageVisibility()
 

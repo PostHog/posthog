@@ -66,9 +66,11 @@ rules:
                               |BatchImport
                               |ChangeRequest
                               |ClusteringConfig
+                              |ClusteringJob
                               |Cohort
                               |Comment
                               |Conversation
+                              |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
@@ -98,6 +100,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
+                              |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingStackFrame
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
@@ -111,6 +114,7 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSource
                               |FeatureFlag
+                              |TeamFeatureFlagDefaultsConfig
                               |FileSystem
                               |HealthIssue
                               |HogFlow
@@ -140,6 +144,7 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |RepoRoutingRule
                               |SandboxEnvironment
                               |SavedHeatmap
                               |ScheduledChange
@@ -149,7 +154,9 @@ rules:
                               |SharingConfiguration
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalSourceConfig
                               |SingleSessionSummary
+                              |SlackThreadTaskMapping
                               |Subscription
                               |Survey
                               |SurveyResponseArchive
@@ -161,6 +168,7 @@ rules:
                               |Ticket
                               |UploadedMedia
                               |UserInterview
+                              |UserRepoPreference
                               |WebAnalyticsFilterPreset
                           )$
                 - focus-metavariable: $SINK
@@ -225,9 +233,11 @@ rules:
                         |BatchImport
                         |ChangeRequest
                         |ClusteringConfig
+                        |ClusteringJob
                         |Cohort
                         |Comment
                         |Conversation
+                        |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
@@ -257,6 +267,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
+                        |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
@@ -270,6 +281,7 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSource
                         |FeatureFlag
+                        |TeamFeatureFlagDefaultsConfig
                         |FileSystem
                         |HealthIssue
                         |HogFlow
@@ -299,6 +311,7 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |RepoRoutingRule
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScheduledChange
@@ -308,7 +321,9 @@ rules:
                         |SharingConfiguration
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalSourceConfig
                         |SingleSessionSummary
+                        |SlackThreadTaskMapping
                         |Subscription
                         |Survey
                         |SurveyResponseArchive
@@ -320,6 +335,7 @@ rules:
                         |Ticket
                         |UploadedMedia
                         |UserInterview
+                        |UserRepoPreference
                         |WebAnalyticsFilterPreset
                     )$
           # Exclude when team filter is present
@@ -695,6 +711,7 @@ rules:
                               |FileSystemViewLog
                               |InsightViewed
                               |KernelRuntime
+                              |MCPServerInstallation
                               |PersistedFolder
                               |SessionRecordingViewed
                               |UserHomeSettings

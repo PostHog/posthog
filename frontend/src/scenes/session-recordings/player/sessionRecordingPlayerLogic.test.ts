@@ -17,6 +17,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { RecordingSegment } from '~/types'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
@@ -25,7 +26,7 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents } from './sessionRecordingPlayerLogic'
+import { findNewEvents, findSegmentForTimestamp } from './sessionRecordingPlayerLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 jest.mock('./snapshot-processing/DecompressionWorkerManager')
@@ -85,6 +86,97 @@ describe('findNewEvents', () => {
     })
 })
 
+describe('findSegmentForTimestamp', () => {
+    const makeSegment = (
+        overrides: Partial<RecordingSegment> & Pick<RecordingSegment, 'startTimestamp' | 'endTimestamp'>
+    ): RecordingSegment => ({
+        kind: 'window',
+        isActive: true,
+        durationMs: overrides.endTimestamp - overrides.startTimestamp,
+        windowId: 1,
+        ...overrides,
+    })
+
+    const segments: RecordingSegment[] = [
+        makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: 1 }),
+        makeSegment({ kind: 'gap', startTimestamp: 2000, endTimestamp: 3000, windowId: 1, isActive: false }),
+        makeSegment({ startTimestamp: 3000, endTimestamp: 5000, windowId: 2 }),
+    ]
+
+    it('returns null for undefined timestamp', () => {
+        expect(findSegmentForTimestamp(segments, undefined)).toBeNull()
+    })
+
+    it('returns null for empty segments', () => {
+        expect(findSegmentForTimestamp([], 1500)).toBeNull()
+    })
+
+    it('returns the matching segment when timestamp is in range', () => {
+        const result = findSegmentForTimestamp(segments, 1500)
+        expect(result).toEqual(segments[0])
+    })
+
+    it('returns the matching segment at exact start boundary', () => {
+        expect(findSegmentForTimestamp(segments, 1000)).toEqual(segments[0])
+    })
+
+    it('returns the matching segment at exact end boundary', () => {
+        expect(findSegmentForTimestamp(segments, 2000)).toEqual(segments[0])
+    })
+
+    it('returns gap segment when timestamp is in a gap', () => {
+        const result = findSegmentForTimestamp(segments, 2500)
+        expect(result).toEqual(segments[1])
+    })
+
+    it('falls back to first segment with windowId when timestamp is before all segments', () => {
+        const result = findSegmentForTimestamp(segments, 500)
+        expect(result).toEqual(segments[0])
+        expect(result?.windowId).toBe(1)
+    })
+
+    it('returns synthetic buffer when timestamp is after all segments', () => {
+        const result = findSegmentForTimestamp(segments, 9999)
+        expect(result?.kind).toBe('buffer')
+        expect(result?.startTimestamp).toBe(9999)
+        expect(result?.endTimestamp).toBe(5001)
+    })
+
+    it('skips segments without windowId when falling back', () => {
+        const segmentsWithLeadingGap: RecordingSegment[] = [
+            makeSegment({ kind: 'gap', startTimestamp: 0, endTimestamp: 1000, windowId: undefined, isActive: false }),
+            makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: 1 }),
+        ]
+
+        const result = findSegmentForTimestamp(segmentsWithLeadingGap, -500)
+        expect(result?.windowId).toBe(1)
+    })
+
+    it('returns synthetic buffer as last resort when no segment has windowId and timestamp is before', () => {
+        const segmentsWithoutWindowId: RecordingSegment[] = [
+            makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: undefined }),
+        ]
+
+        const result = findSegmentForTimestamp(segmentsWithoutWindowId, 500)
+        expect(result?.kind).toBe('buffer')
+        expect(result?.windowId).toBe(undefined)
+        expect(result?.startTimestamp).toBe(500)
+        expect(result?.endTimestamp).toBe(999)
+    })
+
+    it('returns synthetic buffer as last resort when no segment has windowId and timestamp is after', () => {
+        const segmentsWithoutWindowId: RecordingSegment[] = [
+            makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: undefined }),
+        ]
+
+        const result = findSegmentForTimestamp(segmentsWithoutWindowId, 3000)
+        expect(result?.kind).toBe('buffer')
+        expect(result?.windowId).toBe(undefined)
+        expect(result?.startTimestamp).toBe(3000)
+        expect(result?.endTimestamp).toBe(2001)
+    })
+})
+
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
     const mockWarn = jest.fn()
@@ -107,6 +199,28 @@ describe('sessionRecordingPlayerLogic', () => {
                 sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }),
                 playerSettingsLogic,
             ])
+        })
+    })
+
+    describe('currentPlayerTime clamping', () => {
+        // Mock recording: start=1682952380877, end=1682952392745, durationMs=11868
+        const START = 1682952380877
+        const DURATION = 11868
+
+        it.each([
+            { description: 'before start', timestamp: START - 1000, expected: 0 },
+            { description: 'at start', timestamp: START, expected: 0 },
+            { description: 'at midpoint', timestamp: START + 5000, expected: 5000 },
+            { description: 'at end', timestamp: START + DURATION, expected: DURATION },
+            { description: 'beyond end', timestamp: START + DURATION + 5000, expected: DURATION },
+        ])('clamps to [$expected] when $description', async ({ timestamp, expected }) => {
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            logic.actions.setCurrentTimestamp(timestamp)
+
+            expect(logic.values.currentPlayerTime).toBe(expected)
         })
     })
 

@@ -1,8 +1,6 @@
-import { DateTime } from 'luxon'
-import { types as pgTypes } from 'pg'
-
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { InternalCaptureService } from '~/common/services/internal-capture'
+import { InternalFetchService } from '~/common/services/internal-fetch'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
@@ -19,21 +17,12 @@ import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
 import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
-import { PostgresRouter } from './postgres'
+import { PostgresRouter, installPostgresTypeParsers } from './postgres'
 import { createRedisPoolFromConfig } from './redis'
 
-// `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
-// This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
-// Unfortunately this must be done on a global object before initializing the `Pool`
-pgTypes.setTypeParser(1083 /* types.TypeId.TIME */, (timeStr) =>
-    timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
-)
-pgTypes.setTypeParser(1114 /* types.TypeId.TIMESTAMP */, (timeStr) =>
-    timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
-)
-pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
-    timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
-)
+// Ensure type parsers are installed for any code path that uses hub.ts directly
+// (many test files still use createHub instead of PluginServer)
+installPostgresTypeParsers()
 
 export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<string, string[]> {
     const eventsToDropByToken: Map<string, string[]> = new Map()
@@ -125,13 +114,14 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
 
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
-    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
+    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
     const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
     const internalCaptureService = new InternalCaptureService(serverConfig)
+    const internalFetchService = new InternalFetchService(serverConfig)
 
     const hub: Hub = {
         ...serverConfig,
@@ -152,6 +142,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         integrationManager,
         quotaLimiting,
         internalCaptureService,
+        internalFetchService,
     }
 
     return hub

@@ -1,4 +1,5 @@
 import { DataColorToken } from 'lib/colors'
+// eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
@@ -85,7 +86,6 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
-    HogQLASTQuery = 'HogQLASTQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
@@ -177,6 +177,9 @@ export enum NodeKind {
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
     EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
+
+    // Property values
+    PropertyValuesQuery = 'PropertyValuesQuery',
 }
 
 export type AnyDataNode =
@@ -254,7 +257,6 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | HogQLASTQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -330,6 +332,9 @@ export type QuerySchema =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+
+    // Property values
+    | PropertyValuesQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -417,6 +422,7 @@ export interface HogQLQueryModifiers {
     optimizeProjections?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
+    inlineCohortCalculation?: 'off' | 'auto' | 'always'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -473,11 +479,6 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     explain?: boolean
     /** Client provided name of the query */
     name?: string
-}
-
-export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
-    kind: NodeKind.HogQLASTQuery
-    query: Record<string, any>
 }
 
 export interface HogQueryResponse {
@@ -913,7 +914,8 @@ export interface PersonsNode extends DataNode {
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 
 export interface DataTableNode
-    extends Node<
+    extends
+        Node<
             NonNullable<
                 (
                     | EventsNode
@@ -1013,7 +1015,7 @@ export interface ChartAxis {
 export interface ChartSettingsFormatting {
     prefix?: string
     suffix?: string
-    style?: 'none' | 'number' | 'percent'
+    style?: 'none' | 'number' | 'short' | 'percent'
     decimalPlaces?: number
 }
 
@@ -1313,6 +1315,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    /** @default false */
+    hideWeekends?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1335,12 +1339,26 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'hideWeekends',
 ])
+
+export interface BoxPlotDatum {
+    day: string
+    label: string
+    min: number
+    p25: number
+    median: number
+    p75: number
+    max: number
+    mean: number
+}
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
+    /** Box plot data when display type is BoxPlot */
+    boxplot_data?: BoxPlotDatum[]
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
@@ -1486,7 +1504,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -1533,6 +1551,9 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
+    /** @description The type of property to aggregate on (event or person). Defaults to event.
+     * @default event */
+    aggregationPropertyType?: 'event' | 'person'
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1546,8 +1567,9 @@ export type RetentionFilter = {
 }
 
 export interface RetentionValue {
-    count: integer
+    count: number
     label?: string
+    aggregation_value?: number
 }
 
 export interface RetentionResult {
@@ -1680,8 +1702,10 @@ export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
 
-export interface StickinessQuery
-    extends Omit<InsightsQueryBase<StickinessQueryResponse>, 'aggregation_group_type_index'> {
+export interface StickinessQuery extends Omit<
+    InsightsQueryBase<StickinessQueryResponse>,
+    'aggregation_group_type_index'
+> {
     kind: NodeKind.StickinessQuery
     /**
      * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
@@ -1738,6 +1762,8 @@ export interface EndpointRequest {
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
+    /** Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month). */
+    bucket_overrides?: Record<string, string>
 }
 
 /**
@@ -1791,6 +1817,8 @@ export interface EndpointRunRequest {
     debug?: boolean
     /** Maximum number of results to return. If not provided, returns all results. */
     limit?: integer
+    /** Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints. */
+    offset?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -2320,8 +2348,7 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
     properties: RevenueAnalyticsPropertyFilters
 }
 
-export interface RevenueAnalyticsGrossRevenueQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
+export interface RevenueAnalyticsGrossRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
     kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
     breakdown: RevenueAnalyticsBreakdown[]
     interval: SimpleIntervalType
@@ -2354,8 +2381,7 @@ export interface RevenueAnalyticsMRRQueryResponse extends AnalyticsQueryResponse
 }
 export type CachedRevenueAnalyticsMRRQueryResponse = CachedQueryResponse<RevenueAnalyticsMRRQueryResponse>
 
-export interface RevenueAnalyticsOverviewQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
+export interface RevenueAnalyticsOverviewQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
     kind: NodeKind.RevenueAnalyticsOverviewQuery
 }
 
@@ -2383,8 +2409,7 @@ export interface RevenueAnalyticsMetricsQueryResponse extends AnalyticsQueryResp
 export type CachedRevenueAnalyticsMetricsQueryResponse = CachedQueryResponse<RevenueAnalyticsMetricsQueryResponse>
 
 export type RevenueAnalyticsTopCustomersGroupBy = 'month' | 'all'
-export interface RevenueAnalyticsTopCustomersQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
+export interface RevenueAnalyticsTopCustomersQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
     kind: NodeKind.RevenueAnalyticsTopCustomersQuery
     groupBy: RevenueAnalyticsTopCustomersGroupBy
 }
@@ -2412,8 +2437,7 @@ export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryRespons
 }
 export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
 
-export interface RevenueExampleDataWarehouseTablesQuery
-    extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
+export interface RevenueExampleDataWarehouseTablesQuery extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
     kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
     limit?: integer
     offset?: integer
@@ -2490,8 +2514,10 @@ export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQue
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
-export interface ErrorTrackingIssueFilteringToolOutput
-    extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
+export interface ErrorTrackingIssueFilteringToolOutput extends Pick<
+    ErrorTrackingQuery,
+    'orderBy' | 'orderDirection' | 'status' | 'searchQuery'
+> {
     newFilters?: AnyPropertyFilter[]
     removedFilterIndexes?: integer[]
     dateRange?: DateRange
@@ -2787,8 +2813,7 @@ export interface SessionEventsItem {
 }
 
 export interface SessionBatchEventsQuery
-    extends Omit<EventsQuery, 'kind' | 'response'>,
-        DataNode<SessionBatchEventsQueryResponse> {
+    extends Omit<EventsQuery, 'kind' | 'response'>, DataNode<SessionBatchEventsQueryResponse> {
     kind: NodeKind.SessionBatchEventsQuery
     /** Whether to group results by session_id in the response */
     group_by_session?: boolean
@@ -2924,6 +2949,7 @@ export type FileSystemIconType =
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_datasets'
+    | 'llm_playground'
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
@@ -3417,8 +3443,9 @@ export interface InsightActorsQueryBase extends DataNode<ActorsQueryResponse> {
     modifiers?: HogQLQueryModifiers
 }
 
-export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryResponseBase> = InsightQuerySource>
-    extends InsightActorsQueryBase {
+export interface InsightActorsQuery<
+    S extends InsightsQueryBase<AnalyticsQueryResponseBase> = InsightQuerySource,
+> extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
     source: S
     day?: string | Day
@@ -3750,7 +3777,8 @@ export interface BreakdownFilter {
     breakdown_normalize_url?: boolean
     breakdown_path_cleaning?: boolean
     /**
-     * @maxLength 3
+     * @type array
+     * @maxItems 3
      */
     breakdowns?: Breakdown[] // We want to limit maximum count of breakdowns avoiding overloading.
     breakdown_group_type_index?: integer | null
@@ -4019,6 +4047,7 @@ export interface LLMTrace {
     errorCount?: number
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
+    tools?: string[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -4412,8 +4441,10 @@ export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryRes
 
 export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
 
-export interface MarketingAnalyticsTableQuery
-    extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {
+export interface MarketingAnalyticsTableQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>,
+    'orderBy'
+> {
     kind: NodeKind.MarketingAnalyticsTableQuery
     /** Return a limited set of data. Will use default columns if empty. */
     select?: HogQLExpression[]
@@ -4459,8 +4490,10 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
 export type CachedMarketingAnalyticsAggregatedQueryResponse =
     CachedQueryResponse<MarketingAnalyticsAggregatedQueryResponse>
 
-export interface MarketingAnalyticsAggregatedQuery
-    extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsAggregatedQueryResponse>, 'orderBy' | 'limit' | 'offset'> {
+export interface MarketingAnalyticsAggregatedQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsAggregatedQueryResponse>,
+    'orderBy' | 'limit' | 'offset'
+> {
     kind: NodeKind.MarketingAnalyticsAggregatedQuery
     /** Return a limited set of data. Will use default columns if empty. */
     select?: HogQLExpression[]
@@ -4476,8 +4509,10 @@ export enum NonIntegratedConversionsColumnsSchemaNames {
     Campaign = 'Campaign',
 }
 
-export interface NonIntegratedConversionsTableQuery
-    extends Omit<WebAnalyticsQueryBase<NonIntegratedConversionsTableQueryResponse>, 'orderBy'> {
+export interface NonIntegratedConversionsTableQuery extends Omit<
+    WebAnalyticsQueryBase<NonIntegratedConversionsTableQueryResponse>,
+    'orderBy'
+> {
     kind: NodeKind.NonIntegratedConversionsTableQuery
     /** Return a limited set of data. Will use default columns if empty. */
     select?: HogQLExpression[]
@@ -4530,11 +4565,10 @@ export interface WebAnalyticsExternalSummaryQueryResponse {
     error?: ExternalQueryError
 }
 
-export interface WebAnalyticsExternalSummaryQuery
-    extends Pick<
-        WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>,
-        'dateRange' | 'properties' | 'version'
-    > {
+export interface WebAnalyticsExternalSummaryQuery extends Pick<
+    WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>,
+    'dateRange' | 'properties' | 'version'
+> {
     kind: NodeKind.WebAnalyticsExternalSummaryQuery
     dateRange: DateRange
     properties: WebAnalyticsPropertyFilters
@@ -4673,11 +4707,13 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedConversion = 'Reported Conversion',
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
+    CostPerReportedConversion = 'Cost per Reported Conversion',
 }
 
-export enum MarketingAnalyticsHelperForColumnNames {
+export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
+    ConstantValuePrefix = 'const:',
 }
 
 /** Category for core events (lifecycle stages) */
@@ -4954,6 +4990,7 @@ export const externalDataSources = [
     'Brevo',
     'Postmark',
     'Granola',
+    'BuildBetter',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4965,6 +5002,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'TikTokAds',
     'RedditAds',
     'BingAds',
+    'SnapchatAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -5082,6 +5120,23 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         defaultSources: ['bing', 'microsoft'] as const,
         primarySource: 'bing',
     },
+    SnapchatAds: {
+        sourceType: 'SnapchatAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_stats_daily',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['stats_daily'] as const,
+        defaultSources: ['snapchat'] as const,
+        primarySource: 'snapchat',
+        conversionFields: ['conversion_purchases', 'conversion_sign_ups', 'conversion_subscribe'] as const,
+        conversionValueFields: [
+            'conversion_purchases_value',
+            'conversion_sign_ups_value',
+            'conversion_subscribe_value',
+        ] as const,
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
@@ -5092,6 +5147,7 @@ export type MetaAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['Meta
 export type TikTokAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['defaultSources'][number]
 export type RedditAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['defaultSources'][number]
 export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['defaultSources'][number]
+export type SnapchatAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['defaultSources'][number]
 
 export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
 export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
@@ -5099,6 +5155,7 @@ export type MetaAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaA
 export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableKeywords'][number]
 export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
 export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
+export type SnapchatAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableKeywords'][number]
 
 export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
 export type LinkedinAdsTableExclusions =
@@ -5107,6 +5164,14 @@ export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['Met
 export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
 export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
 export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
+export type SnapchatAdsTableExclusions =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableExclusions'][number]
+
+// Conversion fields for Snapchat Ads - extracted as types so they generate as StrEnum in Python
+export type SnapchatAdsConversionFields =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['conversionFields'][number]
+export type SnapchatAdsConversionValueFields =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['conversionValueFields'][number]
 
 // Conversion action types for Meta Ads - extracted as types so they generate as StrEnum in Python
 export type MetaAdsConversionOmniActionTypes =
@@ -5153,35 +5218,6 @@ export interface MarketingIntegrationConfigType {
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
     NEGATIVE_INFINITY_VALUE = -999999,
-}
-
-// PostHog Playwright Setup Types for Playwright Testing
-export interface TestSetupRequest {
-    data?: Record<string, any>
-}
-
-export interface TestSetupResponse {
-    success: boolean
-    test_name: string
-    result?: any
-    error?: string
-    available_tests?: string[]
-}
-
-export interface PlaywrightWorkspaceSetupData {
-    organization_name?: string
-    use_current_time?: boolean
-    skip_onboarding?: boolean
-}
-
-export interface PlaywrightWorkspaceSetupResult {
-    organization_id: string
-    team_id: string
-    organization_name: string
-    team_name: string
-    user_id: string
-    user_email: string
-    personal_api_key: string
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -5584,3 +5620,28 @@ export interface ReplayInactivityPeriod {
 export enum DomainConnectProviderName {
     Cloudflare = 'Cloudflare',
 }
+
+export enum PropertyType {
+    Event = 'event',
+    Person = 'person',
+}
+
+export interface PropertyValueItem {
+    name: string | number | boolean | null
+    count?: integer
+}
+
+export interface PropertyValuesQuery extends DataNode<PropertyValuesQueryResponse> {
+    kind: NodeKind.PropertyValuesQuery
+    property_type: PropertyType
+    property_key: string
+    search_value?: string
+    event_names?: string[]
+    is_column?: boolean
+}
+
+export interface PropertyValuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: PropertyValueItem[]
+}
+
+export type CachedPropertyValuesQueryResponse = CachedQueryResponse<PropertyValuesQueryResponse>

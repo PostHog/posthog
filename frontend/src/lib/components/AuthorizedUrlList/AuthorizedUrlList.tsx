@@ -3,17 +3,17 @@ import { useActions, useValues } from 'kea'
 
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
 import { ExperimentIdType, ToolbarUserIntent } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
-import { EmptyState } from './EmptyState'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
+import { EmptyState } from './EmptyState'
 
 export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
@@ -55,8 +55,7 @@ export function AuthorizedUrlList({
         allowWildCards,
     })
 
-    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains, manualLaunchParamsLoading } =
-        useValues(logic)
+    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
@@ -103,7 +102,7 @@ export function AuthorizedUrlList({
                 }
 
                 return editUrlIndex === index ? (
-                    <div className="border rounded p-2 bg-surface-primary">
+                    <div key={keyedURL.url} className="border rounded p-2 bg-surface-primary">
                         <AuthorizedUrlForm
                             type={type}
                             actionId={actionId}
@@ -113,7 +112,10 @@ export function AuthorizedUrlList({
                         />
                     </div>
                 ) : (
-                    <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
+                    <div
+                        key={keyedURL.url}
+                        className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}
+                    >
                         {keyedURL.type === 'suggestion' && (
                             <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
                                 <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">
@@ -182,9 +184,8 @@ export function AuthorizedUrlList({
                                                                 type="primary"
                                                                 data-attr="copy-manual-toolbar-launch-code"
                                                                 onClick={() => {
-                                                                    copyLaunchCode(keyedURL.url)
+                                                                    copyLaunchCode()
                                                                 }}
-                                                                loading={manualLaunchParamsLoading}
                                                             >
                                                                 Copy launch code
                                                             </LemonButton>

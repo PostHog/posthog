@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 use serde_json::Value;
-use tracing::warn;
+use tracing::debug;
 use uuid::Uuid;
 
 pub mod app_context;
@@ -21,6 +21,7 @@ pub mod pipeline;
 pub mod posthog_utils;
 pub mod router;
 pub mod server;
+pub mod spike_config;
 pub mod stages;
 pub mod symbol_store;
 pub mod teams;
@@ -53,7 +54,7 @@ pub fn recursively_sanitize_properties(
         }
         Value::String(s) => {
             if needs_sanitization(s) {
-                warn!("Sanitizing null bytes from string in event {}", id);
+                debug!("sanitizing null bytes from string in event {}", id);
                 *s = sanitize_string(s.clone());
             }
         }

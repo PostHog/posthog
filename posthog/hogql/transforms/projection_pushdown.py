@@ -147,9 +147,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return
 
         if isinstance(from_clause.table, ast.SelectQuery):
-            self._register_subquery(from_clause.table, from_clause.type)
+            self._register_subquery(from_clause.table, cast(ast.SelectQueryType, from_clause.type))
         elif isinstance(from_clause.table, ast.SelectSetQuery):
-            self._register_union_subquery(from_clause.table, from_clause.type)
+            self._register_union_subquery(from_clause.table, cast(ast.SelectSetQueryType, from_clause.type))
 
         if from_clause.next_join:
             self._register_subqueries(from_clause.next_join)
@@ -240,7 +240,21 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
                     pruned_select.append(expr)
 
         if pruned_select:
+            # Collect the names of asterisk columns we're about to drop
+            dropped_names: set[str] = set()
+            for expr in node.select:
+                if self._is_from_asterisk(expr) and expr not in pruned_select:
+                    col_name = self._get_column_name(expr)
+                    if col_name:
+                        dropped_names.add(col_name)
+
             node.select = pruned_select
+            # Remove dropped asterisk columns from SelectQueryType.columns.
+            # Without this, stale LazyTableType references on pruned columns
+            # leak through type traversal (e.g. CTETableType → SelectQueryType.columns)
+            # and cause KeyErrors in the lazy table resolver.
+            if dropped_names and isinstance(node.type, ast.SelectQueryType):
+                node.type.columns = {k: v for k, v in node.type.columns.items() if k not in dropped_names}
 
     def _get_column_name(self, expr: ast.Expr) -> str | None:
         """Extract column name from expression"""
