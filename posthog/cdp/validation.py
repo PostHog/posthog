@@ -205,8 +205,8 @@ class InputsItemSerializer(serializers.Serializer):
             if not isinstance(value, int | float):
                 raise serializers.ValidationError({"input": f"Value must be a number."})
         elif item_type == "boolean":
-            if not isinstance(value, bool):
-                raise serializers.ValidationError({"input": f"Value must be a boolean."})
+            if not isinstance(value, bool) and not isinstance(value, str):
+                raise serializers.ValidationError({"input": f"Value must be a boolean or a template string."})
         elif item_type == "dictionary":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
@@ -231,7 +231,7 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    if item_type in ["string", "dictionary", "json", "email", "native_email"]:
+                    if item_type in ["string", "boolean", "dictionary", "json", "email", "native_email"]:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
                             value = {key: value[key] for key in value if key != "design"}

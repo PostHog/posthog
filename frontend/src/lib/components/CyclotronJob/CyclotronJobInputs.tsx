@@ -366,6 +366,65 @@ function DictionaryField({
     )
 }
 
+function BooleanField({
+    input,
+    onChange,
+    disabled,
+    templating,
+    sampleGlobalsWithInputs,
+}: {
+    input: CyclotronJobInputType
+    onChange?: (value: CyclotronJobInputType) => void
+    disabled?: boolean
+    templating: boolean
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+}): JSX.Element {
+    const isTemplateMode = typeof input.value === 'string'
+
+    if (isTemplateMode) {
+        return (
+            <div className="flex flex-col gap-2">
+                <CyclotronJobTemplateInput
+                    input={input}
+                    onChange={onChange}
+                    templating={templating}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
+                <LemonButton
+                    className="self-start"
+                    size="xsmall"
+                    type="tertiary"
+                    onClick={() => onChange?.({ ...input, value: false })}
+                >
+                    Use toggle
+                </LemonButton>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex gap-2 items-center">
+            <LemonSwitch
+                checked={!!input.value}
+                onChange={(checked) => onChange?.({ ...input, value: checked })}
+                disabled={disabled}
+            />
+            {templating && (
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    status="alt"
+                    onClick={() =>
+                        onChange?.({ ...input, value: input.value ? '{true}' : '{false}', templating: 'hog' })
+                    }
+                >
+                    Use templating
+                </LemonButton>
+            )}
+        </div>
+    )
+}
+
 type CyclotronJobInputProps = {
     schema: CyclotronJobInputSchemaType
     input: CyclotronJobInputType
@@ -435,7 +494,13 @@ function CyclotronJobInputRenderer({
             )
         case 'boolean':
             return (
-                <LemonSwitch checked={input.value} onChange={(checked) => onValueChange(checked)} disabled={disabled} />
+                <BooleanField
+                    input={input}
+                    onChange={onChange}
+                    disabled={disabled}
+                    templating={templating}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
             )
         case 'integration':
             return (
