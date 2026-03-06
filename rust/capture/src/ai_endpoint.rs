@@ -23,7 +23,6 @@ const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_eve
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
-use crate::config::CaptureMode;
 use crate::event_restrictions::{AppliedRestrictions, EventContext as RestrictionEventContext};
 use crate::extractors::extract_body_with_timeout;
 use crate::payload::decompression::decompress_gzip_to_bytes;
@@ -217,10 +216,9 @@ pub async fn ai_handler(
             now_ts: state.timesource.current_time().timestamp(),
         };
 
-        let restrictions = service.get_restrictions(token, &event_ctx).await;
-        let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Ai);
+        let applied = service.get_restrictions(token, &event_ctx).await;
 
-        if applied.should_drop {
+        if applied.should_drop() {
             report_dropped_events("event_restriction_drop", 1);
             return Ok(Json(AIEndpointResponse {
                 accepted_parts: vec![],
@@ -353,9 +351,10 @@ pub async fn ai_handler(
         token,
         &client_ip,
         &state,
-        applied_restrictions.force_overflow,
-        applied_restrictions.skip_person_processing,
-        applied_restrictions.redirect_to_dlq,
+        applied_restrictions.force_overflow(),
+        applied_restrictions.skip_person_processing(),
+        applied_restrictions.redirect_to_dlq(),
+        applied_restrictions.redirect_to_topic().map(|s| s.to_string()),
     )?;
 
     // Step 9: Send event to Kafka
@@ -477,6 +476,7 @@ fn build_kafka_event(
     force_overflow: bool,
     skip_person_processing: bool,
     redirect_to_dlq: bool,
+    redirect_to_topic: Option<String>,
 ) -> Result<(Vec<PartInfo>, ProcessedEvent), CaptureError> {
     // Get current time
     let now = state.timesource.current_time();
@@ -551,6 +551,7 @@ fn build_kafka_event(
         force_overflow,
         skip_person_processing,
         redirect_to_dlq,
+        redirect_to_topic,
     };
 
     // Create ProcessedEvent
