@@ -107,7 +107,7 @@ const LinkShortcutExtension = Extension.create<LinkShortcutExtensionOptions>({
 
     addKeyboardShortcuts() {
         return {
-            'Mod-Shift-l': () => {
+            'Mod-Shift-u': () => {
                 this.options.onLinkShortcut()
                 return true
             },
@@ -346,6 +346,12 @@ export function SupportEditor({
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
 
+    const openLinkPopover = useCallback(() => {
+        const existingHref = ttEditor?.getAttributes('link').href
+        setLinkUrl(existingHref || '')
+        setLinkPopoverOpen(true)
+    }, [ttEditor])
+
     // Use ref to hold the link shortcut callback so it can access latest state
     const linkShortcutCallbackRef = useRef<() => void>(() => {})
     const handleLinkShortcut = useCallback(() => {
@@ -395,12 +401,8 @@ export function SupportEditor({
 
     // Update the link shortcut callback ref when ttEditor changes
     useEffect(() => {
-        linkShortcutCallbackRef.current = () => {
-            const existingHref = ttEditor?.getAttributes('link').href
-            setLinkUrl(existingHref || '')
-            setLinkPopoverOpen(true)
-        }
-    }, [ttEditor])
+        linkShortcutCallbackRef.current = openLinkPopover
+    }, [openLinkPopover])
 
     // Notify parent of upload state changes
     useEffect(() => {
@@ -547,14 +549,9 @@ export function SupportEditor({
                         <LemonButton
                             size="small"
                             active={ttEditor?.isActive('link')}
-                            onClick={() => {
-                                // Pre-fill with existing link URL if editing
-                                const existingHref = ttEditor?.getAttributes('link').href
-                                setLinkUrl(existingHref || '')
-                                setLinkPopoverOpen(true)
-                            }}
+                            onClick={openLinkPopover}
                             icon={<IconLink />}
-                            tooltip="Add link (Cmd+Shift+L)"
+                            tooltip="Add link (Cmd+Shift+U)"
                         />
                     </Popover>
                     <div className="w-px h-4 bg-border mx-1" />
