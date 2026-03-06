@@ -289,6 +289,26 @@ class TestBillingManager(BaseTest):
 
         assert "400" in str(context.exception)
 
+    @patch(
+        "ee.billing.billing_manager.external_requests.post",
+        return_value=MagicMock(
+            status_code=404,
+            json=MagicMock(return_value={"detail": "Not found."}),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_raises_on_404(self, billing_post_request_mock: MagicMock):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "404" in str(context.exception)
+
 
 class TestBuildBillingToken(BaseTest):
     def setUp(self):

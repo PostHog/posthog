@@ -161,6 +161,10 @@ class MprocsGenerator(ConfigGenerator):
             if name == "nodejs":
                 proc_config = self._add_nodejs_capability_groups(proc_config, resolved)
 
+            # Special handling for backend - wire up personhog env vars when capability is active
+            if name == "backend":
+                proc_config = self._add_personhog_env(proc_config, resolved)
+
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
                 proc_config = self._add_logging(proc_config, name)
@@ -285,6 +289,20 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         original_shell = proc_config.get("shell", "")
         if original_shell:
             proc_config["shell"] = f"export NODEJS_CAPABILITY_GROUPS='{groups_value}' && {original_shell}"
+
+        return proc_config
+
+    def _add_personhog_env(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Add PERSONHOG_* env vars to backend when personhog capability is active."""
+        if "personhog" not in resolved.capabilities:
+            return proc_config
+
+        original_shell = proc_config.get("shell", "")
+        if original_shell:
+            env_exports = (
+                "export PERSONHOG_ADDR='127.0.0.1:50052' PERSONHOG_ENABLED='true' PERSONHOG_ROLLOUT_PERCENTAGE='100'"
+            )
+            proc_config["shell"] = f"{env_exports} && {original_shell}"
 
         return proc_config
 

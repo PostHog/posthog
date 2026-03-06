@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGear, IconPencil, IconWarning } from '@posthog/icons'
+import { IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -23,7 +23,6 @@ import { StatusTag } from './components'
 import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTimeNew } from './RunningTimeNew'
-import { StatsMethodModal } from './StatsMethodModal'
 
 export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
@@ -35,20 +34,14 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
         statsMethod,
-        usesNewQueryRunner,
         isExperimentDraft,
         isSingleVariantShipped,
         shippedVariantKey,
         autoRefresh,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
-    const {
-        openEditConclusionModal,
-        openDescriptionModal,
-        closeDescriptionModal,
-        openStatsEngineModal,
-        openRunningTimeConfigModal,
-    } = useActions(modalsLogic)
+    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
+        useActions(modalsLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
@@ -143,29 +136,13 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                         )}
                         <div className="flex flex-col">
                             <Label intent="menu">Statistics</Label>
-                            <div className="inline-flex deprecated-space-x-2">
-                                <span>
-                                    {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
-                                    {' / '}
-                                    {statsMethod === ExperimentStatsMethod.Bayesian
-                                        ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
-                                        : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
-                                </span>
-                                {usesNewQueryRunner && (
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            onClick={() => {
-                                                openStatsEngineModal()
-                                            }}
-                                            icon={<IconGear />}
-                                            tooltip="Configure statistics"
-                                        />
-                                        <StatsMethodModal />
-                                    </>
-                                )}
-                            </div>
+                            <span>
+                                {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
+                                {' / '}
+                                {statsMethod === ExperimentStatsMethod.Bayesian
+                                    ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
+                                    : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
+                            </span>
                         </div>
                     </div>
 

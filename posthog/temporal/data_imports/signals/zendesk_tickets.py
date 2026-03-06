@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from structlog import get_logger
@@ -90,11 +91,33 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
         source_type="ticket",
         source_id=str(ticket_id),
         description=signal_description,
-        # Sticking to 1 by default for user-generated issues
         weight=1.0,
-        # Attach only the fields that would make sense for a signal, without duplicating already included data
-        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
+        extra=_build_extra(record),
     )
+
+
+def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
+    extra = {k: v for k, v in record.items() if k in EXTRA_FIELDS}
+    raw_tags = extra.get("tags")
+    if raw_tags is None:
+        extra["tags"] = []
+    elif isinstance(raw_tags, str):
+        try:
+            parsed = json.loads(raw_tags)
+        except (json.JSONDecodeError, TypeError) as e:
+            msg = f"Zendesk ticket tags field is not valid JSON: {raw_tags!r}"
+            logger.exception(msg, record=record, signals_type="data-import-signals")
+            raise ValueError(msg) from e
+        if not isinstance(parsed, list):
+            msg = f"Zendesk ticket tags field is not a JSON array: {raw_tags!r}"
+            logger.exception(msg, record=record, signals_type="data-import-signals")
+            raise ValueError(msg)
+        extra["tags"] = parsed
+    else:
+        msg = f"Zendesk ticket tags field has unexpected type {type(raw_tags).__name__}: {raw_tags!r}"
+        logger.exception(msg, record=record, signals_type="data-import-signals")
+        raise ValueError(msg)
+    return extra
 
 
 ZENDESK_TICKETS_CONFIG = SignalSourceTableConfig(

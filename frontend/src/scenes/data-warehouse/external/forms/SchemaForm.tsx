@@ -33,7 +33,7 @@ export default function SchemaForm(): JSX.Element {
     return (
         <>
             <div className="flex flex-col gap-2">
-                <div>
+                <div className="max-h-[60vh] overflow-y-auto">
                     <LemonTable
                         emptyState="No schemas found"
                         dataSource={databaseSchema}
