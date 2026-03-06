@@ -1068,9 +1068,11 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source__id=response.json()["id"], name="accounts")
+        table = schema.table
+        self.assertIsNotNone(table)
         self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["data_type"], "numeric")
-        self.assertEqual(schema.table.columns["amount"]["clickhouse"], "Decimal")
-        self.assertEqual(schema.table.columns["amount"]["hogql"], "numeric")
+        self.assertEqual(table.columns["amount"]["clickhouse"], "Decimal")
+        self.assertEqual(table.columns["amount"]["hogql"], "numeric")
 
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(
