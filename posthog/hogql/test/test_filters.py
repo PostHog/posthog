@@ -215,6 +215,27 @@ class TestFilters(BaseTest):
             f"SELECT event FROM events WHERE notILike(toString(person.properties.email), '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_replace_filters_test_accounts_succeeds_for_events_join_persons(self):
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "type": "person",
+                "value": "posthog.com",
+                "operator": "not_icontains",
+            }
+        ]
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select(
+                "SELECT event FROM events JOIN persons ON events.person_id = persons.id WHERE {filters}"
+            ),
+            HogQLFilters(filterTestAccounts=True),
+            self.team,
+        )
+        printed = self._print_ast(select)
+        self.assertIn("notILike(toString(person.properties.email), '%posthog.com%')", printed)
+
     @parameterized.expand(
         [
             ("sessions", "SELECT $session_id FROM sessions WHERE {filters}"),

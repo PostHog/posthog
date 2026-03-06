@@ -67,7 +67,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
                     <FiltersDropdown
                         disabledReason={
                             !showLegacyFilters
-                                ? "Add a '{filters}' placeholder to your query to use filters"
+                                ? "Add a '{filters}' placeholder to queries from the events, sessions, logs or groups table to use filters"
                                 : undefined
                         }
                     />
