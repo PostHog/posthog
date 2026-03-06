@@ -212,12 +212,30 @@ Product teams own their definitions and control which operations are exposed as 
        enrich_url: '{id}' # appended to url_prefix for result URLs
        exclude_params: [field] # hide params from tool input
        include_params: [field] # whitelist params (excludes all others)
-       param_overrides: # override Orval-generated param descriptions
+       input_schema: ActionCreateSchema # use a hand-crafted schema from tool-inputs (optional)
+       param_overrides: # override Orval-generated param descriptions or schemas
          name:
            description: Custom description for the LLM
+           input_schema: NameSchema # replace this param's type with a schema from tool-inputs
    ```
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+
+   #### Custom input schemas
+
+   By default, tool input schemas are auto-derived from OpenAPI via Orval.
+   When the auto-derived schema isn't ideal for an LLM tool interface,
+   you can override it at two levels:
+
+   **Whole-tool override** — set `input_schema` on the tool to a named export from `src/schema/tool-inputs.ts`.
+   The generated handler imports that schema instead of composing Orval imports.
+   The `operation` is still used for the HTTP method and path.
+   Path parameters are extracted from the URL pattern;
+   remaining parameters are forwarded as body (POST/PATCH/PUT) or query (GET/DELETE).
+
+   **Per-param override** — set `input_schema` inside `param_overrides` to replace a single field's Zod type
+   while keeping the rest of the Orval-derived schema.
+   The generated code uses `.extend()` to replace just that field.
    See [supported annotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations) for the full list.
 
 3. **Generate** handlers and schemas:
