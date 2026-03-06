@@ -748,13 +748,21 @@ class TestGitHubIntegrationModel(BaseTest):
 
         success = MagicMock()
         success.status_code = 200
-        success.json.return_value = {"repositories": [{"name": "posthog"}, {"name": "posthog-js"}]}
+        success.json.return_value = {
+            "repositories": [
+                {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
+                {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+            ]
+        }
 
         mock_get.side_effect = [transient, success]
 
         repos = GitHubIntegration(integration).list_repositories()
 
-        assert repos == ["posthog", "posthog-js"]
+        assert repos == [
+            {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
+            {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+        ]
         assert mock_get.call_count == 2
 
     @patch("posthog.models.integration.external_requests.get")

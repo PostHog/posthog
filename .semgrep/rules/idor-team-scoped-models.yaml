@@ -144,6 +144,7 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
                               |SavedHeatmap
@@ -311,6 +312,7 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
                         |SavedHeatmap

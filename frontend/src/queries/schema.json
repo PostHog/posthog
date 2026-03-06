@@ -15907,6 +15907,7 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
+                "visual_review",
                 "settings",
                 "health",
                 "inbox",
@@ -23293,6 +23294,7 @@
                 "teams",
                 "toolbar",
                 "user_interviews",
+                "visual_review",
                 "web_analytics",
                 "workflows"
             ],
