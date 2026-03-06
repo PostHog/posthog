@@ -6,7 +6,7 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Plugins
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
-import { cdpJobSizeKb } from './shared'
+import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
 
 /**
  * State blob stored in the single `state` BYTEA column.
@@ -190,6 +190,7 @@ function serializeState(invocation: CyclotronJobInvocation): Buffer {
 function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
     const state = serializeState(invocation)
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
+    cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
     return {
         id: invocation.id,
         teamId: invocation.teamId,
