@@ -1,11 +1,19 @@
+from datetime import timedelta
+
+from django.test import TestCase
+from django.utils import timezone
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models import Organization
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
 from ee.models.scim_request_log import SCIMRequestLog
+from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
 
 
 class TestSCIMRequestLogCapture(APILicensedTest):
@@ -93,3 +101,39 @@ class TestSCIMRequestLogCapture(APILicensedTest):
         assert log.duration_ms is not None
         assert isinstance(log.duration_ms, int)
         assert log.duration_ms >= 0
+
+
+class TestSCIMRequestLogCleanup(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="cleanup-test.com",
+            verified_at=timezone.now(),
+        )
+
+    def _create_log(self, age_days: int) -> SCIMRequestLog:
+        log = SCIMRequestLog.objects.create(
+            organization_domain=self.domain,
+            request_method="GET",
+            request_path="/scim/v2/test/Users",
+            request_headers={},
+            response_status=200,
+            identity_provider="other",
+        )
+        SCIMRequestLog.objects.filter(id=log.id).update(created_at=timezone.now() - timedelta(days=age_days))
+        return log
+
+    @parameterized.expand(
+        [
+            ("old_deleted", 200, True),
+            ("recent_kept", 10, False),
+            ("boundary_kept", 179, False),
+            ("boundary_deleted", 181, True),
+        ]
+    )
+    def test_cleanup_respects_retention(self, _name: str, age_days: int, should_be_deleted: bool):
+        log = self._create_log(age_days)
+        cleanup_old_scim_request_logs()
+        exists = SCIMRequestLog.objects.filter(id=log.id).exists()
+        assert exists != should_be_deleted
