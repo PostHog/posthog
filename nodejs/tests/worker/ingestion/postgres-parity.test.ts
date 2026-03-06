@@ -145,6 +145,11 @@ describe('postgres parity', () => {
                 is_identified: true,
                 uuid: uuid,
                 version: 0,
+                group_0_key: '',
+                group_1_key: '',
+                group_2_key: '',
+                group_3_key: '',
+                group_4_key: '',
             },
         ])
         const postgresDistinctIds = await fetchDistinctIdValues(postgres, person)
