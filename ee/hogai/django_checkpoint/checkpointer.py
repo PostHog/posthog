@@ -96,6 +96,14 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer(allowed_json_modules=True)
 
     def __init__(self, **kwargs: Any) -> None:
+        # NOTE: allowed_msgpack_modules is intentionally left at the default (True)
+        # rather than strict mode (None). Strict mode blocks deserialization of
+        # PostHog's custom Pydantic message types from msgpack, and langgraph 0.4.10
+        # doesn't support automatic allowlist derivation from state schemas.
+        # The upgrade to langgraph-checkpoint 4.0.1 still provides:
+        # - pickle_fallback=False by default (blocks pickle deserialization)
+        # - Deprecation warnings for unregistered ext types
+        # - LANGGRAPH_STRICT_MSGPACK env var support for future strict enforcement
         super().__init__(serde=JsonPlusSerializer(allowed_json_modules=True), **kwargs)
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
