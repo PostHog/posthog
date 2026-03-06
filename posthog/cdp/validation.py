@@ -144,6 +144,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "email",
             "native_email",
             "posthog_assignee",
+            "posthog_ticket_tags",
         ]
     )
     key = serializers.CharField()
