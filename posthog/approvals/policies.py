@@ -1,5 +1,10 @@
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+from posthog.approvals.exceptions import PolicyEvaluationError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -100,6 +105,15 @@ class PolicyEngine:
         - DENY: Action not allowed
         - REQUIRE_APPROVAL: Must get approvals
         """
+        try:
+            return self._evaluate_policy(policy, actor, intent, context)
+        except PolicyEvaluationError:
+            raise
+        except Exception as e:
+            logger.exception("Unexpected error evaluating policy %s", policy.id)
+            raise PolicyEvaluationError(f"Failed to evaluate policy {policy.id}: {e}") from e
+
+    def _evaluate_policy(self, policy, actor, intent: dict, context: dict) -> PolicyDecision:
         bypass_role_ids = [str(r.id) for r in policy.bypass_roles.all()]
 
         if self._has_bypass(actor, policy, bypass_role_ids, context):
