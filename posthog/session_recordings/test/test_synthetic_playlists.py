@@ -897,13 +897,14 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         cache.clear()
 
         session_id = str(uuid7())
-        _create_event(
-            distinct_id="user",
-            event="$rageclick",
-            properties={"$session_id": session_id},
-            team=self.team,
-            timestamp=datetime.now() - timedelta(days=1),
-        )
+        for _ in range(2):
+            _create_event(
+                distinct_id="user",
+                event="$rageclick",
+                properties={"$session_id": session_id},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
         flush_persons_and_events()
 
         source = FrustrationSignalsPlaylistSource()
