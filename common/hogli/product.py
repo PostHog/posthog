@@ -359,8 +359,9 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
             ("presentation/urls.py", "urls"),
         ]
 
-        present = sum(1 for path, _ in isolation_files if _check_file_exists(backend_dir, path))
-        labels = [f"{'✓' if _check_file_exists(backend_dir, path) else '○'} {label}" for path, label in isolation_files]
+        checks = [_check_file_exists(backend_dir, path) for path, _ in isolation_files]
+        present = sum(checks)
+        labels = [f"{'✓' if ok else '○'} {label}" for ok, (_, label) in zip(checks, isolation_files)]
         click.echo(f"    {', '.join(labels)} ({present}/{len(isolation_files)})")
 
     return issues
@@ -424,8 +425,6 @@ def _lint_all_products() -> None:
 
         if issues:
             failed.append(product_dir.name)
-            for issue in issues:
-                click.echo(f"  ✗ {issue}")
 
         click.echo("")
 
