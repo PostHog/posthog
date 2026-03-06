@@ -1026,14 +1026,13 @@ class DashboardsViewSet(
     @action(methods=["PATCH"], detail=True)
     def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # TODO could things be rearranged so this is  PATCH call on a resource and not a custom endpoint?
-        tile = request.data["tile"]
-        from_dashboard = kwargs["pk"]
+        from_dashboard = self.get_object()
         to_dashboard = request.data["toDashboard"]
 
         tile = get_object_or_404(
             DashboardTile,
-            dashboard_id=from_dashboard,
-            id=tile["id"],
+            dashboard_id=from_dashboard.pk,
+            id=request.data["tile"]["id"],
             dashboard__team__project_id=self.team.project_id,
         )
         get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
@@ -1041,7 +1040,7 @@ class DashboardsViewSet(
         tile.save(update_fields=["dashboard_id"])
 
         serializer = DashboardSerializer(
-            get_object_or_404(Dashboard, id=from_dashboard, team__project_id=self.team.project_id),
+            from_dashboard,
             context=self.get_serializer_context(),
         )
         return Response(serializer.data)
