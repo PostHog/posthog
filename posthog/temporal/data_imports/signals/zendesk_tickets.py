@@ -36,7 +36,7 @@ A ticket is ACTIONABLE if it describes:
 
 A ticket is NOT_ACTIONABLE if it is:
 - Spam, abuse, or profanity with no real feedback
-- Tickets that require only manual human action, not code changes (e.g. requesting a refund, updating payment method or billing email, asking about pricing, plan changes, invoice questions)
+- Tickets whose primary ask is a manual human action, not a code change (e.g. requesting a refund, updating payment method or billing email, asking about pricing, plan changes, invoice questions). Even if the user provides context explaining why they want the action, the ticket is still NOT_ACTIONABLE if the ask itself is manual
 - A generic "thank you" or confirmation that an issue was resolved
 - An auto-generated, bot, or out-of-office message
 - An internal test message
