@@ -577,19 +577,25 @@ class TestResolver(BaseTest):
     def test_columns_expr_regex(self):
         node = self._select("select COLUMNS('time') from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        column_names = [col.type.name if isinstance(col.type, ast.FieldType) else col.alias for col in node.select]
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
         assert "timestamp" in column_names
 
     def test_columns_expr_regex_caret(self):
         node = self._select("select COLUMNS('^event$') from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        column_names = [col.type.name if isinstance(col.type, ast.FieldType) else col.alias for col in node.select]
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
         assert column_names == ["event"]
 
     def test_columns_expr_list(self):
         node = self._select("select COLUMNS(event, timestamp) from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        column_names = [col.type.name if isinstance(col.type, ast.FieldType) else col.alias for col in node.select]
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
         assert column_names == ["event", "timestamp"]
 
     def test_columns_expr_no_match_raises(self):
@@ -601,7 +607,9 @@ class TestResolver(BaseTest):
     def test_columns_expr_subquery(self):
         node = self._select("select COLUMNS('a') from (select 1 as a1, 2 as a2, 3 as b1)")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        column_names = [col.type.name if isinstance(col.type, ast.FieldType) else col.alias for col in node.select]
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
         assert sorted(column_names) == ["a1", "a2"]
 
     def test_lambda_parent_scope(self):
