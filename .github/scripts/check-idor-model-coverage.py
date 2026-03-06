@@ -110,7 +110,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "TOTPDevice",
         "UserSocialAuth",
         "MCPServer",
-        "MCPOAuthState"
+        "MCPOAuthState",
         # --- Internal infra (audit, async, caching, scheduling) ---
         "ActivityLog",
         "AsyncDeletion",
