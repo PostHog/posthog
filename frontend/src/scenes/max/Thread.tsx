@@ -203,7 +203,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             const isSlashCommandResponse =
                                 message.type !== 'human' &&
                                 prevMessage?.type === 'human' &&
-                                typeof prevMessage.content === 'string' &&
+                                'content' in prevMessage &&
                                 (prevMessage.content.startsWith(SlashCommandName.SlashFeedback) ||
                                     prevMessage.content.startsWith(SlashCommandName.SlashTicket))
 
