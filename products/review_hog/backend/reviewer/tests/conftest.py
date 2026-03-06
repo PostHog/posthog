@@ -1,12 +1,10 @@
 """Pytest configuration and shared fixtures for tests."""
 
 import json
-from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
@@ -56,32 +54,11 @@ def expected_chunks() -> ChunksList:
 
 
 @pytest.fixture
-def mock_run_claude_code_failure() -> AsyncMock:
-    """Create a mock for run_code that simulates a failure."""
-
-    async def mock_func(
-        **_kwargs: Any,
-    ) -> bool:
-        """Mock implementation that returns failure."""
-        return False
-
-    return AsyncMock(side_effect=mock_func)
-
-
-@pytest.fixture
 def temp_review_dir(tmp_path: Path) -> Path:
     """Create a temporary review directory."""
     review_dir = tmp_path / "review"
     review_dir.mkdir()
     return review_dir
-
-
-@pytest.fixture
-def temp_project_dir(tmp_path: Path) -> Path:
-    """Create a temporary project directory."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    return project_dir
 
 
 @pytest.fixture
@@ -120,21 +97,13 @@ def sample_chunk_analysis_simple() -> ChunkAnalysis:
 def sample_chunk_analysis_complex(
     sample_chunk_analysis_simple: ChunkAnalysis,
 ) -> ChunkAnalysis:
-    """Create a complex ChunkAnalysis for testing.
-
-    Extends the simple version with additional files.
-    """
-    # Create a copy to avoid modifying the original
+    """Create a complex ChunkAnalysis for testing."""
     import copy
 
     complex_analysis = copy.deepcopy(sample_chunk_analysis_simple)
-
-    # Update for complex test cases
     complex_analysis.goal = "Fix authentication logic and improve security architecture"
     complex_analysis.chunk_meta.chunk_id = 1
     complex_analysis.chunk_meta.files_in_this_chunk.extend(["src/config.py", "src/analyzer.py"])
-
-    # Update other fields
     return complex_analysis
 
 
@@ -184,28 +153,19 @@ def sample_issues_review_complex(sample_issue: Issue) -> IssuesReview:
     )
 
 
-def create_mock_run_code(
-    model_instance: Any,
-) -> Callable[[Any], Coroutine[Any, Any, bool]]:
-    """Create a mock for CodeExecutor.run_code that returns a specific model instance.
+def create_mock_run_sandbox_review(model_instance: Any):
+    """Create a mock for run_sandbox_review that writes a model to output_path.
 
-    Args:
-        model_instance: The pydantic model instance to return
-
-    Returns:
-        Async function that writes the model to output when called
+    Returns an async function matching the run_sandbox_review signature.
     """
 
-    async def mock_func(self: Any) -> bool:
-        """Mock implementation that writes model to output."""
-        # Access output_path from the CodeExecutor instance
-        output_path = self.output_path
+    async def mock_func(**kwargs: Any) -> bool:
+        output_path = kwargs["output_path"]
         model_json = json.dumps(model_instance.model_dump(mode="json"), indent=2)
         with Path(output_path).open("w") as f:
             f.write(model_json)
         return True
 
-    # Return the function directly, not wrapped in AsyncMock
     return mock_func
 
 
