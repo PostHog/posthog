@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use common_redis::CustomRedisError;
 use futures::future::join_all;
+use lifecycle::Handle as LifecycleHandle;
 use metrics::gauge;
 use tokio::sync::RwLock;
 use tokio::time::interval;
-use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::config::CaptureMode;
@@ -138,7 +138,7 @@ impl EventRestrictionService {
         }
     }
 
-    /// Refreshes restrictions periodically until the cancellation token is triggered.
+    /// Refreshes restrictions periodically until the lifecycle handle signals shutdown.
     ///
     /// The repository is created lazily via `create_repository`. If Redis is unavailable
     /// at startup, the service stays in fail-open mode and retries on each tick.
@@ -148,7 +148,7 @@ impl EventRestrictionService {
         &self,
         create_repository: F,
         refresh_interval: Duration,
-        cancel_token: CancellationToken,
+        handle: LifecycleHandle,
     ) where
         F: Fn() -> Fut,
         Fut: std::future::Future<
@@ -161,7 +161,7 @@ impl EventRestrictionService {
 
         loop {
             tokio::select! {
-                _ = cancel_token.cancelled() => {
+                _ = handle.shutdown_recv() => {
                     info!(pipeline = %pipeline_str, "Event restrictions refresh task shutting down");
                     break;
                 }
@@ -286,6 +286,21 @@ mod tests {
     use crate::event_restrictions::repository::RestrictionEntry;
     use crate::event_restrictions::types::RestrictionScope;
     use common_redis::CustomRedisError;
+    use lifecycle::{ComponentOptions, Manager};
+    use tokio_util::sync::CancellationToken;
+
+    fn test_handle() -> (LifecycleHandle, CancellationToken) {
+        let token = CancellationToken::new();
+        let mut manager = Manager::builder("event-restrictions-test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(token.clone())
+            .build();
+        let handle = manager.register("test", ComponentOptions::new());
+        // Leak the monitor guard so it doesn't block — tests control shutdown via the token
+        std::mem::forget(manager.monitor_background());
+        (handle, token)
+    }
 
     fn make_entry(token: &str, pipelines: Vec<&str>) -> RestrictionEntry {
         RestrictionEntry {
@@ -606,19 +621,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_task_loads_restrictions() {
-        let cancel = CancellationToken::new();
-        let cancel_clone = cancel.clone();
+        let (lifecycle_handle, shutdown_token) = test_handle();
+        let shutdown_clone = shutdown_token.clone();
 
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let service_clone = service.clone();
 
-        let handle = tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             service_clone
                 .start_refresh_task(
                     move || {
-                        let cancel = cancel_clone.clone();
+                        let shutdown = shutdown_clone.clone();
                         async move {
-                            cancel.cancel();
+                            shutdown.cancel();
                             let repo = MockRestrictionsRepository::new();
                             repo.set_entries(
                                 RestrictionType::DropEvent,
@@ -630,12 +645,12 @@ mod tests {
                         }
                     },
                     Duration::from_millis(5),
-                    cancel,
+                    lifecycle_handle,
                 )
                 .await;
         });
 
-        handle.await.unwrap();
+        task.await.unwrap();
 
         let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
         assert!(restrictions.contains(RestrictionType::DropEvent));
@@ -646,33 +661,33 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_task_retries_connection_while_fail_open() {
+        let (lifecycle_handle, shutdown_token) = test_handle();
+        let shutdown_clone = shutdown_token.clone();
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
-        let cancel = CancellationToken::new();
-        let cancel_clone = cancel.clone();
         let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = attempt_count.clone();
 
         let service_clone = service.clone();
-        let handle = tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             service_clone
                 .start_refresh_task(
                     move || {
                         let n = count_clone.fetch_add(1, Ordering::SeqCst);
-                        let cancel = cancel_clone.clone();
+                        let shutdown = shutdown_clone.clone();
                         async move {
                             if n >= 2 {
-                                cancel.cancel();
+                                shutdown.cancel();
                             }
                             Err(CustomRedisError::Timeout)
                         }
                     },
                     Duration::from_millis(5),
-                    cancel,
+                    lifecycle_handle,
                 )
                 .await;
         });
 
-        handle.await.unwrap();
+        task.await.unwrap();
 
         let restrictions = service.get_restrictions("token", &event_ctx_now()).await;
         assert!(restrictions.is_empty());
@@ -684,25 +699,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_task_reconnects_after_refresh_failure() {
-        let cancel = CancellationToken::new();
-        let cancel_clone = cancel.clone();
+        let (lifecycle_handle, shutdown_token) = test_handle();
+        let shutdown_clone = shutdown_token.clone();
         let connect_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = connect_count.clone();
 
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let service_clone = service.clone();
 
-        let handle = tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             service_clone
                 .start_refresh_task(
                     move || {
                         let n = count_clone.fetch_add(1, Ordering::SeqCst);
-                        let cancel = cancel_clone.clone();
+                        let shutdown = shutdown_clone.clone();
                         async move {
                             // First connection succeeds but repo returns all errors,
                             // second connection triggers shutdown so we can assert.
                             if n >= 1 {
-                                cancel.cancel();
+                                shutdown.cancel();
                             }
                             let repo = MockRestrictionsRepository::new();
                             for rt in RestrictionType::all() {
@@ -713,45 +728,42 @@ mod tests {
                         }
                     },
                     Duration::from_millis(5),
-                    cancel,
+                    lifecycle_handle,
                 )
                 .await;
         });
 
-        handle.await.unwrap();
+        task.await.unwrap();
 
         assert!(
             connect_count.load(Ordering::SeqCst) >= 2,
             "should have reconnected after refresh failure"
         );
-        // Service never got a successful refresh, so it stays fail-open
         let restrictions = service.get_restrictions("token", &event_ctx_now()).await;
         assert!(restrictions.is_empty());
     }
 
     #[tokio::test]
     async fn test_refresh_task_fail_open_then_recover() {
-        let cancel = CancellationToken::new();
-        let cancel_clone = cancel.clone();
+        let (lifecycle_handle, shutdown_token) = test_handle();
+        let shutdown_clone = shutdown_token.clone();
         let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = attempt_count.clone();
 
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let service_clone = service.clone();
 
-        let handle = tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             service_clone
                 .start_refresh_task(
                     move || {
                         let n = count_clone.fetch_add(1, Ordering::SeqCst);
-                        let cancel = cancel_clone.clone();
+                        let shutdown = shutdown_clone.clone();
                         async move {
                             if n < 2 {
-                                // First two attempts fail (simulating Redis down)
                                 return Err(CustomRedisError::Timeout);
                             }
-                            // Third attempt succeeds with restrictions
-                            cancel.cancel();
+                            shutdown.cancel();
                             let repo = MockRestrictionsRepository::new();
                             repo.set_entries(
                                 RestrictionType::ForceOverflow,
@@ -763,18 +775,17 @@ mod tests {
                         }
                     },
                     Duration::from_millis(5),
-                    cancel,
+                    lifecycle_handle,
                 )
                 .await;
         });
 
-        handle.await.unwrap();
+        task.await.unwrap();
 
         assert!(
             attempt_count.load(Ordering::SeqCst) >= 3,
             "should have attempted at least 3 times"
         );
-        // After recovery, restrictions should be active
         let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
         assert!(
             restrictions.contains(RestrictionType::ForceOverflow),

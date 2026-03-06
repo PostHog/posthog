@@ -12,7 +12,7 @@ use hyper_util::server::graceful::GracefulShutdown;
 use lifecycle::{ComponentOptions, Handle as LifecycleHandle, Manager};
 use limiters::redis::ServiceName;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_util::sync::CancellationToken;
+
 use tower::Service;
 use tracing::{debug, error, info, warn};
 
@@ -142,16 +142,6 @@ fn create_event_restriction_service(
         Some(Duration::from_millis(config.redis_connection_timeout_ms))
     };
 
-    let cancel_token = CancellationToken::new();
-    let task_cancel_token = cancel_token.clone();
-
-    // Bridge lifecycle shutdown to the CancellationToken that start_refresh_task expects
-    let shutdown_bridge = handle.clone();
-    tokio::spawn(async move {
-        shutdown_bridge.shutdown_recv().await;
-        cancel_token.cancel();
-    });
-
     tokio::spawn(async move {
         let _guard = handle.process_scope();
         service_clone
@@ -172,7 +162,7 @@ fn create_event_restriction_service(
                     }
                 },
                 refresh_interval,
-                task_cancel_token,
+                handle,
             )
             .await;
     });
@@ -190,16 +180,12 @@ fn create_event_restriction_service(
 async fn create_sink(
     config: &Config,
     redis_client: Arc<RedisClient>,
-    kafka_handle: LifecycleHandle,
-    s3_handle: Option<LifecycleHandle>,
-    noop_handle: Option<LifecycleHandle>,
-    shutdown_handle: LifecycleHandle,
+    handle: LifecycleHandle,
 ) -> anyhow::Result<Box<dyn Event + Send + Sync>> {
     if config.print_sink {
         Ok(Box::new(PrintSink {}))
     } else if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
-        let handle = noop_handle.expect("noop_handle required when noop_sink enabled");
         Ok(Box::new(NoOpSink::new(handle)))
     } else {
         let partition = match config.overflow_enabled {
@@ -214,7 +200,7 @@ async fn create_sink(
 
                 if config.export_prometheus {
                     let partition = partition.clone();
-                    let sh = shutdown_handle.clone();
+                    let sh = handle.clone();
                     tokio::spawn(async move {
                         tokio::select! {
                             _ = partition.report_metrics() => {}
@@ -225,7 +211,7 @@ async fn create_sink(
 
                 {
                     let partition = partition.clone();
-                    let sh = shutdown_handle.clone();
+                    let sh = handle.clone();
                     tokio::spawn(async move {
                         tokio::select! {
                             _ = partition.clean_state() => {}
@@ -252,10 +238,9 @@ async fn create_sink(
             _ => None,
         };
 
-        let fallback_handle = kafka_handle.clone();
         let kafka_sink = KafkaSink::new(
             config.kafka.clone(),
-            kafka_handle,
+            handle.clone(),
             partition,
             replay_overflow_limiter,
         )
@@ -263,8 +248,6 @@ async fn create_sink(
         .expect("failed to start Kafka sink");
 
         if config.s3_fallback_enabled {
-            let s3_liveness = s3_handle.expect("s3_handle required when s3_fallback_enabled");
-
             let s3_sink = S3Sink::new(
                 config
                     .s3_fallback_bucket
@@ -272,15 +255,13 @@ async fn create_sink(
                     .expect("S3 bucket required when fallback enabled"),
                 config.s3_fallback_prefix.clone(),
                 config.s3_fallback_endpoint.clone(),
-                s3_liveness,
+                handle.clone(),
             )
             .await
             .expect("failed to create S3 sink");
 
             Ok(Box::new(FallbackSink::new_with_health(
-                kafka_sink,
-                s3_sink,
-                fallback_handle,
+                kafka_sink, s3_sink, handle,
             )))
         } else {
             Ok(Box::new(kafka_sink))
@@ -295,31 +276,14 @@ pub async fn serve(config: Config, listener: TcpListener, mut manager: Manager) 
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
     );
 
-    let kafka_handle = manager.register(
-        "kafka",
+    let sink_options = if config.print_sink || config.noop_sink {
+        ComponentOptions::new()
+    } else {
         ComponentOptions::new()
             .with_liveness_deadline(Duration::from_secs(30))
-            .with_stall_threshold(2),
-    );
-
-    let s3_handle = if config.s3_fallback_enabled {
-        Some(
-            manager.register(
-                "s3-fallback",
-                ComponentOptions::new()
-                    .with_liveness_deadline(Duration::from_secs(30))
-                    .with_stall_threshold(2),
-            ),
-        )
-    } else {
-        None
+            .with_stall_threshold(2)
     };
-
-    let noop_handle = if config.noop_sink {
-        Some(manager.register("noop-sink", ComponentOptions::new()))
-    } else {
-        None
-    };
+    let sink_handle = manager.register("sink", sink_options);
 
     let ai_s3_handle = if config.ai_s3_bucket.is_some() {
         Some(
@@ -402,16 +366,9 @@ pub async fn serve(config: Config, listener: TcpListener, mut manager: Manager) 
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 
-    let sink = create_sink(
-        &config,
-        redis_client.clone(),
-        kafka_handle.clone(),
-        s3_handle,
-        noop_handle,
-        server_handle.clone(),
-    )
-    .await
-    .expect("failed to create sink");
+    let sink = create_sink(&config, redis_client.clone(), sink_handle)
+        .await
+        .expect("failed to create sink");
 
     // --- AI blob storage ---
     let ai_blob_storage: Option<Arc<dyn crate::ai_s3::BlobStorage>> =
