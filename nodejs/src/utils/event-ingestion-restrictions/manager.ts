@@ -5,11 +5,18 @@ import { BackgroundRefresher } from '../background-refresher'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
 import { REDIS_KEY_PREFIX, RedisRestrictionArraySchema, RedisRestrictionType, toRestrictionRule } from './redis-schema'
-import { EventContext, RestrictionFilters, RestrictionMap, RestrictionRule, RestrictionType } from './rules'
+import {
+    AppliedRestrictions,
+    EventContext,
+    RestrictionFilters,
+    RestrictionMap,
+    RestrictionRule,
+    RestrictionType,
+} from './rules'
 
 export type IngestionPipeline = 'analytics' | 'session_recordings'
 
-const EMPTY_RESTRICTIONS: ReadonlySet<RestrictionType> = new Set()
+const EMPTY_RESTRICTIONS = new AppliedRestrictions()
 
 /*
  * Events can be restricted for ingestion through static and dynamic configs.
@@ -75,7 +82,7 @@ export class EventIngestionRestrictionManager {
     }
 
     // Pass headers directly - no need to construct a new object
-    getAppliedRestrictions(token?: string, headers?: EventContext): ReadonlySet<RestrictionType> {
+    getAppliedRestrictions(token?: string, headers?: EventContext): AppliedRestrictions {
         if (!token) {
             return EMPTY_RESTRICTIONS
         }
@@ -133,7 +140,8 @@ export class EventIngestionRestrictionManager {
                 pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.SKIP_PERSON_PROCESSING}`)
                 pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`)
                 pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.REDIRECT_TO_DLQ}`)
-                const [dropResult, skipResult, overflowResult, dlqResult] = await pipeline.exec()
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.REDIRECT_TO_TOPIC}`)
+                const [dropResult, skipResult, overflowResult, dlqResult, redirectToTopicResult] = await pipeline.exec()
 
                 const processRedisResult = (redisResult: any, restrictionType: RestrictionType) => {
                     if (!redisResult?.[1]) {
@@ -151,9 +159,21 @@ export class EventIngestionRestrictionManager {
                             return
                         }
 
-                        for (const item of parseResult.data) {
+                        const sortedData = [...parseResult.data].sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+
+                        for (const item of sortedData) {
                             if (!item.pipelines || !item.pipelines.includes(this.pipeline)) {
                                 continue
+                            }
+
+                            if (restrictionType === RestrictionType.REDIRECT_TO_TOPIC) {
+                                const topic = item.args?.topic
+                                if (typeof topic !== 'string' || !topic) {
+                                    logger.error('redirect_to_topic restriction missing valid args.topic, skipping', {
+                                        token: item.token,
+                                    })
+                                    continue
+                                }
                             }
 
                             const rule = toRestrictionRule(item, restrictionType)
@@ -168,6 +188,7 @@ export class EventIngestionRestrictionManager {
                 processRedisResult(skipResult, RestrictionType.SKIP_PERSON_PROCESSING)
                 processRedisResult(overflowResult, RestrictionType.FORCE_OVERFLOW)
                 processRedisResult(dlqResult, RestrictionType.REDIRECT_TO_DLQ)
+                processRedisResult(redirectToTopicResult, RestrictionType.REDIRECT_TO_TOPIC)
             } catch (error) {
                 logger.warn('Error reading dynamic config for event ingestion restrictions from Redis', { error })
             } finally {

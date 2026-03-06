@@ -2,9 +2,18 @@ import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 
 import { RedisPool } from '../../types'
+import { logger } from '../logger'
 import { EventIngestionRestrictionManager } from './manager'
 import { REDIS_KEY_PREFIX, RedisRestrictionType } from './redis-schema'
-import { RestrictionType } from './rules'
+
+jest.mock('../logger', () => ({
+    logger: {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+    },
+}))
 
 const createMockRedisPool = (): RedisPool => {
     const redisClient = {
@@ -90,6 +99,7 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
                 [null, null],
                 [null, null],
+                [null, null],
             ]),
         }
 
@@ -139,24 +149,23 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             await manager.forceRefresh()
 
             // AND logic: both distinct_id AND event must match
-            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'user1', event: '$pageview' })).toContain(
-                RestrictionType.DROP_EVENT
+            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'user1', event: '$pageview' }).drop).toBe(
+                true
             )
 
             // Only distinct_id matches, event doesn't
-            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'user1', event: '$other' })).not.toContain(
-                RestrictionType.DROP_EVENT
-            )
+            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'user1', event: '$other' }).drop).toBe(null)
 
             // Only event matches, distinct_id doesn't
-            expect(
-                manager.getAppliedRestrictions('token1', { distinct_id: 'other', event: '$pageview' })
-            ).not.toContain(RestrictionType.DROP_EVENT)
+            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'other', event: '$pageview' }).drop).toBe(
+                null
+            )
         })
 
         it('parses v2 format with token-level restriction (all arrays empty)', async () => {
@@ -165,15 +174,14 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             await manager.forceRefresh()
 
             // Empty arrays = applies to all events for this token
-            expect(manager.getAppliedRestrictions('token1')).toContain(RestrictionType.DROP_EVENT)
-            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'any', event: 'any' })).toContain(
-                RestrictionType.DROP_EVENT
-            )
+            expect(manager.getAppliedRestrictions('token1').drop).toBe(true)
+            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'any', event: 'any' }).drop).toBe(true)
         })
 
         it('handles v2 format with all filter types (AND logic)', async () => {
@@ -193,6 +201,7 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             await manager.forceRefresh()
@@ -204,8 +213,8 @@ describe('EventIngestionRestrictionManager', () => {
                     session_id: 'session1',
                     event: '$pageview',
                     uuid: 'uuid-123',
-                })
-            ).toContain(RestrictionType.DROP_EVENT)
+                }).drop
+            ).toBe(true)
 
             // Three match, one fails
             expect(
@@ -214,8 +223,8 @@ describe('EventIngestionRestrictionManager', () => {
                     session_id: 'session1',
                     event: '$pageview',
                     uuid: 'wrong-uuid',
-                })
-            ).not.toContain(RestrictionType.DROP_EVENT)
+                }).drop
+            ).toBe(null)
         })
     })
 
@@ -226,16 +235,13 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             await manager.forceRefresh()
 
-            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'user1' })).toContain(
-                RestrictionType.DROP_EVENT
-            )
-            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'user2' })).not.toContain(
-                RestrictionType.DROP_EVENT
-            )
+            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'user1' }).drop).toBe(true)
+            expect(manager.getAppliedRestrictions('token1', { distinct_id: 'user2' }).drop).toBe(null)
         })
 
         it('handles v0 format without identifiers (token-level)', async () => {
@@ -244,11 +250,12 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             await manager.forceRefresh()
 
-            expect(manager.getAppliedRestrictions('token1')).toContain(RestrictionType.DROP_EVENT)
+            expect(manager.getAppliedRestrictions('token1').drop).toBe(true)
         })
     })
 
@@ -290,13 +297,14 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             await manager.forceRefresh()
 
-            expect(manager.getAppliedRestrictions('token1')).toContain(RestrictionType.DROP_EVENT)
-            expect(manager.getAppliedRestrictions('token2')).toEqual(new Set())
-            expect(manager.getAppliedRestrictions('token3')).toContain(RestrictionType.DROP_EVENT)
+            expect(manager.getAppliedRestrictions('token1').drop).toBe(true)
+            expect(manager.getAppliedRestrictions('token2').isEmpty).toBe(true)
+            expect(manager.getAppliedRestrictions('token3').drop).toBe(true)
         })
 
         it('filters by session_recordings pipeline', async () => {
@@ -331,12 +339,13 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             await sessionManager.forceRefresh()
 
-            expect(sessionManager.getAppliedRestrictions('token1')).toEqual(new Set())
-            expect(sessionManager.getAppliedRestrictions('token2')).toContain(RestrictionType.DROP_EVENT)
+            expect(sessionManager.getAppliedRestrictions('token1').isEmpty).toBe(true)
+            expect(sessionManager.getAppliedRestrictions('token2').drop).toBe(true)
         })
     })
 
@@ -347,8 +356,8 @@ describe('EventIngestionRestrictionManager', () => {
             })
             await mgr.forceRefresh()
 
-            expect(mgr.getAppliedRestrictions('static-token')).toContain(RestrictionType.DROP_EVENT)
-            expect(mgr.getAppliedRestrictions('other-token')).toEqual(new Set())
+            expect(mgr.getAppliedRestrictions('static-token').drop).toBe(true)
+            expect(mgr.getAppliedRestrictions('other-token').isEmpty).toBe(true)
         })
 
         it('applies distinct_id static restriction (legacy format)', async () => {
@@ -357,10 +366,8 @@ describe('EventIngestionRestrictionManager', () => {
             })
             await mgr.forceRefresh()
 
-            expect(mgr.getAppliedRestrictions('static-token', { distinct_id: 'user1' })).toContain(
-                RestrictionType.DROP_EVENT
-            )
-            expect(mgr.getAppliedRestrictions('static-token', { distinct_id: 'user2' })).toEqual(new Set())
+            expect(mgr.getAppliedRestrictions('static-token', { distinct_id: 'user1' }).drop).toBe(true)
+            expect(mgr.getAppliedRestrictions('static-token', { distinct_id: 'user2' }).isEmpty).toBe(true)
         })
 
         it('applies distinct_id static restriction (explicit format)', async () => {
@@ -369,9 +376,7 @@ describe('EventIngestionRestrictionManager', () => {
             })
             await mgr.forceRefresh()
 
-            expect(mgr.getAppliedRestrictions('static-token', { distinct_id: 'user1' })).toContain(
-                RestrictionType.DROP_EVENT
-            )
+            expect(mgr.getAppliedRestrictions('static-token', { distinct_id: 'user1' }).drop).toBe(true)
         })
 
         it('combines static and dynamic restrictions', async () => {
@@ -384,41 +389,45 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, toRedisV2Format([{ token: 'combo-token' }])],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
             await mgr.forceRefresh()
 
             const restrictions = mgr.getAppliedRestrictions('combo-token')
-            expect(restrictions).toContain(RestrictionType.DROP_EVENT)
-            expect(restrictions).toContain(RestrictionType.SKIP_PERSON_PROCESSING)
+            expect(restrictions.drop).toBe(true)
+            expect(restrictions.skipPersonProcessing).toBe(true)
         })
     })
 
     describe('all restriction types', () => {
-        it('returns all four restriction types for matching token', async () => {
+        it('returns all non-redirect restriction types for matching token', async () => {
             pipelineMock.exec.mockResolvedValueOnce([
                 [null, toRedisV2Format([{ token: 'token1' }])],
                 [null, toRedisV2Format([{ token: 'token1' }])],
                 [null, toRedisV2Format([{ token: 'token1' }])],
                 [null, toRedisV2Format([{ token: 'token1' }])],
+                [null, null],
             ])
 
             await manager.forceRefresh()
 
             const restrictions = manager.getAppliedRestrictions('token1')
-            expect(restrictions).toContain(RestrictionType.DROP_EVENT)
-            expect(restrictions).toContain(RestrictionType.SKIP_PERSON_PROCESSING)
-            expect(restrictions).toContain(RestrictionType.FORCE_OVERFLOW)
-            expect(restrictions).toContain(RestrictionType.REDIRECT_TO_DLQ)
-            expect(restrictions.size).toBe(4)
+            expect(restrictions.drop).toBe(true)
+            expect(restrictions.skipPersonProcessing).toBe(true)
+            expect(restrictions.forceOverflow).toBe(true)
+            expect(restrictions.redirectToDlq).toBe(true)
+            expect(restrictions.isEmpty).toBe(false)
         })
 
-        it('returns empty set when no token matches', async () => {
+        it('returns empty restrictions when no token matches', async () => {
             await manager.forceRefresh()
-            expect(manager.getAppliedRestrictions('unknown-token')).toEqual(new Set())
+            const restrictions = manager.getAppliedRestrictions('unknown-token')
+            expect(restrictions.isEmpty).toBe(true)
         })
 
-        it('returns empty set when token is missing', () => {
-            expect(manager.getAppliedRestrictions(undefined)).toEqual(new Set())
+        it('returns empty restrictions when token is missing', () => {
+            const restrictions = manager.getAppliedRestrictions(undefined)
+            expect(restrictions.isEmpty).toBe(true)
         })
     })
 
@@ -428,7 +437,7 @@ describe('EventIngestionRestrictionManager', () => {
 
             await manager.forceRefresh()
 
-            expect(manager.getAppliedRestrictions('any-token')).toEqual(new Set())
+            expect(manager.getAppliedRestrictions('any-token').isEmpty).toBe(true)
             expect(hub.redisPool.release).toHaveBeenCalledWith(redisClient)
         })
 
@@ -437,7 +446,7 @@ describe('EventIngestionRestrictionManager', () => {
 
             await manager.forceRefresh()
 
-            expect(manager.getAppliedRestrictions('any-token')).toEqual(new Set())
+            expect(manager.getAppliedRestrictions('any-token').isEmpty).toBe(true)
         })
 
         it('handles malformed JSON gracefully', async () => {
@@ -446,11 +455,12 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             await manager.forceRefresh()
 
-            expect(manager.getAppliedRestrictions('any-token')).toEqual(new Set())
+            expect(manager.getAppliedRestrictions('any-token').isEmpty).toBe(true)
         })
     })
 
@@ -468,6 +478,190 @@ describe('EventIngestionRestrictionManager', () => {
                 `${REDIS_KEY_PREFIX}:${RedisRestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`
             )
             expect(pipelineMock.get).toHaveBeenCalledWith(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.REDIRECT_TO_DLQ}`)
+            expect(pipelineMock.get).toHaveBeenCalledWith(
+                `${REDIS_KEY_PREFIX}:${RedisRestrictionType.REDIRECT_TO_TOPIC}`
+            )
+        })
+    })
+
+    describe('redirect_to_topic', () => {
+        it('loads redirect_to_topic with valid args.topic', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+                [
+                    null,
+                    JSON.stringify([
+                        {
+                            version: 2,
+                            token: 'token1',
+                            pipelines: ['analytics'],
+                            args: { topic: 'custom-topic' },
+                        },
+                    ]),
+                ],
+            ])
+
+            await manager.forceRefresh()
+
+            const restrictions = manager.getAppliedRestrictions('token1')
+            expect(restrictions.redirectToTopic).toBe('custom-topic')
+        })
+
+        it('skips redirect_to_topic entries with missing args.topic and logs error', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+                [
+                    null,
+                    JSON.stringify([
+                        {
+                            version: 2,
+                            token: 'token1',
+                            pipelines: ['analytics'],
+                        },
+                    ]),
+                ],
+            ])
+
+            await manager.forceRefresh()
+
+            const restrictions = manager.getAppliedRestrictions('token1')
+            expect(restrictions.redirectToTopic).toBeNull()
+            expect(restrictions.isEmpty).toBe(true)
+            expect(logger.error).toHaveBeenCalledWith(
+                'redirect_to_topic restriction missing valid args.topic, skipping',
+                { token: 'token1' }
+            )
+        })
+
+        it('skips redirect_to_topic entries with empty string topic', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+                [
+                    null,
+                    JSON.stringify([
+                        {
+                            version: 2,
+                            token: 'token1',
+                            pipelines: ['analytics'],
+                            args: { topic: '' },
+                        },
+                    ]),
+                ],
+            ])
+
+            await manager.forceRefresh()
+
+            const restrictions = manager.getAppliedRestrictions('token1')
+            expect(restrictions.redirectToTopic).toBeNull()
+            expect(logger.error).toHaveBeenCalled()
+        })
+
+        it('skips redirect_to_topic entries with null args', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+                [
+                    null,
+                    JSON.stringify([
+                        {
+                            version: 2,
+                            token: 'token1',
+                            pipelines: ['analytics'],
+                            args: null,
+                        },
+                    ]),
+                ],
+            ])
+
+            await manager.forceRefresh()
+
+            const restrictions = manager.getAppliedRestrictions('token1')
+            expect(restrictions.redirectToTopic).toBeNull()
+            expect(logger.error).toHaveBeenCalled()
+        })
+
+        it('last matching redirect_to_topic wins when sorted by index', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+                [
+                    null,
+                    JSON.stringify([
+                        {
+                            version: 2,
+                            token: 'token1',
+                            pipelines: ['analytics'],
+                            index: 2,
+                            args: { topic: 'topic-b' },
+                        },
+                        {
+                            version: 2,
+                            token: 'token1',
+                            pipelines: ['analytics'],
+                            index: 1,
+                            args: { topic: 'topic-a' },
+                        },
+                    ]),
+                ],
+            ])
+
+            await manager.forceRefresh()
+
+            const restrictions = manager.getAppliedRestrictions('token1')
+            expect(restrictions.redirectToTopic).toBe('topic-b')
+        })
+
+        it('sorts entries by index ascending', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+                [
+                    null,
+                    JSON.stringify([
+                        {
+                            version: 2,
+                            token: 'token1',
+                            pipelines: ['analytics'],
+                            index: 10,
+                            args: { topic: 'topic-last' },
+                        },
+                        {
+                            version: 2,
+                            token: 'token1',
+                            pipelines: ['analytics'],
+                            index: 5,
+                            args: { topic: 'topic-middle' },
+                        },
+                        {
+                            version: 2,
+                            token: 'token1',
+                            pipelines: ['analytics'],
+                            index: 1,
+                            args: { topic: 'topic-first' },
+                        },
+                    ]),
+                ],
+            ])
+
+            await manager.forceRefresh()
+
+            const restrictions = manager.getAppliedRestrictions('token1')
+            expect(restrictions.redirectToTopic).toBe('topic-last')
         })
     })
 })

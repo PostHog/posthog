@@ -2,6 +2,7 @@
 export { EventIngestionRestrictionManager, IngestionPipeline } from './manager'
 export { REDIS_KEY_PREFIX, RedisRestrictionType } from './redis-schema'
 export {
+    AppliedRestrictions,
     EventContext,
     RestrictionFilters,
     RestrictionMap,

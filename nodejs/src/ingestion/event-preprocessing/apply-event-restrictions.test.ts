@@ -1,6 +1,10 @@
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { EventHeaders } from '../../types'
-import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restrictions'
+import {
+    AppliedRestrictions,
+    EventIngestionRestrictionManager,
+    Restriction,
+} from '../../utils/event-ingestion-restrictions'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
 import { RoutingConfig, createApplyEventRestrictionsStep } from './apply-event-restrictions'
 
@@ -11,7 +15,7 @@ describe('createApplyEventRestrictionsStep', () => {
 
     beforeEach(() => {
         eventIngestionRestrictionManager = {
-            getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),
+            getAppliedRestrictions: jest.fn().mockReturnValue(new AppliedRestrictions()),
         } as unknown as EventIngestionRestrictionManager
 
         routingConfig = {
@@ -131,7 +135,7 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.DROP_EVENT])
+                new AppliedRestrictions(new Set([Restriction.DROP_EVENT]))
             )
 
             const result = await step(input)
@@ -150,12 +154,31 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.REDIRECT_TO_DLQ])
+                new AppliedRestrictions(new Set([Restriction.REDIRECT_TO_DLQ]))
             )
 
             const result = await step(input)
 
             expect(result).toEqual(dlq('restricted_to_dlq'))
+        })
+    })
+
+    describe('redirect to custom topic', () => {
+        it('returns redirect when REDIRECT_TO_TOPIC restriction is applied', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'redirect-token',
+                    distinct_id: 'user-123',
+                }),
+            }
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new AppliedRestrictions(new Set([Restriction.REDIRECT_TO_TOPIC]), 'custom-topic')
+            )
+
+            const result = await step(input)
+
+            expect(result).toEqual(redirect('restricted_to_topic', 'custom-topic', true, false))
         })
     })
 
@@ -169,7 +192,7 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
+                new AppliedRestrictions(new Set([Restriction.FORCE_OVERFLOW]))
             )
 
             const result = await step(input)
@@ -194,7 +217,7 @@ describe('createApplyEventRestrictionsStep', () => {
             }
 
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
+                new AppliedRestrictions(new Set([Restriction.FORCE_OVERFLOW]))
             )
 
             const result = await step(input)
@@ -228,7 +251,7 @@ describe('createApplyEventRestrictionsStep', () => {
             }
 
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
+                new AppliedRestrictions(new Set([Restriction.FORCE_OVERFLOW]))
             )
 
             const result = await stepWithNoLocality(input)
@@ -253,7 +276,7 @@ describe('createApplyEventRestrictionsStep', () => {
             }
 
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW, Restriction.SKIP_PERSON_PROCESSING])
+                new AppliedRestrictions(new Set([Restriction.FORCE_OVERFLOW, Restriction.SKIP_PERSON_PROCESSING]))
             )
 
             const result = await step(input)
@@ -287,7 +310,7 @@ describe('createApplyEventRestrictionsStep', () => {
             }
 
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW, Restriction.SKIP_PERSON_PROCESSING])
+                new AppliedRestrictions(new Set([Restriction.FORCE_OVERFLOW, Restriction.SKIP_PERSON_PROCESSING]))
             )
 
             const result = await stepWithNoLocality(input)
@@ -318,7 +341,7 @@ describe('createApplyEventRestrictionsStep', () => {
             }
 
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
+                new AppliedRestrictions(new Set([Restriction.FORCE_OVERFLOW]))
             )
 
             const result = await disabledStep(input)
@@ -338,7 +361,7 @@ describe('createApplyEventRestrictionsStep', () => {
             }
 
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.DROP_EVENT, Restriction.REDIRECT_TO_DLQ])
+                new AppliedRestrictions(new Set([Restriction.DROP_EVENT, Restriction.REDIRECT_TO_DLQ]))
             )
 
             const result = await step(input)
@@ -356,12 +379,72 @@ describe('createApplyEventRestrictionsStep', () => {
             }
 
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.DROP_EVENT, Restriction.FORCE_OVERFLOW])
+                new AppliedRestrictions(new Set([Restriction.DROP_EVENT, Restriction.FORCE_OVERFLOW]))
             )
 
             const result = await step(input)
 
             expect(result).toEqual(drop('blocked_token'))
+        })
+
+        it('DLQ takes priority over redirect_to_topic', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'token',
+                    distinct_id: 'user',
+                }),
+            }
+
+            const restrictions = new AppliedRestrictions(
+                new Set([Restriction.REDIRECT_TO_TOPIC, Restriction.REDIRECT_TO_DLQ]),
+                'custom-topic'
+            )
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(restrictions)
+
+            const result = await step(input)
+
+            expect(result).toEqual(dlq('restricted_to_dlq'))
+        })
+
+        it('drop takes priority over redirect_to_topic', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'token',
+                    distinct_id: 'user',
+                }),
+            }
+
+            const restrictions = new AppliedRestrictions(
+                new Set([Restriction.REDIRECT_TO_TOPIC, Restriction.DROP_EVENT]),
+                'custom-topic'
+            )
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(restrictions)
+
+            const result = await step(input)
+
+            expect(result).toEqual(drop('blocked_token'))
+        })
+
+        it('redirect_to_topic takes priority over overflow', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'token',
+                    distinct_id: 'user',
+                }),
+            }
+
+            const restrictions = new AppliedRestrictions(
+                new Set([Restriction.REDIRECT_TO_TOPIC, Restriction.FORCE_OVERFLOW]),
+                'custom-topic'
+            )
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(restrictions)
+
+            const result = await step(input)
+
+            expect(result).toEqual(redirect('restricted_to_topic', 'custom-topic', true, false))
         })
 
         it('DLQ takes priority over overflow', async () => {
@@ -374,7 +457,7 @@ describe('createApplyEventRestrictionsStep', () => {
             }
 
             jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.REDIRECT_TO_DLQ, Restriction.FORCE_OVERFLOW])
+                new AppliedRestrictions(new Set([Restriction.REDIRECT_TO_DLQ, Restriction.FORCE_OVERFLOW]))
             )
 
             const result = await step(input)

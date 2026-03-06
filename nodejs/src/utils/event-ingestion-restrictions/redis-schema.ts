@@ -8,6 +8,7 @@ export enum RedisRestrictionType {
     SKIP_PERSON_PROCESSING = 'skip_person_processing',
     FORCE_OVERFLOW_FROM_INGESTION = 'force_overflow_from_ingestion',
     REDIRECT_TO_DLQ = 'redirect_to_dlq',
+    REDIRECT_TO_TOPIC = 'redirect_to_topic',
 }
 
 export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
@@ -20,10 +21,12 @@ const RedisRestrictionItemSchemaV0 = z.object({
     version: z.literal(0),
     token: z.string(),
     pipelines: pipelinesSchema,
+    index: z.number().optional(),
     distinct_id: z.string().optional(),
     session_id: z.string().optional(),
     event_name: z.string().optional(),
     event_uuid: z.string().optional(),
+    args: z.record(z.unknown()).nullable().optional(),
 })
 
 // Redis schema v2 - arrays per filter type (mirrors Rust format)
@@ -31,10 +34,12 @@ const RedisRestrictionItemSchemaV2 = z.object({
     version: z.literal(2),
     token: z.string(),
     pipelines: pipelinesSchema,
+    index: z.number().optional(),
     distinct_ids: z.array(z.string()).optional(),
     session_ids: z.array(z.string()).optional(),
     event_names: z.array(z.string()).optional(),
     event_uuids: z.array(z.string()).optional(),
+    args: z.record(z.unknown()).nullable().optional(),
 })
 
 // Preprocess to normalize version: missing/undefined -> 0
@@ -70,6 +75,7 @@ export function toRestrictionRule(item: RedisRestrictionItem, restrictionType: R
         return {
             restrictionType,
             scope: filters.isEmpty() ? { type: 'all' } : { type: 'filtered', filters },
+            args: item.args ?? undefined,
         }
     } else {
         // V0 format (version === 0) - single identifier (creates single-element arrays)
@@ -82,6 +88,7 @@ export function toRestrictionRule(item: RedisRestrictionItem, restrictionType: R
         return {
             restrictionType,
             scope: filters.isEmpty() ? { type: 'all' } : { type: 'filtered', filters },
+            args: item.args ?? undefined,
         }
     }
 }

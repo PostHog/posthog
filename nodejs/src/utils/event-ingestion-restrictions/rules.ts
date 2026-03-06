@@ -4,6 +4,7 @@ export enum RestrictionType {
     SKIP_PERSON_PROCESSING = 2,
     FORCE_OVERFLOW = 3,
     REDIRECT_TO_DLQ = 4,
+    REDIRECT_TO_TOPIC = 5,
 }
 
 // Internal event context for matching against restrictions
@@ -70,9 +71,44 @@ export type RestrictionScope = { type: 'all' } | { type: 'filtered'; filters: Re
 export interface RestrictionRule {
     restrictionType: RestrictionType
     scope: RestrictionScope
+    args?: Record<string, unknown>
 }
 
-const EMPTY_RESTRICTIONS: ReadonlySet<RestrictionType> = new Set()
+export class AppliedRestrictions {
+    private readonly types: ReadonlySet<RestrictionType>
+    private readonly _redirectTopic: string | undefined
+
+    constructor(types: ReadonlySet<RestrictionType> = new Set(), redirectTopic?: string) {
+        this.types = types
+        this._redirectTopic = redirectTopic
+    }
+
+    get isEmpty(): boolean {
+        return this.types.size === 0
+    }
+
+    get drop(): true | null {
+        return this.types.has(RestrictionType.DROP_EVENT) ? true : null
+    }
+
+    get redirectToDlq(): true | null {
+        return this.types.has(RestrictionType.REDIRECT_TO_DLQ) ? true : null
+    }
+
+    get redirectToTopic(): string | null {
+        return this.types.has(RestrictionType.REDIRECT_TO_TOPIC) ? (this._redirectTopic ?? null) : null
+    }
+
+    get forceOverflow(): true | null {
+        return this.types.has(RestrictionType.FORCE_OVERFLOW) ? true : null
+    }
+
+    get skipPersonProcessing(): true | null {
+        return this.types.has(RestrictionType.SKIP_PERSON_PROCESSING) ? true : null
+    }
+}
+
+const EMPTY_RESTRICTIONS = new AppliedRestrictions()
 
 // Manages restrictions by token. Mirrors Rust RestrictionMap.
 export class RestrictionMap {
@@ -84,7 +120,7 @@ export class RestrictionMap {
         this.restrictions.set(token, existing)
     }
 
-    getRestrictions(token: string, lookup?: EventContext): ReadonlySet<RestrictionType> {
+    getRestrictions(token: string, lookup?: EventContext): AppliedRestrictions {
         const tokenRestrictions = this.restrictions.get(token)
         if (!tokenRestrictions) {
             return EMPTY_RESTRICTIONS
@@ -98,13 +134,22 @@ export class RestrictionMap {
             uuid: lookup?.uuid,
         }
 
-        const result = new Set<RestrictionType>()
+        const types = new Set<RestrictionType>()
+        let redirectTopic: string | undefined
         for (const rule of tokenRestrictions) {
             if (this.ruleMatches(rule, event)) {
-                result.add(rule.restrictionType)
+                if (rule.restrictionType === RestrictionType.REDIRECT_TO_TOPIC) {
+                    const topic = rule.args?.topic
+                    if (typeof topic === 'string' && topic) {
+                        types.add(RestrictionType.REDIRECT_TO_TOPIC)
+                        redirectTopic = topic
+                    }
+                } else {
+                    types.add(rule.restrictionType)
+                }
             }
         }
-        return result
+        return types.size > 0 ? new AppliedRestrictions(types, redirectTopic) : EMPTY_RESTRICTIONS
     }
 
     private ruleMatches(rule: RestrictionRule, event: EventContext): boolean {
