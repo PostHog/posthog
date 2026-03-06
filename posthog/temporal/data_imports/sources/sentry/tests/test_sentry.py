@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 from unittest.mock import Mock, patch
@@ -108,11 +109,14 @@ class TestSentryTransport:
         assert request.params == {}
 
     def test_get_resource_incremental_issues(self) -> None:
-        resource = get_resource(
-            endpoint="issues",
-            organization_slug="acme",
-            should_use_incremental_field=True,
-            incremental_field="lastSeen",
+        resource = cast(
+            dict[str, Any],
+            get_resource(
+                endpoint="issues",
+                organization_slug="acme",
+                should_use_incremental_field=True,
+                incremental_field="lastSeen",
+            ),
         )
 
         assert resource["name"] == "issues"
@@ -135,10 +139,13 @@ class TestSentryTransport:
         ]
     )
     def test_get_resource_non_fanout_shape(self, endpoint, expected_path, expected_primary_key) -> None:
-        resource = get_resource(
-            endpoint=endpoint,
-            organization_slug="acme",
-            should_use_incremental_field=False,
+        resource = cast(
+            dict[str, Any],
+            get_resource(
+                endpoint=endpoint,
+                organization_slug="acme",
+                should_use_incremental_field=False,
+            ),
         )
 
         assert resource["name"] == endpoint
@@ -198,7 +205,7 @@ class TestSentrySourceValidation:
         config = SentrySourceConfig(
             auth_token="token",
             organization_slug="acme",
-            api_base_url="https://example.sentry.invalid",
+            api_base_url=cast(Any, "https://example.sentry.invalid"),
         )
 
         result = source.validate_credentials(config, team_id=1)

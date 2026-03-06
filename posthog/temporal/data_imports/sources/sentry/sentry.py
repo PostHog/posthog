@@ -535,27 +535,23 @@ def sentry_source(
     endpoint_config = SENTRY_ENDPOINTS[endpoint]
     base_api_url = f"{_normalize_api_base_url(api_base_url)}/api/0"
 
-    common_kwargs = {
-        "organization_slug": organization_slug,
-        "auth_token": auth_token,
-        "base_api_url": base_api_url,
-        "team_id": team_id,
-        "job_id": job_id,
-        "db_incremental_field_last_value": db_incremental_field_last_value,
-        "should_use_incremental_field": should_use_incremental_field,
-        "incremental_field": incremental_field,
-    }
-
     # --- Project fan-out (parent=projects, resolve project_slug) ---
     if endpoint_config.is_project_fanout:
         return _build_dependent_source(
             parent_name="projects",
             child_endpoint=endpoint,
+            organization_slug=organization_slug,
+            auth_token=auth_token,
+            base_api_url=base_api_url,
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=db_incremental_field_last_value,
             resolve_param="project_slug",
             resolve_field="slug",
             include_from_parent=["id", "slug"],
             row_mapper=_map_project_parent_fields,
-            **common_kwargs,
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
         )
 
     # --- Issue fan-out ---
@@ -577,11 +573,18 @@ def sentry_source(
         return _build_dependent_source(
             parent_name="issues",
             child_endpoint=endpoint,
+            organization_slug=organization_slug,
+            auth_token=auth_token,
+            base_api_url=base_api_url,
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=db_incremental_field_last_value,
             resolve_param="issue_id",
             resolve_field="id",
             include_from_parent=["id"],
             row_mapper=_map_issue_parent_fields,
-            **common_kwargs,
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
         )
 
     # --- Flat org-level endpoints (via rest_api_resources) ---
