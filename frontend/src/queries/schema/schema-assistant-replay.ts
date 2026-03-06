@@ -2,6 +2,7 @@ import {
     EventPropertyFilter,
     FilterLogicalOperator,
     GroupPropertyFilter,
+    LogEntryPropertyFilter,
     PersonPropertyFilter,
     RecordingDurationFilter,
     RecordingPropertyFilter,
@@ -37,6 +38,7 @@ export type MaxInnerUniversalFiltersGroup = {
      * - 'person' type: Filter by person properties (e.g. `email` contains Y).
      * - 'session' type: Filter by session-level properties (e.g. `$session_duration`).
      * - 'recording' type: Filter by recording metadata (e.g. `console_log_level`, `visited_page`).
+     * - 'log_entry' type: Filter by console log content (e.g. `level` equals "error", `message` icontains "failed to load").
      * - 'group' type: Filter by group properties (e.g. company `plan` is "enterprise").
      * - 'events' type: Filter by whether a specific event occurred (e.g. `$pageview` was present).
      */
@@ -59,5 +61,6 @@ export type MaxUniversalFilterValue =
     | PersonPropertyFilter
     | SessionPropertyFilter
     | RecordingPropertyFilter
+    | LogEntryPropertyFilter
     | GroupPropertyFilter
     | MaxRecordingEventFilter

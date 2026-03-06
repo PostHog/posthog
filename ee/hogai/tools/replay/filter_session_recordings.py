@@ -55,6 +55,12 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         - These are built-in and don't require discovery via read_taxonomy.
         - **CRITICAL**: These are NOT events. There are no events named `$keypress`, `$click`, or `$console_error`. Never use event-type filters for recording metrics.
 
+        **CONSOLE LOG PROPERTIES** (type: `log_entry`):
+        - `level`: Filter by log level. Values: "info", "warn", "error". Use `operator: "exact"`.
+        - `message`: Search console log text content. Use `operator: "icontains"` for partial matching.
+        - Use these when users want to find sessions containing specific console log messages or error text.
+        - Example: To find sessions with "IP detection error" in logs: `{{"key": "message", "type": "log_entry", "operator": "icontains", "value": "IP detection error"}}`
+
         **CRITICAL**: ALWAYS use read_taxonomy to discover properties before creating filters. Never assume property names or values exist without verification. If you can't find an exact property match, try the next best match. Do not call the same tool twice for the same entity/event.
 
         # Property Value Matching
@@ -69,6 +75,7 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         **Session**: `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`
         **Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields
         **Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
+        **Console logs** (type: `log_entry`): `level` (info/warn/error), `message` (console log text search)
 
         # Filter Completion Strategy
 

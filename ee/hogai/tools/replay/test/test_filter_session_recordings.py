@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import (
+    LogEntryPropertyFilter,
     MaxInnerUniversalFiltersGroup,
     MaxOuterUniversalFiltersGroup,
     MaxRecordingUniversalFilters,
@@ -271,6 +272,34 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         if expected_part_2:
             self.assertIn(expected_part_2, result_text)
         self.assertIsNone(artifact)
+
+
+class TestFilterSessionRecordingsToolSchema(NonAtomicBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "log_level_filter",
+                LogEntryPropertyFilter(key="level", type="log_entry", operator=PropertyOperator.EXACT, value=["error"]),
+            ),
+            (
+                "log_message_filter",
+                LogEntryPropertyFilter(
+                    key="message", type="log_entry", operator=PropertyOperator.ICONTAINS, value="IP detection error"
+                ),
+            ),
+        ]
+    )
+    def test_log_entry_filters_accepted_in_max_filters_schema(self, _name: str, log_filter: LogEntryPropertyFilter):
+        filters = MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[MaxInnerUniversalFiltersGroup(type="AND", values=[log_filter])],
+            ),
+            duration=[],
+            date_from="-7d",
+        )
+        self.assertEqual(len(filters.filter_group.values[0].values), 1)
+        self.assertEqual(filters.filter_group.values[0].values[0].type, "log_entry")
 
 
 class TestFilterSessionRecordingsToolFormatting(NonAtomicBaseTest):
