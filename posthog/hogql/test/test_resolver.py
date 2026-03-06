@@ -1184,8 +1184,8 @@ class TestResolver(BaseTest):
         assert isinstance(expr.select_from, ast.JoinExpr)
         assert isinstance(expr.select_from.table, ast.ValuesQuery)
         columns = expr.select_from.table.type.columns
-        assert "column1" in columns
-        assert "column2" in columns
+        assert "col0" in columns
+        assert "col1" in columns
 
     def test_values_query_row_length_mismatch(self):
         with self.assertRaisesMessage(QueryError, "VALUES row 2 has 1 columns, expected 2"):

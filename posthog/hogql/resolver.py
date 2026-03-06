@@ -184,7 +184,7 @@ class Resolver(CloningVisitor):
         columns: dict[str, ast.Type] = {}
         if resolved_rows:
             for j, expr in enumerate(resolved_rows[0]):
-                col_name = f"column{j + 1}"
+                col_name = f"col{j}"
                 columns[col_name] = expr.type or ast.UnknownType()
 
         result = ast.ValuesQuery(
@@ -637,6 +637,14 @@ class Resolver(CloningVisitor):
         elif isinstance(node.table, ast.ValuesQuery):
             node = cast(ast.JoinExpr, clone_expr(node))
             node.table = cast(ast.ValuesQuery, self.visit(node.table))
+
+            # Auto-generate alias and alias_columns when omitted so the
+            # printed SQL contains column names that match the resolved
+            # SelectQueryType (sugar syntax like DuckDB's col0, col1, ...).
+            if not node.alias_columns and node.table.type:
+                node.alias_columns = list(node.table.type.columns.keys())
+                if node.alias is None:
+                    node.alias = "values"
 
             # Remap column names if alias_columns is provided
             if node.alias_columns and node.table.type:
