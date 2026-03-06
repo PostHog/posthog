@@ -1066,8 +1066,9 @@ class TestExternalDataSource(APIBaseTest):
         schema.refresh_from_db()
         self.assertFalse(schema.deleted)
         self.assertTrue(schema.should_sync)
-        self.assertIsNotNone(schema.table)
-        self.assertEqual(schema.table.name, "Accounts")
+        table = schema.table
+        assert table is not None
+        self.assertEqual(table.name, "Accounts")
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
@@ -1116,6 +1117,8 @@ class TestExternalDataSource(APIBaseTest):
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source__id=response.json()["id"], name="accounts")
         table = schema.table
         assert table is not None
+        assert schema.sync_type_config is not None
+        assert table.columns is not None
         self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["data_type"], "numeric")
         self.assertEqual(table.columns["amount"]["clickhouse"], "Decimal")
         self.assertEqual(table.columns["amount"]["hogql"], "numeric")
