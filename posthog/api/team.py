@@ -237,7 +237,7 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
-class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     sources_map = serializers.JSONField(required=False)
     conversion_goals = serializers.JSONField(required=False)
     attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
@@ -297,7 +297,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
         return instance
 
 
-class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False)
     signup_pageview_event = serializers.JSONField(required=False)
     signup_event = serializers.JSONField(required=False)
@@ -991,7 +991,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(
-            instance.customer_analytics_config, data=validated_data, partial=True
+            instance.customer_analytics_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
         )
         if not serializer.is_valid():
             raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
