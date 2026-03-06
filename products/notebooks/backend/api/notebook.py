@@ -103,7 +103,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
-    short_id = serializers.CharField(max_length=12, required=False)
+    short_id = serializers.CharField(required=False)
 
     class Meta:
         model = Notebook
