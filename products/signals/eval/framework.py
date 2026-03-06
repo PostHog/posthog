@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+import logging
 import traceback
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -7,6 +8,8 @@ from typing import Any
 
 from posthoganalytics import Posthog
 from posthoganalytics.ai.openai import AsyncOpenAI
+
+logger = logging.getLogger(__name__)
 
 DISTINCT_ID = "llma_eval"
 DEFAULT_CONCURRENCY = 10
@@ -133,6 +136,16 @@ async def _run_case(
         return result
 
 
+def _log_verbose(r: EvalResult) -> None:
+    if r.case.expected is not None:
+        output_answer = r.output.get("answer", r.output) if isinstance(r.output, dict) else r.output
+        logger.warning("    expected: %s | got: %s", r.case.expected, output_answer)
+    if isinstance(r.output, dict) and r.output.get("thoughts"):
+        logger.warning("    thoughts: %s", r.output["thoughts"])
+    if r.metric and r.metric.reasoning:
+        logger.warning("    judge: %s", r.metric.reasoning)
+
+
 async def run_eval(
     client: Posthog,
     openai_client: AsyncOpenAI,
@@ -141,6 +154,7 @@ async def run_eval(
     task_fn: TaskFn,
     judge_fn: JudgeFn,
     max_concurrency: int = DEFAULT_CONCURRENCY,
+    verbose: bool = True,
 ) -> list[EvalResult]:
     experiment_id = deterministic_uuid(experiment_name)
     semaphore = asyncio.Semaphore(max_concurrency)
@@ -175,15 +189,17 @@ async def run_eval(
 
     client.flush()
 
-    print(f"\n{'=' * 60}")  # noqa: T201
-    print(f"Eval: {experiment_name}")  # noqa: T201
-    print(f"{'=' * 60}")  # noqa: T201
+    logger.warning("\n%s", "=" * 60)
+    logger.warning("Eval: %s", experiment_name)
+    logger.warning("=" * 60)
     for r in eval_results:
         score_str = f"{r.metric.score}" if r.metric and r.metric.score is not None else "N/A"
         status = r.metric.status if r.metric else "unknown"
-        print(f"  {r.case.name}: score={score_str} status={status}")  # noqa: T201
+        logger.warning("  %s: score=%s status=%s", r.case.name, score_str, status)
         if r.error:
-            print(f"    error: {r.error.splitlines()[-1]}")  # noqa: T201
-    print(f"{'=' * 60}\n")  # noqa: T201
+            logger.error("    error: %s", r.error.splitlines()[-1])
+        if verbose:
+            _log_verbose(r)
+    logger.warning("%s\n", "=" * 60)
 
     return eval_results

@@ -15,6 +15,7 @@ Each eval has three parts:
 3. **Cases** — list of `EvalCase(name, input, expected)` defining test inputs
 
 `run_eval()` is async and runs all cases concurrently (bounded by `max_concurrency`, default 10) using `asyncio.gather`. Errors are caught — pytest always passes.
+By default (`verbose=True`), each case logs the task output, thoughts (if present), and judge reasoning alongside the score.
 
 ## Rules
 
@@ -32,7 +33,7 @@ Each eval has three parts:
 ## Running
 
 ```bash
-pytest products/signals/eval/test_<name>.py -s -v
+pytest products/signals/eval/eval_<name>.py -s -v --log-cli-level=WARNING
 ```
 
 Requires `POSTHOG_PROJECT_API_KEY` (`phc_` prefix) and relevant AI provider keys in `.env`.
