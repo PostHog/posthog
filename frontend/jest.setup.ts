@@ -12,6 +12,15 @@ global.TextEncoder = TextEncoder as any
 window.scrollTo = jest.fn()
 window.matchMedia = jest.fn(() => ({ matches: false, addListener: jest.fn(), removeListener: jest.fn() }) as any)
 
+// jsdom does not implement AbortSignal.timeout — polyfill for tests
+if (typeof AbortSignal.timeout !== 'function') {
+    AbortSignal.timeout = (ms: number): AbortSignal => {
+        const controller = new AbortController()
+        setTimeout(() => controller.abort(new DOMException('TimeoutError', 'TimeoutError')), ms)
+        return controller.signal
+    }
+}
+
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it
 if (typeof (globalThis as any).CSS === 'undefined') {
     ;(globalThis as any).CSS = {}

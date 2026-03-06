@@ -4,15 +4,6 @@ import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from '~/toolbar/utils'
 
-// jsdom does not implement AbortSignal.timeout — polyfill for tests.
-if (!AbortSignal.timeout) {
-    AbortSignal.timeout = (ms: number): AbortSignal => {
-        const controller = new AbortController()
-        setTimeout(() => controller.abort(new DOMException('TimeoutError', 'TimeoutError')), ms)
-        return controller.signal
-    }
-}
-
 global.fetch = jest.fn(() =>
     Promise.resolve({
         ok: true,
