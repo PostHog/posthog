@@ -78,7 +78,7 @@ export const pageviews = {
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(4) }).repeat(6),
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(3) }).repeat(5),
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(2) }).repeat(4),
-        ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(1) }).repeat(3),
+        ...createEvent({ event: '$pageview', user: pvUser, timestamp: hoursAgo(36) }).repeat(3),
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(0) }).repeat(2),
     ],
     expected: {

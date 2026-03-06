@@ -130,7 +130,16 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             const pkcePayload = JSON.stringify({ verifier, ts: Date.now() })
             localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
 
-            const redirect = encodeURIComponent(window.location.href)
+            // Strip __posthog hash params before building the redirect URL.
+            // posthog-js reads these at load time but never cleans them from the URL.
+            // Including them would cause a re-initialization loop after OAuth callback.
+            const hash = window.location.hash
+                .replace(/[#&]__posthog=[^&]*/g, '')
+                .replace(/^&/, '#')
+                .replace(/^#$/, '')
+            const redirect = encodeURIComponent(
+                window.location.origin + window.location.pathname + window.location.search + hash
+            )
             const codeChallenge = encodeURIComponent(challenge)
             window.location.href = `${values.uiHost}/toolbar_oauth/authorize/?redirect=${redirect}&code_challenge=${codeChallenge}`
         },
@@ -357,9 +366,13 @@ export async function toolbarFetch(
     })
 
     if (response.status === 403) {
-        const responseData = await response.clone().json()
-        if (responseData.detail === "You don't have access to the project.") {
-            toolbarConfigLogic.actions.authenticate()
+        try {
+            const responseData = await response.clone().json()
+            if (responseData.detail === "You don't have access to the project.") {
+                toolbarConfigLogic.actions.authenticate()
+            }
+        } catch {
+            // Response wasn't JSON (e.g. HTML error page) — ignore
         }
     }
     return response

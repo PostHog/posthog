@@ -36,7 +36,8 @@ export function useScrollable(): { ref: React.MutableRefObject<HTMLDivElement | 
             isScrollableBottom: Math.floor(element.scrollHeight) > Math.ceil(element.scrollTop + element.clientHeight),
         }
 
-        const hasChanged = Object.keys(newScrollable).some((key) => newScrollable[key] !== isScrollableRef.current[key])
+        const scrollableKeys = Object.keys(newScrollable) as Array<keyof typeof newScrollable>
+        const hasChanged = scrollableKeys.some((key) => newScrollable[key] !== isScrollableRef.current[key])
 
         if (hasChanged) {
             setIsScrollable(newScrollable)

@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import re
+import json
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
 import click
 from hogli.core.cli import cli
 
+REPO_ROOT = Path(__file__).parent.parent.parent
 STRUCTURE_FILE = Path(__file__).parent / "product_structure.yaml"
-PRODUCTS_DIR = Path(__file__).parent.parent.parent / "products"
-TACH_TOML = Path(__file__).parent.parent.parent / "tach.toml"
+PRODUCTS_DIR = REPO_ROOT / "products"
+TACH_TOML = REPO_ROOT / "tach.toml"
+FRONTEND_PACKAGE_JSON = REPO_ROOT / "frontend" / "package.json"
+DJANGO_SETTINGS = REPO_ROOT / "posthog" / "settings" / "web.py"
 
 
 def load_structure() -> dict:
@@ -46,25 +52,70 @@ def _render_template(template: str, product_name: str) -> str:
 
 def _add_to_tach_toml(product_name: str, *, dry_run: bool) -> None:
     """Add product module to tach.toml as an isolated product."""
-    if not TACH_TOML.exists():
-        return
-
-    content = TACH_TOML.read_text()
     module_path = f"products.{product_name}"
-
-    if f'path = "{module_path}"' in content:
-        click.echo(f"\n  Already in tach.toml: {module_path}")
-        return
-
     block = f'\n[[modules]]\npath = "{module_path}"\ndepends_on = ["posthog"]\nlayer = "products"\n'
 
-    if dry_run:
-        click.echo(f"\n  Would add to tach.toml: {module_path}")
+    _register_in_file(
+        TACH_TOML,
+        "tach.toml",
+        f'path = "{module_path}"',
+        lambda content: content.rstrip() + "\n" + block,
+        dry_run=dry_run,
+    )
+
+
+def _register_in_file(
+    file_path: Path, label: str, needle: str, write_fn: Callable[[str], str | None], *, dry_run: bool
+) -> None:
+    """Register a product entry in a config file. Skips if needle already present."""
+    if not file_path.exists():
         return
 
-    content = content.rstrip() + "\n" + block
-    TACH_TOML.write_text(content)
-    click.echo(f"\n  Added to tach.toml: {module_path}")
+    content = file_path.read_text()
+    if needle in content:
+        click.echo(f"\n  Already in {label}: {needle}")
+        return
+
+    if dry_run:
+        click.echo(f"\n  Would add to {label}: {needle}")
+        return
+
+    result = write_fn(content)
+    if result is not None:
+        file_path.write_text(result)
+        click.echo(f"\n  Added to {label}: {needle}")
+
+
+def _add_to_frontend_package_json(product_name: str, *, dry_run: bool) -> None:
+    """Add product workspace dependency to frontend/package.json."""
+    pkg_name = f"@posthog/products-{product_name.replace('_', '-')}"
+
+    def write(content: str) -> str:
+        data = json.loads(content)
+        deps = data.get("dependencies", {})
+        deps[pkg_name] = "workspace:*"
+        data["dependencies"] = dict(sorted(deps.items()))
+        return json.dumps(data, indent=4) + "\n"
+
+    _register_in_file(FRONTEND_PACKAGE_JSON, "frontend/package.json", pkg_name, write, dry_run=dry_run)
+
+
+def _add_to_django_settings(product_name: str, *, dry_run: bool) -> None:
+    """Add product app config to INSTALLED_APPS in Django settings."""
+    pascal_name = "".join(word.capitalize() for word in product_name.split("_"))
+    app_config = f"products.{product_name}.backend.apps.{pascal_name}Config"
+
+    def write(content: str) -> str | None:
+        # Find the last product entry in INSTALLED_APPS and insert after it
+        pattern = r'(    "products\.[^"]+",\n)(?!    "products\.)'
+        match = list(re.finditer(pattern, content))
+        if not match:
+            click.echo(f"\n  Could not find INSTALLED_APPS products section — add manually: {app_config}")
+            return None
+        insert_pos = match[-1].end()
+        return content[:insert_pos] + f'    "{app_config}",\n' + content[insert_pos:]
+
+    _register_in_file(DJANGO_SETTINGS, "Django settings", app_config, write, dry_run=dry_run)
 
 
 def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
@@ -149,6 +200,8 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
             click.echo(f"    {path}")
 
     _add_to_tach_toml(name, dry_run=dry_run)
+    _add_to_frontend_package_json(name, dry_run=dry_run)
+    _add_to_django_settings(name, dry_run=dry_run)
 
 
 def _check_file_exists(backend_dir: Path, path: str) -> bool:
