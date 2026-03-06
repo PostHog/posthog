@@ -19,6 +19,7 @@ import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { createReadOnlyProcessGroupsStep } from '../event-processing/readonly-process-groups-step'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { TopHogRegistry, count, countOk, createTopHogWrapper, timer } from '../pipelines/extensions/tophog'
@@ -28,7 +29,6 @@ import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-red
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
 import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
-import { createGroupTypeMappingStep } from './group-type-mapping-step'
 import { createPersonPropertiesReadOnlyStep } from './person-properties-step'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 
@@ -78,8 +78,8 @@ export interface ErrorTrackingPipelineConfig {
  * 5. Cymbal processing - Symbolicate, fingerprint, and link issues
  * 6. Person properties - Fetch person by distinct_id (read-only)
  * 7. Hog transformations - Run team transformations (including GeoIP if enabled)
- * 8. Group type mapping - Map group types to indexes
- * 9. Prepare event - Convert to PreIngestionEvent format, track if person found
+ * 8. Prepare event - Convert to PreIngestionEvent format, track if person found
+ * 9. Group type mapping - Map group types to indexes (read-only)
  * 10. Create event - Build ErrorTrackingKafkaEvent (matches Cymbal's output format)
  * 11. Emit event - Produce to output topic
  *
@@ -197,10 +197,10 @@ export function createErrorTrackingPipeline(
                                             )
                                             // Run Hog transformations (including GeoIP if team has it enabled)
                                             .pipe(createHogTransformEventStep(hogTransformer))
-                                            // Map group types to indexes
-                                            .pipe(createGroupTypeMappingStep(groupTypeManager))
                                             // Prepare event for emission
                                             .pipe(createErrorTrackingPrepareEventStep())
+                                            // Map group types to indexes (read-only, no new group types created)
+                                            .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
                                             .pipe(createCreateEventStep(EVENTS_OUTPUT))
                                             .pipe(
                                                 topHogWrapper(

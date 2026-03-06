@@ -473,6 +473,7 @@ export class PluginServer {
                     }
                     const deps = {
                         kafkaProducer: this.kafkaProducer!,
+                        kafkaMetricsProducer: this.kafkaMetricsProducer!,
                         teamManager,
                         hogTransformer: createHogTransformerService(this.config, hogTransformerDeps!),
                         groupTypeManager: ingestionServices!.groupTypeManager,

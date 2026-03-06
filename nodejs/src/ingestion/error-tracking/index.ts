@@ -18,5 +18,4 @@ export {
 
 // Steps
 export { createCymbalProcessingStep } from './cymbal-processing-step'
-export { createGroupTypeMappingStep } from './group-type-mapping-step'
 export { createPersonPropertiesReadOnlyStep } from './person-properties-step'

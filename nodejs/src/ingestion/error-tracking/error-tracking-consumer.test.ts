@@ -157,6 +157,7 @@ describe('ErrorTrackingConsumer', () => {
         mockHogTransformer = createMockHogTransformer()
         const deps = {
             kafkaProducer: hub.kafkaProducer,
+            kafkaMetricsProducer: hub.kafkaProducer,
             teamManager: hub.teamManager,
             hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,

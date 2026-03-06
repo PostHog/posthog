@@ -21,10 +21,11 @@ export interface ErrorTrackingPrepareEventInput {
 }
 
 /**
- * Output adds preparedEvent and resolved person, removes event/team (no longer needed).
+ * Output adds preparedEvent and resolved person, removes event (no longer needed).
+ * Preserves team for downstream steps (e.g., read-only process groups).
  * Uses Omit to preserve any additional fields from input type T.
  */
-export type ErrorTrackingPrepareEventOutput<T> = Omit<T, 'event' | 'team' | 'person'> & {
+export type ErrorTrackingPrepareEventOutput<T> = Omit<T, 'event' | 'person'> & {
     preparedEvent: PreIngestionEvent
     person: Person // Always defined (placeholder if not found)
     processPerson: boolean
@@ -97,9 +98,9 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
 
         const historicalMigration = headers.historical_migration ?? false
 
-        // Use spread to preserve any additional fields from input (e.g., message)
+        // Use spread to preserve any additional fields from input (e.g., message, team)
         // Then add/override with our prepared fields
-        const { event: _event, team: _team, person: _person, ...rest } = input
+        const { event: _event, person: _person, ...rest } = input
         return Promise.resolve(
             ok({
                 ...rest,

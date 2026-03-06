@@ -67,6 +67,7 @@ export interface ErrorTrackingHogTransformer {
  */
 export interface ErrorTrackingConsumerDeps {
     kafkaProducer: KafkaProducerWrapper
+    kafkaMetricsProducer: KafkaProducerWrapper
     teamManager: TeamManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
@@ -185,7 +186,7 @@ export class ErrorTrackingConsumer {
 
         // Initialize TopHog for metrics
         this.topHog = new TopHog({
-            kafkaProducer: this.deps.kafkaProducer,
+            kafkaProducer: this.deps.kafkaMetricsProducer,
             topic: KAFKA_CLICKHOUSE_TOPHOG,
             pipeline: this.config.pipeline,
             lane: this.config.lane,
