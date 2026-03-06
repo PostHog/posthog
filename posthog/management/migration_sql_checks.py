@@ -94,11 +94,11 @@ def validate_migration_sql(sql: str) -> bool:
         # Extract table name from queries of this format: ALTER TABLE "posthog_feature" or ALTER TABLE posthog_feature
         table_being_altered: Optional[str] = None
         if "ALTER TABLE" in operation_sql:
-            matches = re.findall(r'ALTER TABLE(?:\s+IF EXISTS)?\s+"?([a-z_]+)"?', operation_sql)
+            matches = re.findall(r'ALTER TABLE(?:\s+IF EXISTS)?\s+"?([a-zA-Z0-9_]+)"?', operation_sql)
             table_being_altered = matches[0] if matches else None
         # Extract table name from queries of this format: CREATE TABLE "posthog_feature" or CREATE TABLE posthog_feature
         if "CREATE TABLE" in operation_sql:
-            matches = re.findall(r'CREATE TABLE(?:\s+IF NOT EXISTS)?\s+"?([a-z_]+)"?', operation_sql)
+            matches = re.findall(r'CREATE TABLE(?:\s+IF NOT EXISTS)?\s+"?([a-zA-Z0-9_]+)"?', operation_sql)
             if matches:
                 table_name = matches[0]
                 tables_created_so_far.append(table_name)
