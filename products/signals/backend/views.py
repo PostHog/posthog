@@ -1,3 +1,4 @@
+# CI test: product-only change should trigger Django tests via contract-check
 import json
 import uuid
 import logging
