@@ -21,9 +21,7 @@ def clean_issues(review_dir: Path) -> None:
     # Load raw issues from combination step
     issues_found_raw_file = review_dir / "issues_found_raw.json"
     if not issues_found_raw_file.exists():
-        logger.error(
-            "No issues_found_raw.json file found. Run issue combination first."
-        )
+        logger.error("No issues_found_raw.json file found. Run issue combination first.")
         raise FileNotFoundError(f"Raw issues file not found: {issues_found_raw_file}")
 
     with issues_found_raw_file.open() as f:
@@ -106,9 +104,7 @@ def _parse_issue_lines(issue: Issue) -> list[tuple[int, int]]:
     return line_ranges
 
 
-def _is_issue_in_scope(
-    issue: Issue, modified_files: dict[str, list[tuple[int, int]]]
-) -> bool:
+def _is_issue_in_scope(issue: Issue, modified_files: dict[str, list[tuple[int, int]]]) -> bool:
     """Check if an issue is in scope based on modified files and lines."""
     # Check if the issue's file is in the PR scope
     if issue.file not in modified_files:
@@ -132,7 +128,5 @@ def _is_issue_in_scope(
                 )
                 return True
 
-    logger.debug(
-        f"Issue {issue.id} is out of scope: no line ranges overlap with changes"
-    )
+    logger.debug(f"Issue {issue.id} is out of scope: no line ranges overlap with changes")
     return False

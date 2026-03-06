@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 
-import json
-import logging
 import os
 import re
-import subprocess
+import json
+import logging
 from pathlib import Path
 
 from github import Github, GithubException, PullRequest
@@ -370,32 +369,3 @@ class PRFetcher:
         self.generate_pr_files_scope(pr_files)
         logger.info("PR data fetched successfully")
         return pr_metadata, pr_comments, pr_files
-
-
-def switch_to_pr_branch(pr_metadata: PRMetadata, project_dir: str) -> None:
-    """Switch to the PR's head branch in the project directory"""
-    logger.info(f"Switching to branch '{pr_metadata.head_branch}' in {project_dir}")
-    # First fetch the latest changes
-    subprocess.run(  # noqa: S603
-        ["git", "fetch", "origin"],  # noqa: S607
-        cwd=project_dir,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    # Checkout to branch
-    subprocess.run(  # noqa: S603
-        ["git", "checkout", pr_metadata.head_branch],  # noqa: S607
-        cwd=project_dir,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    # Fetch the latest changes
-    subprocess.run(  # noqa: S603
-        ["git", "fetch", "origin"],  # noqa: S607
-        cwd=project_dir,
-        check=True,
-        capture_output=True,
-        text=True,
-    )

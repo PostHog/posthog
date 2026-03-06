@@ -1,16 +1,17 @@
-import asyncio
 import json
+import asyncio
 import logging
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, Template, select_autoescape
 
-from products.review_hog.backend.reviewer.llm.code import CodeExecutor, prepare_code_context
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.sandbox.code_context import prepare_code_context
+from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ async def validate_issues(
     pr_metadata: PRMetadata,
     pr_files: list[PRFile],
     review_dir: Path,
-    project_dir: str,
+    branch: str,
 ) -> None:
     """Validate issues found in all passes."""
     # Create a mapping of chunk_id to chunk data for easy access
@@ -62,7 +63,7 @@ async def validate_issues(
             pr_metadata=pr_metadata,
             pr_files=pr_files,
             chunk_data=chunk_data.model_dump(),
-            project_dir=project_dir,
+            branch=branch,
         )
         if task:
             all_validation_tasks.append(task)
@@ -98,7 +99,7 @@ async def create_validation_task(
     pr_metadata: PRMetadata,
     chunk_data: dict,
     pr_files: list[PRFile],
-    project_dir: str,
+    branch: str,
 ) -> bool | None:
     """Create a validation task for an issue."""
     # Generate the prompt first
@@ -137,7 +138,7 @@ async def create_validation_task(
     return await run_validation(
         prompt=prompt,
         output_path=output_path,
-        project_dir=project_dir,
+        branch=branch,
         chunk_index=chunk_index,
         issue_index=issue_index,
     )
@@ -146,13 +147,12 @@ async def create_validation_task(
 async def run_validation(
     prompt: str,
     output_path: Path,
-    project_dir: str,
+    branch: str,
     chunk_index: int,
     issue_index: int,
 ) -> bool:
-    """Run validation for a single issue using Claude Code SDK."""
+    """Run validation for a single issue using a sandbox agent."""
     try:
-        # System prompt for issue validation
         system_prompt = """You are a senior code reviewer validating suggested issues in a pull request.
 Your task is to:
 1. Analyze the suggested issue in the context of the codebase
@@ -162,14 +162,13 @@ Your task is to:
 
 IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema."""
 
-        code_executor = CodeExecutor(
+        success = await run_sandbox_review(
             prompt=prompt,
             system_prompt=system_prompt,
-            project_dir=project_dir,
+            branch=branch,
             output_path=str(output_path),
             model_to_validate=IssueValidation,
         )
-        success = await code_executor.run_code()
         if not success:
             logger.error(f"Failed to validate chunk {chunk_index} issue {issue_index}")
             return False

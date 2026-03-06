@@ -4,10 +4,10 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from products.review_hog.backend.reviewer.llm.code import CodeExecutor
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
 from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
+from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def load_previous_issues(review_dir: Path) -> list[PRComment]:
 async def deduplicate_issues(
     pr_metadata: PRMetadata,
     review_dir: Path,
-    project_dir: str,
+    branch: str,
 ) -> None:
     """Deduplicate issues found across all passes."""
     # Load issues from cleaning step (was combination step)
@@ -109,11 +109,11 @@ async def deduplicate_issues(
         f.write(prompt)
     logger.info(f"Deduplication prompt saved to: {deduplication_prompt_file}")
 
-    # Run deduplication using Claude Code
+    # Run deduplication using sandbox
     success = await run_deduplication(
         prompt=prompt,
         output_path=str(deduplicator_file),
-        project_dir=project_dir,
+        branch=branch,
     )
 
     if not success:
@@ -144,11 +144,10 @@ async def deduplicate_issues(
 async def run_deduplication(
     prompt: str,
     output_path: str,
-    project_dir: str,
+    branch: str,
 ) -> bool:
-    """Run deduplication for issues using Claude Code SDK."""
+    """Run deduplication for issues using a sandbox agent."""
     try:
-        # System prompt for issue deduplication
         system_prompt = """You are a senior code reviewer analyzing duplicate issues in a pull request.
 Your task is to:
 1. Identify issues that are duplicates based on file location, line ranges, and problem description
@@ -157,14 +156,13 @@ Your task is to:
 
 IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema."""
 
-        code_executor = CodeExecutor(
+        success = await run_sandbox_review(
             prompt=prompt,
             system_prompt=system_prompt,
-            project_dir=project_dir,
+            branch=branch,
             output_path=output_path,
             model_to_validate=IssueDeduplication,
         )
-        success = await code_executor.run_code()
         if not success:
             logger.error("Failed to run issue deduplication")
             return False
