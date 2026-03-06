@@ -174,9 +174,11 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
                             <NavTabBrowse />
                         </Tabs.Panel>
                         <Tabs.Panel value="chat" className="absolute inset-0 flex flex-col" keepMounted>
-                            <Suspense>
+
+                            <Suspense fallback={<div>Loading...</div>}>
                                 <NavTabChat />
                             </Suspense>
+
                         </Tabs.Panel>
                     </div>
 
