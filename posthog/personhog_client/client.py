@@ -69,7 +69,9 @@ class PersonHogClient:
             ("grpc.enable_retries", 1),
         ]
         channel = grpc.insecure_channel(addr, options=options)
-        self._channel = grpc.intercept_channel(channel, ClientNameInterceptor(client_name), MetricsInterceptor())
+        self._channel = grpc.intercept_channel(
+            channel, ClientNameInterceptor(client_name), MetricsInterceptor(client_name)
+        )
         self._stub = PersonHogServiceStub(self._channel)
         self._timeout = timeout_ms / 1000.0
 
