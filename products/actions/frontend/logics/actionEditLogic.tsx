@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -234,7 +235,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     beforeUnload((logic) => ({
-        enabled: () => (logic.isMounted() ? logic.values.actionChanged : false),
+        enabled: (newLocation?: CombinedLocation) => {
+            if (!logic.isMounted() || !logic.values.actionChanged) {
+                return false
+            }
+
+            // Ignore in-page URL updates such as opening the side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+
+            return true
+        },
         message: 'Leave action?\nChanges you made will be discarded.',
         onConfirm: () => {
             logic.actions.resetAction()

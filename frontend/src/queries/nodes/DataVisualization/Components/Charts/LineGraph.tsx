@@ -133,7 +133,7 @@ export const LineGraph = ({
     goalLines = [],
     className,
 }: LineGraphProps): JSX.Element => {
-    const { tooltipId, getTooltip } = useInsightTooltip()
+    const { tooltipId, getTooltip, positionTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
@@ -576,21 +576,9 @@ export const LineGraph = ({
                             }
 
                             const bounds = canvas.getBoundingClientRect()
-                            const verticalBarTopOffset = isHighlightBarMode
-                                ? tooltip.caretY - tooltipEl.clientHeight / 2
-                                : 0
-                            const tooltipClientTop = bounds.top + window.pageYOffset + verticalBarTopOffset
-
-                            const chartClientLeft = bounds.left + window.pageXOffset
-                            const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
-                            const maxXPosition = bounds.right - tooltipEl.clientWidth
-                            const tooltipClientLeft =
-                                defaultOffsetLeft > maxXPosition
-                                    ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8
-                                    : defaultOffsetLeft
-
-                            tooltipEl.style.top = tooltipClientTop + 'px'
-                            tooltipEl.style.left = tooltipClientLeft + 'px'
+                            const centerVertically = isHighlightBarMode
+                            const caretY = centerVertically ? tooltip.caretY : 0
+                            positionTooltip(tooltipEl, bounds, tooltip.caretX, caretY, centerVertically)
                         },
                     },
                 },

@@ -14,11 +14,54 @@ TIMEOUT="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
 SERVICES=(db redis7 kafka clickhouse)
 SERVICES+=("$@")
 
+# CI workflows launch `docker compose up -d &` so image pulls run in
+# parallel with dependency installs.  If compose is still pulling when we
+# start checking health, the 300 s timeout burns on image downloads
+# instead of actual service startup.  Wait for any running compose
+# process to finish first so the timeout only measures health-check time.
+#
+# Only in CI — locally mprocs keeps a shell wrapper alive whose command
+# string matches "docker compose.*up" long after `up -d` has finished,
+# causing a permanent false positive.
+if [ -n "${CI:-}" ] && pgrep -f "docker compose.*up" >/dev/null 2>&1; then
+    COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
+    echo "docker compose is still running (likely pulling images) — waiting for it to finish…"
+    compose_wait_start=$SECONDS
+    while pgrep -f "docker compose.*up" >/dev/null 2>&1; do
+        if [ $(( SECONDS - compose_wait_start )) -ge "$COMPOSE_WAIT_TIMEOUT" ]; then
+            echo "Timed out after ${COMPOSE_WAIT_TIMEOUT}s waiting for docker compose to finish. Proceeding anyway."
+            break
+        fi
+        sleep 2
+    done
+    echo "docker compose wait done after $(( SECONDS - compose_wait_start ))s."
+fi
+
 SECONDS=0
 for svc in "${SERVICES[@]}"; do
     while true; do
         if [ "$SECONDS" -ge "$TIMEOUT" ]; then
-            echo "Timed out after ${TIMEOUT}s waiting for $svc to become healthy."
+            echo ""
+            echo "=========================================="
+            echo "TIMEOUT: ${TIMEOUT}s waiting for $svc"
+            echo "=========================================="
+            container_id=$(docker compose -f "$COMPOSE_FILE" ps -q "$svc" 2>/dev/null || true)
+            if [ -z "$container_id" ]; then
+                echo "Container for '$svc' does not exist — docker compose may still be pulling the image."
+                echo ""
+                echo "docker compose ps:"
+                docker compose -f "$COMPOSE_FILE" ps 2>&1 || true
+            else
+                status=$(docker inspect --format='{{.State.Health.Status}}' "$container_id" 2>/dev/null || echo "unknown")
+                echo "Container exists (id=${container_id:0:12}) but health status is: $status"
+                echo ""
+                echo "Last 20 lines of container logs:"
+                docker logs --tail 20 "$container_id" 2>&1 || true
+                echo ""
+                echo "Health check log:"
+                docker inspect --format='{{range .State.Health.Log}}{{.Output}}{{end}}' "$container_id" 2>&1 | tail -5 || true
+            fi
+            echo "=========================================="
             exit 1
         fi
         container_id=$(docker compose -f "$COMPOSE_FILE" ps -q "$svc" 2>/dev/null || true)

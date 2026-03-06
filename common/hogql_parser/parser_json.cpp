@@ -580,7 +580,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         } else if (subsequent->DISTINCT()) {
           set_operator = by_name ? "UNION DISTINCT BY NAME" : "UNION DISTINCT";
         } else {
-          set_operator = by_name ? "UNION BY NAME" : "UNION ALL";
+          set_operator = by_name ? "UNION DISTINCT BY NAME" : "UNION DISTINCT";
         }
       } else if (subsequent->INTERSECT() && subsequent->ALL()) {
         set_operator = "INTERSECT ALL";
