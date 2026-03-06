@@ -384,6 +384,7 @@ The canonical example is `FallbackSink`: it needs to know if the primary Kafka s
 - **Drop guard**: Events from advisory handle drops are sent to the monitor channel but harmlessly ignored (no entry in component maps).
 - **Requires `with_liveness_deadline`**: The health poll task needs a deadline to evaluate. Registration panics without it.
 - **Cannot combine with `is_observability`**: Advisory and observability are mutually exclusive.
+- **Cannot use `with_graceful_shutdown`**: Advisory handles are not in the component maps, so graceful shutdown timeouts would be silently ignored. Registration panics if both are set.
 
 ### Example: FallbackSink health observation
 

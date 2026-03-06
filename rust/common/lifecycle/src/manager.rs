@@ -268,6 +268,12 @@ impl Manager {
             tag
         );
         assert!(
+            !(options.is_advisory && options.graceful_shutdown.is_some()),
+            "component '{}': advisory handles are not waited on during shutdown; \
+             with_graceful_shutdown has no effect",
+            tag
+        );
+        assert!(
             !(options.is_observability && options.liveness_deadline.is_some()),
             "component '{}': observability handles cannot use liveness_deadline",
             tag

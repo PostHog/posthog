@@ -1372,6 +1372,21 @@ async fn advisory_requires_liveness_deadline() {
     manager.register("bad", ComponentOptions::new().is_advisory(true));
 }
 
+/// is_advisory(true) + with_graceful_shutdown panics — advisory handles are
+/// not in the component maps so graceful_shutdown would be silently ignored.
+#[tokio::test]
+#[should_panic(expected = "with_graceful_shutdown has no effect")]
+async fn advisory_rejects_graceful_shutdown() {
+    let mut manager = test_manager();
+    manager.register(
+        "bad",
+        ComponentOptions::new()
+            .is_advisory(true)
+            .with_liveness_deadline(Duration::from_secs(5))
+            .with_graceful_shutdown(Duration::from_secs(10)),
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Section 9: is_healthy() on non-liveness handles
 //
