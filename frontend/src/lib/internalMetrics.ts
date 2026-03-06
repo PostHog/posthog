@@ -23,6 +23,9 @@ export interface TimeToSeeDataPayload {
     max_last_refresh?: string | null
     // Signifies whether the action was user-initiated or a secondary effect
     is_primary_interaction?: boolean
+    // Server-side timing breakdown
+    server_total_ms?: number
+    server_serialize_ms?: number
 }
 
 export function currentSessionId(): string | undefined {

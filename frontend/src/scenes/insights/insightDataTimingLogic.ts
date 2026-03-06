@@ -70,6 +70,8 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 // api_url: values.response?.apiUrl,
                 insight: values.query.kind,
                 is_primary_interaction: true,
+                server_total_ms: values.response?.server_total_ms,
+                server_serialize_ms: values.response?.server_serialize_ms,
             })
 
             actions.removeQuery(payload.queryId)

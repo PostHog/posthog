@@ -1,4 +1,5 @@
 import re
+from time import perf_counter
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
@@ -133,6 +134,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
+        request_start = perf_counter()
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
         try:
@@ -164,8 +166,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 limit_context=limit_context,
                 request=request,
             )
+            serialize_start = perf_counter()
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
+            serialize_ms = round((perf_counter() - serialize_start) * 1000, 2)
+            total_ms = round((perf_counter() - request_start) * 1000, 2)
+            result["server_total_ms"] = total_ms
+            result["server_serialize_ms"] = serialize_ms
+
             response_status = (
                 status.HTTP_202_ACCEPTED
                 if result.get("query_status") and result["query_status"].get("complete") is False
