@@ -3,7 +3,52 @@ import { urls } from 'scenes/urls'
 
 import { PersonType } from '~/types'
 
-import { asDisplay, asLink, getPersonColorIndex } from './person-utils'
+import { asDisplay, asLink, coercePropertyValue, getPersonColorIndex } from './person-utils'
+
+describe('coercePropertyValue', () => {
+    it.each<{ input: Parameters<typeof coercePropertyValue>[0]; expected: ReturnType<typeof coercePropertyValue> }>([
+        // numeric strings
+        { input: '42', expected: 42 },
+        { input: '3.14', expected: 3.14 },
+        { input: '-1', expected: -1 },
+        { input: '0', expected: 0 },
+        { input: '1e5', expected: 100000 },
+
+        // empty string passes through unchanged
+        { input: '', expected: '' },
+
+        // Infinity passes through as string (JSON.stringify(Infinity) === "null")
+        { input: 'Infinity', expected: 'Infinity' },
+        { input: '-Infinity', expected: '-Infinity' },
+
+        // boolean strings (case-insensitive)
+        { input: 'true', expected: true },
+        { input: 'TRUE', expected: true },
+        { input: 'True', expected: true },
+        { input: 'false', expected: false },
+        { input: 'FALSE', expected: false },
+
+        // null string
+        { input: 'null', expected: null },
+        { input: 'NULL', expected: null },
+
+        // NaN stays as string
+        { input: 'NaN', expected: 'NaN' },
+
+        // regular strings pass through
+        { input: 'hello', expected: 'hello' },
+        { input: 'user@example.com', expected: 'user@example.com' },
+        { input: ' true', expected: ' true' },
+
+        // non-string types pass through
+        { input: true, expected: true },
+        { input: false, expected: false },
+        { input: null, expected: null },
+        { input: 123, expected: 123 },
+    ])('coerces $input to $expected', ({ input, expected }) => {
+        expect(coercePropertyValue(input)).toBe(expected)
+    })
+})
 
 describe('the person header', () => {
     describe('linking to a person', () => {

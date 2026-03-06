@@ -30,10 +30,14 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema> => ({
             },
         })
         const items = (result as any).results ?? result
-        return (items as any[]).map((item: any) => ({
-            ...item,
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${item.id}`,
-        }))
+        return {
+            ...(result as any),
+            results: (items as any[]).map((item: any) => ({
+                ...item,
+                _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${item.id}`,
+            })),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts`,
+        }
     },
 })
 
@@ -75,7 +79,7 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema> => ({
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })
@@ -93,7 +97,7 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema> => ({
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })
@@ -136,7 +140,7 @@ const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema> => 
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })
@@ -163,7 +167,7 @@ const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })
@@ -194,7 +198,7 @@ const cohortsRemovePersonFromStaticCohortPartialUpdate = (): ToolBase<
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })

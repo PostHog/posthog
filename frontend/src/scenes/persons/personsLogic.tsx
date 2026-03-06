@@ -31,7 +31,7 @@ import {
     PersonsTabType,
 } from '~/types'
 
-import { asDisplay, getHogqlQueryStringForPersonId } from './person-utils'
+import { asDisplay, coercePropertyValue, getHogqlQueryStringForPersonId } from './person-utils'
 import type { personsLogicType } from './personsLogicType'
 
 export interface PersonsLogicProps {
@@ -408,62 +408,52 @@ export const personsLogic = kea<personsLogicType>([
             const person = values.person
 
             if (person && person.id) {
-                let parsedValue = newValue
+                const parsedValue = coercePropertyValue(newValue ?? null)
 
-                // Instrumentation stuff
-                let action: 'added' | 'updated'
                 const oldPropertyType = person.properties[key] === null ? 'null' : typeof person.properties[key]
-                let newPropertyType: string = typeof newValue
+                const newPropertyType: string = parsedValue === null ? 'null' : typeof parsedValue
+                const action: 'added' | 'updated' = Object.keys(person.properties).includes(key) ? 'updated' : 'added'
 
-                // If the property is a number, store it as a number
-                // Guard against empty string: Number("") === 0, which is a false positive
-                const attemptedParsedNumber = Number(newValue)
-                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean' && newValue !== '') {
-                    parsedValue = attemptedParsedNumber
-                    newPropertyType = 'number'
+                const updatedProperties =
+                    action === 'added'
+                        ? { [key]: parsedValue, ...person.properties }
+                        : { ...person.properties, [key]: parsedValue }
+
+                actions.setPerson({ ...person, properties: updatedProperties })
+
+                try {
+                    await api.persons.updateProperty(person.id, key, parsedValue)
+                    lemonToast.success(`Person property ${action}`)
+
+                    eventUsageLogic.actions.reportPersonPropertyUpdated(
+                        action,
+                        Object.keys(updatedProperties).length,
+                        oldPropertyType,
+                        newPropertyType
+                    )
+                } catch {
+                    actions.setPerson({ ...person })
+                    lemonToast.error(`Failed to update person property`)
                 }
-
-                const lowercaseValue = typeof parsedValue === 'string' && parsedValue.toLowerCase()
-                if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
-                    parsedValue = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
-                    newPropertyType = parsedValue !== null ? 'boolean' : 'null'
-                }
-
-                if (!Object.keys(person.properties).includes(key)) {
-                    person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
-                    action = 'added'
-                } else {
-                    person.properties[key] = parsedValue
-                    action = 'updated'
-                }
-
-                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
-                // :KLUDGE: Person properties are updated asynchronously in the plugin server - the response won't reflect
-                //      the _updated_ properties yet.
-                await api.persons.updateProperty(person.id, key, parsedValue)
-                lemonToast.success(`Person property ${action}`)
-
-                eventUsageLogic.actions.reportPersonPropertyUpdated(
-                    action,
-                    Object.keys(person.properties).length,
-                    oldPropertyType,
-                    newPropertyType
-                )
             }
         },
         deleteProperty: async ({ key }) => {
             const person = values.person
 
             if (person && person.id) {
-                const updatedProperties = { ...person.properties }
-                delete updatedProperties[key]
+                const { [key]: _, ...updatedProperties } = person.properties
 
-                actions.setPerson({ ...person, properties: updatedProperties }) // To update the UI immediately
-                // await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
-                await api.persons.deleteProperty(person.id, key)
-                lemonToast.success(`Person property deleted`)
+                actions.setPerson({ ...person, properties: updatedProperties })
 
-                eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
+                try {
+                    await api.persons.deleteProperty(person.id, key)
+                    lemonToast.success(`Person property deleted`)
+
+                    eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
+                } catch {
+                    actions.setPerson({ ...person })
+                    lemonToast.error(`Failed to delete person property`)
+                }
             }
         },
         navigateToCohort: ({ cohort }) => {

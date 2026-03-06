@@ -24,7 +24,10 @@ const errorTrackingIssuesList = (): ToolBase<typeof ErrorTrackingIssuesListSchem
                 offset: params.offset,
             },
         })
-        return result
+        return {
+            ...(result as any),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking`,
+        }
     },
 })
 

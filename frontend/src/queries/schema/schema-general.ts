@@ -1342,10 +1342,23 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hideWeekends',
 ])
 
+export interface BoxPlotDatum {
+    day: string
+    label: string
+    min: number
+    p25: number
+    median: number
+    p75: number
+    max: number
+    mean: number
+}
+
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
+    /** Box plot data when display type is BoxPlot */
+    boxplot_data?: BoxPlotDatum[]
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
@@ -2929,6 +2942,7 @@ export type FileSystemIconType =
     | 'folder_open'
     | 'conversations'
     | 'toolbar'
+    | 'visual_review'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -5433,6 +5447,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     USER_INTERVIEWS = 'user_interviews',
+    VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',
 }
