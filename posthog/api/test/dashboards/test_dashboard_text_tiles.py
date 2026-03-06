@@ -10,7 +10,7 @@ from django.test import override_settings
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import Organization, User
+from posthog.models import Organization, UploadedMedia, User
 
 
 class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
@@ -288,3 +288,126 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             {"tiles": [tile]},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_deleting_text_tile_soft_deletes_referenced_media(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="img.gif", content_type="image/gif"
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text=body)
+
+        tile = dashboard_json["tiles"][0]
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile["id"], "deleted": True}]},
+        )
+
+        media.refresh_from_db()
+        assert media.deleted is True
+
+    def test_editing_text_tile_to_remove_image_soft_deletes_media(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="img.gif", content_type="image/gif"
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text=body)
+
+        tile = dashboard_json["tiles"][0]
+        tile["text"]["body"] = "no images anymore"
+        self.dashboard_api.update_text_tile(dashboard_id, tile)
+
+        media.refresh_from_db()
+        assert media.deleted is True
+
+    def test_editing_text_tile_keeping_image_does_not_delete_media(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="img.gif", content_type="image/gif"
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text=body)
+
+        tile = dashboard_json["tiles"][0]
+        tile["text"]["body"] = body + " extra text"
+        self.dashboard_api.update_text_tile(dashboard_id, tile)
+
+        media.refresh_from_db()
+        assert media.deleted is False
+
+    def test_editing_text_tile_replacing_image_soft_deletes_old_keeps_new(self) -> None:
+        old_media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="old.gif", content_type="image/gif"
+        )
+        new_media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="new.gif", content_type="image/gif"
+        )
+        old_body = f'<img src="/uploaded_media/{old_media.id}"/>'
+        new_body = f'<img src="/uploaded_media/{new_media.id}"/>'
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text=old_body)
+
+        tile = dashboard_json["tiles"][0]
+        tile["text"]["body"] = new_body
+        self.dashboard_api.update_text_tile(dashboard_id, tile)
+
+        old_media.refresh_from_db()
+        new_media.refresh_from_db()
+        assert old_media.deleted is True
+        assert new_media.deleted is False
+
+    def test_deleting_insight_tile_does_not_affect_media(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="img.gif", content_type="image/gif"
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_insight({"name": "insight", "dashboards": [dashboard_id]})
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        insight_tile = next(t for t in dashboard_json["tiles"] if t.get("insight"))
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": insight_tile["id"], "deleted": True}]},
+        )
+
+        media.refresh_from_db()
+        assert media.deleted is False
+
+    def test_deleting_dashboard_soft_deletes_text_tile_media(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="img.gif", content_type="image/gif"
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_text_tile(dashboard_id, text=body)
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"deleted": True},
+        )
+
+        media.refresh_from_db()
+        assert media.deleted is True
+
+    def test_undeleting_dashboard_restores_text_tile_media(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="img.gif", content_type="image/gif"
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_text_tile(dashboard_id, text=body)
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"deleted": True},
+        )
+        media.refresh_from_db()
+        assert media.deleted is True
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"deleted": False},
+        )
+        media.refresh_from_db()
+        assert media.deleted is False

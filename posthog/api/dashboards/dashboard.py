@@ -44,7 +44,7 @@ from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models import Dashboard, DashboardTile, Insight, Text, UploadedMedia
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
@@ -557,9 +557,19 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            text, _ = Text.objects.update_or_create(
-                id=text_json.get("id", None), team_id=instance.team_id, defaults=validated_data
+            text_id = text_json.get("id", None)
+            old_text_body = (
+                Text.objects.filter(id=text_id, team_id=instance.team_id).values_list("body", flat=True).first()
+                if text_id
+                else None
             )
+
+            text, _ = Text.objects.update_or_create(id=text_id, team_id=instance.team_id, defaults=validated_data)
+
+            if old_text_body is not None:
+                UploadedMedia.soft_delete_for_removed_images(
+                    old_text_body, validated_data.get("body", ""), instance.team_id
+                )
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
@@ -574,6 +584,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "show_description" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
+
+            if tile_data.get("deleted") and tile_data.get("id"):
+                body = (
+                    DashboardTile.objects.filter(id=tile_data["id"], dashboard=instance, text__isnull=False)
+                    .values_list("text__body", flat=True)
+                    .first()
+                )
+                if body:
+                    UploadedMedia.soft_delete_for_removed_images(body, None, instance.team_id)
 
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
@@ -603,6 +622,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 # nosemgrep: idor-lookup-without-team
                 Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
 
+        text_bodies = list(
+            instance.tiles.filter(text__isnull=False, text__body__isnull=False)
+            .exclude(text__body="")
+            .values_list("text__body", flat=True)
+        )
+        for body in text_bodies:
+            UploadedMedia.soft_delete_for_removed_images(body, None, instance.team_id)
+
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
@@ -614,6 +641,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 tile.insight.deleted = False
                 insights_to_undelete.append(tile.insight)
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
+
+        text_bodies = list(
+            DashboardTile.objects_including_soft_deleted.filter(
+                dashboard=instance, text__isnull=False, text__body__isnull=False
+            )
+            .exclude(text__body="")
+            .values_list("text__body", flat=True)
+        )
+        if text_bodies:
+            UploadedMedia.restore_for_text_bodies(text_bodies, instance.team_id)
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
     def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:

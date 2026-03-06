@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 from django.conf import settings
@@ -13,6 +14,10 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
 
+UPLOADED_MEDIA_UUID_PATTERN = re.compile(
+    r"/uploaded_media/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.IGNORECASE
+)
+
 logger = structlog.get_logger(__name__)
 
 
@@ -20,7 +25,15 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
+class UploadedMediaManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
+
 class UploadedMedia(UUIDTModel, RootTeamMixin):
+    objects = UploadedMediaManager()
+    objects_including_soft_deleted: models.Manager["UploadedMedia"] = models.Manager()
+
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
@@ -31,9 +44,34 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
     media_location = models.TextField(null=True, blank=True, max_length=1000)
     content_type = models.TextField(null=True, blank=True, max_length=100)
     file_name = models.TextField(null=True, blank=True, max_length=1000)
+    deleted = models.BooleanField(default=False)
 
     def get_absolute_url(self) -> str:
         return absolute_uri(f"/uploaded_media/{self.id}")
+
+    @classmethod
+    def extract_media_uuids(cls, text_body: str) -> set[str]:
+        return set(UPLOADED_MEDIA_UUID_PATTERN.findall(text_body))
+
+    @classmethod
+    def soft_delete_for_removed_images(cls, old_body: str, new_body: Optional[str], team_id: int) -> None:
+        old_uuids = cls.extract_media_uuids(old_body)
+        new_uuids = cls.extract_media_uuids(new_body) if new_body else set()
+        removed_uuids = old_uuids - new_uuids
+        if removed_uuids:
+            cls.objects_including_soft_deleted.filter(id__in=removed_uuids, team_id=team_id, deleted=False).update(
+                deleted=True
+            )
+
+    @classmethod
+    def restore_for_text_bodies(cls, bodies: list[str], team_id: int) -> None:
+        all_uuids: set[str] = set()
+        for body in bodies:
+            all_uuids.update(cls.extract_media_uuids(body))
+        if all_uuids:
+            cls.objects_including_soft_deleted.filter(id__in=all_uuids, team_id=team_id, deleted=True).update(
+                deleted=False
+            )
 
     @classmethod
     def save_content(

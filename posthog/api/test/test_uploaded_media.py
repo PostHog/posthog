@@ -6,10 +6,11 @@ import tempfile
 from posthog.test.base import APIBaseTest
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import TestCase, override_settings
 
 from boto3 import resource
 from botocore.config import Config
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import UploadedMedia
@@ -138,3 +139,127 @@ class TestMediaAPI(APIBaseTest):
                 response.json()["detail"],
                 "Object storage must be available to allow media uploads.",
             )
+
+    def test_soft_deleted_media_returns_404(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            file_name="test.gif",
+            content_type="image/gif",
+        )
+        media.deleted = True
+        media.save()
+
+        response = self.client.get(f"/uploaded_media/{media.id}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestExtractMediaUuids(TestCase):
+    @parameterized.expand(
+        [
+            ("empty string", "", set()),
+            ("no uuids", "hello world", set()),
+            (
+                "single uuid",
+                'text with <img src="/uploaded_media/01234567-89ab-cdef-0123-456789abcdef"/>',
+                {"01234567-89ab-cdef-0123-456789abcdef"},
+            ),
+            (
+                "multiple uuids",
+                "/uploaded_media/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee and /uploaded_media/11111111-2222-3333-4444-555555555555",
+                {"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "11111111-2222-3333-4444-555555555555"},
+            ),
+            (
+                "duplicate uuids deduplicated",
+                "/uploaded_media/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee /uploaded_media/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                {"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+            ),
+        ]
+    )
+    def test_extract_media_uuids(self, _name: str, text_body: str, expected: set[str]) -> None:
+        assert UploadedMedia.extract_media_uuids(text_body) == expected
+
+
+class TestSoftDeleteForRemovedImages(APIBaseTest):
+    def test_soft_deletes_removed_images(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            file_name="test.gif",
+            content_type="image/gif",
+        )
+        old_body = f'<img src="/uploaded_media/{media.id}"/>'
+        UploadedMedia.soft_delete_for_removed_images(old_body, "no images here", self.team.id)
+
+        media.refresh_from_db()
+        assert media.deleted is True
+
+    def test_keeps_images_still_referenced(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            file_name="test.gif",
+            content_type="image/gif",
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        UploadedMedia.soft_delete_for_removed_images(body, body, self.team.id)
+
+        media.refresh_from_db()
+        assert media.deleted is False
+
+    def test_delete_all_when_new_body_is_none(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            file_name="test.gif",
+            content_type="image/gif",
+        )
+        old_body = f'<img src="/uploaded_media/{media.id}"/>'
+        UploadedMedia.soft_delete_for_removed_images(old_body, None, self.team.id)
+
+        media.refresh_from_db()
+        assert media.deleted is True
+
+    def test_does_not_affect_other_teams(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            file_name="test.gif",
+            content_type="image/gif",
+        )
+        old_body = f'<img src="/uploaded_media/{media.id}"/>'
+        UploadedMedia.soft_delete_for_removed_images(old_body, None, self.team.id + 999)
+
+        media.refresh_from_db()
+        assert media.deleted is False
+
+
+class TestRestoreForTextBodies(APIBaseTest):
+    def test_restores_deleted_media_referenced_in_bodies(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="t.gif", content_type="image/gif", deleted=True
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        UploadedMedia.restore_for_text_bodies([body], self.team.id)
+
+        media.refresh_from_db()
+        assert media.deleted is False
+
+    def test_does_not_affect_other_teams(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="t.gif", content_type="image/gif", deleted=True
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        UploadedMedia.restore_for_text_bodies([body], self.team.id + 999)
+
+        media.refresh_from_db()
+        assert media.deleted is True
+
+    def test_noop_on_empty_bodies(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="t.gif", content_type="image/gif", deleted=True
+        )
+        UploadedMedia.restore_for_text_bodies([], self.team.id)
+
+        media.refresh_from_db()
+        assert media.deleted is True
