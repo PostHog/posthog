@@ -3,8 +3,8 @@ import { actions, connect, kea, key, path, props, reducers, selectors } from 'ke
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, NodeKind, PathsQuery } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, PathType, PropertyFilterType, PropertyOperator } from '~/types'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter } from '~/types'
 
 import toolsQueryTemplate from '../../backend/queries/tools.sql?raw'
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
@@ -94,38 +94,6 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                     showColumnConfigurator: true,
                     allowSorting: true,
                 }
-            },
-        ],
-        buildToolPathsQuery: [
-            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
-            (
-                dateFilter: { dateFrom: string | null; dateTo: string | null },
-                shouldFilterTestAccounts: boolean,
-                propertyFilters: AnyPropertyFilter[]
-            ): ((toolName: string) => PathsQuery) => {
-                return (toolName: string): PathsQuery => ({
-                    kind: NodeKind.PathsQuery,
-                    dateRange: {
-                        date_from: dateFilter.dateFrom || null,
-                        date_to: dateFilter.dateTo || null,
-                    },
-                    filterTestAccounts: shouldFilterTestAccounts,
-                    properties: [
-                        ...propertyFilters,
-                        {
-                            key: '$ai_tools_called',
-                            operator: PropertyOperator.IsSet,
-                            type: PropertyFilterType.Event,
-                        },
-                    ],
-                    pathsFilter: {
-                        includeEventTypes: [PathType.HogQL],
-                        pathsHogQLExpression: "arrayJoin(splitByChar(',', ifNull(properties.$ai_tools_called, '')))",
-                        startPoint: toolName,
-                        stepLimit: 5,
-                        edgeLimit: 50,
-                    },
-                })
             },
         ],
     }),
