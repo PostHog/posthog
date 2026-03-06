@@ -17,8 +17,9 @@ from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
+from posthog.models import Tag, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.tag import tagify
 
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
@@ -71,6 +72,7 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
     priority = serializers.ChoiceField(choices=[p.value for p in Priority], required=False)
     sla_due_at = serializers.DateTimeField(required=False, allow_null=True)
     assignee = serializers.JSONField(required=False, allow_null=True)
+    tags = serializers.ListField(child=serializers.CharField(), required=False)
 
 
 class ExternalTicketView(APIView):
@@ -222,5 +224,14 @@ class ExternalTicketView(APIView):
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
                 return Response({"error": "Failed to assign ticket"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if "tags" in serializer.validated_data:
+            new_tags = list({tagify(t) for t in serializer.validated_data["tags"]})
+            for tag_name in new_tags:
+                tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+            for tagged_item in ticket.tagged_items.exclude(tag__name__in=new_tags):
+                tagged_item.delete()
+            Tag.objects.filter(team_id=team.id, tagged_items__isnull=True, team_defaults__isnull=True).delete()
 
         return Response({"ok": True})
