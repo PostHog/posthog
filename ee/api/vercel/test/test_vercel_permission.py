@@ -2,7 +2,7 @@ import json
 from typing import Any, Literal
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -208,6 +208,8 @@ class TestVercelPermission(VercelTestBase):
 class TestVercelPermissionIntegration(VercelTestBase):
     client_id_patcher: Any
     jwks_patcher: Any
+    license_patcher: Any
+    billing_patcher: Any
     mock_get_jwks: Any
 
     @classmethod
@@ -215,11 +217,17 @@ class TestVercelPermissionIntegration(VercelTestBase):
         super().setUpClass()
         cls.client_id_patcher = patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
         cls.jwks_patcher = patch("ee.api.authentication.get_vercel_jwks")
+        cls.license_patcher = patch("ee.vercel.integration.get_cached_instance_license", return_value=Mock())
+        cls.billing_patcher = patch("ee.vercel.integration.BillingManager")
         cls.client_id_patcher.start()
         cls.mock_get_jwks = cls.jwks_patcher.start()
+        cls.license_patcher.start()
+        cls.billing_patcher.start()
 
     @classmethod
     def tearDownClass(cls):
+        cls.billing_patcher.stop()
+        cls.license_patcher.stop()
         cls.client_id_patcher.stop()
         cls.jwks_patcher.stop()
         super().tearDownClass()

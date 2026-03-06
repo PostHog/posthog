@@ -33,16 +33,21 @@ jobs:
             - name: Comment on PR
               if: github.event_name == 'pull_request'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  TRIGGER_STATUS: ${{ steps.trigger-build.outputs.trigger_status }}
+                  DEPLOYMENT_URL: ${{ steps.trigger-build.outputs.deployment_url }}
+                  DEPLOYMENT_ID: ${{ steps.trigger-build.outputs.deployment_id }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
               with:
                   script: |
                       const commentFn = require('./.github/scripts/comment-pr-preview.js');
                       await commentFn({
                         github,
                         context,
-                        prNumber: ${{ github.event.pull_request.number }},
-                        triggerStatus: "${{ steps.trigger-build.outputs.trigger_status }}",
-                        deploymentUrl: "${{ steps.trigger-build.outputs.deployment_url }}",
-                        deploymentId: "${{ steps.trigger-build.outputs.deployment_id }}"
+                        prNumber: parseInt(process.env.PR_NUMBER),
+                        triggerStatus: process.env.TRIGGER_STATUS,
+                        deploymentUrl: process.env.DEPLOYMENT_URL,
+                        deploymentId: process.env.DEPLOYMENT_ID
                       });
 
     validate-docs:

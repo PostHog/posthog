@@ -1,6 +1,7 @@
 // AUTO-GENERATED from products/error_tracking/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import {
     ErrorTrackingIssuesListQueryParams,
     ErrorTrackingIssuesPartialUpdateBody,
@@ -11,12 +12,15 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingIssuesListSchema = ErrorTrackingIssuesListQueryParams
 
-const errorTrackingIssuesList = (): ToolBase<typeof ErrorTrackingIssuesListSchema> => ({
+const errorTrackingIssuesList = (): ToolBase<
+    typeof ErrorTrackingIssuesListSchema,
+    Schemas.PaginatedErrorTrackingIssueFullList & { _posthogUrl: string }
+> => ({
     name: 'error-tracking-issues-list',
     schema: ErrorTrackingIssuesListSchema,
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.PaginatedErrorTrackingIssueFullList>({
             method: 'GET',
             path: `/api/environments/${projectId}/error_tracking/issues/`,
             query: {
@@ -24,18 +28,24 @@ const errorTrackingIssuesList = (): ToolBase<typeof ErrorTrackingIssuesListSchem
                 offset: params.offset,
             },
         })
-        return result
+        return {
+            ...(result as any),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking`,
+        }
     },
 })
 
 const ErrorTrackingIssuesRetrieveSchema = ErrorTrackingIssuesRetrieveParams.omit({ project_id: true })
 
-const errorTrackingIssuesRetrieve = (): ToolBase<typeof ErrorTrackingIssuesRetrieveSchema> => ({
+const errorTrackingIssuesRetrieve = (): ToolBase<
+    typeof ErrorTrackingIssuesRetrieveSchema,
+    Schemas.ErrorTrackingIssueFull
+> => ({
     name: 'error-tracking-issues-retrieve',
     schema: ErrorTrackingIssuesRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
             method: 'GET',
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
         })
@@ -47,7 +57,10 @@ const ErrorTrackingIssuesPartialUpdateSchema = ErrorTrackingIssuesPartialUpdateP
     ErrorTrackingIssuesPartialUpdateBody.shape
 )
 
-const errorTrackingIssuesPartialUpdate = (): ToolBase<typeof ErrorTrackingIssuesPartialUpdateSchema> => ({
+const errorTrackingIssuesPartialUpdate = (): ToolBase<
+    typeof ErrorTrackingIssuesPartialUpdateSchema,
+    Schemas.ErrorTrackingIssueFull
+> => ({
     name: 'error-tracking-issues-partial-update',
     schema: ErrorTrackingIssuesPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesPartialUpdateSchema>) => {
@@ -71,7 +84,7 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<typeof ErrorTrackingIssues
         if (params.external_issues !== undefined) {
             body['external_issues'] = params.external_issues
         }
-        const result = await context.api.request({
+        const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
             method: 'PATCH',
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
             body,

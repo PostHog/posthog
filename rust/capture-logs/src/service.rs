@@ -212,15 +212,16 @@ pub async fn export_logs_http(
     };
 
     let mut rows: Vec<KafkaLogRow> = Vec::new();
+    let mut timestamps_overridden: u64 = 0;
     for resource_logs in export_request.resource_logs {
         for scope_logs in resource_logs.scope_logs {
             for log_record in scope_logs.log_records {
-                let row = match KafkaLogRow::new(
+                let (row, was_overridden) = match KafkaLogRow::new(
                     log_record,
                     resource_logs.resource.clone(),
                     scope_logs.scope.clone(),
                 ) {
-                    Ok(row) => row,
+                    Ok(result) => result,
                     Err(e) => {
                         error!("Failed to create LogRow: {e}");
                         return Err((
@@ -229,13 +230,20 @@ pub async fn export_logs_http(
                         ));
                     }
                 };
+                if was_overridden {
+                    timestamps_overridden += 1;
+                }
                 rows.push(row);
             }
         }
     }
 
     let row_count = rows.len();
-    if let Err(e) = service.sink.write(token, rows, body.len() as u64).await {
+    if let Err(e) = service
+        .sink
+        .write(token, rows, body.len() as u64, timestamps_overridden)
+        .await
+    {
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
