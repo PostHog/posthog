@@ -1,7 +1,6 @@
-from unittest.mock import patch
-
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import serializers
