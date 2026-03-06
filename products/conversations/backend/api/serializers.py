@@ -14,16 +14,28 @@ class TicketAssignmentSerializer(serializers.ModelSerializer):
 
     id = serializers.SerializerMethodField()
     type = serializers.SerializerMethodField()
+    user = serializers.SerializerMethodField()
+    role = serializers.SerializerMethodField()
 
     class Meta:
         model = TicketAssignment
-        fields = ["id", "type"]
+        fields = ["id", "type", "user", "role"]
 
     def get_id(self, obj):
         return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
 
     def get_type(self, obj):
         return "role" if obj.role_id else "user"
+
+    def get_user(self, obj):
+        if obj.user_id and obj.user:
+            return {"email": obj.user.email}
+        return None
+
+    def get_role(self, obj):
+        if obj.role_id and obj.role:
+            return {"name": obj.role.name}
+        return None
 
 
 class WidgetMessageSerializer(serializers.Serializer):
