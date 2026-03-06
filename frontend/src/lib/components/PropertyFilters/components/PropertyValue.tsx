@@ -12,6 +12,7 @@ import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/compon
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupKeySelect'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
@@ -89,6 +90,8 @@ export function PropertyValue({
 
     const isNumericProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+
+    const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -231,6 +234,21 @@ export function PropertyValue({
                     </>
                 )}
             </AssigneeResolver>
+        )
+    }
+
+    if (isGroupKeyProperty) {
+        return (
+            <GroupKeySelect
+                value={value ?? null}
+                groupTypeIndex={groupTypeIndex}
+                operator={operator}
+                onChange={setValue}
+                size={size}
+                editable={editable}
+                autoFocus={autoFocus}
+                forceSingleSelect={forceSingleSelect}
+            />
         )
     }
 
