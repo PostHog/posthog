@@ -7,8 +7,9 @@ import orjson as json
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
@@ -238,3 +239,37 @@ class GroupStrategy(ActorStrategy):
                 ),
             )
         ]
+
+
+class SessionStrategy(ActorStrategy):
+    """Strategy for session-based aggregation (e.g. funnels aggregated by $session_id).
+
+    The actor is a session. Person data is fetched separately using the person_id
+    column from the funnel query and nested under a "person" key.
+    """
+
+    field = "session"
+    origin = "sessions"
+    origin_id = "session_id"
+
+    def get_actors(self, actor_ids) -> dict[str, dict]:
+        session_ids = list(actor_ids)
+        if not session_ids:
+            return {}
+
+        query = parse_select(
+            "SELECT session_id, `$start_timestamp`, `$session_duration` FROM sessions WHERE session_id IN {session_ids}",
+            {"session_ids": ast.Constant(value=session_ids)},
+        )
+
+        response = execute_hogql_query(
+            query_type="SessionActorsQuery",
+            query=query,
+            team=self.team,
+        )
+
+        columns = response.columns or []
+        return {str(row[0]): {columns[i]: row[i] for i in range(len(columns))} for row in response.results}
+
+    def input_columns(self) -> list[str]:
+        return ["session"]

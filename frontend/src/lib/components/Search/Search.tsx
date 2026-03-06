@@ -844,6 +844,11 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut shift enter /> to open in new tab
                     </span>
+                    {searchValue.trim() && (
+                        <span>
+                            <KeyboardShortcut tab /> to ask AI
+                        </span>
+                    )}
                     <span>
                         <KeyboardShortcut escape /> to close
                     </span>

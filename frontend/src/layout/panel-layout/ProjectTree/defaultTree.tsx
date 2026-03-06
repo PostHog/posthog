@@ -325,6 +325,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPlaylist />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
     },
+    visual_review: {
+        icon: <IconApp />,
+    },
     exports: {
         icon: <IconDownload />,
     },
@@ -424,6 +427,11 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [...getTreeItemsProducts()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export const getDefaultTreeDataAndPeople = (): FileSystemImport[] =>
+    [...getDefaultTreeData(), ...getDefaultTreePersons()].sort((a, b) =>
+        a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
+    )
 
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {

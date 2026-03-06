@@ -82,11 +82,13 @@ def verify_and_fix_all_teams(
     chunk_size: int | None = None,
 ) -> VerificationResult:
     """
-    Verify all teams' caches and auto-fix any issues.
+    Verify caches for teams in the configured scope and auto-fix any issues.
 
-    Processes teams in chunks using seek-based pagination for memory efficiency.
-    For each team, calls verify_team_fn to check cache consistency. If issues
-    are found, automatically fixes them using config.update_fn.
+    When ``config.get_teams_queryset_fn`` is set, only teams returned by that
+    queryset are processed; otherwise all teams are verified. Processes teams
+    in chunks using seek-based pagination for memory efficiency. For each team,
+    calls verify_team_fn to check cache consistency. If issues are found,
+    automatically fixes them using config.update_fn.
 
     Args:
         config: HyperCache management configuration with update_fn
@@ -111,29 +113,12 @@ def verify_and_fix_all_teams(
     result = VerificationResult()
     last_id = 0
 
-    # Pre-compute team IDs needing full verification if optimization is configured.
-    # For flags cache, this is ~20K teams with flags vs 238K total teams.
-    # This allows skipping expensive DB loads for teams with empty caches.
-    team_ids_needing_full_verification: set[int] | None = None
-    if config.get_team_ids_needing_full_verification_fn is not None:
-        try:
-            team_ids_needing_full_verification = config.get_team_ids_needing_full_verification_fn()
-            logger.info(
-                "Loaded team IDs needing full verification",
-                cache_type=cache_type,
-                count=len(team_ids_needing_full_verification),
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to load team IDs for optimization, falling back to full verification",
-                cache_type=cache_type,
-                error=str(e),
-            )
+    base_qs = config.get_teams_queryset_fn() if config.get_teams_queryset_fn else Team.objects.all()
 
     batch_number = 0
     while True:
         teams = list(
-            Team.objects.filter(id__gt=last_id).select_related("organization", "project").order_by("id")[:chunk_size]
+            base_qs.filter(id__gt=last_id).select_related("organization", "project").order_by("id")[:chunk_size]
         )
 
         if not teams:
@@ -143,7 +128,7 @@ def verify_and_fix_all_teams(
         batch_start = result.total
         batch_fixes_start = result.total_fixed
 
-        _verify_and_fix_batch(teams, config, verify_team_fn, cache_type, result, team_ids_needing_full_verification)
+        _verify_and_fix_batch(teams, config, verify_team_fn, cache_type, result)
 
         batch_verified = result.total - batch_start
         batch_fixed = result.total_fixed - batch_fixes_start
@@ -181,40 +166,12 @@ def verify_and_fix_all_teams(
     return result
 
 
-def _partition_teams_for_verification(
-    teams: list[Team],
-    team_ids_needing_full_verification: set[int] | None,
-    config: HyperCacheManagementConfig,
-) -> tuple[list[Team], list[Team]]:
-    """
-    Split teams into those needing full DB verification vs fast-path empty check.
-
-    Args:
-        teams: List of Team objects to partition
-        team_ids_needing_full_verification: Set of team IDs that have data requiring full verification.
-            If None, all teams use full verification.
-        config: HyperCache management configuration
-
-    Returns:
-        Tuple of (teams_for_full_check, teams_for_empty_check)
-    """
-    if team_ids_needing_full_verification is not None and config.empty_cache_value is not None:
-        teams_for_full_check = [t for t in teams if t.id in team_ids_needing_full_verification]
-        teams_for_empty_check = [t for t in teams if t.id not in team_ids_needing_full_verification]
-    else:
-        teams_for_full_check = teams
-        teams_for_empty_check = []
-
-    return teams_for_full_check, teams_for_empty_check
-
-
 def _verify_and_fix_batch(
     teams: list[Team],
     config: HyperCacheManagementConfig,
     verify_team_fn: Callable[[Team, dict | None, dict | None], dict],
     cache_type: str,
     result: VerificationResult,
-    team_ids_needing_full_verification: set[int] | None = None,
 ) -> None:
     """
     Verify and fix a batch of teams.
@@ -225,8 +182,6 @@ def _verify_and_fix_batch(
         verify_team_fn: Function to verify a single team (team, db_batch_data, cache_batch_data)
         cache_type: Name for metrics/logging
         result: VerificationResult to accumulate stats
-        team_ids_needing_full_verification: If provided, only load DB data for teams in this set.
-            Teams not in this set use fast-path verification against empty_cache_value.
     """
     # Batch-read cached values using MGET (single Redis round trip)
     try:
@@ -247,32 +202,15 @@ def _verify_and_fix_batch(
         except Exception as e:
             logger.warning("Batch skip-fix check failed, proceeding without skips", error=str(e))
 
-    # Partition teams into full verification vs fast-path empty check
-    teams_for_full_check, teams_for_empty_check = _partition_teams_for_verification(
-        teams, team_ids_needing_full_verification, config
-    )
-
-    # Batch-load DB data only for teams that need full verification
+    # Batch-load DB data for all teams in the batch
     db_batch_data = None
-    if teams_for_full_check and config.hypercache.batch_load_fn:
+    if config.hypercache.batch_load_fn:
         try:
-            db_batch_data = config.hypercache.batch_load_fn(teams_for_full_check)
+            db_batch_data = config.hypercache.batch_load_fn(teams)
         except Exception as e:
             logger.warning("Batch load failed, falling back to individual loads", error=str(e))
 
-    # Fast-path: verify teams that should have empty caches
-    for team in teams_for_empty_check:
-        result.total += 1
-        try:
-            _verify_empty_cache_team(
-                team, config, cache_batch_data, expiry_status, cache_type, result, team_ids_to_skip_fix
-            )
-        except Exception as e:
-            result.errors += 1
-            logger.exception("Error verifying team (empty check)", team_id=team.id, error=str(e))
-
-    # Full verification for teams that have data
-    for team in teams_for_full_check:
+    for team in teams:
         result.total += 1
 
         try:
@@ -326,72 +264,6 @@ def _verify_and_fix_batch(
                 result=result,
                 verification=verification,
             )
-
-
-def _verify_empty_cache_team(
-    team: Team,
-    config: HyperCacheManagementConfig,
-    cache_batch_data: dict,
-    expiry_status: dict | None,
-    cache_type: str,
-    result: VerificationResult,
-    team_ids_to_skip_fix: set[int],
-) -> None:
-    """
-    Fast-path verification for teams expected to have empty cache values.
-
-    This avoids loading DB data for teams that should have empty caches (e.g., teams with no flags).
-    Just checks that the cached value matches empty_cache_value.
-    """
-    empty_value = config.empty_cache_value
-    if empty_value is None:
-        raise ValueError(
-            f"empty_cache_value must be configured to verify team {team.id} as empty, "
-            "but config.empty_cache_value is None"
-        )
-
-    # Get cached data from batch
-    cached_entry = cache_batch_data.get(team.id)
-    if cached_entry:
-        cached_data, source = cached_entry
-    else:
-        cached_data, source = None, "miss"
-
-    # Determine issue type (if any)
-    # Note: batch_get_from_cache only returns "redis" or "miss" sources (never "db")
-    issue_type: str | None = None
-    if source == "miss" or cached_data is None:
-        issue_type = "cache_miss"
-    elif cached_data != empty_value:
-        issue_type = "cache_mismatch"
-    else:
-        # Cache matches - check expiry tracking
-        identifier = config.hypercache.get_cache_identifier(team)
-        if expiry_status and not expiry_status.get(identifier, True):
-            issue_type = "expiry_missing"
-
-    if issue_type:
-        # Check if we should skip fixing (e.g., grace period for recently updated flags)
-        if team.id in team_ids_to_skip_fix:
-            result.skipped_for_grace_period += 1
-            if len(result.skipped_team_ids) < MAX_FIXED_TEAM_IDS_TO_LOG:
-                result.skipped_team_ids.append(team.id)
-            logger.debug(
-                "Skipping fix due to grace period",
-                team_id=team.id,
-                issue_type=issue_type,
-                cache_type=cache_type,
-            )
-            return
-
-        _fix_and_record(
-            team=team,
-            config=config,
-            issue_type=issue_type,
-            cache_type=cache_type,
-            result=result,
-            verification={"db_data": empty_value},
-        )
 
 
 def _fix_and_record(

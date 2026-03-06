@@ -23,7 +23,10 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema> => ({
                 updated_at: params.updated_at,
             },
         })
-        return result
+        return {
+            ...(result as any),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/workflows`,
+        }
     },
 })
 

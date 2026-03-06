@@ -123,26 +123,21 @@ export function cleanupTooltip(id: string): void {
     }
 }
 
-const TOOLTIP_MAX_WIDTH = 480
-
-export function positionTooltip(
+function applyPosition(
     tooltipEl: HTMLElement,
     canvasBounds: DOMRect,
     caretX: number,
     caretY: number,
-    centerVertically = false
+    centerVertically: boolean
 ): void {
-    tooltipEl.style.position = 'absolute'
-    tooltipEl.style.maxWidth = ''
-
     const caretLeft = canvasBounds.left + window.scrollX + caretX
     let left = caretLeft + 8
     const verticalOffset = centerVertically ? -tooltipEl.clientHeight / 2 : 8
     const top = canvasBounds.top + window.scrollY + caretY + verticalOffset
 
     const viewportRight = window.scrollX + document.documentElement.clientWidth
-    const tooltipWidth = tooltipEl.offsetWidth || TOOLTIP_MAX_WIDTH
-    if (left + tooltipWidth > viewportRight - 8) {
+    const tooltipWidth = tooltipEl.offsetWidth
+    if (tooltipWidth > 0 && left + tooltipWidth > viewportRight - 8) {
         left = caretLeft - tooltipWidth - 8
     }
     left = Math.max(window.scrollX + 8, left)
@@ -155,6 +150,27 @@ export function positionTooltip(
 
     tooltipEl.style.left = `${left}px`
     tooltipEl.style.top = `${clampedTop}px`
+}
+
+export function positionTooltip(
+    tooltipEl: HTMLElement,
+    canvasBounds: DOMRect,
+    caretX: number,
+    caretY: number,
+    centerVertically = false
+): void {
+    tooltipEl.style.position = 'absolute'
+    tooltipEl.style.maxWidth = ''
+
+    applyPosition(tooltipEl, canvasBounds, caretX, caretY, centerVertically)
+
+    // On first render offsetWidth may be 0 since content hasn't painted yet.
+    // Re-run positioning after paint so boundary clamping uses real dimensions.
+    if (tooltipEl.offsetWidth === 0) {
+        requestAnimationFrame(() => {
+            applyPosition(tooltipEl, canvasBounds, caretX, caretY, centerVertically)
+        })
+    }
 }
 
 export function useInsightTooltip(): {

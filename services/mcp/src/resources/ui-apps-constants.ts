@@ -20,8 +20,8 @@
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 
 /**
- * Demo app for testing MCP Apps SDK integration.
- * Used by: demo-mcp-ui-apps
- * Displays SDK events and tool result data for debugging.
+ * Debug app for testing MCP Apps SDK integration.
+ * Used by: debug-mcp-ui-apps
+ * Displays SDK events, tool result data, and Mosaic component showcase.
  */
-export const DEMO_RESOURCE_URI = 'ui://posthog/demo.html'
+export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
