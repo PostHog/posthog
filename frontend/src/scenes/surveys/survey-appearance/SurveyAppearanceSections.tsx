@@ -4,6 +4,8 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
@@ -70,6 +72,7 @@ interface SurveyAppearanceInputProps {
     label: string
     info?: string
     placeholder?: string
+    disabledReason?: string | null
 }
 
 function SurveyAppearanceInput({
@@ -79,6 +82,7 @@ function SurveyAppearanceInput({
     label,
     info,
     placeholder,
+    disabledReason,
 }: SurveyAppearanceInputProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
 
@@ -90,6 +94,7 @@ function SurveyAppearanceInput({
                 disabled={!surveysStylingAvailable}
                 className={IGNORE_ERROR_BORDER_CLASS}
                 placeholder={placeholder}
+                disabledReason={disabledReason}
             />
             {error && <LemonField.Error error={error} />}
         </LemonField.Pure>
@@ -103,6 +108,10 @@ export function SurveyContainerAppearance({
     surveyType,
 }: CommonProps): JSX.Element | null {
     const { surveysStylingAvailable } = useValues(surveysLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <SurveyOptionsGroup sectionTitle="Container options">
@@ -113,6 +122,7 @@ export function SurveyContainerAppearance({
                 value={appearance.maxWidth}
                 onChange={(maxWidth) => onAppearanceChange({ maxWidth })}
                 error={validationErrors?.maxWidth}
+                disabledReason={restrictedReason}
                 label="Survey width"
                 info="Min-width is always set to 300px"
             />
@@ -120,18 +130,21 @@ export function SurveyContainerAppearance({
                 value={appearance.boxPadding}
                 onChange={(boxPadding) => onAppearanceChange({ boxPadding })}
                 error={validationErrors?.boxPadding}
+                disabledReason={restrictedReason}
                 label="Box padding"
             />
             <SurveyAppearanceInput
                 value={appearance.boxShadow}
                 onChange={(boxShadow) => onAppearanceChange({ boxShadow })}
                 error={validationErrors?.boxShadow}
+                disabledReason={restrictedReason}
                 label="Box shadow"
             />
             <SurveyAppearanceInput
                 value={appearance.borderRadius}
                 onChange={(borderRadius) => onAppearanceChange({ borderRadius })}
                 error={validationErrors?.borderRadius}
+                disabledReason={restrictedReason}
                 label="Border radius"
             />
             <LemonField.Pure
@@ -147,7 +160,7 @@ export function SurveyContainerAppearance({
                     <SurveyPositionSelector
                         currentPosition={appearance.position}
                         onAppearanceChange={onAppearanceChange}
-                        disabled={!surveysStylingAvailable}
+                        disabled={!surveysStylingAvailable || !!restrictedReason}
                     />
                     <LemonSelect
                         value={appearance.position}
@@ -157,6 +170,7 @@ export function SurveyContainerAppearance({
                             value: position,
                         }))}
                         disabled={!surveysStylingAvailable}
+                        disabledReason={restrictedReason}
                     />
                 </div>
                 {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector && (
@@ -171,6 +185,7 @@ export function SurveyContainerAppearance({
                             }
                             active={appearance.position === SurveyPosition.NextToTrigger}
                             disabled={!surveysStylingAvailable}
+                            disabledReason={restrictedReason}
                         >
                             {positionDisplayNames[SurveyPosition.NextToTrigger]}
                             {appearance.position === SurveyPosition.NextToTrigger && (
@@ -196,12 +211,14 @@ export function SurveyContainerAppearance({
                     })}
                     className="ignore-error-border"
                     disabled={!surveysStylingAvailable}
+                    disabledReason={restrictedReason}
                 />
             </LemonField.Pure>
             <SurveyAppearanceInput
                 value={appearance.zIndex}
                 onChange={(zIndex) => onAppearanceChange({ zIndex })}
                 error={validationErrors?.zIndex}
+                disabledReason={restrictedReason}
                 label="Survey form zIndex"
                 info="If the survey popup is hidden, set this value higher than the overlapping element's zIndex."
             />
@@ -228,6 +245,11 @@ export function SurveyColorsAppearance({
     customizeRatingButtons: boolean
     customizePlaceholderText: boolean
 }): JSX.Element {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
     return (
         <SurveyOptionsGroup sectionTitle="Colors and placeholder customization">
             <SurveyColorsSubgroup title="Survey background">
@@ -235,12 +257,14 @@ export function SurveyColorsAppearance({
                     value={appearance.backgroundColor}
                     onChange={(backgroundColor) => onAppearanceChange({ backgroundColor })}
                     error={validationErrors?.backgroundColor}
+                    disabledReason={restrictedReason}
                     label="Background color"
                 />
                 <SurveyAppearanceInput
                     value={appearance.textColor}
                     onChange={(textColor) => onAppearanceChange({ textColor })}
                     error={validationErrors?.textColor}
+                    disabledReason={restrictedReason}
                     label="Text color"
                     placeholder="Leave empty for auto-contrast"
                 />
@@ -248,6 +272,7 @@ export function SurveyColorsAppearance({
                     value={appearance.borderColor}
                     onChange={(borderColor) => onAppearanceChange({ borderColor })}
                     error={validationErrors?.borderColor}
+                    disabledReason={restrictedReason}
                     label="Border color"
                 />
             </SurveyColorsSubgroup>
@@ -259,12 +284,14 @@ export function SurveyColorsAppearance({
                         onAppearanceChange({ inputBackground, ratingButtonColor: inputBackground })
                     }
                     error={validationErrors?.inputBackground || validationErrors?.ratingButtonColor}
+                    disabledReason={restrictedReason}
                     label="Background color"
                 />
                 <SurveyAppearanceInput
                     value={appearance.inputTextColor}
                     onChange={(inputTextColor) => onAppearanceChange({ inputTextColor })}
                     error={validationErrors?.inputTextColor}
+                    disabledReason={restrictedReason}
                     label="Text color"
                     placeholder="Leave empty for auto-contrast"
                 />
@@ -273,6 +300,7 @@ export function SurveyColorsAppearance({
                         value={appearance.ratingButtonActiveColor}
                         onChange={(ratingButtonActiveColor) => onAppearanceChange({ ratingButtonActiveColor })}
                         error={validationErrors?.ratingButtonActiveColor}
+                        disabledReason={restrictedReason}
                         label="Active rating background"
                     />
                 )}
@@ -281,6 +309,7 @@ export function SurveyColorsAppearance({
                         value={appearance.placeholder}
                         onChange={(placeholder) => onAppearanceChange({ placeholder })}
                         error={validationErrors?.placeholder}
+                        disabledReason={restrictedReason}
                         label="Placeholder text"
                     />
                 )}
@@ -291,12 +320,14 @@ export function SurveyColorsAppearance({
                     value={appearance.submitButtonColor}
                     onChange={(submitButtonColor) => onAppearanceChange({ submitButtonColor })}
                     error={validationErrors?.submitButtonColor}
+                    disabledReason={restrictedReason}
                     label="Background color"
                 />
                 <SurveyAppearanceInput
                     value={appearance.submitButtonTextColor}
                     onChange={(submitButtonTextColor) => onAppearanceChange({ submitButtonTextColor })}
                     error={validationErrors?.submitButtonTextColor}
+                    disabledReason={restrictedReason}
                     label="Text color"
                     placeholder="Leave empty for auto-contrast"
                 />

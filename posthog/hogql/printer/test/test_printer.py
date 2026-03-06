@@ -211,6 +211,24 @@ class TestPrinter(BaseTest):
             self._select("select 1 as id except all select 2 as id")
         self.assertIn("EXCEPT ALL is not supported", str(context.exception))
 
+    def test_union_by_name(self):
+        expr = parse_select("""select 1 as a, 2 as b union by name select 3 as b, 4 as a""")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            (
+                "SELECT\n"
+                "    1 AS a,\n"
+                "    2 AS b\n"
+                "LIMIT 50000\n"
+                "UNION DISTINCT BY NAME\n"
+                "SELECT\n"
+                "    3 AS b,\n"
+                "    4 AS a\n"
+                f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            ),
+        )
+
     # these share the same priority, should stay in order
     def test_except_and_union(self):
         expr = parse_select("""select 1 as id except select 2 as id union all select 3 as id""")
