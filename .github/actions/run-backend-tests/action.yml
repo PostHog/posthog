@@ -2,6 +2,10 @@
 # This is a composite action that packages our backend Django tests.
 # It is called by the `ci-backend.yml` job using a matrix.
 #
+# Note: This action starts core services only (no extra profiles).
+# Callers needing Temporal/Azure must start those services themselves
+# before invoking this action (see ci-backend.yml django job).
+#
 name: Run Django tests
 inputs:
     python-version:
@@ -62,7 +66,7 @@ runs:
                   echo "Attempt $attempt of $max_attempts to start stack..."
 
                   if docker compose -f docker-compose.dev.yml down && \
-                     docker compose -f docker-compose.dev.yml up -d && \
+                     docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d && \
                      bin/wait-for-docker; then
                       echo "Stack started successfully"
                       exit 0

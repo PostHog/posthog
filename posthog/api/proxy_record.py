@@ -1,3 +1,4 @@
+import time
 import asyncio
 import hashlib
 
@@ -5,6 +6,7 @@ from django.conf import settings
 
 import posthoganalytics
 from rest_framework import serializers, status
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
@@ -123,6 +125,52 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
         serializer = self.get_serializer(record)
         _capture_proxy_event(request, record, "created")
+        return Response(serializer.data)
+
+    @action(methods=["POST"], detail=True)
+    def retry(self, request, *args, pk=None, **kwargs):
+        record = self.organization.proxy_records.get(id=pk)
+
+        if record.status not in (
+            ProxyRecord.Status.ERRORING,
+            ProxyRecord.Status.TIMED_OUT,
+        ):
+            return Response(
+                {"detail": f"Cannot retry proxy in {record.status} state."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        record.status = ProxyRecord.Status.WAITING
+        record.message = None
+        record.save()
+
+        try:
+            temporal = sync_connect()
+            inputs = CreateManagedProxyInputs(
+                organization_id=record.organization_id,
+                proxy_record_id=record.id,
+                domain=record.domain,
+                target_cname=record.target_cname,
+            )
+            workflow_id = f"proxy-create-{inputs.proxy_record_id}-retry-{int(time.time())}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "create-proxy",
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                )
+            )
+        except Exception:
+            record.status = ProxyRecord.Status.ERRORING
+            record.save()
+            return Response(
+                {"detail": "Failed to start retry workflow."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        serializer = self.get_serializer(record)
+        _capture_proxy_event(request, record, "retried")
         return Response(serializer.data)
 
     def destroy(self, request, *args, pk=None, **kwargs):

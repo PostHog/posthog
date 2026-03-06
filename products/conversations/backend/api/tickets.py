@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
@@ -25,6 +26,7 @@ from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
@@ -85,7 +87,7 @@ class TicketPersonSerializer(serializers.Serializer):
         return get_person_name(team, person)
 
 
-class TicketSerializer(serializers.ModelSerializer):
+class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
 
@@ -116,6 +118,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "slack_thread_ts",
             "slack_team_id",
             "person",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -138,7 +141,7 @@ class TicketSerializer(serializers.ModelSerializer):
         ]
 
 
-class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -201,9 +204,11 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if parsed:
                 queryset = queryset.filter(updated_at__lte=parsed)
 
-        distinct_id = self.request.query_params.get("distinct_id")
-        if distinct_id and len(distinct_id) <= 200:
-            queryset = queryset.filter(distinct_id__icontains=distinct_id)
+        distinct_ids_param = self.request.query_params.get("distinct_ids")
+        if distinct_ids_param:
+            ids = [id.strip() for id in distinct_ids_param.split(",") if id.strip()][:100]
+            if ids:
+                queryset = queryset.filter(distinct_id__in=ids)
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
@@ -223,6 +228,15 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(sla_due_at__gte=now, sla_due_at__lte=now + timedelta(hours=1))
             elif sla_param == "on-track":
                 queryset = queryset.filter(sla_due_at__gt=now + timedelta(hours=1))
+
+        tags_param = self.request.query_params.get("tags")
+        if tags_param:
+            try:
+                tags_list = json.loads(tags_param)
+                if isinstance(tags_list, list) and tags_list:
+                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+            except json.JSONDecodeError:
+                pass
 
         allowed_orderings = {"updated_at", "-updated_at", "sla_due_at", "-sla_due_at", "created_at", "-created_at"}
         order_by = self.request.query_params.get("order_by", "-updated_at")
@@ -407,7 +421,40 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
+        # Log all field changes to activity log
+        changes: list[Change] = []
+        if status_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="status",
+                    before=old_status,
+                    after=new_status,
+                    action="changed",
+                )
+            )
+        if priority_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="priority",
+                    before=old_priority,
+                    after=new_priority,
+                    action="changed",
+                )
+            )
         if sla_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="sla_due_at",
+                    before=old_sla_due_at.isoformat() if old_sla_due_at else None,
+                    after=new_sla_due_at.isoformat() if new_sla_due_at else None,
+                    action="changed",
+                )
+            )
+
+        if changes:
             try:
                 log_activity(
                     organization_id=self.organization.id,
@@ -419,15 +466,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     activity="updated",
                     detail=Detail(
                         name=f"Ticket #{instance.ticket_number}",
-                        changes=[
-                            Change(
-                                type="Ticket",
-                                field="sla_due_at",
-                                before=old_sla_due_at.isoformat() if old_sla_due_at else None,
-                                after=new_sla_due_at.isoformat() if new_sla_due_at else None,
-                                action="changed",
-                            )
-                        ],
+                        changes=changes,
                     ),
                 )
             except Exception as e:

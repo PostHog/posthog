@@ -165,7 +165,8 @@ async fn setup_ai_router_with_restriction(
         liveness,
         sink,
         redis,
-        None, // global_rate_limiter
+        None, // global_rate_limiter_token_distinctid
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),

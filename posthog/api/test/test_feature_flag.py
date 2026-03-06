@@ -2697,6 +2697,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 201
         assert response.json()["key"] == "flag1"
 
+    def test_soft_delete_can_be_reversed_by_patch(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="undo-flag")
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is True
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
+        assert flag.deleted is False
+        assert flag.key == "undo-flag"
+
+    def test_soft_delete_undo_restores_renamed_key(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="renamed-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"renamed-flag:deleted:{flag.id}"
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "renamed-flag"
+
+    def test_soft_delete_undo_suffixes_key_when_original_is_taken(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        # Soft-delete renames the key to free it up
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"taken-flag:deleted:{flag.id}"
+
+        # Another flag claims the original key
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
+
+        # Restoring falls back to a suffixed key instead of crashing
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "taken-flag-2"
+
+    def test_soft_delete_undo_suffixes_key_when_original_held_by_soft_deleted_flag(self):
+        """The unique constraint covers all rows including soft-deleted ones,
+        so restoring a flag must check against soft-deleted flags too."""
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="held-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        # Soft-delete renames the key
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"held-flag:deleted:{flag.id}"
+
+        # Another flag claims the original key and is then soft-deleted itself
+        blocker = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="held-flag")
+        blocker.deleted = True
+        blocker.save()
+
+        # Restoring must still suffix because the DB constraint spans all rows
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "held-flag-2"
+
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
         exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)

@@ -14,6 +14,11 @@ from posthog.temporal.common.combined_metrics_server import CombinedMetricsServe
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.delete_recordings.metrics import (
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+    DeleteRecordingsMetricsInterceptor,
+)
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
 from posthog.temporal.llm_analytics.sentiment.metrics import (
     SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
@@ -223,6 +228,12 @@ async def create_worker(
                         itertools.repeat(SENTIMENT_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
+                | dict(
+                    zip(
+                        DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
             ),
         )
@@ -250,6 +261,7 @@ async def create_worker(
                 LivenessInterceptor(),
                 PostHogClientInterceptor(),
                 BatchExportsMetricsInterceptor(),
+                DeleteRecordingsMetricsInterceptor(),
                 EvalsMetricsInterceptor(),
                 SummarizationMetricsInterceptor(),
                 ClusteringMetricsInterceptor(),
@@ -278,6 +290,7 @@ async def create_worker(
                 LivenessInterceptor(),
                 PostHogClientInterceptor(),
                 BatchExportsMetricsInterceptor(),
+                DeleteRecordingsMetricsInterceptor(),
                 EvalsMetricsInterceptor(),
                 SummarizationMetricsInterceptor(),
                 ClusteringMetricsInterceptor(),

@@ -1,0 +1,115 @@
+/*
+ * Mosaic theme utilities for Storybook.
+ *
+ * Mosaic uses Tailwind v4 with custom @theme tokens that produce class names
+ * like bg-bg-primary, text-text-primary, border-border-primary, etc.
+ * The main PostHog Storybook uses Tailwind v3 which doesn't generate these.
+ * This file provides the missing utility classes so mosaic components render
+ * correctly in Storybook snapshots.
+ *
+ * The CSS variable values are injected by the McpThemeDecorator in Mosaic.stories.tsx.
+ */
+
+/* -- Background colors -- */
+.bg-bg-primary {
+    background-color: var(--color-background-primary, #fff);
+}
+.bg-bg-secondary {
+    background-color: var(--color-background-secondary, #f9fafb);
+}
+.bg-bg-tertiary {
+    background-color: var(--color-background-tertiary, #f2f4f7);
+}
+.bg-bg-secondary\/50 {
+    background-color: color-mix(in srgb, var(--color-background-secondary, #f9fafb) 50%, transparent);
+}
+.bg-text-primary {
+    background-color: var(--color-text-primary, #101828);
+}
+
+/* -- Semantic background colors -- */
+.bg-info {
+    background-color: #2563eb;
+}
+
+/* -- Background colors with opacity -- */
+.bg-success\/10 {
+    background-color: rgb(5 150 105 / 0.1);
+}
+.bg-danger\/10 {
+    background-color: rgb(220 38 38 / 0.1);
+}
+.bg-info\/10 {
+    background-color: rgb(37 99 235 / 0.1);
+}
+.bg-warning\/10 {
+    background-color: rgb(217 119 6 / 0.1);
+}
+
+/* -- Text colors -- */
+.text-text-primary {
+    color: var(--color-text-primary, #101828);
+}
+.text-text-secondary {
+    color: var(--color-text-secondary, #6b7280);
+}
+.text-text-inverse {
+    color: var(--color-text-inverse, #fff);
+}
+.text-success {
+    color: #059669;
+}
+.text-danger {
+    color: #dc2626;
+}
+.text-info {
+    color: #2563eb;
+}
+.text-warning {
+    color: #d97706;
+}
+
+/* -- Border colors -- */
+.border-border-primary {
+    border-color: var(--color-border-primary, #e5e7eb);
+}
+.border-border-secondary {
+    border-color: var(--color-border-secondary, #d1d5db);
+}
+.border-text-secondary {
+    border-color: var(--color-text-secondary, #6b7280);
+}
+.border-info {
+    border-color: #2563eb;
+}
+
+/* -- Hover / focus / group-hover variants -- */
+.hover\:bg-bg-secondary:hover {
+    background-color: var(--color-background-secondary, #f9fafb);
+}
+.hover\:bg-bg-tertiary:hover {
+    background-color: var(--color-background-tertiary, #f2f4f7);
+}
+.hover\:text-text-primary:hover {
+    color: var(--color-text-primary, #101828);
+}
+.focus\:border-info:focus {
+    border-color: #2563eb;
+}
+
+/* -- Fonts -- */
+.font-sans {
+    font-family: var(
+        --font-sans,
+        -apple-system,
+        BlinkMacSystemFont,
+        'Segoe UI',
+        Roboto,
+        'Helvetica Neue',
+        Arial,
+        sans-serif
+    );
+}
+.font-mono {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
+}
