@@ -72,16 +72,18 @@ export function NodeCanvas<T extends Record<string, unknown>>({
     nodes,
     nodeTypes,
     height = 200,
+    width = 800,
     padding = 0.3,
 }: {
     nodes: Node<T>[]
     nodeTypes: NodeTypes
     height?: number
+    width?: number
     padding?: number
 }): JSX.Element {
     return (
         <ReactFlowProvider>
-            <div style={{ width: '100%', height }}>
+            <div style={{ width, height }}>
                 <ReactFlow
                     nodes={nodes}
                     edges={[]}
