@@ -1,9 +1,8 @@
 import { Handle, NodeProps } from '@xyflow/react'
 import { z } from 'zod'
 
+import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
-
-import { Optional } from '~/types'
 
 import { HogFlowAction } from '../types'
 

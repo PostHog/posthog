@@ -123,10 +123,10 @@ The response format depends on the `v` query parameter and the endpoint:
 
 The goal is for this Rust endpoint to replace the Django local evaluation endpoint. When complete, it will serve flag definitions for SDKs that evaluate flags locally, authenticated via:
 
-- Team secret API token (`Authorization: Bearer phx_...`), or
+- Team secret API token (`Authorization: Bearer phs_...`), or
 - Personal API key with `feature_flag:read` scope
 
-Current implementation returns flag definitions with cohort data from HyperCache. No PostgreSQL fallback -- if cache misses, the endpoint returns an error. Rate limited per team (default 600/minute).
+Current implementation returns flag definitions with cohort data from HyperCache, with PostgreSQL fallback on cache miss. Supports ETag-based conditional requests (`If-None-Match` header) to avoid re-transferring unchanged definitions. Rate limited per team (default 600/minute, per-team overrides via `LOCAL_EVAL_RATE_LIMITS`).
 
 ## Request and response types
 
@@ -258,7 +258,7 @@ All values come from environment variables via the `envconfig` crate. Defined in
 | `FLAGS_IP_REPLENISH_RATE`                  | `50.0`  | Tokens per second                     |
 | `FLAGS_RATE_LIMIT_LOG_ONLY`                | `true`  | Log violations without blocking       |
 | `FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE` | `600`   | Default rate for `/flags/definitions` |
-| `FLAG_DEFINITIONS_RATE_LIMITS`             | (empty) | Per-team overrides as JSON            |
+| `LOCAL_EVAL_RATE_LIMITS`                   | (empty) | Per-team overrides as JSON            |
 
 ### Caching
 
