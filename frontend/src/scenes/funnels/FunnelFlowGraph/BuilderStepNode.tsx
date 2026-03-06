@@ -137,7 +137,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
     const { stepCount, taxonomicGroupTypes } = useValues(journeyBuilderLogic)
 
     const canRemove = stepCount > 1
-    const hasEvent = step.action_id !== null && step.name !== 'Select an event'
+    const hasEvent = step.action_id !== null
     const hasConversionData = step.count != null && step.count > 0
 
     return (
