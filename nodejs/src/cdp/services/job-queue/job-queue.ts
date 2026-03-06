@@ -35,11 +35,13 @@ const counterJobsProcessed = new Counter({
 
 export const JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS = 10 * 1000 // Any scheduled jobs need to be scheduled this much in the future to be considered for postgres
 
+export type CyclotronJobQueueRoutingEntry = {
+    target: CyclotronJobQueueSource
+    percentage: number
+}
+
 export type CyclotronJobQueueRouting = {
-    [key: string]: {
-        target: CyclotronJobQueueSource
-        percentage: number
-    }
+    [key: string]: CyclotronJobQueueRoutingEntry[]
 }
 
 export type CyclotronJobQueueTeamRouting = {
@@ -106,36 +108,29 @@ export class CyclotronJobQueue {
     public async startAsProducer() {
         // We only need to connect to the queue targets that are configured
 
-        const allTargets: {
-            target: CyclotronJobQueueSource
-            percentage: number
-        }[] = []
+        const allEntries: CyclotronJobQueueRoutingEntry[] = []
 
         for (const teamId in this.producerTeamMapping) {
-            allTargets.push(...Object.values(this.producerTeamMapping[teamId]))
+            for (const queue in this.producerTeamMapping[teamId]) {
+                allEntries.push(...this.producerTeamMapping[teamId][queue])
+            }
         }
 
         for (const queue in this.producerMapping) {
-            allTargets.push({
-                target: this.producerMapping[queue].target,
-                percentage: this.producerMapping[queue].percentage,
-            })
+            allEntries.push(...this.producerMapping[queue])
         }
 
-        const targets = new Set<CyclotronJobQueueSource>(allTargets.map((x) => x.target))
+        const targets = new Set<CyclotronJobQueueSource>(allEntries.map((x) => x.target))
 
-        // If any target is a non-100% then we need both producers ready
-        const anySplitRouting = allTargets.some((x) => x.percentage < 1)
-
-        if (anySplitRouting || targets.has('postgres') || this.producerForceScheduledToPostgres) {
+        if (targets.has('postgres') || this.producerForceScheduledToPostgres) {
             await this.jobQueuePostgres.startAsProducer()
         }
 
-        if (anySplitRouting || targets.has('postgres-v2')) {
+        if (targets.has('postgres-v2')) {
             await this.jobQueuePostgresV2?.startAsProducer()
         }
 
-        if (anySplitRouting || targets.has('kafka')) {
+        if (targets.has('kafka')) {
             await this.jobQueueKafka.startAsProducer()
         }
 
@@ -211,13 +206,22 @@ export class CyclotronJobQueue {
     private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {
         const teamId = invocation.teamId
         const mapping = this.producerTeamMapping[teamId] ?? this.producerMapping
-        const producerConfig = mapping[invocation.queue] ?? mapping['*']
+        const entries = mapping[invocation.queue] ?? mapping['*']
 
-        let target = producerConfig.target
-
-        if (producerConfig.percentage < 1) {
-            const otherTarget = target === 'postgres' ? 'kafka' : 'postgres'
-            target = Math.random() < producerConfig.percentage ? target : otherTarget
+        let target: CyclotronJobQueueSource
+        if (entries.length === 1) {
+            target = entries[0].target
+        } else {
+            const roll = Math.random()
+            let cumulative = 0
+            target = entries[entries.length - 1].target
+            for (const entry of entries) {
+                cumulative += entry.percentage
+                if (roll < cumulative) {
+                    target = entry.target
+                    break
+                }
+            }
         }
 
         if (
@@ -439,18 +443,28 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
             percentage = parsedPercentage
         }
 
-        if (routing[queue]) {
-            throw new Error(`Duplicate mapping: ${part}`)
+        if (!routing[queue]) {
+            routing[queue] = []
         }
 
-        routing[queue] = {
+        routing[queue].push({
             target: target as CyclotronJobQueueSource,
             percentage,
-        }
+        })
     }
 
     if (!routing['*']) {
         throw new Error('No mapping for the default queue for example: *:postgres')
+    }
+
+    // Validate that percentages sum to 1 for multi-target queues
+    for (const [queue, entries] of Object.entries(routing)) {
+        if (entries.length > 1) {
+            const sum = entries.reduce((acc, e) => acc + e.percentage, 0)
+            if (Math.abs(sum - 1) > 0.001) {
+                throw new Error(`Invalid mapping for queue ${queue}: percentages must sum to 1 (got ${sum})`)
+            }
+        }
     }
 
     return routing
