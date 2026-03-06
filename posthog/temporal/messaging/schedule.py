@@ -28,8 +28,14 @@ from posthog.settings.schedules import (
     REALTIME_COHORT_CALCULATION_P80_P90_INTERVAL_MINUTES,
     REALTIME_COHORT_CALCULATION_P80_P90_PARALLELISM,
     REALTIME_COHORT_CALCULATION_P80_P90_WORKFLOWS_PER_BATCH,
+    REALTIME_COHORT_CALCULATION_P90_P95_BATCH_DELAY_MINUTES,
     REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES,
+    REALTIME_COHORT_CALCULATION_P90_P95_PARALLELISM,
+    REALTIME_COHORT_CALCULATION_P90_P95_WORKFLOWS_PER_BATCH,
+    REALTIME_COHORT_CALCULATION_P95_P100_BATCH_DELAY_MINUTES,
     REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES,
+    REALTIME_COHORT_CALCULATION_P95_P100_PARALLELISM,
+    REALTIME_COHORT_CALCULATION_P95_P100_WORKFLOWS_PER_BATCH,
 )
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.messaging.constants import (
@@ -108,6 +114,9 @@ async def create_realtime_cohort_calculation_p90_p95_schedule(client: Client):
         duration_percentile_min=90.0,
         duration_percentile_max=95.0,
         interval_minutes=REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES,
+        parallelism=REALTIME_COHORT_CALCULATION_P90_P95_PARALLELISM,
+        workflows_per_batch=REALTIME_COHORT_CALCULATION_P90_P95_WORKFLOWS_PER_BATCH,
+        batch_delay_minutes=REALTIME_COHORT_CALCULATION_P90_P95_BATCH_DELAY_MINUTES,
     )
 
 
@@ -119,6 +128,9 @@ async def create_realtime_cohort_calculation_p95_p100_schedule(client: Client):
         duration_percentile_min=95.0,
         duration_percentile_max=100.0,
         interval_minutes=REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES,
+        parallelism=REALTIME_COHORT_CALCULATION_P95_P100_PARALLELISM,
+        workflows_per_batch=REALTIME_COHORT_CALCULATION_P95_P100_WORKFLOWS_PER_BATCH,
+        batch_delay_minutes=REALTIME_COHORT_CALCULATION_P95_P100_BATCH_DELAY_MINUTES,
     )
 
 
