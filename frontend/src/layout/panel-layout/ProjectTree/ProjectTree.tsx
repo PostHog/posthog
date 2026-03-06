@@ -11,6 +11,7 @@ import {
     IconPencil,
     IconPlusSmall,
     IconShortcut,
+    IconStar,
 } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
@@ -190,19 +191,32 @@ export function ProjectTree({
         if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
-                name: 'Example shortcuts',
+                name: isAIFirst ? 'Starred items' : 'Example shortcuts',
                 type: 'category',
                 displayName: (
                     <div
-                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
-                            'mt-2': fullFileSystemFiltered.length === 0,
+                        className={cn('border border-primary text-xs font-normal rounded-xs p-2 -mx-1', {
+                            'mt-2': fullFileSystemFiltered.length === 0 && !isAIFirst,
+                            'mb-2': !isAIFirst,
                         })}
                     >
-                        Shortcuts are added by pressing{' '}
-                        <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                        side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file
-                        menu click{' '}
-                        <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.{' '}
+                        {isAIFirst ? (
+                            <>
+                                Starred items are added by pressing{' '}
+                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                                side-clicking a panel item, then "Add to starred", or inside an app's resources file
+                                menu click{' '}
+                                <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
+                            </>
+                        ) : (
+                            <>
+                                Shortcuts are added by pressing{' '}
+                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                                side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources
+                                file menu click{' '}
+                                <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
+                            </>
+                        )}{' '}
                         {fullFileSystemFiltered.length > 0 && (
                             <span className="cursor-pointer underline" onClick={() => setShortcutHelperDismissed(true)}>
                                 Dismiss.
@@ -702,7 +716,7 @@ export function ProjectTree({
                                             'text-primary': selectMode === 'multi',
                                         })}
                                     />
-                                    Add shortcut
+                                    {isAIFirst ? 'Add to starred' : 'Add shortcut'}
                                 </>
                             ),
                         }),
