@@ -158,9 +158,7 @@ class Consumer:
             f"Total file MiB: {self.total_file_bytes_count / 1024**2:.2f}"
         )
 
-        return BatchExportResult(
-            self.total_records_count, self.total_file_bytes_count, None, self.total_record_batch_bytes_count
-        )
+        return BatchExportResult(self.total_records_count, self.total_file_bytes_count, None)
 
     async def generate_record_batches_from_queue(
         self,
@@ -303,9 +301,8 @@ class ConsumerGroupSettings:
         target_duration_seconds: The duration the ``ConsumerGroup`` should aim for. It
             is recommended to set this to a fraction of the batch export interval, as we
             should always aim to finish with a good margin before the interval is up.
-        total_size_bytes: Size of the batch export. This is hard to estimate during the
-            consumer execution and also beforehand. Should be set based on historical
-            data.
+        total_size_records: Size of the batch export in number of records. This can be
+            obtained when executing an internal stage query or from historical data.
         initial_grace_period_seconds: An initial wait time before the ``ConsumerGroup``
             to starts polling to decide whether to scale up. This allows time for
             smaller batch exports that finish quickly to actually finish.
@@ -322,7 +319,7 @@ class ConsumerGroupSettings:
     """
 
     target_duration_seconds: int
-    total_size_bytes: int
+    total_size_records: int
     initial_grace_period_seconds: int | float = DEFAULT_INITIAL_GRACE_PERIOD_SECONDS
     poll_delay_seconds: int | float = DEFAULT_POLL_DELAY_SECONDS
     tracking_window_size: int = DEFAULT_TRACKING_WINDOW_SIZE
@@ -359,15 +356,14 @@ class ConsumerGroup(typing.Protocol[_C]):
     settings: ConsumerGroupSettings
 
     # Tracking state
-    bytes_exported: int = 0
-    bytes_exported_window: int = 0
+    records_exported: int = 0
+    records_exported_window: int = 0
     time_elapsed: int | float = 0
     time_elapsed_window: int | float = 0
 
     # Tracking results
     accumulated_bytes_exported: int = 0
     accumulated_records_completed: int = 0
-    accumulated_records_bytes_completed: int = 0
 
     # Internal state management
     _consumers: set[_C] | None = None
@@ -408,18 +404,18 @@ class ConsumerGroup(typing.Protocol[_C]):
         return len(self.consumers)
 
     @property
-    def bytes_exported_per_second(self) -> float:
-        """Return the overall rate of exported bytes per second."""
+    def records_exported_per_second(self) -> float:
+        """Return the overall rate of exported records per second."""
         try:
-            return self.bytes_exported / self.time_elapsed
+            return self.records_exported / self.time_elapsed
         except ZeroDivisionError:
             raise ValueError("group not started")
 
     @property
-    def bytes_exported_per_second_window(self) -> float:
+    def records_exported_per_second_window(self) -> float:
         """Return the rate of exported bytes per second for the last window."""
         try:
-            return self.bytes_exported_window / self.time_elapsed_window
+            return self.records_exported_window / self.time_elapsed_window
         except ZeroDivisionError:
             raise ValueError("group not started")
 
@@ -437,7 +433,6 @@ class ConsumerGroup(typing.Protocol[_C]):
             records_completed=self.accumulated_records_completed,
             bytes_exported=self.accumulated_bytes_exported,
             error=self.errors or None,
-            records_bytes_completed=self.accumulated_records_bytes_completed,
         )
 
     @property
@@ -516,16 +511,16 @@ class ConsumerGroup(typing.Protocol[_C]):
         """Poll consumers to refresh internal tracking metrics."""
         if self._window_counter == self.settings.tracking_window_size:
             self._window_counter = 0
-            self.bytes_exported_window = 0
+            self.records_exported_window = 0
             self.time_elapsed_window = 0
 
         now = time.monotonic()
-        current_total_bytes_exported = sum(map(operator.attrgetter("total_record_batch_bytes_count"), self.consumers))
-        bytes_exported_since_last_poll = current_total_bytes_exported - self.bytes_exported
+        current_total_records_exported = sum(map(operator.attrgetter("total_records_count"), self.consumers))
+        records_exported_since_last_poll = current_total_records_exported - self.records_exported
 
         self.time_elapsed = now - self.start_time
-        self.bytes_exported = current_total_bytes_exported
-        self.bytes_exported_window += bytes_exported_since_last_poll
+        self.records_exported = current_total_records_exported
+        self.records_exported_window += records_exported_since_last_poll
         self.time_elapsed_window = now - self.window_start_time
 
         if self._window_counter == self.settings.tracking_window_size - 1:
@@ -553,16 +548,16 @@ class ConsumerGroup(typing.Protocol[_C]):
         ``settings.min_consumers``.
         """
 
-        if not self.bytes_exported or not self.bytes_exported_per_second_window:
+        if not self.records_exported or not self.records_exported_per_second_window:
             # We have not started or don't have any data to update our estimates
             return 0
 
-        bytes_left = self.settings.total_size_bytes - self.bytes_exported
+        records_left = self.settings.total_size_records - self.records_exported
         time_left = self.settings.target_duration_seconds - self.time_elapsed
-        target_bytes_consumption_rate = bytes_left / time_left
+        target_records_consumption_rate = records_left / time_left
 
-        bytes_consumption_rate_per_consumer = self.bytes_exported_per_second_window / self.number_of_consumers
-        number_of_consumers_needed = int(round(target_bytes_consumption_rate / bytes_consumption_rate_per_consumer))
+        records_consumption_rate_per_consumer = self.records_exported_per_second_window / self.number_of_consumers
+        number_of_consumers_needed = int(round(target_records_consumption_rate / records_consumption_rate_per_consumer))
 
         if number_of_consumers_needed >= self.settings.max_consumers:
             return self.settings.max_consumers - self.number_of_consumers
@@ -616,9 +611,6 @@ class ConsumerGroup(typing.Protocol[_C]):
 
         if result.bytes_exported is not None:
             self.accumulated_bytes_exported += result.bytes_exported
-
-        if result.records_bytes_completed is not None:
-            self.accumulated_records_bytes_completed += result.records_bytes_completed
 
         if result.error is not None:
             # TODO: Consolidate errors of the same type into one

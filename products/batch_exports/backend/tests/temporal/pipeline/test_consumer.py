@@ -55,58 +55,58 @@ class TestConsumerGroup(ConsumerGroup):
 
 
 @pytest.mark.parametrize(
-    "target_duration_seconds,total_size_bytes,bytes_exported,time_elapsed,current_number_of_consumers,max_consumers,min_consumers,expected,test_description",
+    "target_duration_seconds,total_size_records,records_exported,time_elapsed,current_number_of_consumers,max_consumers,min_consumers,expected,test_description",
     [
         (
             11,  # Target duration seconds
-            2100,  # Total size bytes
-            100,  # Bytes exported
+            2100,  # Total size records
+            100,  # Records exported
             1,  # Time elapsed
             1,  # Current number of consumers
             3,  # Max consumers
             1,  # Min consumers
             1,  # Expected delta
-            "2000 bytes left at 100B/s with 1 consumer should add 1 consumer to finish in 10 seconds left",
+            "2000 records left at 100 records/s with 1 consumer should add 1 consumer to finish in 10 seconds left",
         ),
         (
             11,  # Target duration seconds
-            1010,  # Total size bytes
-            10,  # Bytes exported
+            1010,  # Total size records
+            10,  # Records exported
             1,  # Time elapsed
             1,  # Current number of consumers
             4,  # Max consumers
             1,  # Min consumers
             3,  # Expected delta
-            "1000 bytes left at 10B/s with 1 consumer needs 10 consumers but is capped to 4 so it only adds 3",
+            "1000 records left at 10 records/s with 1 consumer needs 10 consumers but is capped to 4 so it only adds 3",
         ),
         (
             3,  # Target duration seconds
-            2000,  # Total size bytes
-            1000,  # Bytes exported
+            2000,  # Total size records
+            1000,  # Records exported
             1,  # Time elapsed
             2,  # Current number of consumers
             4,  # Max consumers
             1,  # Min consumers
             -1,  # Expected delta
-            "1000 bytes left at 500B/s with 2 consumer should reduce 1 consumer to finish in 2 seconds left",
+            "1000 records left at 500 records/s with 2 consumer should reduce 1 consumer to finish in 2 seconds left",
         ),
         (
             3,  # Target duration seconds
-            2500,  # Total size bytes
-            1500,  # Bytes exported
+            2500,  # Total size records
+            1500,  # Records exported
             1,  # Time elapsed
             3,  # Current number of consumers
             4,  # Max consumers
             2,  # Min consumers
             -1,  # Expected delta
-            "1000 bytes left at 500B/s with 3 consumer needs only 1 consumer but is capped to 2 so it only takes 1",
+            "1000 records left at 500 records/s with 3 consumer needs only 1 consumer but is capped to 2 so it only takes 1",
         ),
     ],
 )
 async def test_calculate_consumers_delta(
     target_duration_seconds,
-    total_size_bytes,
-    bytes_exported,
+    total_size_records,
+    records_exported,
     time_elapsed,
     current_number_of_consumers,
     max_consumers,
@@ -123,7 +123,7 @@ async def test_calculate_consumers_delta(
     """
     settings = ConsumerGroupSettings(
         target_duration_seconds=target_duration_seconds,
-        total_size_bytes=total_size_bytes,
+        total_size_records=total_size_records,
         max_consumers=max_consumers,
         min_consumers=min_consumers,
         # Rest of the settings don't matter for the purposes of this test
@@ -137,7 +137,7 @@ async def test_calculate_consumers_delta(
     )
 
     # Update state
-    group.bytes_exported = group.bytes_exported_window = bytes_exported
+    group.records_exported = group.records_exported_window = records_exported
     group.time_elapsed = group.time_elapsed_window = time_elapsed
     group._consumers = set(range(current_number_of_consumers))
 
@@ -163,7 +163,7 @@ async def test_consumer_group_adds_max_consumers_when_target_missed():
     # Which is longer than our target of 0
     settings = ConsumerGroupSettings(
         target_duration_seconds=0,
-        total_size_bytes=100 * 1024 * 1024,
+        total_size_records=100 * 1024 * 1024,
         poll_delay_seconds=0.1,
         initial_grace_period_seconds=0,
         max_consumers=max_consumers,
@@ -198,7 +198,7 @@ async def test_consumer_group_poll():
     producer_task = asyncio.create_task(asyncio.sleep(0))
     settings = ConsumerGroupSettings(
         target_duration_seconds=0,
-        total_size_bytes=100 * 1024 * 1024,
+        total_size_records=100 * 1024 * 1024,
         tracking_window_size=1,
     )
 
@@ -211,15 +211,15 @@ async def test_consumer_group_poll():
             group._add_new_consumer(tg)
 
         for consumer in group.consumers:
-            consumer.total_record_batch_bytes_count = 100
+            consumer.total_records_count = 100
 
         # Manually start the group
         start = group._start_time = group._window_start_time = time.monotonic()
 
         group.poll()
 
-        assert group.bytes_exported == 500
-        assert group.bytes_exported_window == 500
+        assert group.records_exported == 500
+        assert group.records_exported_window == 500
         assert group.time_elapsed == group.last_poll_time - start
         assert group.time_elapsed_window == group.last_poll_time - start
         assert group.window_start_time == group.last_poll_time
@@ -228,12 +228,12 @@ async def test_consumer_group_poll():
         previous_window_start_time = group.window_start_time
 
         for consumer in group.consumers:
-            consumer.total_record_batch_bytes_count = 200
+            consumer.total_records_count = 200
 
         group.poll()
 
-        assert group.bytes_exported == 1000
-        assert group.bytes_exported_window == 500
+        assert group.records_exported == 1000
+        assert group.records_exported_window == 500
         assert group.time_elapsed == group.last_poll_time - start
         assert group.time_elapsed_window == group.last_poll_time - previous_window_start_time
         assert group.window_start_time == group.last_poll_time
@@ -245,7 +245,7 @@ async def test_consumer_group_sets_task_name_for_consumers():
     producer_task = asyncio.create_task(asyncio.sleep(0))
     settings = ConsumerGroupSettings(
         target_duration_seconds=0,
-        total_size_bytes=0,
+        total_size_records=0,
         tracking_window_size=1,
     )
 

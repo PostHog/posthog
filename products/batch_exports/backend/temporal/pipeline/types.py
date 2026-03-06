@@ -20,14 +20,11 @@ class BatchExportResult:
             number of bytes in ClickHouse or the internal stage) and therefore takes
             into account things like the file type and compression.
         error: Error or errors that occurred, if any.
-        records_bytes_completed: Total number of bytes exported based on raw records
-            exported (i.e. without taking into account compression and formatting).
     """
 
     records_completed: int | None = None
     bytes_exported: int | None = None
     error: BatchExportError | list[BatchExportError] | None = None
-    records_bytes_completed: int | None = None
 
     @property
     def error_repr(self) -> str | None:
@@ -49,7 +46,6 @@ class BatchExportResult:
 def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportResult]) -> BatchExportResult:
     records_completed = 0
     bytes_exported = 0
-    records_bytes_completed = 0
     error: list[BatchExportError] = []
 
     for result in results:
@@ -58,9 +54,6 @@ def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportRes
 
         if result.bytes_exported is not None:
             bytes_exported += result.bytes_exported
-
-        if result.records_bytes_completed is not None:
-            records_bytes_completed += result.records_bytes_completed
 
         if result.error is not None:
             # TODO: Consolidate errors of the same type into one
@@ -75,5 +68,4 @@ def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportRes
         records_completed=records_completed,
         bytes_exported=bytes_exported,
         error=error or None,
-        records_bytes_completed=records_bytes_completed,
     )

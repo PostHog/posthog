@@ -1098,7 +1098,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 inputs.data_interval_end or "END",
             )
 
-            return BatchExportResult(records_completed=0, bytes_exported=0, records_bytes_completed=0)
+            return BatchExportResult(records_completed=0, bytes_exported=0)
 
         table_fields, record_batch_schema, known_variant_columns = _get_databricks_table_settings(
             model=model,

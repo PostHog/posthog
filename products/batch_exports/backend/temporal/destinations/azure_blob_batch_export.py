@@ -292,7 +292,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
                 inputs.data_interval_end or "END",
             )
 
-            return BatchExportResult(records_completed=0, bytes_exported=0, records_bytes_completed=0)
+            return BatchExportResult(records_completed=0, bytes_exported=0)
 
         consumer = await AzureBlobConsumer.from_inputs(
             inputs=inputs,
