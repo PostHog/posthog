@@ -285,30 +285,42 @@ class ExperimentQueryBuilder:
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
         Builds query for funnel metrics.
+
+        Supports two patterns:
+        1. Events-only: Single query with boolean step columns
+        2. With DW steps: UNION ALL pattern with separate subqueries per source
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
         num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
 
-        session_id_column = (
-            """
-                        properties.$session_id AS session_id,"""
-            if not self.funnel_steps_data_disabled
-            else ""
-        )
 
-        metric_events_cte_str = f"""
-                metric_events AS (
-                    SELECT
-                        {{entity_key}} AS entity_id,
-                        {{variant_property}} as variant,
-                        timestamp,
-                        uuid,{session_id_column}
-                        -- step_0, step_1, ... step_N columns added programmatically below
-                    FROM events
-                    WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
-                )
-        """
+        # Determine which query pattern to use
+        has_dw_steps = self._has_datawarehouse_steps()
+
+        if has_dw_steps:
+            # UNION ALL pattern for heterogeneous sources
+            metric_events_cte_str = self._build_funnel_metric_events_cte_with_union()
+        else:
+            session_id_column = (
+                """
+                            properties.$session_id AS session_id,"""
+                if not self.funnel_steps_data_disabled
+                else ""
+            )
+
+            metric_events_cte_str = f"""
+                    metric_events AS (
+                        SELECT
+                            {{entity_key}} AS entity_id,
+                            {{variant_property}} as variant,
+                            timestamp,
+                            uuid,{session_id_column}
+                            -- step_0, step_1, ... step_N columns added programmatically below
+                        FROM events
+                        WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
+                    )
+            """
 
         is_unordered_funnel = self.metric.funnel_order_type == StepOrderValue.UNORDERED
 
@@ -1505,6 +1517,39 @@ class ExperimentQueryBuilder:
         """
         return parse_expr(
             "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0))))"
+        )
+
+    def _has_datawarehouse_steps(self) -> bool:
+        """
+        Check if funnel metric has any datawarehouse steps.
+
+        Returns:
+            True if any step in the series is ExperimentDataWarehouseNode
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+        return any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
+
+    def _build_funnel_metric_events_cte_with_union(self) -> str:
+        """
+        Build metric_events CTE using UNION ALL pattern for funnels with DW steps.
+
+        TODO: Full implementation requires:
+        1. Building step-specific filters for each subquery (event_or_action_to_filter for events, property filters for DW)
+        2. Building constant step columns for each subquery (using FunnelStepBuilder.build_constant_columns)
+        3. Handling timestamp filtering within conversion window
+        4. Ensuring all subqueries have compatible schema (entity_id as String, placeholder uuid/session_id for DW)
+
+        Pattern:
+        - Exposure subquery (step_0=1, others=0): SELECT FROM events WHERE exposure_predicate
+        - Each event/action step subquery (step_N=1, others=0): SELECT FROM events WHERE step_filter
+        - Each DW step subquery (step_N=1, others=0): SELECT FROM dw_table WHERE timestamp_filter AND property_filters
+
+        For now, raise NotImplementedError to prevent runtime errors.
+        """
+        raise NotImplementedError(
+            "UNION ALL pattern for datawarehouse funnel steps not yet fully implemented. "
+            "The abstractions (FunnelStepBuilder, MetricSourceInfo, FunnelDWValidator) are in place. "
+            "See experiment_query_builder.py:_build_funnel_metric_events_cte_with_union for implementation TODO."
         )
 
     def _build_retention_query(self) -> ast.SelectQuery:
