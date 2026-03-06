@@ -233,6 +233,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     viewed = serializers.SerializerMethodField()
     viewers = serializers.SerializerMethodField()
     activity_score = serializers.SerializerMethodField()
+    has_summary = serializers.SerializerMethodField()
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -247,6 +248,18 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
     def get_activity_score(self, obj: SessionRecording) -> float | None:
         return getattr(obj, "activity_score", None)
+
+    def get_has_summary(self, obj: SessionRecording) -> bool:
+        view = self.context.get("view")
+        if view and getattr(view, "action", None) == "list":
+            return False
+
+        from ee.models.session_summaries import SingleSessionSummary
+
+        return SingleSessionSummary.objects.filter(
+            team_id=obj.team_id,
+            session_id=str(obj.session_id),
+        ).exists()
 
     def get_external_references(self, obj: SessionRecording) -> list[dict]:
         """Load external references (linked issues) for this recording"""
@@ -293,6 +306,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "snapshot_library",
             "ongoing",
             "activity_score",
+            "has_summary",
             "external_references",
         ]
 
