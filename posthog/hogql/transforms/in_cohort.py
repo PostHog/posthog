@@ -396,7 +396,7 @@ class InCohortResolver(TraversingVisitor):
 
             new_join = ast.JoinExpr(
                 alias=f"in_cohort__{cohort_id}",
-                table=subquery,
+                table=cast(ast.SelectQuery, subquery),
                 join_type="LEFT JOIN",
                 next_join=None,
                 constraint=ast.JoinConstraint(

@@ -492,7 +492,7 @@ class Resolver(CloningVisitor):
 
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
                 node.type = node_type
-                node.table = cast(ast.Field, clone_expr(node.table))
+                node.table = clone_expr(cast(ast.Field, node.table))
                 node.table.type = cte_table_type
                 node.next_join = self.visit(node.next_join)
                 node.alias = table_alias

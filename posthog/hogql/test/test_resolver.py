@@ -1174,6 +1174,7 @@ class TestResolver(BaseTest):
         assert isinstance(expr.select_from, ast.JoinExpr)
         assert isinstance(expr.select_from.type, ast.SelectQueryAliasType)
         assert expr.select_from.alias == "v"
+        assert isinstance(expr.select_from.type.select_query_type, ast.SelectQueryType)
         columns = expr.select_from.type.select_query_type.columns
         assert "id" in columns
         assert "name" in columns
@@ -1183,6 +1184,7 @@ class TestResolver(BaseTest):
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(expr.select_from, ast.JoinExpr)
         assert isinstance(expr.select_from.table, ast.ValuesQuery)
+        assert expr.select_from.table.type is not None
         columns = expr.select_from.table.type.columns
         assert "col0" in columns
         assert "col1" in columns
@@ -1205,6 +1207,7 @@ class TestResolver(BaseTest):
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert isinstance(expr.select_from, ast.JoinExpr)
         assert isinstance(expr.select_from.type, ast.SelectQueryAliasType)
+        assert isinstance(expr.select_from.type.select_query_type, ast.SelectQueryType)
         columns = expr.select_from.type.select_query_type.columns
         assert "id" in columns, f"Expected 'id' in columns, got {list(columns.keys())}"
         assert "name" in columns, f"Expected 'name' in columns, got {list(columns.keys())}"
