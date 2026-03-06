@@ -59,7 +59,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
                     tooltip="Configure tabs & home"
                     tooltipPlacement="right"
                 >
-                    <IconGear className="text-tertiary" />
+                    <IconGear className="size-3 text-tertiary" />
                 </ButtonPrimitive>
             )}
         </ButtonGroupPrimitive>
