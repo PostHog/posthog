@@ -36,6 +36,7 @@ logger = structlog.get_logger(__name__)
 
 AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
+ACCESS_TOKEN_EXPIRY_SECONDS = 3600
 DEEP_LINK_TTL_SECONDS = 600
 DEEP_LINK_CACHE_PREFIX = "stripe_app_deep_link:"
 
@@ -497,6 +498,17 @@ def provisioning_resources_create(request: Request) -> Response:
     if error:
         return error
 
+    service_id = request.data.get("service_id", "")
+    if service_id and service_id not in VALID_SERVICE_IDS:
+        return Response(
+            {
+                "status": "error",
+                "id": "",
+                "error": {"code": "unknown_service", "message": f"Unknown service_id: {service_id}"},
+            },
+            status=400,
+        )
+
     scoped_teams = access_token.scoped_teams or []
 
     if not scoped_teams:
@@ -525,6 +537,7 @@ def provisioning_resources_create(request: Request) -> Response:
         {
             "status": "complete",
             "id": str(team_id),
+            "service_id": service_id or "product_analytics",
             "complete": {
                 "access_configuration": {
                     "api_key": team.api_token,
@@ -592,6 +605,7 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
         {
             "status": "complete",
             "id": resource_id,
+            "service_id": "product_analytics",
             "complete": {
                 "access_configuration": {
                     "api_key": team.api_token,

@@ -1,13 +1,16 @@
 import json
 import time
+from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 
+from django.core.cache import cache
 from django.test import override_settings
 
 from rest_framework.test import APIClient
 
 from ee.api.agentic_provisioning.signature import compute_signature
+from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
 
 HMAC_SECRET = "test_hmac_secret"
 
@@ -72,3 +75,29 @@ class StripeProvisioningTestBase(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
             **kwargs,
         )
+
+    def _get_bearer_token(self) -> str:
+        code = f"test_code_{id(self)}"
+        cache.set(
+            f"{AUTH_CODE_CACHE_PREFIX}{code}",
+            {
+                "user_id": self.user.id,
+                "org_id": str(self.organization.id),
+                "team_id": self.team.id,
+                "stripe_account_id": "acct_123",
+                "scopes": ["query:read"],
+                "region": "US",
+            },
+            timeout=300,
+        )
+        body = urlencode({"grant_type": "authorization_code", "code": code}).encode()
+        ts = int(time.time())
+        sig = compute_signature(self.HMAC_SECRET, ts, body)
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
+            HTTP_API_VERSION="0.1d",
+        )
+        return res.json()["access_token"]
