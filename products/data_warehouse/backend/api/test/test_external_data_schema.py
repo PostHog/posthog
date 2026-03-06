@@ -20,6 +20,7 @@ from posthog.temporal.common.schedule import describe_schedule
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
 from products.data_warehouse.backend.api.test.utils import create_external_data_source_ok
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -456,7 +457,9 @@ class TestUpdateExternalDataSchema:
 
         assert response.status_code == 400
 
-    def test_update_schema_enables_direct_query_without_sync_type(self, team, user, client: HttpClient, temporal):
+    def test_update_schema_exposes_direct_postgres_table_without_sync_type(
+        self, team, user, client: HttpClient, temporal
+    ):
         client.force_login(user)
         source = ExternalDataSource.objects.create(
             team=team,
@@ -512,11 +515,11 @@ class TestUpdateExternalDataSchema:
             assert schema.should_sync is True
             assert schema.table is not None
             assert schema.table.deleted is False
-            assert schema.table.url_pattern == "direct://postgres"
+            assert schema.table.url_pattern == DIRECT_POSTGRES_URL_PATTERN
             mock_external_data_workflow_exists.assert_not_called()
             mock_sync_external_data_job_workflow.assert_not_called()
 
-    def test_update_schema_disables_direct_query_and_soft_deletes_table(self, team, user, client: HttpClient, temporal):
+    def test_update_schema_hides_direct_postgres_table_when_disabled(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source = ExternalDataSource.objects.create(
             team=team,
@@ -532,7 +535,7 @@ class TestUpdateExternalDataSchema:
             name="accounts",
             format=DataWarehouseTable.TableFormat.Parquet,
             team=team,
-            url_pattern="direct://postgres",
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
             external_data_source=source,
             columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
         )

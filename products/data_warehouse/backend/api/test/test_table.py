@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.settings import settings
 
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
@@ -451,7 +452,7 @@ class TestTable(APIBaseTest):
             format="Parquet",
             team=self.team,
             team_id=self.team.pk,
-            url_pattern="direct://postgres",
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
             external_data_source_id=source.pk,
             columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
         )

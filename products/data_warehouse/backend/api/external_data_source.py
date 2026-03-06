@@ -147,11 +147,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
         source="revenue_analytics_config_safe", read_only=True
     )
-    access_method = serializers.ChoiceField(
-        choices=ExternalDataSource.AccessMethod.choices,
-        required=False,
-        default=ExternalDataSource.AccessMethod.WAREHOUSE,
-    )
+    access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
 
     class Meta:
         model = ExternalDataSource
@@ -184,6 +180,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "schemas",
             "revenue_analytics_config",
             "user_access_level",
+            "access_method",
         ]
 
     """
@@ -318,15 +315,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
-        incoming_access_method = validated_data.get("access_method", instance.access_method)
-        incoming_prefix = validated_data.get("prefix", instance.prefix)
-        is_direct_postgres = (
-            incoming_access_method == ExternalDataSource.AccessMethod.DIRECT
-            and instance.source_type == ExternalDataSourceType.POSTGRES
-        )
+        request = self.context.get("request")
+        requested_access_method = request.data.get("access_method") if request is not None else None
+        if requested_access_method is not None and requested_access_method != instance.access_method:
+            raise ValidationError("Access method cannot be changed. Create a new source instead.")
 
-        if is_direct_postgres:
-            # we use the "prefix" field for the source's name for direct queries
+        validated_data.pop("access_method", None)
+        incoming_prefix = validated_data.get("prefix", instance.prefix)
+
+        if instance.is_direct_postgres:
+            # For direct Postgres sources the prefix acts as the user-facing source name.
             normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
             if not normalized_prefix:
                 raise ValidationError("Name is required for direct query sources")

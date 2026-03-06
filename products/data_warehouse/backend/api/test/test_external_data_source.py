@@ -34,6 +34,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
@@ -870,7 +871,7 @@ class TestExternalDataSource(APIBaseTest):
             name="legacy_table",
             format=DataWarehouseTable.TableFormat.Parquet,
             team=self.team,
-            url_pattern="direct://postgres",
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
             external_data_source=source,
             columns=[],
         )
@@ -918,7 +919,7 @@ class TestExternalDataSource(APIBaseTest):
             name="Accounts",
             format=DataWarehouseTable.TableFormat.Parquet,
             team=self.team,
-            url_pattern="direct://postgres",
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
             external_data_source=source,
             columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
         )
@@ -2095,12 +2096,48 @@ class TestExternalDataSource(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
-            data={"prefix": " Updated name ", "access_method": "direct"},
+            data={"prefix": " Updated name "},
         )
 
         assert response.status_code == 200, response.content
         source.refresh_from_db()
         assert source.prefix == "Updated name"
+
+    def test_update_source_cannot_change_access_method(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+            prefix="Original name",
+            job_inputs={
+                "host": "172.16.0.0",
+                "port": "123",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+            data={"prefix": " Updated name ", "access_method": ExternalDataSource.AccessMethod.WAREHOUSE},
+        )
+
+        assert response.status_code == 400, response.content
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Access method cannot be changed. Create a new source instead.",
+            "type": "validation_error",
+        }
+        source.refresh_from_db()
+        assert source.access_method == ExternalDataSource.AccessMethod.DIRECT
+        assert source.prefix == "Original name"
 
     def test_update_source_with_ssh_tunnel_missing_auth(self):
         """Regression test: PATCH with ssh_tunnel but no auth key should not fail validation."""
