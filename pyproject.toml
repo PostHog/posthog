@@ -185,6 +185,8 @@ dependencies = [
     "botocore[crt]~=1.40.49",
     "defusedxml>=0.7.1",
     "confluent-kafka>=2.13.0",
+    "blake3>=1.0.8",
+    "pixelmatch>=0.3.1",
 ]
 
 [dependency-groups]

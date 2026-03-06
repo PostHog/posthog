@@ -152,14 +152,7 @@ jobs:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover decides whether Django tests are needed
                         - 'ee/**/*'
-                        - 'common/hogli/**/*'
-                        - 'common/hogvm/python/**/*'
-                        - 'common/hogvm/stl/**/*'
-                        - 'common/hogql_parser/**/*'
-                        - 'common/migration_utils/**/*'
-                        - 'common/ingestion/**/*'
-                        - 'common/__init__.py'
-                        - 'common/plugin_transpiler/src'
+                        - 'common/**/*'
                         - 'posthog/**/*'
                         - 'bin/*.py'
                         - pyproject.toml
@@ -175,7 +168,6 @@ jobs:
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
                         - docker-compose.base.yml
-                        - docker/clickhouse
 
     detect-snapshot-mode:
         name: Detect snapshot mode

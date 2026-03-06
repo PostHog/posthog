@@ -620,6 +620,9 @@ importers:
       '@posthog/products-user-interviews':
         specifier: workspace:*
         version: link:../products/user_interviews
+      '@posthog/products-visual-review':
+        specifier: workspace:*
+        version: link:../products/visual_review
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
@@ -2743,6 +2746,27 @@ importers:
       posthog-js:
         specifier: 'catalog:'
         version: 1.358.0
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+
+  products/visual_review:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
