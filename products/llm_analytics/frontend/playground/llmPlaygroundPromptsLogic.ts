@@ -215,7 +215,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
-        clearLinkedSource: (promptId?: string) => ({ promptId }),
+        clearLinkedSource: true,
         setSourceNames: (promptName: string | null, evaluationName: string | null, promptId?: string) => ({
             promptName,
             evaluationName,
@@ -330,8 +330,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         newMessages[index] = { ...newMessages[index], ...payload }
                         return { ...prompt, messages: newMessages }
                     }),
-                clearLinkedSource: (state: PromptConfig[], { promptId }: { promptId?: string }) =>
-                    updatePromptConfigs(state, promptId, (prompt) => ({
+                clearLinkedSource: (state: PromptConfig[]) =>
+                    updatePromptConfigs(state, state[0]?.id, (prompt) => ({
                         ...prompt,
                         sourceType: null,
                         sourcePromptId: null,
@@ -580,24 +580,21 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             const { input, tools, systemPrompt } = payload
             const currentPrompt = values.promptConfigs[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
             const promptId = currentPrompt.id
+
+            const finishSourceSetup = (sourceParam: Record<string, string>): void => {
+                actions.setMessages([], promptId)
+                actions.setActivePromptId(promptId)
+                const { source_prompt_id: _, source_evaluation_id: __, ...cleanParams } = router.values.searchParams
+                router.actions.push(combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, ...sourceParam }).url)
+            }
+
             try {
                 if (payload.sourcePromptId) {
                     try {
                         const fetchedPrompt = await api.llmPrompts.get(payload.sourcePromptId)
                         actions.setSystemPrompt(fetchedPrompt.prompt || DEFAULT_SYSTEM_PROMPT, promptId)
                         actions.setSourceNames(fetchedPrompt.name ?? null, null, promptId)
-                        actions.setMessages([], promptId)
-                        actions.setActivePromptId(promptId)
-                        const {
-                            source_prompt_id: _,
-                            source_evaluation_id: __,
-                            ...cleanParams
-                        } = router.values.searchParams
-                        const url = combineUrl(urls.llmAnalyticsPlayground(), {
-                            ...cleanParams,
-                            source_prompt_id: payload.sourcePromptId,
-                        }).url
-                        router.actions.push(url)
+                        finishSourceSetup({ source_prompt_id: payload.sourcePromptId })
                     } catch {
                         lemonToast.error('Error loading prompt for playground')
                     }
@@ -626,18 +623,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                                 actions.setModel(model, providerKeyId ?? undefined, promptId)
                             }
                         }
-                        actions.setMessages([], promptId)
-                        actions.setActivePromptId(promptId)
-                        const {
-                            source_prompt_id: _,
-                            source_evaluation_id: __,
-                            ...cleanParams
-                        } = router.values.searchParams
-                        const url = combineUrl(urls.llmAnalyticsPlayground(), {
-                            ...cleanParams,
-                            source_evaluation_id: payload.sourceEvaluationId,
-                        }).url
-                        router.actions.push(url)
+                        finishSourceSetup({ source_evaluation_id: payload.sourceEvaluationId })
                     } catch {
                         lemonToast.error('Error loading evaluation for playground')
                     }

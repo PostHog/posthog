@@ -14,13 +14,7 @@ import { urls } from 'scenes/urls'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { getLinkedSourceLabel, llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
 
-export function PlaygroundSaveMenu({
-    promptId,
-    prompt,
-}: {
-    promptId: string
-    prompt: PromptConfig
-}): JSX.Element | null {
+export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.Element | null {
     const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
     const { linkedSource, saving } = useValues(llmPlaygroundPromptsLogic)
     const { clearLinkedSource, saveToLinkedPrompt, saveToLinkedEvaluation, saveAsNewPrompt, saveAsNewEvaluation } =
@@ -95,7 +89,7 @@ export function PlaygroundSaveMenu({
     }
 
     const clearLinkedSourceState = (): void => {
-        clearLinkedSource(promptId)
+        clearLinkedSource()
         router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanSearchParams).url)
     }
 
@@ -105,7 +99,7 @@ export function PlaygroundSaveMenu({
 
     const isLinkedSourceEnabled =
         (linkedSource.type === 'prompt' && linkedPromptName && isPromptManagementEnabled) ||
-        (linkedSource.type === 'evaluation' && linkedEvaluationId && isEvaluationsEnabled)
+        (linkedSource.type === 'evaluation' && linkedEvaluationId && isEvaluationsEnabled && modelConfig)
 
     if (linkedLabel && isLinkedSourceEnabled) {
         linkedActions.push(
@@ -157,7 +151,7 @@ export function PlaygroundSaveMenu({
         )
     }
 
-    if (isEvaluationsEnabled) {
+    if (isEvaluationsEnabled && modelConfig) {
         saveAsNewActions.push(
             <LemonButton
                 key="save-new-evaluation"
