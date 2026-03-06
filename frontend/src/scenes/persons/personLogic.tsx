@@ -13,7 +13,7 @@ import { Breadcrumb, PersonType } from '~/types'
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
-import { getHogqlQueryStringForPersonId } from './person-utils'
+import { getHogqlQueryStringForPersonId, parsePersonFromHogQLRow } from './person-utils'
 import type { personLogicType } from './personLogicType'
 
 export interface PersonLogicProps {
@@ -81,16 +81,7 @@ export const personLogic = kea<personLogicType>([
                     if (row == null) {
                         return null
                     }
-                    const queryPerson: PersonType = {
-                        id: row[0],
-                        uuid: row[0],
-                        distinct_ids: row[1],
-                        properties: JSON.parse(row[2] || '{}'),
-                        is_identified: !!row[3],
-                        created_at: row[4],
-                        last_seen_at: row[5],
-                    }
-                    return queryPerson
+                    return parsePersonFromHogQLRow(row)
                 },
             },
         ],
