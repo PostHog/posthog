@@ -479,6 +479,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     explain?: boolean
     /** Client provided name of the query */
     name?: string
+    /** Optional direct query connection id for running against a specific source */
+    connectionId?: string
 }
 
 export interface HogQueryResponse {
@@ -687,6 +689,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     variables?: Record<string, HogQLVariable>
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
+    /** Optional direct query connection id for running against a specific source */
+    connectionId?: string
 }
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
@@ -709,6 +713,8 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
      * End position of the editor word
      */
     endPosition: integer
+    /** Optional direct query connection id for running against a specific source */
+    connectionId?: string
 }
 
 export type MathType =
@@ -3712,6 +3718,8 @@ export interface DatabaseSchemaQueryResponse {
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
+    /** Optional direct query connection id for schema introspection */
+    connectionId?: string
 }
 
 export type DatabaseSerializedFieldType =
