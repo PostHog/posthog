@@ -7,7 +7,7 @@ const schema = ActionGetAllSchema
 
 type Params = z.infer<typeof schema>
 
-export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const getAllHandler: ToolBase<typeof schema, unknown>['handler'] = async (context: Context, params: Params) => {
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.actions({ projectId }).list({
