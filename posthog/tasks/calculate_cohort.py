@@ -62,8 +62,6 @@ COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
 
 COHORT_STUCK_RESETS_COUNTER = Counter("cohort_stuck_resets_total", "Number of stuck cohorts that have been reset")
 
-# Import cohort calculation timing histograms from shared metrics module
-
 COHORT_MAXED_ERRORS_GAUGE = Gauge(
     "cohort_maxed_errors", "Number of cohorts that have reached the maximum number of errors"
 )
