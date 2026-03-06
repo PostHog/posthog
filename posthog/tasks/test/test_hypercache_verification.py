@@ -133,26 +133,46 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
     """Tests for the flag definitions cache verification task."""
 
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_verifies_flag_definitions_cache(self, mock_run_verification: MagicMock) -> None:
+    def test_verifies_both_flag_definitions_variants(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
 
         verify_and_fix_flag_definitions_cache_task()
 
-        # Only verifies with-cohorts variant (fixing it fixes both variants)
-        mock_run_verification.assert_called_once()
-        assert mock_run_verification.call_args[1]["cache_type"] == "flag_definitions"
+        assert mock_run_verification.call_count == 2
+        cache_types = [call[1]["cache_type"] for call in mock_run_verification.call_args_list]
+        assert cache_types == ["flag_definitions_with-cohorts", "flag_definitions_without-cohorts"]
 
     @patch("posthog.tasks.hypercache_verification.capture_exception")
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_captures_and_reraises_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
+    def test_captures_error_continues_to_next_variant_then_reraises(
+        self, mock_run_verification: MagicMock, mock_capture: MagicMock
+    ) -> None:
         error = Exception("flag_definitions verification failed")
-        mock_run_verification.side_effect = error
+        mock_run_verification.side_effect = [error, MagicMock()]
 
         with self.assertRaises(Exception) as context:
             verify_and_fix_flag_definitions_cache_task()
 
-        mock_capture.assert_called_once_with(error)
         assert context.exception is error
+        mock_capture.assert_called_once_with(error)
+        assert mock_run_verification.call_count == 2
+
+    @patch("posthog.tasks.hypercache_verification.capture_exception")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_both_variants_fail_captures_both_reraises_first(
+        self, mock_run_verification: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        error1 = Exception("with-cohorts failed")
+        error2 = Exception("without-cohorts failed")
+        mock_run_verification.side_effect = [error1, error2]
+
+        with self.assertRaises(Exception) as context:
+            verify_and_fix_flag_definitions_cache_task()
+
+        assert context.exception is error1
+        assert mock_capture.call_count == 2
+        mock_capture.assert_any_call(error1)
+        mock_capture.assert_any_call(error2)
 
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_pushgateway_metrics_recorded_on_success(self, mock_run_verification: MagicMock) -> None:

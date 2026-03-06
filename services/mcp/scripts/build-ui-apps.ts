@@ -2,15 +2,18 @@
 /**
  * Build script for UI Apps.
  *
- * Auto-discovers UI apps from src/ui-apps/apps/ and builds each one as a self-contained HTML file.
+ * Auto-discovers UI apps from src/ui-apps/apps/ and builds each one
+ * as a self-contained HTML file. Apps are built in parallel for speed,
+ * each in its own Vite process with inlineDynamicImports to prevent
+ * shared chunks.
  *
  * Usage:
  *   pnpm run build:ui-apps         # Build all apps
  *   pnpm run build:ui-apps:watch   # Watch mode for all apps
  */
-import { execSync } from 'child_process'
+import { exec, execSync } from 'child_process'
 import { config as dotenvConfig } from 'dotenv'
-import { existsSync, readdirSync, statSync } from 'fs'
+import { existsSync, readdirSync, rmSync, statSync } from 'fs'
 import { join, resolve } from 'path'
 
 const ROOT_DIR = resolve(__dirname, '..')
@@ -40,12 +43,45 @@ function discoverApps(): string[] {
     return apps
 }
 
-function buildApp(appName: string): void {
+function buildAppAsync(appName: string): Promise<void> {
+    if (!/^[a-z_-]+$/.test(appName)) {
+        return Promise.reject(new Error(`Invalid app name "${appName}": must only contain a-z, underscore, or hyphen`))
+    }
+
+    return new Promise((resolve, reject) => {
+        // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
+        const child = exec('vite build --config vite.ui-apps.config.ts', {
+            cwd: ROOT_DIR,
+            env: {
+                ...process.env,
+                UI_APP: appName,
+                BROWSERSLIST_IGNORE_OLD_DATA: '1',
+                VITE_CJS_IGNORE_WARNING: '1',
+            },
+        })
+
+        let stderr = ''
+        child.stderr?.on('data', (data) => {
+            stderr += data
+        })
+
+        child.on('close', (code) => {
+            if (code !== 0) {
+                console.error(`❌ ${appName} failed:\n${stderr}`)
+                reject(new Error(`Build failed for ${appName} (exit code ${code})`))
+            } else {
+                console.info(`  ✓ ${appName}`)
+                resolve()
+            }
+        })
+    })
+}
+
+function buildAppSync(appName: string): void {
     if (!/^[a-z_-]+$/.test(appName)) {
         throw new Error(`Invalid app name "${appName}": must only contain a-z, underscore, or hyphen`)
     }
 
-    console.info(`\n📦 Building ${appName}...`)
     // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
     execSync(`UI_APP=${appName} vite build --config vite.ui-apps.config.ts`, {
         cwd: ROOT_DIR,
@@ -59,25 +95,26 @@ function buildApp(appName: string): void {
     })
 }
 
-function buildAllApps(apps: string[]): void {
-    for (const app of apps) {
-        buildApp(app)
-    }
+async function buildAllAppsParallel(apps: string[]): Promise<void> {
+    console.info(`\n📦 Building ${apps.length} apps in parallel...`)
+    await Promise.all(apps.map((app) => buildAppAsync(app)))
 }
 
 function watchApps(apps: string[]): void {
     console.info(`\n👀 Starting watch mode for ${apps.length} apps: ${apps.join(', ')}`)
 
-    // Do initial build of all apps sequentially
-    buildAllApps(apps)
+    // Initial build sequentially (clearer output for debugging)
+    for (const app of apps) {
+        console.info(`\n📦 Building ${app}...`)
+        buildAppSync(app)
+    }
     console.info('\n✅ Initial build complete. Watching for changes...')
 
-    // Use a single chokidar watcher for all source files
     import('chokidar').then(({ default: chokidar }) => {
         let isBuilding = false
         let pendingBuild = false
 
-        const rebuildAll = (): void => {
+        const rebuild = async (): Promise<void> => {
             if (isBuilding) {
                 pendingBuild = true
                 return
@@ -87,7 +124,7 @@ function watchApps(apps: string[]): void {
             console.info('\n🔄 Rebuilding all apps...')
 
             try {
-                buildAllApps(apps)
+                await buildAllAppsParallel(apps)
                 console.info('✅ Rebuild complete.')
             } catch (e) {
                 console.error('❌ Build failed:', e)
@@ -97,30 +134,34 @@ function watchApps(apps: string[]): void {
 
             if (pendingBuild) {
                 pendingBuild = false
-                // Debounce to avoid rapid rebuilds
-                setTimeout(rebuildAll, 100)
+                setTimeout(rebuild, 100)
             }
         }
 
-        const watcher = chokidar.watch(join(ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css,html}'), {
-            ignoreInitial: true,
-            awaitWriteFinish: {
-                stabilityThreshold: 100,
-                pollInterval: 50,
-            },
-        })
+        const watcher = chokidar.watch(
+            [
+                join(ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css,html}'),
+                resolve(ROOT_DIR, '../../common/mosaic/src/**/*.{ts,tsx,css}'),
+            ],
+            {
+                ignoreInitial: true,
+                awaitWriteFinish: {
+                    stabilityThreshold: 100,
+                    pollInterval: 50,
+                },
+            }
+        )
 
         watcher.on('change', (path) => {
             console.info(`\n📝 File changed: ${path}`)
-            rebuildAll()
+            rebuild()
         })
 
         watcher.on('add', (path) => {
             console.info(`\n➕ File added: ${path}`)
-            rebuildAll()
+            rebuild()
         })
 
-        // Handle cleanup on exit
         const cleanup = (): void => {
             console.info('\n🛑 Stopping watcher...')
             watcher.close()
@@ -132,7 +173,7 @@ function watchApps(apps: string[]): void {
     })
 }
 
-function main(): void {
+async function main(): Promise<void> {
     const isWatch = process.argv.includes('--watch')
     const apps = discoverApps()
 
@@ -143,15 +184,30 @@ function main(): void {
 
     console.info(`🔍 Discovered ${apps.length} UI app(s): ${apps.join(', ')}`)
 
+    // Clean output directory before building
+    const outDir = resolve(ROOT_DIR, 'ui-apps-dist')
+    if (existsSync(outDir)) {
+        rmSync(outDir, { recursive: true })
+    }
+
     if (isWatch) {
         watchApps(apps)
     } else {
-        // Build sequentially for production (overwrites existing files)
-        for (const app of apps) {
-            buildApp(app)
+        await buildAllAppsParallel(apps)
+
+        // Clean up shared assets directory after all builds complete.
+        // Each app inlines its assets during build, so the assets/ folder
+        // only contains intermediate files that are no longer needed.
+        const assetsDir = resolve(outDir, 'assets')
+        if (existsSync(assetsDir)) {
+            rmSync(assetsDir, { recursive: true })
         }
+
         console.info('\n✅ All UI apps built successfully!')
     }
 }
 
-main()
+main().catch((e) => {
+    console.error(e)
+    process.exit(1)
+})

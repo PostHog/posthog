@@ -5,12 +5,13 @@ import asyncio
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+import numpy as np
 import structlog
 import temporalio
 from asgiref.sync import sync_to_async
@@ -971,10 +972,13 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
 
 CONTINUE_AS_NEW_THRESHOLD = 20
+BATCH_SIZE = 5
+BATCH_DEBOUNCE_SECONDS = 5
+TYPE_EXAMPLES_CACHE_TTL = timedelta(minutes=5)
 
 
 async def _process_one_signal(inputs: EmitSignalInputs) -> str:
-    """Shared signal processing logic used by both EmitSignalWorkflow and TeamSignalGroupingWorkflow."""
+    """Process a single signal through the full grouping pipeline."""
     signal_id = str(uuid.uuid4())
 
     embedding_result, type_examples_result = await asyncio.gather(
@@ -1161,6 +1165,366 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
     return signal_id
 
 
+@dataclass
+class _ProcessedBatchSignal:
+    """A signal processed earlier in the current batch, used to augment later signals' candidates."""
+
+    signal_id: str
+    report_id: str
+    content: str
+    source_product: str
+    source_type: str
+    embedding: list[float]
+
+
+def _cosine_distance(a: list[float], b: list[float]) -> float:
+    """Compute cosine distance between two embedding vectors."""
+    a_arr = np.asarray(a)
+    b_arr = np.asarray(b)
+    norm_a = np.linalg.norm(a_arr)
+    norm_b = np.linalg.norm(b_arr)
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 1.0
+    return 1.0 - float(np.dot(a_arr, b_arr) / (norm_a * norm_b))
+
+
+def _augment_candidates_with_batch(
+    query_embeddings: list[list[float]],
+    ch_candidates_per_query: list[list[SignalCandidate]],
+    processed_signals: list[_ProcessedBatchSignal],
+    limit: int = 10,
+) -> list[list[SignalCandidate]]:
+    """Augment CH search results with earlier-in-batch signals via local cosine distance."""
+    if not processed_signals:
+        return ch_candidates_per_query
+
+    augmented = []
+    for query_emb, ch_candidates in zip(query_embeddings, ch_candidates_per_query):
+        candidates = list(ch_candidates)
+        worst_distance = candidates[-1].distance if candidates else float("inf")
+
+        for ps in processed_signals:
+            dist = _cosine_distance(query_emb, ps.embedding)
+            if len(candidates) < limit or dist < worst_distance:
+                candidates.append(
+                    SignalCandidate(
+                        signal_id=ps.signal_id,
+                        report_id=ps.report_id,
+                        content=ps.content,
+                        source_product=ps.source_product,
+                        source_type=ps.source_type,
+                        distance=dist,
+                    )
+                )
+
+        candidates.sort(key=lambda c: c.distance)
+        augmented.append(candidates[:limit])
+
+    return augmented
+
+
+async def _process_signal_batch(
+    batch: list[EmitSignalInputs],
+    cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
+) -> tuple[int, FetchSignalTypeExamplesOutput]:
+    """
+    Process a batch of signals with parallel preparation (steps 1-4) and sequential
+    matching/assignment (steps 5-7). Returns (dropped_count, type_examples) — the
+    caller can cache the type_examples for subsequent batches.
+
+    Earlier signals in the batch are injected into later signals' candidate sets via
+    local cosine distance comparison, eliminating the need for per-signal CH waits
+    within a batch.
+    """
+    team_id = batch[0].team_id
+    # Purely defensive
+    if not all(signal.team_id == team_id for signal in batch):
+        raise ValueError("All signals in a batch must belong to the same team")
+    dropped = 0
+
+    # === PARALLEL PHASE (steps 1-4) ===
+
+    # Step 1a: Fetch type examples if not cached (needed by query gen)
+    if cached_type_examples is not None:
+        type_examples_result = cached_type_examples
+    else:
+        type_examples_result = await workflow.execute_activity(
+            fetch_signal_type_examples_activity,
+            FetchSignalTypeExamplesInput(team_id=team_id),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    # Step 1b: Embed all signals + generate search queries in parallel
+    # (query gen needs type examples but NOT the signal embeddings)
+    step1b_results = await asyncio.gather(
+        *[
+            workflow.execute_activity(
+                get_embedding_activity,
+                GenerateEmbeddingInput(team_id=team_id, content=s.description),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            for s in batch
+        ],
+        *[
+            workflow.execute_activity(
+                generate_search_queries_activity,
+                GenerateSearchQueriesInput(
+                    description=s.description,
+                    source_product=s.source_product,
+                    source_type=s.source_type,
+                    signal_type_examples=type_examples_result.examples,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            for s in batch
+        ],
+    )
+    signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
+    query_gen_results = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
+
+    # Step 3: Embed all queries across all signals (flatten → parallel embed)
+    all_queries_flat: list[tuple[int, str]] = []
+    for sig_idx, qr in enumerate(query_gen_results):
+        for q in qr.queries:
+            all_queries_flat.append((sig_idx, q))
+
+    all_query_embeddings: list[GenerateEmbeddingOutput] = list(
+        await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    get_embedding_activity,
+                    GenerateEmbeddingInput(team_id=team_id, content=q_text),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                for _, q_text in all_queries_flat
+            ]
+        )
+    )
+
+    # Step 4: Semantic search for all queries (all parallel)
+    all_search_results: list[RunSignalSemanticSearchOutput] = list(
+        await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    run_signal_semantic_search_activity,
+                    RunSignalSemanticSearchInput(team_id=team_id, embedding=emb.embedding, limit=10),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                for emb in all_query_embeddings
+            ]
+        )
+    )
+
+    # Regroup flat results back to per-signal
+    # Each query becomes an embedding vector for lookup
+    type EmbeddingVector = list[float]
+    # For each new signal, we generate a number N of query strings
+    type SignalQueries = list[str]
+    # For each new signal, we generate an embedding for each query (so N embeddings)
+    type SignalQueryEmbeddings = list[EmbeddingVector]
+    # For each new signal, for each query, we get a list of M candidates back (10 at time of writing)
+    type SignalQueryResults = list[SignalCandidate]
+    # For each new signal, we run each query, so we get N * M total candidates for matching (although we fold down overlap across queries)
+    type SignalMatchCandidates = list[SignalQueryResults]
+    per_signal_queries: list[SignalQueries] = [[] for _ in batch]
+    per_signal_query_embeddings: list[SignalQueryEmbeddings] = [[] for _ in batch]
+    per_signal_ch_results: list[SignalMatchCandidates] = [[] for _ in batch]
+    for flat_idx, (sig_idx, q_text) in enumerate(all_queries_flat):
+        per_signal_queries[sig_idx].append(q_text)
+        per_signal_query_embeddings[sig_idx].append(all_query_embeddings[flat_idx].embedding)
+        per_signal_ch_results[sig_idx].append(all_search_results[flat_idx].candidates)
+
+    # Step 4.5: Fetch report contexts for all CH candidates (group-aware matching)
+    all_candidate_report_ids = list({c.report_id for results in all_search_results for c in results.candidates})
+    report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
+        fetch_report_contexts_activity,
+        FetchReportContextsInput(team_id=team_id, report_ids=all_candidate_report_ids),
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+    report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
+
+    # === SEQUENTIAL PHASE (steps 5-7) ===
+    processed_batch_signals: list[_ProcessedBatchSignal] = []
+    promoted_reports: dict[str, SignalReportSummaryWorkflowInputs] = {}
+    last_assign_result: Optional[AssignAndEmitSignalOutput] = None
+    last_signal_id: Optional[str] = None
+
+    for i, signal in enumerate(batch):
+        signal_id = str(uuid.uuid4())
+        try:
+            # Augment CH candidates with earlier-in-batch signals
+            augmented_results = _augment_candidates_with_batch(
+                per_signal_query_embeddings[i],
+                per_signal_ch_results[i],
+                processed_batch_signals,
+                limit=10,
+            )
+
+            # Step 5: Group-aware LLM match
+            match_result = await workflow.execute_activity(
+                match_signal_to_report_activity,
+                MatchSignalToReportInput(
+                    description=signal.description,
+                    source_product=signal.source_product,
+                    source_type=signal.source_type,
+                    queries=per_signal_queries[i],
+                    query_results=augmented_results,
+                    report_contexts=report_contexts,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+            # Step 5.5: PR-specificity verification for existing matches
+            updated_title: Optional[str] = None
+
+            if isinstance(match_result, ExistingReportMatch):
+                report_ctx = report_contexts.get(match_result.report_id)
+                report_title = report_ctx.title if report_ctx else ""
+
+                group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
+                    fetch_signals_for_report_activity,
+                    FetchSignalsForReportInput(team_id=team_id, report_id=match_result.report_id),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+                specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
+                    verify_match_specificity_activity,
+                    VerifyMatchSpecificityInput(
+                        team_id=team_id,
+                        report_id=match_result.report_id,
+                        report_title=report_title,
+                        new_signal_description=signal.description,
+                        new_signal_source_product=signal.source_product,
+                        new_signal_source_type=signal.source_type,
+                        group_signals=group_signals_result.signals,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+                specificity_meta = SpecificityMetadata(
+                    pr_title=specificity_result.pr_title,
+                    specific_enough=specificity_result.specific_enough,
+                    reason=specificity_result.reason,
+                )
+
+                if specificity_result.specific_enough:
+                    updated_title = specificity_result.pr_title
+                    match_result.match_metadata.specificity = specificity_meta
+                else:
+                    match_result = NewReportMatch(
+                        title=signal.description.split("\n")[0],
+                        summary=f"Split from group: {report_title}",
+                        match_metadata=NoMatchMetadata(
+                            reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
+                            specificity_rejection=specificity_meta,
+                        ),
+                    )
+
+            # Step 6: Assign + emit
+            assign_result: AssignAndEmitSignalOutput = await workflow.execute_activity(
+                assign_and_emit_signal_activity,
+                AssignAndEmitSignalInput(
+                    team_id=signal.team_id,
+                    signal_id=signal_id,
+                    description=signal.description,
+                    weight=signal.weight,
+                    source_product=signal.source_product,
+                    source_type=signal.source_type,
+                    source_id=signal.source_id,
+                    extra=signal.extra,
+                    embedding=signal_embeddings[i].embedding,
+                    match_result=match_result,
+                    updated_title=updated_title,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+            # Track for augmenting later signals in the batch
+            processed_batch_signals.append(
+                _ProcessedBatchSignal(
+                    signal_id=signal_id,
+                    report_id=assign_result.report_id,
+                    content=signal.description,
+                    source_product=signal.source_product,
+                    source_type=signal.source_type,
+                    embedding=signal_embeddings[i].embedding,
+                )
+            )
+            last_assign_result = assign_result
+            last_signal_id = signal_id
+
+            # Update local report_contexts so later signals in the batch see this report
+            if isinstance(match_result, ExistingReportMatch):
+                old_ctx = report_contexts.get(assign_result.report_id)
+                report_contexts[assign_result.report_id] = ReportContext(
+                    report_id=assign_result.report_id,
+                    title=updated_title or (old_ctx.title if old_ctx else ""),
+                    signal_count=(old_ctx.signal_count if old_ctx else 0) + 1,
+                )
+            else:
+                report_contexts[assign_result.report_id] = ReportContext(
+                    report_id=assign_result.report_id,
+                    title=match_result.title,
+                    signal_count=1,
+                )
+
+            if assign_result.promoted:
+                promoted_reports[assign_result.report_id] = SignalReportSummaryWorkflowInputs(
+                    team_id=signal.team_id, report_id=assign_result.report_id
+                )
+
+        except Exception:
+            dropped += 1
+            workflow.logger.exception(
+                "Failed to process signal in batch",
+                team_id=team_id,
+                source_product=signal.source_product,
+                source_type=signal.source_type,
+                source_id=signal.source_id,
+            )
+
+    # Step 7: Wait for CH once at the end of the batch so the next batch can find these signals
+    if last_signal_id and last_assign_result and workflow.patched("wait-for-clickhouse-v1"):
+        await workflow.execute_activity(
+            wait_for_signal_in_clickhouse_activity,
+            WaitForClickHouseInput(
+                team_id=team_id,
+                signal_id=last_signal_id,
+                timestamp=last_assign_result.timestamp,
+            ),
+            start_to_close_timeout=timedelta(minutes=2),
+            heartbeat_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+    # Spawn summary workflows after CH wait so they can find the signals
+    for report_input in promoted_reports.values():
+        try:
+            await workflow.start_child_workflow(
+                SignalReportSummaryWorkflow.run,
+                report_input,
+                id=SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                execution_timeout=timedelta(minutes=30),
+            )
+        except temporalio.exceptions.WorkflowAlreadyStartedError:
+            pass
+
+    return dropped, type_examples_result
+
+
 @temporalio.workflow.defn(name="team-signal-grouping")
 class TeamSignalGroupingWorkflow:
     """
@@ -1176,6 +1540,8 @@ class TeamSignalGroupingWorkflow:
     def __init__(self) -> None:
         self._signal_buffer: list[EmitSignalInputs] = []
         self._signals_processed: int = 0
+        self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
+        self._type_examples_fetched_at: Optional[datetime] = None
         meter = workflow.metric_meter()
         self._signals_received_counter = meter.create_counter(
             "signals_grouping_signals_received",
@@ -1208,22 +1574,65 @@ class TeamSignalGroupingWorkflow:
 
         while True:
             await workflow.wait_condition(lambda: len(self._signal_buffer) > 0)
-            signal = self._signal_buffer.pop(0)
-            self._buffer_size_gauge.set(len(self._signal_buffer))
 
-            try:
-                await _process_one_signal(signal)
-            except Exception:
-                self._signals_dropped_counter.add(1)
-                workflow.logger.exception(
-                    "Failed to process signal",
-                    team_id=input.team_id,
-                    source_product=signal.source_product,
-                    source_type=signal.source_type,
-                    source_id=signal.source_id,
-                )
+            if workflow.patched("batch-processing-v1"):
+                # Debounce: wait briefly for more signals to accumulate
+                if len(self._signal_buffer) < BATCH_SIZE:
+                    try:
+                        await workflow.wait_condition(
+                            lambda: len(self._signal_buffer) >= BATCH_SIZE,
+                            timeout=timedelta(seconds=BATCH_DEBOUNCE_SECONDS),
+                        )
+                    except TimeoutError:
+                        pass
 
-            self._signals_processed += 1
+                batch: list[EmitSignalInputs] = []
+                while self._signal_buffer and len(batch) < BATCH_SIZE:
+                    batch.append(self._signal_buffer.pop(0))
+                self._buffer_size_gauge.set(len(self._signal_buffer))
+
+                # Invalidate type examples cache if stale
+                now = workflow.now()
+                cached = self._cached_type_examples
+                if (
+                    self._type_examples_fetched_at is not None
+                    and (now - self._type_examples_fetched_at) > TYPE_EXAMPLES_CACHE_TTL
+                ):
+                    cached = None
+
+                try:
+                    dropped, type_examples = await _process_signal_batch(batch, cached_type_examples=cached)
+                    self._cached_type_examples = type_examples
+                    self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
+                    self._signals_dropped_counter.add(dropped)
+                except Exception:
+                    # Parallel phase failed — all signals in batch dropped
+                    self._signals_dropped_counter.add(len(batch))
+                    workflow.logger.exception(
+                        "Failed to process signal batch",
+                        team_id=input.team_id,
+                        batch_size=len(batch),
+                    )
+
+                self._signals_processed += len(batch)
+            else:
+                signal = self._signal_buffer.pop(0)
+                self._buffer_size_gauge.set(len(self._signal_buffer))
+
+                try:
+                    await _process_one_signal(signal)
+                except Exception:
+                    self._signals_dropped_counter.add(1)
+                    workflow.logger.exception(
+                        "Failed to process signal",
+                        team_id=input.team_id,
+                        source_product=signal.source_product,
+                        source_type=signal.source_type,
+                        source_id=signal.source_id,
+                    )
+
+                self._signals_processed += 1
+
             if self._signals_processed >= CONTINUE_AS_NEW_THRESHOLD:
                 workflow.continue_as_new(
                     TeamSignalGroupingInput(
@@ -1231,26 +1640,3 @@ class TeamSignalGroupingWorkflow:
                         pending_signals=list(self._signal_buffer),
                     )
                 )
-
-
-@temporalio.workflow.defn(name="emit-signal")
-class EmitSignalWorkflow:
-    """
-    Legacy one-shot workflow for processing a single signal.
-
-    Kept temporarily for in-flight workflows during migration to TeamSignalGroupingWorkflow.
-    Will be removed once all existing executions have completed.
-    """
-
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> EmitSignalInputs:
-        loaded = json.loads(inputs[0])
-        return EmitSignalInputs(**loaded)
-
-    @staticmethod
-    def workflow_id_for(team_id: int, source_product: str, source_type: str, source_id: str) -> str:
-        return f"{team_id}:{source_product}:{source_type}:{source_id}"
-
-    @temporalio.workflow.run
-    async def run(self, inputs: EmitSignalInputs) -> str:
-        return await _process_one_signal(inputs)

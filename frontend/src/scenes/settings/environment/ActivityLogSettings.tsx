@@ -4,8 +4,8 @@ import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,11 +14,16 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature } from '~/types'
 
 export function ActivityLogSettings(): JSX.Element {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
     return (
         <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
             <div className="flex">
                 <p>
-                    <LemonButton to={urls.advancedActivityLogs()} type="primary">
+                    <LemonButton to={urls.advancedActivityLogs()} type="primary" disabledReason={restrictedReason}>
                         Browse all activity logs
                     </LemonButton>
                 </p>
@@ -70,7 +75,16 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
     )
 }
 
-export function ActivityLogNotifications(): JSX.Element {
+export function ActivityLogNotifications(): JSX.Element | null {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    if (restrictedReason) {
+        return null
+    }
+
     return (
         <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
             <div>

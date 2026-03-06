@@ -503,11 +503,11 @@
             },
             "required": ["dashboardId", "data"]
         },
-        "DemoMcpUiAppsSchema": {
+        "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
                 "message": {
-                    "description": "Optional message to include in the demo data",
+                    "description": "Optional message to include in the debug data",
                     "type": "string"
                 }
             }
@@ -2074,6 +2074,66 @@
                 }
             },
             "required": ["projectId"]
+        },
+        "PromptCreateSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "Unique name (letters, numbers, hyphens, underscores only)"
+                },
+                "prompt": {
+                    "description": "The prompt content (string or JSON object)"
+                }
+            },
+            "required": ["name", "prompt"]
+        },
+        "PromptGetSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "The name of the prompt to retrieve"
+                },
+                "version": {
+                    "description": "Specific version number to retrieve. Omit for latest",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                }
+            },
+            "required": ["name"]
+        },
+        "PromptListSchema": {
+            "type": "object",
+            "properties": {
+                "search": {
+                    "description": "Filter prompts by name",
+                    "type": "string"
+                }
+            }
+        },
+        "PromptUpdateSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "The name of the prompt to update"
+                },
+                "prompt": {
+                    "description": "The updated prompt content"
+                },
+                "base_version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "The version number you are basing this update on (for conflict detection)"
+                }
+            },
+            "required": ["name", "prompt", "base_version"]
         },
         "QueryRunInputSchema": {
             "type": "object",
