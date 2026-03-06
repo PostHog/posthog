@@ -172,7 +172,7 @@ export function NavTabBrowse(): JSX.Element {
             <Collapsible
                 open={expandedNavSections.apps ?? false}
                 onOpenChange={() => toggleNavSection('apps')}
-                className="px-2 mt-1 group/colorful-product-icons colorful-product-icons-true"
+                className="px-2 mt-2 group/colorful-product-icons colorful-product-icons-true"
             >
                 <SectionTrigger
                     icon={<IconApps />}
