@@ -23,6 +23,7 @@ import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodeCustomerJourney } from '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import { NotebookNodeDuckSQL } from '../Nodes/NotebookNodeDuckSQL'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
@@ -156,6 +157,7 @@ export function Editor(): JSX.Element {
         NotebookNodeUsageMetrics,
         NotebookNodeZendeskTickets,
         NotebookNodeRelatedGroups,
+        NotebookNodeCustomerJourney,
     ]
 
     if (hasCollapsibleSections) {

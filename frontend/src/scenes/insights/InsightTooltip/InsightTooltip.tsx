@@ -27,10 +27,12 @@ import {
 
 export function ClickToInspectActors({
     isTruncated,
+    inspectLabel,
     groupTypeLabel,
     showShiftKeyHint,
 }: {
     isTruncated?: boolean
+    inspectLabel?: string
     groupTypeLabel: string
     showShiftKeyHint?: boolean
 }): JSX.Element {
@@ -49,7 +51,7 @@ export function ClickToInspectActors({
             )}
             <div className="table-subtext-click-to-inspect">
                 <IconHandClick className="mr-1 mb-0.5" />
-                Click to view {groupTypeLabel}
+                {inspectLabel ?? `Click to view ${groupTypeLabel}`}
             </div>
         </div>
     )
@@ -96,6 +98,7 @@ export function InsightTooltip({
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
+    inspectLabel,
     groupTypeLabel = 'people',
     breakdownFilter,
     interval,
@@ -200,7 +203,7 @@ export function InsightTooltip({
         }
 
         return (
-            <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
+            <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
                 <LemonTable
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
@@ -212,6 +215,7 @@ export function InsightTooltip({
                 {!hideInspectActorsSection && (
                     <ClickToInspectActors
                         isTruncated={isTruncated}
+                        inspectLabel={inspectLabel}
                         groupTypeLabel={groupTypeLabel}
                         showShiftKeyHint={showShiftKeyHint}
                     />
@@ -264,7 +268,7 @@ export function InsightTooltip({
     })
 
     return (
-        <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
+        <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
             <LemonTable
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}
@@ -276,6 +280,7 @@ export function InsightTooltip({
             {!hideInspectActorsSection && (
                 <ClickToInspectActors
                     isTruncated={isTruncated}
+                    inspectLabel={inspectLabel}
                     groupTypeLabel={groupTypeLabel}
                     showShiftKeyHint={showShiftKeyHint}
                 />

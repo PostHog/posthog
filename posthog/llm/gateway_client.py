@@ -5,7 +5,16 @@ from django.conf import settings
 from openai import AsyncOpenAI, OpenAI
 
 Product = Literal[
-    "llm_gateway", "twig", "wizard", "django", "growth", "llma_translation", "llma_summarization", "llma_eval_summary"
+    "llm_gateway",
+    "posthog_code",
+    "background_agents",
+    "wizard",
+    "django",
+    "growth",
+    "llma_translation",
+    "llma_summarization",
+    "llma_eval_summary",
+    "slack-twig",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 

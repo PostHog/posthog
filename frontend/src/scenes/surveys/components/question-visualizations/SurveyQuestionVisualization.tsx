@@ -42,7 +42,7 @@ function QuestionTitle({
           ? `${SurveyQuestionLabel[question.type]} ${SCALE_LABELS[question.scale] || `1 - ${question.scale}`}`
           : SurveyQuestionLabel[question.type]
 
-    metaParts.push({ text: questionLabel, className: 'font-semibold uppercase tracking-wide text-text-secondary' })
+    metaParts.push({ text: questionLabel, className: 'font-semibold uppercase tracking-wide text-text-tertiary' })
     if (totalResponses > 0) {
         metaParts.push({
             text: `${humanFriendlyNumber(totalResponses)} ${pluralize(totalResponses, 'response', 'responses', false)}`,
@@ -168,7 +168,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
 }
 
 export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
-    const { consolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
+    const { enrichedConsolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
         useValues(surveyLogic)
 
     if (demoData) {
@@ -216,7 +216,7 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
     }
 
     const processedData: QuestionProcessedResponses | undefined =
-        consolidatedSurveyResults?.responsesByQuestion[question.id]
+        enrichedConsolidatedSurveyResults?.responsesByQuestion[question.id]
 
     if (consolidatedSurveyResultsLoading || surveyBaseStatsLoading || !processedData) {
         return (

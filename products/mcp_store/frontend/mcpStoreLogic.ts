@@ -6,32 +6,9 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { fromParamsGivenUrl } from 'lib/utils'
 
+import type { MCPServerInstallationApi, RecommendedServerApi } from './generated/api.schemas'
 import type { mcpStoreLogicType } from './mcpStoreLogicType'
-
-export interface RecommendedServer {
-    name: string
-    url: string
-    description: string
-    icon_url: string
-    auth_type: 'api_key' | 'oauth'
-    oauth_provider_kind?: string
-}
-
-export interface MCPServerInstallation {
-    id: string
-    server_id: string | null
-    name: string
-    display_name: string
-    url: string
-    description: string
-    auth_type: 'api_key' | 'oauth'
-    needs_reauth: boolean
-    pending_oauth: boolean
-    created_at: string
-    updated_at: string
-}
 
 export interface CustomServerFormValues {
     name: string
@@ -56,6 +33,8 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         openAddCustomServerModal: true,
         openAddCustomServerModalWithDefaults: (defaults: Partial<CustomServerFormValues>) => ({ defaults }),
         closeAddCustomServerModal: true,
+        toggleServerEnabled: ({ id, enabled }: { id: string; enabled: boolean }) => ({ id, enabled }),
+        setInstallations: (installations: MCPServerInstallationApi[]) => ({ installations }),
     }),
 
     reducers({
@@ -73,6 +52,19 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 openAddCustomServerModalWithDefaults: () => true,
                 openAddCustomServerModal: () => false,
                 closeAddCustomServerModal: () => false,
+            },
+        ],
+        installations: [
+            [] as MCPServerInstallationApi[],
+            {
+                toggleServerEnabled: (
+                    state: MCPServerInstallationApi[],
+                    { id, enabled }: { id: string; enabled: boolean }
+                ) => state.map((i) => (i.id === id ? { ...i, is_enabled: enabled } : i)),
+                setInstallations: (
+                    _state: MCPServerInstallationApi[],
+                    { installations }: { installations: MCPServerInstallationApi[] }
+                ) => installations,
             },
         ],
     }),
@@ -111,63 +103,34 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         },
     })),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values }) => ({
         servers: [
-            [] as RecommendedServer[],
+            [] as RecommendedServerApi[],
             {
                 loadServers: async () => {
                     const response = await api.mcpServers.list()
-                    return response.results as RecommendedServer[]
+                    return response.results as RecommendedServerApi[]
                 },
             },
         ],
         installations: [
-            [] as MCPServerInstallation[],
+            [] as MCPServerInstallationApi[],
             {
                 loadInstallations: async () => {
                     const response = await api.mcpServerInstallations.list()
-                    return response.results as MCPServerInstallation[]
+                    return response.results as MCPServerInstallationApi[]
                 },
                 updateInstallation: async ({ id, data }: { id: string; data: Record<string, any> }) => {
-                    const updated = (await api.mcpServerInstallations.update(id, data)) as MCPServerInstallation
+                    const updated = (await api.mcpServerInstallations.update(id, data)) as MCPServerInstallationApi
                     lemonToast.success('Server updated')
-                    return values.installations.map((i: MCPServerInstallation) => (i.id === updated.id ? updated : i))
+                    return values.installations.map((i: MCPServerInstallationApi) =>
+                        i.id === updated.id ? updated : i
+                    )
                 },
                 uninstallServer: async (installationId: string) => {
                     await api.mcpServerInstallations.delete(installationId)
                     lemonToast.success('Server uninstalled')
-                    return values.installations.filter((i: MCPServerInstallation) => i.id !== installationId)
-                },
-                completeOAuthInstall: async ({
-                    code,
-                    serverId,
-                    stateToken,
-                }: {
-                    code: string
-                    serverId: string
-                    stateToken: string
-                }) => {
-                    try {
-                        const installation = (await api.mcpServerInstallations.oauthCallback({
-                            code,
-                            server_id: serverId,
-                            state_token: stateToken,
-                        })) as MCPServerInstallation
-                        lemonToast.success('Server connected')
-                        actions.loadServers()
-                        const existing = values.installations.find(
-                            (i: MCPServerInstallation) => i.id === installation.id
-                        )
-                        if (existing) {
-                            return values.installations.map((i: MCPServerInstallation) =>
-                                i.id === installation.id ? installation : i
-                            )
-                        }
-                        return [...values.installations, installation]
-                    } catch (e: any) {
-                        lemonToast.error(e.detail || 'Failed to complete OAuth connection')
-                        throw e
-                    }
+                    return values.installations.filter((i: MCPServerInstallationApi) => i.id !== installationId)
                 },
             },
         ],
@@ -176,17 +139,30 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     selectors({
         installedServerIds: [
             (s) => [s.installations],
-            (installations: MCPServerInstallation[]): Set<string> =>
+            (installations: MCPServerInstallationApi[]): Set<string> =>
                 new Set(installations.filter((i) => i.server_id).map((i) => i.server_id!)),
         ],
         installedServerUrls: [
             (s) => [s.installations],
-            (installations: MCPServerInstallation[]): Set<string> => new Set(installations.map((i) => i.url)),
+            (installations: MCPServerInstallationApi[]): Set<string> =>
+                new Set(installations.map((i) => i.url).filter((url): url is string => !!url)),
         ],
-        recommendedServers: [(s) => [s.servers], (servers: RecommendedServer[]): RecommendedServer[] => servers],
+        recommendedServers: [(s) => [s.servers], (servers: RecommendedServerApi[]): RecommendedServerApi[] => servers],
     }),
 
     listeners(({ actions, values }) => ({
+        toggleServerEnabled: async ({ id, enabled }) => {
+            try {
+                await api.mcpServerInstallations.update(id, { is_enabled: enabled })
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to update server')
+                actions.setInstallations(
+                    values.installations.map((i: MCPServerInstallationApi) =>
+                        i.id === id ? { ...i, is_enabled: !enabled } : i
+                    )
+                )
+            }
+        },
         openAddCustomServerModalWithDefaults: ({ defaults }) => {
             actions.resetCustomServerForm()
             for (const [key, value] of Object.entries(defaults)) {
@@ -205,17 +181,13 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
 
     urlToAction(({ actions }) => ({
         '/settings/mcp-servers': (_, searchParams) => {
-            const { code, state, server_id, state_token } = searchParams
-            if (code && state) {
-                const parsed = fromParamsGivenUrl(`?${state}`)
-                actions.completeOAuthInstall({
-                    code,
-                    serverId: parsed.server_id,
-                    stateToken: parsed.token,
-                })
+            if (searchParams.oauth_complete === 'true') {
+                lemonToast.success('Server connected')
+                actions.loadInstallations()
+                actions.loadServers()
                 router.actions.replace('/settings/mcp-servers')
-            } else if (code && server_id) {
-                actions.completeOAuthInstall({ code, serverId: server_id, stateToken: state_token })
+            } else if (searchParams.oauth_error) {
+                lemonToast.error('OAuth authorization failed')
                 router.actions.replace('/settings/mcp-servers')
             }
         },

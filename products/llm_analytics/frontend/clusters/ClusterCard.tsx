@@ -52,13 +52,12 @@ export function ClusterCard({
     return (
         <div
             className={`rounded-lg overflow-hidden transition-all border-y border-r ${
-                isOutlierCluster
-                    ? 'bg-surface-primary border-dashed border-warning-dark'
-                    : 'bg-surface-primary border-border'
+                isOutlierCluster ? 'bg-surface-primary border-dashed' : 'bg-surface-primary'
             }`}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                borderLeftWidth: 4,
+                borderColor: isOutlierCluster ? 'var(--warning-dark)' : 'var(--border)',
+                borderLeftWidth: 3,
                 borderLeftColor: clusterColor,
                 borderLeftStyle: isOutlierCluster ? 'dashed' : 'solid',
             }}

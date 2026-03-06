@@ -476,8 +476,6 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.setup_schema_sources()
             self.join.source_table_key = "id"
             self.join.save()
-            self.create_managed_viewsets()
-
             # Create persons matching customer IDs from the stripe data
             distinct_id_to_person_id: dict[str, str] = {}
             for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
@@ -485,6 +483,7 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 distinct_id_to_person_id[distinct_id] = person.uuid
 
             with freeze_time(self.QUERY_TIMESTAMP):
+                self.create_managed_viewsets()
                 results = execute_hogql_query(
                     parse_select(
                         "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
@@ -496,12 +495,12 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(
                     results.results,
                     [
-                        (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452"), Decimal("16.3052916666")),
-                        (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553"), Decimal("4.1397346665")),
-                        (distinct_id_to_person_id["cus_3"], Decimal("4161.34422"), 0),
-                        (distinct_id_to_person_id["cus_6"], Decimal("2796.37014"), 0),
-                        (distinct_id_to_person_id["cus_5"], Decimal("1494.0562"), 0),
-                        (distinct_id_to_person_id["cus_4"], Decimal("254.12345"), 0),
+                        (distinct_id_to_person_id["cus_3"], Decimal("4161.34422"), Decimal("1546.59444")),
+                        (distinct_id_to_person_id["cus_6"], Decimal("2796.37014"), Decimal("1459.02008")),
+                        (distinct_id_to_person_id["cus_4"], Decimal("254.12345"), Decimal("83.16695")),
+                        (distinct_id_to_person_id["cus_5"], Decimal("1494.0562"), Decimal("43.82703")),
+                        (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452"), Decimal("40.8052916666")),
+                        (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553"), Decimal("22.9631447238")),
                     ],
                 )
 

@@ -1770,6 +1770,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The setting from an SDK to control whether an event has person processing enabled",
             "system": True,
         },
+        "$update_person_last_seen_at": {
+            "label": "Update last seen at",
+            "description": "When set to false, the event will not update the person's last_seen_at timestamp",
+            "system": True,
+        },
         "$dead_clicks_enabled_server_side": {
             "label": "Dead clicks enabled server side",
             "description": "Whether dead clicks were enabled in remote config",
@@ -1866,6 +1871,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI cache creation input tokens (LLM)",
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23],
+        },
+        "$ai_cache_reporting_exclusive": {
+            "label": "AI cache reporting exclusive (LLM)",
+            "description": "Whether cache tokens are excluded from the input token count. When true, cache tokens are separate from input tokens (Anthropic-style). When false, input tokens already include cache tokens. Auto-detected from provider when not set explicitly.",
+            "examples": [True],
         },
         "$ai_reasoning_tokens": {
             "label": "AI reasoning tokens (LLM)",
@@ -2031,6 +2041,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Evaluation Applicable (LLM)",
             "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
             "examples": [True, False],
+        },
+        "$ai_evaluation_runtime": {
+            "label": "AI Evaluation Runtime (LLM)",
+            "description": "The runtime used to execute the evaluation (e.g., llm_judge for LLM-based, hog for code-based).",
+            "examples": ["llm_judge", "hog"],
         },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",

@@ -10,9 +10,9 @@ from typing import Any, cast
 from django.conf import settings
 
 import modal
-import requests
 
 from posthog.exceptions_capture import capture_exception
+from posthog.security.outbound_proxy import external_requests
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
@@ -44,7 +44,7 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     """
     image_repo = image.replace("ghcr.io/", "")
     try:
-        token_resp = requests.get(
+        token_resp = external_requests.get(
             f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
             timeout=10,
         )
@@ -57,7 +57,7 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
             logger.warning("GHCR token response missing token field")
             return f"{image}:master"
 
-        manifest_resp = requests.get(
+        manifest_resp = external_requests.get(
             f"https://ghcr.io/v2/{image_repo}/manifests/master",
             headers={
                 "Accept": "application/vnd.oci.image.index.v1+json",
@@ -383,7 +383,7 @@ class ModalSandbox:
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            f"git clone --depth 1 --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
@@ -424,7 +424,14 @@ class ModalSandbox:
         logger.info(f"Got connect credentials for sandbox {self.id}: {credentials.url}")
         return AgentServerResult(url=credentials.url, token=credentials.token)
 
-    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> None:
+    def start_agent_server(
+        self,
+        repository: str,
+        task_id: str,
+        run_id: str,
+        mode: str = "background",
+        interaction_origin: str | None = None,
+    ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()
@@ -437,9 +444,10 @@ class ModalSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
+        env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         command = (
             f"cd /scripts && "
-            f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)} "
             f"> /tmp/agent-server.log 2>&1 &"
         )

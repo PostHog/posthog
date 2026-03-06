@@ -1,11 +1,15 @@
 /**
  * @jest-environment jsdom
  */
+import { canvasMutation } from '@posthog/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+
 import { CanvasReplayerPlugin } from './canvas-plugin'
 
 // Mock rrweb canvasMutation function
 jest.mock('@posthog/rrweb', () => ({
     canvasMutation: jest.fn().mockResolvedValue(undefined),
+    Replayer: jest.fn(),
 }))
 
 // Mock DOM methods
@@ -331,6 +335,151 @@ describe('CanvasReplayerPlugin', () => {
             expect(plugin.handler).toBeTruthy()
             expect(typeof plugin.onBuild).toBe('function')
             expect(typeof plugin.handler).toBe('function')
+        })
+    })
+
+    describe('target canvas sizing from snapshot mutations', () => {
+        const makeCanvasEvent = (
+            id: number,
+            clearRectW: number,
+            clearRectH: number,
+            opts?: { displayWidth?: number; displayHeight?: number }
+        ): eventWithTime => ({
+            type: EventType.IncrementalSnapshot as const,
+            data: {
+                source: IncrementalSource.CanvasMutation as const,
+                id,
+                type: 0,
+                commands: [
+                    { property: 'clearRect', args: [0, 0, clearRectW, clearRectH] },
+                    {
+                        property: 'drawImage',
+                        args: [
+                            {
+                                rr_type: 'ImageBitmap',
+                                args: [
+                                    {
+                                        rr_type: 'Blob',
+                                        data: [{ rr_type: 'ArrayBuffer', base64: '' }],
+                                        type: '',
+                                    },
+                                ],
+                            },
+                            0,
+                            0,
+                        ],
+                    },
+                ],
+                ...(opts?.displayWidth ? { displayWidth: opts.displayWidth } : {}),
+                ...(opts?.displayHeight ? { displayHeight: opts.displayHeight } : {}),
+            },
+            timestamp: 1000,
+        })
+
+        it.each([
+            {
+                name: 'uses displayWidth/displayHeight when present (new recordings)',
+                canvasWidth: 1080,
+                canvasHeight: 1920,
+                clearRectW: 314,
+                clearRectH: 559,
+                displayWidth: 314,
+                displayHeight: 559,
+                expectedWidth: 314,
+                expectedHeight: 559,
+            },
+            {
+                name: 'falls back to clearRect args when displayWidth absent (existing recordings)',
+                canvasWidth: 1080,
+                canvasHeight: 1920,
+                clearRectW: 314,
+                clearRectH: 559,
+                displayWidth: undefined,
+                displayHeight: undefined,
+                expectedWidth: 314,
+                expectedHeight: 559,
+            },
+            {
+                name: 'works when internal and display dimensions match',
+                canvasWidth: 400,
+                canvasHeight: 300,
+                clearRectW: 400,
+                clearRectH: 300,
+                displayWidth: 400,
+                displayHeight: 300,
+                expectedWidth: 400,
+                expectedHeight: 300,
+            },
+        ])(
+            '$name',
+            async ({
+                canvasWidth,
+                canvasHeight,
+                clearRectW,
+                clearRectH,
+                displayWidth,
+                displayHeight,
+                expectedWidth,
+                expectedHeight,
+            }) => {
+                const canvas = document.createElement('canvas')
+                canvas.width = canvasWidth
+                canvas.height = canvasHeight
+                Object.defineProperty(canvas, 'clientWidth', { value: 0, configurable: true })
+                Object.defineProperty(canvas, 'clientHeight', { value: 0, configurable: true })
+
+                const event = makeCanvasEvent(42, clearRectW, clearRectH, { displayWidth, displayHeight })
+                const plugin = CanvasReplayerPlugin([event])
+
+                const replayer = {
+                    getMirror: () => ({
+                        getNode: (id: number) => (id === 42 ? canvas : null),
+                    }),
+                }
+
+                plugin.onBuild?.(canvas, { id: 42, replayer } as any)
+                plugin.handler!(event, false, { replayer } as any)
+
+                await new Promise((resolve) => setTimeout(resolve, 10))
+
+                expect(canvasMutation).toHaveBeenCalled()
+                const call = (canvasMutation as jest.Mock).mock.calls.at(-1)[0]
+                expect(call.target.width).toBe(expectedWidth)
+                expect(call.target.height).toBe(expectedHeight)
+            }
+        )
+
+        it('falls back to source.width when mutation has no clearRect', async () => {
+            const canvas = document.createElement('canvas')
+            canvas.width = 500
+            canvas.height = 400
+            Object.defineProperty(canvas, 'clientWidth', { value: 0, configurable: true })
+            Object.defineProperty(canvas, 'clientHeight', { value: 0, configurable: true })
+
+            const event = {
+                type: EventType.IncrementalSnapshot as const,
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 99,
+                    type: 0,
+                    commands: [{ property: 'drawImage', args: [{}, 0, 0] }],
+                },
+                timestamp: 1000,
+            }
+
+            const plugin = CanvasReplayerPlugin([event])
+            const replayer = {
+                getMirror: () => ({ getNode: (id: number) => (id === 99 ? canvas : null) }),
+            }
+
+            plugin.onBuild?.(canvas, { id: 99, replayer } as any)
+            plugin.handler!(event, false, { replayer } as any)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            expect(canvasMutation).toHaveBeenCalled()
+            const call = (canvasMutation as jest.Mock).mock.calls.at(-1)[0]
+            expect(call.target.width).toBe(500)
+            expect(call.target.height).toBe(400)
         })
     })
 })

@@ -4,6 +4,15 @@ on:
     pull_request:
         types: [closed]
 
+    issue_comment:
+        types: [created]
+
+    pull_request_review_comment:
+        types: [created]
+
+    pull_request_review:
+        types: [submitted]
+
 permissions:
     contents: read
     pull-requests: read
@@ -11,7 +20,11 @@ permissions:
 
 jobs:
     trigger-agent:
-        if: github.event.pull_request.merged == true
+        if: |
+            (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.user.login != 'inkeep[bot]') ||
+            (github.event_name == 'issue_comment' &&  github.event.issue.pull_request && contains(github.event.comment.body, '@inkeep')) ||
+            (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@inkeep')) ||
+            (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '@inkeep'))
         runs-on: ubuntu-latest
         steps:
             - name: Trigger Inkeep Agent

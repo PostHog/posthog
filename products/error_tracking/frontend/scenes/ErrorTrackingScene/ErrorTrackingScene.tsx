@@ -1,22 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import {
-    TabsPrimitive,
-    TabsPrimitiveContent,
-    TabsPrimitiveList,
-    TabsPrimitiveTrigger,
-} from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
+import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -24,18 +18,17 @@ import { CyclotronJobFiltersType } from '~/types'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
-import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
     ErrorTrackingSceneActiveTab,
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
-import { ImpactFilters } from './tabs/impact/ImpactFilters'
-import { ImpactList } from './tabs/impact/ImpactList'
+import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
 
@@ -54,7 +47,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
-    const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
+    const hasInsights = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -72,6 +65,44 @@ export function ErrorTrackingScene(): JSX.Element {
             })
     })
 
+    const tabs: LemonTab<ErrorTrackingSceneActiveTab>[] = [
+        {
+            key: 'issues',
+            label: 'Issues',
+            content: (
+                <>
+                    <ErrorTrackingIssueFilteringTool />
+                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                    <div className="border rounded bg-surface-primary p-2">
+                        <IssuesFilters />
+                    </div>
+                    <IssuesList />
+                </>
+            ),
+        },
+        ...(hasInsights
+            ? [
+                  {
+                      key: 'insights' as const,
+                      label: 'Insights',
+                      content: <ErrorTrackingInsights />,
+                  },
+              ]
+            : []),
+        {
+            key: 'configuration',
+            label: 'Configuration',
+            content: (
+                <Settings
+                    logicKey={ERROR_TRACKING_LOGIC_KEY}
+                    sectionId="environment-error-tracking"
+                    settingId="error-tracking-exception-autocapture"
+                    handleLocally
+                />
+            ),
+        },
+    ]
+
     return (
         <StyleVariables>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
@@ -79,44 +110,12 @@ export function ErrorTrackingScene(): JSX.Element {
                     <ErrorTrackingSetupPrompt>
                         <SceneContent>
                             <Header />
-
-                            <ErrorTrackingIssueFilteringTool />
-
-                            {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
-
-                            {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                            {hasIssueCorrelation ? (
-                                <div>
-                                    <TabsPrimitive
-                                        value={activeTab}
-                                        onValueChange={(value) => setActiveTab(value as ErrorTrackingSceneActiveTab)}
-                                        className="border rounded bg-surface-primary"
-                                    >
-                                        <TabsPrimitiveList className="border-b">
-                                            <TabsPrimitiveTrigger value="issues" className="px-2 py-1 cursor-pointer">
-                                                Issues
-                                            </TabsPrimitiveTrigger>
-                                            <TabsPrimitiveTrigger value="impact" className="px-2 py-1 cursor-pointer">
-                                                Impact
-                                            </TabsPrimitiveTrigger>
-                                        </TabsPrimitiveList>
-                                        <TabsPrimitiveContent value="issues" className="p-2">
-                                            <IssuesFilters />
-                                        </TabsPrimitiveContent>
-                                        <TabsPrimitiveContent value="impact" className="p-2">
-                                            <ImpactFilters />
-                                        </TabsPrimitiveContent>
-                                    </TabsPrimitive>
-                                    {activeTab === 'issues' ? <IssuesList /> : <ImpactList />}
-                                </div>
-                            ) : (
-                                <div>
-                                    <div className="border rounded bg-surface-primary p-2">
-                                        <IssuesFilters />
-                                    </div>
-                                    <IssuesList />
-                                </div>
-                            )}
+                            <LemonTabs
+                                activeKey={activeTab}
+                                onChange={(key) => setActiveTab(key)}
+                                tabs={tabs}
+                                sceneInset
+                            />
                         </SceneContent>
                     </ErrorTrackingSetupPrompt>
                 </BindLogic>
@@ -161,19 +160,19 @@ const Header = (): JSX.Element => {
                         ) : null}
                         <LemonButton
                             size="small"
+                            type="secondary"
+                            icon={<IconFeedback />}
+                            onClick={() => posthog.displaySurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
+                        >
+                            Feedback
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
                             to="https://posthog.com/docs/error-tracking"
                             type="secondary"
                             targetBlank
                         >
                             Documentation
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            to={urls.errorTrackingConfiguration()}
-                            type="secondary"
-                            icon={<IconGear />}
-                        >
-                            Configure
                         </LemonButton>
                     </>
                 }

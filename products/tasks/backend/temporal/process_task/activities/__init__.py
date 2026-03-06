@@ -1,5 +1,6 @@
 from .cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
+from .forward_pending_message import forward_pending_user_message
 from .get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     GetSandboxForRepositoryOutput,
@@ -27,6 +28,7 @@ __all__ = [
     "UpdateTaskRunStatusInput",
     "cleanup_sandbox",
     "execute_task_in_sandbox",
+    "forward_pending_user_message",
     "get_sandbox_for_repository",
     "get_task_processing_context",
     "post_slack_update",

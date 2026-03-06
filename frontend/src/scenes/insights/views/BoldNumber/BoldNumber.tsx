@@ -109,6 +109,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
         <div className="BoldNumber">
             <div
                 className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
+                data-attr="bold-number-value"
                 onClick={
                     context?.onDataPointClick
                         ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
@@ -189,6 +190,7 @@ function BoldNumberComparison({
                 )
             }
             className="BoldNumber__comparison"
+            data-attr="bold-number-comparison"
             fullWidth
             center
         >
@@ -243,10 +245,10 @@ export function HogQLBoldNumber(): JSX.Element {
         )
     }
 
-    const formattedValue = tabularData?.[0]?.[0]?.formattedValue
-    const directValue = response?.[0]?.[0]
-    const resultsValue = 'results' in response ? response?.results?.[0]?.[0] : undefined
-    const resultValue = 'result' in response ? response?.result?.[0]?.[0] : undefined
+    const formattedValue = tabularData[0]?.[0]?.formattedValue ?? null
+    const directValue = Array.isArray(response) ? response[0]?.[0] : undefined
+    const resultsValue = 'results' in response ? response.results[0]?.[0] : undefined
+    const resultValue = 'result' in response ? response.result[0]?.[0] : undefined
 
     // If any of the values is null, show empty state
     if (formattedValue === null || directValue === null || resultsValue === null || resultValue === null) {

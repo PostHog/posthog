@@ -1,7 +1,7 @@
-import type { SurveyListItemOutput, SurveyOutput } from '@/schema/surveys'
+import type { Schemas } from '@/api/generated'
 import type { Context } from '@/tools/types'
 
-type SurveyData = SurveyOutput | SurveyListItemOutput
+type SurveyData = Schemas.Survey
 
 export interface FormattedSurvey extends Omit<SurveyData, 'end_date'> {
     status: 'draft' | 'active' | 'completed' | 'archived'

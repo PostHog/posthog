@@ -421,7 +421,9 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 </LemonTag>
                             )
                             return schema.latest_error && schema.status === 'Failed' ? (
-                                <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
+                                <Tooltip title={schema.latest_error} interactive>
+                                    {tagContent}
+                                </Tooltip>
                             ) : (
                                 tagContent
                             )

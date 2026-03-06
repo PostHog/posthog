@@ -231,6 +231,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         source_type = None
+        consumer_manages_job_status = False
         try:
             # create external data job and trigger activity
             create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(
@@ -325,6 +326,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 **timeout_params,
             )  # type: ignore
+
+            consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
 
             if pipeline_result.get("should_trigger_cdp_producer", False):
                 await start_child_workflow(
@@ -430,16 +433,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:
+            # When the consumer manages job status (pipeline v3), skip the COMPLETED
+            # update here — the consumer marks the job completed after loading finishes.
+            # Still run for FAILED/billing statuses so extraction-phase errors are recorded.
+            skip_status_update = (
+                consumer_manages_job_status and update_inputs.status == ExternalDataJob.Status.COMPLETED
+            )
+
             get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
 
-            await workflow.execute_activity(
-                update_external_data_job_model,
-                update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "DoesNotExist"],
-                ),
-            )
+            if not skip_status_update:
+                await workflow.execute_activity(
+                    update_external_data_job_model,
+                    update_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(seconds=60),
+                        maximum_attempts=0,
+                        non_retryable_error_types=["NotNullViolation", "IntegrityError", "DoesNotExist"],
+                    ),
+                )

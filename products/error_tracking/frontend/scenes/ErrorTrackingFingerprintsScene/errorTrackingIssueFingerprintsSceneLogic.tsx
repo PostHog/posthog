@@ -65,7 +65,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
             loadIssue: async () => await api.errorTracking.getIssue(props.id),
         },
         issueFingerprints: {
-            loadIssueFingerprints: async () => (await api.errorTracking.fingerprints.list(props.id)).results,
+            loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
             split: () =>
                 (values.issueFingerprints || []).filter(
                     (f: ErrorTrackingFingerprint) => !values.selectedFingerprints.includes(f.fingerprint)

@@ -9,6 +9,7 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
+    BoxPlotMissingPropertyState,
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
@@ -22,6 +23,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -87,6 +89,7 @@ export function InsightVizDisplay({
         query,
         querySource,
         display,
+        series,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
@@ -105,6 +108,11 @@ export function InsightVizDisplay({
             )
         }
 
+        // Insight specific empty states - note order is important here
+        if (display === ChartDisplayType.BoxPlot && !series?.[0]?.math_property) {
+            return <BoxPlotMissingPropertyState />
+        }
+
         if (validationError) {
             return (
                 <InsightValidationError
@@ -117,7 +125,6 @@ export function InsightVizDisplay({
             )
         }
 
-        // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
                 return <FunnelSingleStepState actionable={!embedded && editMode} />
@@ -214,6 +221,15 @@ export function InsightVizDisplay({
                 <SceneSection title="Detailed results">
                     <FunnelStepsTable />
                 </SceneSection>
+            )
+        }
+
+        if (display === ChartDisplayType.BoxPlot && !disableTable) {
+            return (
+                <div className="mt-4">
+                    <h2 className="font-semibold text-lg m-0 mb-2">Detailed results</h2>
+                    <BoxPlotResultsTable />
+                </div>
             )
         }
 

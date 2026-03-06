@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import structlog
 from redis.asyncio import Redis
 
-from llm_gateway.config import get_settings
+from llm_gateway.config import DEFAULT_USER_COST_LIMIT, get_settings
 
 if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
@@ -135,8 +135,7 @@ class _UserCostThrottleBase(CostThrottle):
     - Personal API key: end_user_id is the 'user' param from the request (set in callback)
 
     If no end_user_id is set, user rate limiting is skipped.
-    If a product is not in user_cost_limits config, user rate limiting is skipped but a warning
-    is logged — add the product to LLM_GATEWAY_USER_COST_LIMITS to enable per-user throttling.
+    If a product is not in user_cost_limits config, default limits are used ($100/24h burst, $1000/30d sustained).
     """
 
     _warned_products: set[str] = set()
@@ -150,25 +149,21 @@ class _UserCostThrottleBase(CostThrottle):
             return base
         return f"{base}:tm{team_mult}"
 
-    def _has_config(self, context: ThrottleContext) -> bool:
-        has = context.product in get_settings().user_cost_limits
-        if not has and context.end_user_id and context.product not in self._warned_products:
-            self._warned_products.add(context.product)
-            logger.warning(
-                "user_cost_limits_missing_product",
-                product=context.product,
-                message=f"No user_cost_limits config for product '{context.product}' — per-user throttling skipped",
-            )
-        return has
-
-    def _require_config(self, context: ThrottleContext) -> UserCostLimit:
+    def _get_config(self, context: ThrottleContext) -> UserCostLimit:
         config = get_settings().user_cost_limits.get(context.product)
         if not config:
-            raise RuntimeError(f"No user_cost_limits config for product '{context.product}' — guard check missed")
+            if context.end_user_id and context.product not in self._warned_products:
+                self._warned_products.add(context.product)
+                logger.info(
+                    "user_cost_limits_using_default",
+                    product=context.product,
+                    message=f"No user_cost_limits config for product '{context.product}' — using default limits",
+                )
+            return DEFAULT_USER_COST_LIMIT
         return config
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
-        if not context.end_user_id or not self._has_config(context):
+        if not context.end_user_id:
             return ThrottleResult.allow()
         settings = get_settings()
         if settings.user_cost_limits_disabled:
@@ -177,7 +172,7 @@ class _UserCostThrottleBase(CostThrottle):
         return await super().allow_request(context)
 
     async def record_cost(self, context: ThrottleContext, cost: float) -> None:
-        if not context.end_user_id or not self._has_config(context):
+        if not context.end_user_id:
             return
         await super().record_cost(context, cost)
 
@@ -189,7 +184,7 @@ class UserCostBurstThrottle(_UserCostThrottleBase):
         return "User burst rate limit exceeded"
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
-        config = self._require_config(context)
+        config = self._get_config(context)
         team_mult = self._get_team_multiplier(context)
         return config.burst_limit_usd * team_mult, config.burst_window_seconds
 
@@ -201,6 +196,6 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
         return "User sustained rate limit exceeded"
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
-        config = self._require_config(context)
+        config = self._get_config(context)
         team_mult = self._get_team_multiplier(context)
         return config.sustained_limit_usd * team_mult, config.sustained_window_seconds

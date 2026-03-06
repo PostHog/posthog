@@ -5,7 +5,8 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests as http_requests
-from dlt.sources.helpers import requests
+
+from posthog.security.outbound_proxy import external_requests
 
 from .auth import hubspot_refresh_access_token
 from .settings import OBJECT_TYPE_PLURAL
@@ -72,7 +73,7 @@ def fetch_property_history(
     params["propertiesWithHistory"] = props
     params["limit"] = 50
     # Make the API request
-    r = requests.get(url, headers=headers, params=params)
+    r = external_requests.get(url, headers=headers, params=params)
     # Parse the API response and yield the properties of each result
 
     # Parse the response JSON data
@@ -86,7 +87,7 @@ def fetch_property_history(
         if _next:
             next_url = _next["link"]
             # Get the next page response
-            r = requests.get(next_url, headers=headers)
+            r = external_requests.get(next_url, headers=headers)
             _data = r.json()
         else:
             _data = None
@@ -127,13 +128,13 @@ def fetch_data(
 
     # Make the API request
     try:
-        r = requests.get(url, headers=headers, params=params)
+        r = external_requests.get(url, headers=headers, params=params)
     except http_requests.exceptions.HTTPError as e:
         if e.response.status_code == 401:
             # refresh token
             api_key = hubspot_refresh_access_token(refresh_token)
             headers = _get_headers(api_key)
-            r = requests.get(url, headers=headers, params=params)
+            r = external_requests.get(url, headers=headers, params=params)
         else:
             raise
     # Parse the API response and yield the properties of each result
@@ -173,13 +174,13 @@ def fetch_data(
             next_url = _next["link"]
             # Get the next page response
             try:
-                r = requests.get(next_url, headers=headers)
+                r = external_requests.get(next_url, headers=headers)
             except http_requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
                     # refresh token
                     api_key = hubspot_refresh_access_token(refresh_token)
                     headers = _get_headers(api_key)
-                    r = requests.get(next_url, headers=headers)
+                    r = external_requests.get(next_url, headers=headers)
                 else:
                     raise
             _data = r.json()

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT multiplier, threshold, snooze_duration_minutes\n                FROM posthog_errortrackingspikedetectionconfig\n                WHERE team_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "multiplier",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "threshold",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "snooze_duration_minutes",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8994b430575bbed344b30c246de080a61a1e38069d6d29f2d483f74673f38694"
+}

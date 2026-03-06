@@ -559,7 +559,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             config = self.remote_config.get_config_via_token(self.team.api_token, request=mock_request)
             assert not config["sessionRecording"]
 
-    @patch("posthog.models.remote_config.requests.post")
+    @patch("posthog.models.remote_config.external_requests.post")
     def test_purges_cdn_cache_on_sync(self, mock_post):
         with self.settings(
             REMOTE_CONFIG_CDN_PURGE_ENDPOINT="https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",

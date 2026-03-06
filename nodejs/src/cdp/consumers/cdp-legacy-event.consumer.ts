@@ -5,12 +5,21 @@ import { LegacyPluginAppMetrics } from '~/cdp/legacy-plugins/app-metrics'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
+import { KafkaProducerWrapper } from '../../kafka/producer'
+import {
+    HealthCheckResult,
+    ISOTimestamp,
+    PluginsServerConfig,
+    PostIngestionEvent,
+    ProjectId,
+    RawClickHouseEvent,
+} from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { LegacyWebhookService } from '../legacy-webhooks/legacy-webhook-service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import {
@@ -21,7 +30,7 @@ import {
 } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
-import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 export type LightweightPluginConfig = {
@@ -49,28 +58,27 @@ const legacyPluginExecutionResultCounter = new Counter({
     labelNames: ['result', 'template_id'],
 })
 
-/**
- * Hub type for CdpLegacyEventsConsumer.
- * Extends CdpConsumerBaseHub with legacy plugin-specific fields.
- */
-export type CdpLegacyEventsConsumerHub = CdpConsumerBaseHub &
+export type CdpLegacyEventsConsumerConfig = CdpConsumerBaseConfig &
     Pick<
-        Hub,
+        PluginsServerConfig,
         | 'CDP_LEGACY_EVENT_CONSUMER_TOPIC'
         | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID'
-        | 'kafkaProducer'
         | 'APP_METRICS_FLUSH_FREQUENCY_MS'
         | 'APP_METRICS_FLUSH_MAX_QUEUE_SIZE'
         | 'SITE_URL'
-        | 'groupTypeManager'
     >
+
+export interface CdpLegacyEventsConsumerDeps extends CdpConsumerBaseDeps {
+    kafkaProducer: KafkaProducerWrapper
+    groupTypeManager: GroupTypeManager
+}
 
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group
  * It currently just runs the same logic as the old one but with noderdkafka as the consumer tech which should improve things
  * We can then use this to gradually move over to the new hog functions
  */
-export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsConsumerHub> {
+export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsConsumerConfig> {
     protected name = 'CdpLegacyEventsConsumer'
     protected promiseScheduler = new PromiseScheduler()
     protected kafkaConsumer: KafkaConsumer
@@ -81,21 +89,24 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
 
     private appMetrics: LegacyPluginAppMetrics
 
-    constructor(hub: CdpLegacyEventsConsumerHub) {
-        super(hub)
+    constructor(
+        config: CdpLegacyEventsConsumerConfig,
+        protected override deps: CdpLegacyEventsConsumerDeps
+    ) {
+        super(config, deps)
 
         this.kafkaConsumer = new KafkaConsumer({
-            groupId: hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID,
-            topic: hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC,
+            groupId: config.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID,
+            topic: config.CDP_LEGACY_EVENT_CONSUMER_TOPIC,
         })
 
-        this.legacyPluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
+        this.legacyPluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
         this.legacyWebhookService = new LegacyWebhookService(
-            hub.postgres,
-            hub.teamManager,
-            hub.groupTypeManager,
-            hub.groupRepository,
-            hub.pubSub
+            deps.postgres,
+            deps.teamManager,
+            deps.groupTypeManager,
+            deps.groupRepository,
+            deps.pubSub
         )
 
         this.pluginConfigsLoader = new LazyLoader({
@@ -107,14 +118,14 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         })
 
         this.appMetrics = new LegacyPluginAppMetrics(
-            hub.kafkaProducer,
-            hub.APP_METRICS_FLUSH_FREQUENCY_MS,
-            hub.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+            deps.kafkaProducer,
+            config.APP_METRICS_FLUSH_FREQUENCY_MS,
+            config.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
         )
     }
 
     private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
-        const { rows } = await this.hub.postgres.query(
+        const { rows } = await this.deps.postgres.query(
             PostgresUse.COMMON_READ,
             `SELECT
                 posthog_pluginconfig.id,
@@ -141,7 +152,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         const attachmentsMap: Record<number, Record<string, any>> = {}
 
         if (pluginConfigIds.length > 0) {
-            const { rows: attachmentRows } = await this.hub.postgres.query(
+            const { rows: attachmentRows } = await this.deps.postgres.query(
                 PostgresUse.COMMON_READ,
                 `SELECT plugin_config_id, key, contents
                 FROM posthog_pluginattachment
@@ -355,7 +366,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                 try {
                     const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                    const team = await this.hub.teamManager.getTeam(clickHouseEvent.team_id)
+                    const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
 
                     if (!team) {
                         return
@@ -367,7 +378,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                         return
                     }
 
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
+                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL))
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()

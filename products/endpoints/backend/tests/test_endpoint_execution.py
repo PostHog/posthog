@@ -1265,6 +1265,49 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             assert pagination.limit == req_limit
             assert pagination.offset == req_offset
 
+    def test_inline_pagination_with_variables(self):
+        """Pagination on a HogQL query with {variables.*} placeholders must not raise."""
+        query_sql = "SELECT event, count() FROM events WHERE event = {variables.event_name} GROUP BY event LIMIT 1000"
+        endpoint = create_endpoint_with_version(
+            name="pagination_vars_test",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": query_sql,
+                "variables": {
+                    "event_name": {
+                        "variableId": str(self.event_name_var.id),
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+
+        fake_results = [{"event": "$pageview", "count()": 10}] * 5
+
+        with mock.patch.object(
+            EndpointViewSet,
+            "_execute_query_and_respond",
+            return_value=Response({"results": fake_results}),
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"limit": 100, "variables": {"event_name": "$pageview"}},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            mock_exec.assert_called()
+
+            # The reprinted query must still contain the placeholder
+            query_payload = mock_exec.call_args[0][0]["query"]
+            sql = query_payload["query"]
+            assert "{variables.event_name}" in sql, f"Placeholder lost in: {sql}"
+            assert "limit 101" in sql.lower(), f"Expected LIMIT 101 in: {sql}"
+
     @parameterized.expand(
         [
             # (name, sql_limit, req_limit, req_offset, num_result_rows)

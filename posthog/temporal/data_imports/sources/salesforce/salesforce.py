@@ -275,6 +275,32 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             },
             "table_format": "delta",
         },
+        "OpportunityHistory": {
+            "name": "OpportunityHistory",
+            "table_name": "opportunity_history",
+            "primary_key": "Id" if should_use_incremental_field else None,
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if should_use_incremental_field
+            else "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM OpportunityHistory WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if should_use_incremental_field
+                    else "SELECT FIELDS(ALL) FROM OpportunityHistory ORDER BY Id ASC LIMIT 200",
+                },
+            },
+            "table_format": "delta",
+        },
         "Account": {
             "name": "Account",
             "table_name": "account",

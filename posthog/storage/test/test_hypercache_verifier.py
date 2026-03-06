@@ -15,13 +15,12 @@ from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.models.team.team import Team
 from posthog.storage.hypercache_verifier import (
     MAX_FIXED_TEAM_IDS_TO_LOG,
     VerificationResult,
     _fix_and_record,
-    _partition_teams_for_verification,
     _verify_and_fix_batch,
-    _verify_empty_cache_team,
     verify_and_fix_all_teams,
 )
 
@@ -658,6 +657,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
     def test_processes_all_teams_in_chunks(self):
         """Test that all teams are processed in chunks."""
         mock_config = MagicMock()
+        mock_config.get_teams_queryset.return_value = Team.objects.all()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
@@ -679,6 +679,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
     def test_returns_aggregated_results(self):
         """Test that results are aggregated across all chunks."""
         mock_config = MagicMock()
+        mock_config.get_teams_queryset.return_value = Team.objects.all()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
@@ -701,369 +702,26 @@ class TestVerifyAndFixAllTeams(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestPartitionTeamsForVerification(BaseTest):
-    """Test _partition_teams_for_verification helper function."""
+class TestVerifyAndFixAllTeamsQuerysetScoping(BaseTest):
+    """Test that verify_and_fix_all_teams uses get_teams_queryset() for team scoping."""
 
-    def test_all_teams_full_check_when_optimization_disabled(self):
-        """When team_ids_needing_full_verification is None, all teams go to full check."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = None
-
-        teams = [self.team]
-        full_check, empty_check = _partition_teams_for_verification(teams, None, mock_config)
-
-        assert full_check == teams
-        assert empty_check == []
-
-    def test_all_teams_full_check_when_empty_cache_value_is_none(self):
-        """When empty_cache_value is None, all teams go to full check even with team_ids set."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = None
-
-        teams = [self.team]
-        team_ids = {self.team.id}
-        full_check, empty_check = _partition_teams_for_verification(teams, team_ids, mock_config)
-
-        assert full_check == teams
-        assert empty_check == []
-
-    def test_teams_with_flags_go_to_full_check(self):
-        """Teams in team_ids_needing_full_verification go to full check."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-
-        teams = [self.team]
-        team_ids_with_flags = {self.team.id}
-        full_check, empty_check = _partition_teams_for_verification(teams, team_ids_with_flags, mock_config)
-
-        assert full_check == [self.team]
-        assert empty_check == []
-
-    def test_teams_without_flags_go_to_empty_check(self):
-        """Teams NOT in team_ids_needing_full_verification go to empty check."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-
-        teams = [self.team]
-        team_ids_with_flags: set[int] = set()  # Empty - no teams have flags
-        full_check, empty_check = _partition_teams_for_verification(teams, team_ids_with_flags, mock_config)
-
-        assert full_check == []
-        assert empty_check == [self.team]
-
-    def test_mixed_teams_split_correctly(self):
-        """Batch with mix of teams with/without flags splits correctly."""
-        from posthog.models import Team
-
+    def test_scopes_to_queryset_when_configured(self):
+        """Only teams returned by get_teams_queryset() are verified."""
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
 
         mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-
-        teams = [self.team, team2]
-        # Only self.team has flags
-        team_ids_with_flags = {self.team.id}
-        full_check, empty_check = _partition_teams_for_verification(teams, team_ids_with_flags, mock_config)
-
-        assert full_check == [self.team]
-        assert empty_check == [team2]
-
-
-@override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyEmptyCacheTeam(BaseTest):
-    """Test _verify_empty_cache_team fast-path verification."""
-
-    def test_cache_miss_triggers_fix(self):
-        """Teams with no cache entry should be fixed via set_cache_value with empty data."""
-        mock_config = MagicMock()
-        empty_value: dict = {"flags": []}
-        mock_config.empty_cache_value = empty_value
-        mock_config.update_fn.return_value = True
-
-        result = VerificationResult()
-        # Cache batch data has no entry for this team (cache miss)
-        cache_batch_data: dict = {}
-
-        _verify_empty_cache_team(
-            team=self.team,
-            config=mock_config,
-            cache_batch_data=cache_batch_data,
-            expiry_status=None,
-            cache_type="flags",
-            result=result,
-            team_ids_to_skip_fix=set(),
-        )
-
-        assert result.cache_miss_fixed == 1
-        # Empty cache value is passed as db_data, so set_cache_value is used directly
-        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, empty_value)
-        mock_config.update_fn.assert_not_called()
-
-    def test_cached_data_none_triggers_fix(self):
-        """Teams with cached_data=None should be fixed."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-
-        result = VerificationResult()
-        # Cache entry exists but data is None
-        cache_batch_data = {self.team.id: (None, "redis")}
-
-        _verify_empty_cache_team(
-            team=self.team,
-            config=mock_config,
-            cache_batch_data=cache_batch_data,
-            expiry_status=None,
-            cache_type="flags",
-            result=result,
-            team_ids_to_skip_fix=set(),
-        )
-
-        assert result.cache_miss_fixed == 1
-
-    def test_cache_mismatch_triggers_fix(self):
-        """Teams with cached flags but expected empty should be fixed via set_cache_value with empty data."""
-        mock_config = MagicMock()
-        empty_value: dict = {"flags": []}
-        mock_config.empty_cache_value = empty_value
-        mock_config.update_fn.return_value = True
-
-        result = VerificationResult()
-        # Cache has stale data (team used to have flags)
-        cache_batch_data = {self.team.id: ({"flags": [{"id": 1, "key": "old-flag"}]}, "redis")}
-
-        _verify_empty_cache_team(
-            team=self.team,
-            config=mock_config,
-            cache_batch_data=cache_batch_data,
-            expiry_status=None,
-            cache_type="flags",
-            result=result,
-            team_ids_to_skip_fix=set(),
-        )
-
-        assert result.cache_mismatch_fixed == 1
-        # Empty cache value is passed as db_data, so set_cache_value is used directly
-        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, empty_value)
-        mock_config.update_fn.assert_not_called()
-
-    def test_cache_match_no_fix(self):
-        """Teams with correct empty cache should not trigger fix."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-        mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
-
-        result = VerificationResult()
-        # Cache correctly has empty value
-        cache_batch_data: dict = {self.team.id: ({"flags": []}, "redis")}
-        expiry_status = {str(self.team.id): True}  # Tracked
-
-        _verify_empty_cache_team(
-            team=self.team,
-            config=mock_config,
-            cache_batch_data=cache_batch_data,
-            expiry_status=expiry_status,
-            cache_type="flags",
-            result=result,
-            team_ids_to_skip_fix=set(),
-        )
-
-        # No fixes should be triggered
-        assert result.total_fixed == 0
-        mock_config.hypercache.set_cache_value.assert_not_called()
-
-    def test_expiry_missing_triggers_fix(self):
-        """Empty cache match but missing expiry tracking should trigger fix."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-        mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
-
-        result = VerificationResult()
-        # Cache matches but expiry tracking missing
-        cache_batch_data: dict = {self.team.id: ({"flags": []}, "redis")}
-        expiry_status = {str(self.team.id): False}  # NOT tracked
-
-        _verify_empty_cache_team(
-            team=self.team,
-            config=mock_config,
-            cache_batch_data=cache_batch_data,
-            expiry_status=expiry_status,
-            cache_type="flags",
-            result=result,
-            team_ids_to_skip_fix=set(),
-        )
-
-        # Should fix expiry tracking
-        assert result.expiry_missing_fixed == 1
-
-    def test_raises_value_error_if_empty_cache_value_not_set(self):
-        """Should raise ValueError if empty_cache_value is None."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = None  # Misconfiguration
-
-        result = VerificationResult()
-        cache_batch_data: dict = {}
-
-        with self.assertRaises(ValueError) as context:
-            _verify_empty_cache_team(
-                team=self.team,
-                config=mock_config,
-                cache_batch_data=cache_batch_data,
-                expiry_status=None,
-                cache_type="flags",
-                result=result,
-                team_ids_to_skip_fix=set(),
-            )
-
-        assert "empty_cache_value must be configured" in str(context.exception)
-        assert str(self.team.id) in str(context.exception)
-
-    def test_team_ids_to_skip_fix_skips_fix_for_empty_cache_team(self):
-        """Test that team_ids_to_skip_fix can skip fixes in empty cache path."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-
-        result = VerificationResult()
-        # Cache miss - would normally trigger fix
-        cache_batch_data: dict = {}
-        # Team is in the skip set
-        team_ids_to_skip_fix = {self.team.id}
-
-        _verify_empty_cache_team(
-            team=self.team,
-            config=mock_config,
-            cache_batch_data=cache_batch_data,
-            expiry_status=None,
-            cache_type="flags",
-            result=result,
-            team_ids_to_skip_fix=team_ids_to_skip_fix,
-        )
-
-        # Fix should be skipped
-        assert result.total_fixed == 0
-        assert result.skipped_for_grace_period == 1
-        assert self.team.id in result.skipped_team_ids
-        mock_config.hypercache.set_cache_value.assert_not_called()
-
-    def test_empty_team_ids_to_skip_fix_does_not_skip_for_empty_cache_team(self):
-        """Test that empty team_ids_to_skip_fix allows empty cache fixes to proceed."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-
-        result = VerificationResult()
-        # Cache miss - should trigger fix
-        cache_batch_data: dict = {}
-        # Empty skip set - should proceed with fix
-        team_ids_to_skip_fix: set[int] = set()
-
-        _verify_empty_cache_team(
-            team=self.team,
-            config=mock_config,
-            cache_batch_data=cache_batch_data,
-            expiry_status=None,
-            cache_type="flags",
-            result=result,
-            team_ids_to_skip_fix=team_ids_to_skip_fix,
-        )
-
-        # Fix should proceed
-        assert result.cache_miss_fixed == 1
-        assert result.skipped_for_grace_period == 0
-
-
-@override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyAndFixBatchOptimization(BaseTest):
-    """Test _verify_and_fix_batch optimization path selection."""
-
-    def test_teams_with_flags_use_full_verification_path(self):
-        """Teams in team_ids_needing_full_verification should use full DB load."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-        mock_config.hypercache.batch_load_fn.return_value = {self.team.id: {"flags": []}}
+        mock_config.get_teams_queryset.return_value = Team.objects.filter(id=team2.id)
+        mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
-        mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
+        mock_config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
 
-        result = VerificationResult()
-        verify_fn_calls = []
-
-        def verify_fn(team, db_batch_data, cache_batch_data):
-            verify_fn_calls.append(team.id)
-            return {"status": "match", "issue": None}
-
-        # Team with flags should be in the full check list
-        team_ids_with_flags = {self.team.id}
-
-        with patch(
-            "posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={str(self.team.id): True}
-        ):
-            _verify_and_fix_batch(
-                teams=[self.team],
-                config=mock_config,
-                verify_team_fn=verify_fn,
-                cache_type="flags",
-                result=result,
-                team_ids_needing_full_verification=team_ids_with_flags,
-            )
-
-        # Should have called batch_load_fn for teams with flags
-        mock_config.hypercache.batch_load_fn.assert_called_once_with([self.team])
-        # verify_fn should have been called (not _verify_empty_cache_team)
-        assert len(verify_fn_calls) == 1
-        assert verify_fn_calls[0] == self.team.id
-
-    def test_teams_without_flags_use_empty_check_fast_path(self):
-        """Teams NOT in team_ids_needing_full_verification should use fast-path."""
-        mock_config = MagicMock()
-        mock_config.empty_cache_value = {"flags": []}
-        mock_config.hypercache.batch_load_fn = MagicMock(return_value={})
-        mock_config.hypercache.batch_get_from_cache.return_value = {self.team.id: ({"flags": []}, "redis")}
-        mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
-
-        result = VerificationResult()
-        verify_fn_calls = []
+        verified_team_ids: list[int] = []
 
         def verify_fn(team, db_batch_data, cache_batch_data):
-            verify_fn_calls.append(team.id)
+            verified_team_ids.append(team.id)
             return {"status": "match", "issue": None}
 
-        # Team WITHOUT flags - empty optimization set means no teams have flags
-        team_ids_with_flags: set[int] = set()
-
-        with patch(
-            "posthog.storage.hypercache_verifier.batch_check_expiry_tracking",
-            return_value={str(self.team.id): True},
-        ):
-            _verify_and_fix_batch(
-                teams=[self.team],
-                config=mock_config,
-                verify_team_fn=verify_fn,
-                cache_type="flags",
-                result=result,
-                team_ids_needing_full_verification=team_ids_with_flags,
-            )
-
-        # Should NOT have called batch_load_fn (no teams need full verification)
-        mock_config.hypercache.batch_load_fn.assert_not_called()
-        # verify_fn should NOT have been called (_verify_empty_cache_team was used instead)
-        assert len(verify_fn_calls) == 0
-        # But total should still count the team
-        assert result.total == 1
-
-    def test_optimization_fallback_when_function_fails(self):
-        """When get_team_ids_needing_full_verification_fn fails, fall back to full verification."""
-        mock_config = MagicMock()
-        mock_config.get_team_ids_needing_full_verification_fn = MagicMock(
-            side_effect=Exception("Database connection failed")
-        )
-        mock_config.hypercache.batch_load_fn = MagicMock(return_value={})
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
-        mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
-
-        def verify_fn(team, db_batch_data, cache_batch_data):
-            return {"status": "match", "issue": None}
-
-        with patch(
-            "posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={str(self.team.id): True}
-        ):
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
             result = verify_and_fix_all_teams(
                 config=mock_config,
                 verify_team_fn=verify_fn,
@@ -1071,8 +729,48 @@ class TestVerifyAndFixBatchOptimization(BaseTest):
                 chunk_size=100,
             )
 
-        # Should still complete successfully with full verification fallback
+        assert result.total == 1
+        assert team2.id in verified_team_ids
+        assert self.team.id not in verified_team_ids
+
+    def test_empty_queryset_processes_zero_teams(self):
+        """When get_teams_queryset() returns empty queryset, no teams are verified."""
+        mock_config = MagicMock()
+        mock_config.get_teams_queryset.return_value = Team.objects.none()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            raise AssertionError("Should never be called")
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            result = verify_and_fix_all_teams(
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                chunk_size=100,
+            )
+
+        assert result.total == 0
+
+    def test_iterates_all_teams_when_queryset_fn_is_none(self):
+        """When get_teams_queryset() has no scoping function, all teams are verified."""
+        mock_config = MagicMock()
+        mock_config.get_teams_queryset.return_value = Team.objects.all()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "match", "issue": None}
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            result = verify_and_fix_all_teams(
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                chunk_size=100,
+            )
+
+        # Should have verified at least self.team
         assert result.total >= 1
-        assert result.errors == 0
-        # Should have used full verification path (batch_load_fn called)
-        mock_config.hypercache.batch_load_fn.assert_called()

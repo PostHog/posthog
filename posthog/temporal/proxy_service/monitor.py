@@ -18,6 +18,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
+from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
@@ -117,7 +118,7 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
 
         # this is rare enough and fast enough that it's probably fine
         # but maybe we want to cache this and/or do it async
-        cloudflare_ips = requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
+        cloudflare_ips = external_requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
         is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
         if is_cloudflare:
             # the customer has set cloudflare proxying on
@@ -255,7 +256,7 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
 
     # send dummy event to check the proxy is working
     try:
-        response = requests.post(
+        response = external_requests.post(
             f"https://{proxy_record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),

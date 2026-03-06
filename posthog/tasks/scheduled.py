@@ -81,6 +81,7 @@ TWENTY_FOUR_HOURS = 24 * 60 * 60
 # Organizations with delayed data ingestion that need delayed usage report re-runs
 # This is a temporary solution until we switch event usage queries from timestamp to created_at
 DELAYED_ORGS_EU: list[str] = [
+    "018beddd-5eb1-0000-7953-5a5b982e80bf",
     "01975ab3-7ec5-0000-9751-a89cbc971419",
 ]
 DELAYED_ORGS_US: list[str] = []
@@ -297,8 +298,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send HogFunctions daily digest",
     )
 
+    # Send Error Tracking weekly digest at 8:30 AM UTC on Monday
     sender.add_periodic_task(
-        crontab(minute="0"),
+        crontab(hour="8", minute="30", day_of_week="mon"),
         send_error_tracking_weekly_digest.s(),
         name="send Error Tracking weekly digest",
     )
