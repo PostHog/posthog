@@ -1,0 +1,131 @@
+{{CLAUDE_CODE_CONTEXT|safe}}
+
+<pr_chunk_analysis_instructions>
+You are helping me review a specific chunk of a pull request submitted by another developer. This chunk represents a logical grouping of related files within the larger PR. Follow these steps to analyze the code changes in this chunk and generate analysis of changes in this chunk.
+
+The goal is to understand what's the purpose of this chunk and how it fits into the overall PR, to better understand the nature of PR changes.
+</pr_chunk_analysis_instructions>
+
+<pr_current_chunk_context>
+{{CURRENT_CHUNK|safe}}
+</pr_current_chunk_context>
+
+<pr_metadata>
+{{PR_METADATA|safe}}
+</pr_metadata>
+
+<pr_comments_for_chunk>
+{{PR_COMMENTS|safe}}
+</pr_comments_for_chunk>
+
+<pr_file_changes_for_chunk>
+{{PR_FILE_CHANGES|safe}}
+</pr_file_changes_for_chunk>
+
+<claude_code_instructions>
+## Instructions for Claude Code
+
+### Investigation Requirements
+**IMPORTANT**: Do not rush to conclusions. Thoroughly investigate the codebase before forming opinions.
+
+### Required Investigation Steps:
+1. **Map the architecture first**:
+   - Find and examine related interfaces, base classes, and type definitions
+   - Trace data flow through the system
+   - Identify architectural patterns used in this area of the codebase
+
+2. **Investigate usage patterns**:
+   - Search for all usages of new/modified functions: `rg "function_name\(" --type py`
+   - Find similar implementations: `rg "class.*Node" --type py` (for pattern matching)
+   - Check how existing code handles similar scenarios
+
+3. **Understand the context**:
+   - Read parent classes/interfaces completely before analyzing implementations
+   - Check configuration files that might affect behavior
+   - Look for related tests (even outside the chunk) to understand expected behavior
+</claude_code_instructions>
+
+<general_analyze_pr_chunk_instructions>
+## Step 1: Review Provided Context
+- The PR changes for this chunk have been provided below
+- Review the chunk description to understand its purpose within the larger PR
+- Note which files are included in this chunk
+- Review the brief descriptions of other chunks to understand how this chunk fits into the overall changes
+
+## Step 2: Understand Chunk Context
+- Read the PR description and title to understand the overall goal
+- Focus on how this specific chunk contributes to that goal
+- Review the chunk description and its relationship to other chunks
+- Identify the author's intent for this specific part of the implementation
+- Note the scope of changes within this chunk (files modified, lines changed)
+
+## Step 3: Review Existing Discussion for This Chunk
+- Read ALL comments posted on files within this chunk
+- Create a comprehensive list of ALL issues already identified
+- Note ongoing discussions and unresolved questions related to this chunk
+- Track what the author has already agreed to fix in these files
+- Be aware of discussions in other chunks that might impact this chunk's implementation
+- This list will be used to avoid raising already discussed issues in later steps
+
+## Step 4: Deep-Dive Analysis and Code Understanding
+
+### Part A: Investigation Phase (MANDATORY - spend significant time here)
+Before analyzing, you MUST investigate:
+1. **Architecture mapping**: Find and document the system's structure around these changes
+2. **Pattern discovery**: Search for similar code patterns and conventions
+3. **Dependency tracking**: Map out what depends on this code and what it depends on
+4. **Usage analysis**: Find all places where new/modified code will be called
+
+### Part B: Detailed Code Summary Generation
+Create a comprehensive summary covering:
+
+1. **Architectural Context**:
+   - Where this chunk fits in the overall system architecture
+   - Key classes/modules it interacts with
+   - Design patterns being followed or introduced
+
+2. **Implementation Details**:
+   - Exactly what each new/modified class/function does
+   - Data flow through the components
+   - State management approach
+   - Error handling strategy
+
+3. **Integration Points**:
+   - How this chunk connects to other parts of the system
+   - APIs/interfaces being exposed or consumed
+   - Expected calling patterns and usage scenarios
+
+4. **Technical Decisions**:
+   - Why certain approaches were chosen (based on codebase patterns)
+   - Trade-offs made in the implementation
+   - Assumptions built into the code
+
+## Step 5: Manage Analysis Scope
+Given the focused nature of this chunk review:
+- Spend 70% of analysis time on the chunk's core files
+- Spend 20% examining immediate dependencies and interfaces
+- Spend 10% on cross-chunk impact analysis
+- If you discover issues outside this chunk, note them briefly in a "Cross-Chunk Observations" section
+</general_analyze_pr_chunk_instructions>
+
+<output_format>
+Generate your analysis as a JSON object that conforms to the provided schema.
+
+IMPORTANT:
+- Use descriptive content that explains both what changed and why
+- Include all required fields as specified in the schema
+- Ensure file paths are properly formatted
+- Return ONLY the final JSON output (without any additional text or markdown formatting)
+</output_format>
+
+<output_instructions>
+After completing your analysis:
+1. Generate the final JSON output that conforms to the schema
+2. Return ONLY the JSON content (no markdown code blocks, no explanations)
+</output_instructions>
+
+<output_schema>
+```json
+{{ OUTPUT_SCHEMA | safe }}
+```
+</output_schema>

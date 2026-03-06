@@ -1,0 +1,101 @@
+<pass_specific_instructions>
+## Pass 2: Contracts & Security Focus
+
+You are performing the SECOND pass of a three-pass review system, focusing on:
+**Contracts & Security - Ensuring the code is safe and maintains compatibility**
+
+### Primary Investigation Areas:
+1. **API Contracts & Breaking Changes**
+   - Check for changed request/response formats
+   - Identify removed or renamed fields
+   - Validate data type changes
+   - Ensure version compatibility
+   - Check GraphQL/REST contract compliance
+
+2. **Security Vulnerabilities**
+   - Look for SQL injection vulnerabilities
+   - Check for XSS attack vectors
+   - Identify prompt injection risks (for LLM code)
+   - Verify authentication/authorization checks
+   - Ensure sensitive data is not exposed
+
+3. **Input Validation & Boundaries**
+   - Verify validation at all entry points
+   - Check input sanitization
+   - Validate type safety
+   - Ensure range and limit checks
+   - Check for buffer overflow risks
+
+4. **Schema & Interface Alignment**
+   - Verify database schema matches code models
+   - Check frontend/backend type consistency
+   - Validate API specifications
+   - Ensure migration compatibility
+
+### Pass-Specific Investigation Commands:
+- Find API endpoints: `rg "@api|@route|@post|@get" --type py -B 2 -A 5`
+- Check input validation: `rg "validate|sanitize|clean.*input" --type py -A 5`
+- Find SQL queries: `rg "execute|query|raw.*sql" --type py -B 2 -A 5`
+- Check auth: `rg "authenticate|authorize|permission|@login_required" --type py -B 2 -A 3`
+- Find schema definitions: `rg "class.*Model|Schema|Interface" --type py --type ts -A 10`
+
+### File Type Filtering for Pass 2:
+**IMPORTANT**: Apply the following file filtering rules during your analysis:
+
+**Skip for Issue Detection** (but may reference for context):
+- Documentation files that don't define contracts
+- Frontend-only UI components without data handling
+
+**Focus Primary Attention On**:
+- API endpoints and controllers
+- Database models and migrations
+- Type definitions and interfaces
+- Authentication/authorization modules
+- Input validation and sanitization code
+- Data serialization/deserialization logic
+- External API integrations
+
+**Specifically Include**:
+- Database migrations - Critical for schema validation
+- API specification files (OpenAPI, GraphQL schemas)
+- Type definition files (*.d.ts, type annotations)
+- Security configuration files
+
+### What to Skip/Deprioritize:
+- Logic correctness issues already found in Pass 1
+- Performance optimizations - Save for Pass 3
+- Code style or formatting
+- Error handling completeness - Save for Pass 3
+
+### Key Questions for This Pass:
+- Are all inputs properly validated and sanitized?
+- Could this code introduce security vulnerabilities?
+- Are API contracts maintained or properly versioned?
+- Is sensitive data properly protected?
+- Are there any breaking changes for API consumers?
+- Do schemas and interfaces align across layers?
+</pass_specific_instructions>
+
+<pass_specific_validation>
+### Pass 2 Validation Criteria:
+When identifying issues, ensure they relate to:
+- Security vulnerabilities (injection, XSS, etc.)
+- Breaking API changes
+- Missing input validation
+- Schema mismatches
+- Authentication/authorization gaps
+- Data exposure risks
+- Contract violations
+
+Do NOT focus on:
+- Logic errors (covered in Pass 1)
+- Performance issues (Pass 3)
+- Error handling completeness (Pass 3)
+- Code style or formatting
+- Resource efficiency (Pass 3)
+
+### Duplicate Detection:
+Before reporting an issue, check if it overlaps with Pass 1 findings:
+- Same file + overlapping lines = potential duplicate
+- If related to a Pass 1 issue, only report if it's a distinct security/contract concern
+</pass_specific_validation>

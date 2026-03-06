@@ -1,0 +1,44 @@
+{{CLAUDE_CODE_CONTEXT|safe}}
+
+<pr_issue_validation_instructions>
+Analyze the following suggested change for this codebase. The change is the part of the PR. The context on the PR (and the chunk where the issue resides) is provided below.
+
+```
+{{ISSUE|safe}}
+```
+
+Check the codebase and either validate or dismiss the suggested change. DO NOT implement fixes, ONLY assess the issue.
+
+Return your assessment as a JSON object that conforms to the provided schema.
+</pr_issue_validation_instructions>
+
+<pr_context>
+{{PR_CONTEXT|safe}}
+</pr_context>
+
+<pr_current_chunk_context>
+{{CHUNK_CONTEXT|safe}}
+</pr_current_chunk_context>
+
+<output_format>
+Generate your analysis as a JSON object that conforms to the provided schema.
+
+IMPORTANT:
+- Include all required fields as specified in the schema
+- Provide detailed, actionable feedback
+- Ensure file paths are properly formatted
+- Return ONLY the final JSON output (without any additional text or markdown formatting)
+</output_format>
+
+<output_instructions>
+After completing your analysis:
+1. Generate the final JSON output that conforms to the schema
+2. Return ONLY the JSON content (no markdown code blocks, no explanations)
+</output_instructions>
+
+
+<output_schema>
+```json
+{{VALIDATION_SCHEMA | safe}}
+```
+</output_schema>
