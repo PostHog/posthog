@@ -185,7 +185,13 @@ export function NavTabBrowse(): JSX.Element {
                         isLayoutNavCollapsed ? 'items-center' : ''
                     )}
                 >
-                    <ProjectTree root="products://" onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
+                    {(expandedNavSections.apps ?? false) && (
+                        <ProjectTree
+                            root="products://"
+                            onlyTree
+                            treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                        />
+                    )}
                 </Collapsible.Panel>
             </Collapsible>
         </ScrollableShadows>

@@ -1,7 +1,7 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { lazy, Suspense, useRef } from 'react'
 
 import { IconApps, IconSearch, IconSparkles } from '@posthog/icons'
 
@@ -21,7 +21,7 @@ import { NavExperimentTab, panelLayoutLogic } from '~/layout/panel-layout/panelL
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from '../NavBarFooter'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
-import { NavTabChat } from './tabs/NavTabChat'
+const NavTabChat = lazy(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -170,27 +170,13 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
                     )}
 
                     <div className="flex-1 overflow-hidden relative">
-                        <Tabs.Panel
-                            value="home"
-                            className={cn(
-                                'absolute inset-0 flex flex-col',
-                                'transition-[opacity,transform] duration-200 ease-in-out',
-                                'data-[hidden]:opacity-0 data-[hidden]:-translate-x-2 data-[hidden]:pointer-events-none data-[hidden]:invisible'
-                            )}
-                            keepMounted
-                        >
+                        <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted>
                             <NavTabBrowse />
                         </Tabs.Panel>
-                        <Tabs.Panel
-                            value="chat"
-                            className={cn(
-                                'absolute inset-0 flex flex-col',
-                                'transition-[opacity,transform] duration-200 ease-in-out',
-                                'data-[hidden]:opacity-0 data-[hidden]:translate-x-2 data-[hidden]:pointer-events-none data-[hidden]:invisible'
-                            )}
-                            keepMounted
-                        >
-                            <NavTabChat />
+                        <Tabs.Panel value="chat" className="absolute inset-0 flex flex-col" keepMounted>
+                            <Suspense>
+                                <NavTabChat />
+                            </Suspense>
                         </Tabs.Panel>
                     </div>
 
