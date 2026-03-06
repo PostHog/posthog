@@ -1,20 +1,11 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { makeStep } from './nodeStoryUtils'
+
 const STEP_NAMES = ['Sign up', 'Complete profile', 'First action', 'Activation']
 
 export function makeFunnelStep(name: string, order: number, count: number): Record<string, unknown> {
-    return {
-        action_id: name,
-        name,
-        custom_name: null,
-        order,
-        count,
-        type: 'events',
-        average_conversion_time: order > 0 ? 120 : null,
-        median_conversion_time: order > 0 ? 90 : null,
-        converted_people_url: '/api/person/funnel/?',
-        dropped_people_url: order > 0 ? '/api/person/funnel/?' : null,
-    }
+    return makeStep(name, order, count, count) as unknown as Record<string, unknown>
 }
 
 export function makeInsight(optionalStepIndices: number[] = []): Record<string, unknown> {

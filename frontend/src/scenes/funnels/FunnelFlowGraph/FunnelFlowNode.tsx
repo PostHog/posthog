@@ -16,7 +16,7 @@ import { FunnelFlowNodeData, PROFILE_NODE_WIDTH } from './funnelFlowGraphLogic'
 import { FunnelStepMoreFlow } from './FunnelStepMoreFlow'
 import { StepNodeShell } from './StepNodeShell'
 
-function OptionalChip(): JSX.Element {
+export function OptionalChip(): JSX.Element {
     return (
         <span className="ml-8 text-xxs lowercase tracking-wide px-1 rounded text-muted bg-fill-highlight-100 border border-primary-highlight">
             Optional

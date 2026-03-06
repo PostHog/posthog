@@ -1,12 +1,11 @@
-import '@xyflow/react/dist/style.css'
-
 import { Meta, StoryFn } from '@storybook/react'
-import { Node, NodeTypes, ReactFlow, ReactFlowProvider } from '@xyflow/react'
+import { NodeTypes } from '@xyflow/react'
 
 import { IconPlus } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
+import { NodeCanvas, pathNode } from './__mocks__/nodeStoryUtils'
 import { PathFlowNodeShell } from './PathFlowNode'
 import { PathFlowNodeData, PATH_NODE_WIDTH } from './pathFlowUtils'
 
@@ -26,17 +25,6 @@ const addableNodeTypes: NodeTypes = {
     builderPath: ({ data, id }: { data: PathFlowNodeData; id: string }) => <BuilderPathNode id={id} data={data} />,
 }
 
-function pathNode(id: string, type: string, data: PathFlowNodeData, x: number): Node {
-    return {
-        id,
-        type,
-        data,
-        position: { x, y: 0 },
-        draggable: false,
-        connectable: false,
-    }
-}
-
 const meta: Meta = {
     title: 'Scenes-App/Customer Analytics/Journeys/Nodes/BuilderPathFlowNode',
     parameters: {
@@ -51,44 +39,24 @@ export default meta
 export const Default: StoryFn = () => {
     const data: PathFlowNodeData = { eventName: '$pageview', displayName: '/pricing', count: 42 }
     return (
-        <ReactFlowProvider>
-            <div style={{ width: '100%', height: 100 }}>
-                <ReactFlow
-                    nodes={[pathNode('p1', 'pathShell', data, 0)]}
-                    edges={[]}
-                    nodeTypes={defaultNodeTypes}
-                    nodesDraggable={false}
-                    nodesConnectable={false}
-                    fitView
-                    fitViewOptions={{ padding: 0.5 }}
-                    proOptions={{ hideAttribution: true }}
-                    minZoom={0.5}
-                    maxZoom={1}
-                />
-            </div>
-        </ReactFlowProvider>
+        <NodeCanvas
+            nodes={[pathNode('p1', 'pathShell', data, 0)]}
+            nodeTypes={defaultNodeTypes}
+            height={100}
+            padding={0.5}
+        />
     )
 }
 
 export const WithAddButton: StoryFn = () => {
     const data: PathFlowNodeData = { eventName: '$pageview', displayName: '/pricing', count: 42 }
     return (
-        <ReactFlowProvider>
-            <div style={{ width: '100%', height: 100 }}>
-                <ReactFlow
-                    nodes={[pathNode('p1', 'builderPath', data, 0)]}
-                    edges={[]}
-                    nodeTypes={addableNodeTypes}
-                    nodesDraggable={false}
-                    nodesConnectable={false}
-                    fitView
-                    fitViewOptions={{ padding: 0.5 }}
-                    proOptions={{ hideAttribution: true }}
-                    minZoom={0.5}
-                    maxZoom={1}
-                />
-            </div>
-        </ReactFlowProvider>
+        <NodeCanvas
+            nodes={[pathNode('p1', 'builderPath', data, 0)]}
+            nodeTypes={addableNodeTypes}
+            height={100}
+            padding={0.5}
+        />
     )
 }
 
@@ -105,22 +73,5 @@ export const AllVariants: StoryFn = () => {
             spacing * 2
         ),
     ]
-    return (
-        <ReactFlowProvider>
-            <div style={{ width: '100%', height: 100 }}>
-                <ReactFlow
-                    nodes={nodes}
-                    edges={[]}
-                    nodeTypes={mergedNodeTypes}
-                    nodesDraggable={false}
-                    nodesConnectable={false}
-                    fitView
-                    fitViewOptions={{ padding: 0.3 }}
-                    proOptions={{ hideAttribution: true }}
-                    minZoom={0.5}
-                    maxZoom={1}
-                />
-            </div>
-        </ReactFlowProvider>
-    )
+    return <NodeCanvas nodes={nodes} nodeTypes={mergedNodeTypes} height={100} />
 }

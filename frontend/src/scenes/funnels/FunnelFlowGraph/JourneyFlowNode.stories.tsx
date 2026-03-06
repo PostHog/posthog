@@ -8,6 +8,7 @@ import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { InsightProvider, makeStep } from './__mocks__/nodeStoryUtils'
 import { NODE_WIDTH } from './funnelFlowGraphLogic'
+import { OptionalChip } from './FunnelFlowNode'
 import { StepNodeShell } from './StepNodeShell'
 
 function JourneyNodeStory({
@@ -29,13 +30,7 @@ function JourneyNodeStory({
                 }
                 handles={<></>}
                 eventDisplay={<EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />}
-                headerExtra={
-                    isOptional ? (
-                        <span className="ml-8 text-xxs lowercase tracking-wide px-1 rounded text-muted bg-fill-highlight-100 border border-primary-highlight">
-                            Optional
-                        </span>
-                    ) : undefined
-                }
+                headerExtra={isOptional ? <OptionalChip /> : undefined}
                 headerAction={<More overlay={<></>} />}
             />
         </InsightProvider>
@@ -77,92 +72,13 @@ export const OptionalStep: StoryFn = () => (
 export const AllVariants: StoryFn = () => {
     const spacing = NODE_WIDTH + 20
     return (
-        <InsightProvider>
-            <div className="flex flex-wrap gap-4" style={{ maxWidth: spacing * 3 }}>
-                <StepNodeShell
-                    step={makeStep('Sign up', 0, 100, 100)}
-                    stepIndex={0}
-                    containerClassName="border-primary bg-bg-light"
-                    handles={<></>}
-                    eventDisplay={
-                        <EntityFilterInfo
-                            filter={getActionFilterFromFunnelStep(makeStep('Sign up', 0, 100, 100))}
-                            allowWrap
-                        />
-                    }
-                    headerAction={<More overlay={<></>} />}
-                />
-                <StepNodeShell
-                    step={makeStep('Complete profile', 1, 80, 100)}
-                    stepIndex={1}
-                    containerClassName="border-primary bg-bg-light"
-                    handles={<></>}
-                    eventDisplay={
-                        <EntityFilterInfo
-                            filter={getActionFilterFromFunnelStep(makeStep('Complete profile', 1, 80, 100))}
-                            allowWrap
-                        />
-                    }
-                    headerAction={<More overlay={<></>} />}
-                />
-                <StepNodeShell
-                    step={makeStep('First action', 2, 50, 100)}
-                    stepIndex={2}
-                    containerClassName="border-primary bg-bg-light"
-                    handles={<></>}
-                    eventDisplay={
-                        <EntityFilterInfo
-                            filter={getActionFilterFromFunnelStep(makeStep('First action', 2, 50, 100))}
-                            allowWrap
-                        />
-                    }
-                    headerAction={<More overlay={<></>} />}
-                />
-                <StepNodeShell
-                    step={makeStep('Activation', 3, 10, 100)}
-                    stepIndex={3}
-                    containerClassName="border-primary bg-bg-light"
-                    handles={<></>}
-                    eventDisplay={
-                        <EntityFilterInfo
-                            filter={getActionFilterFromFunnelStep(makeStep('Activation', 3, 10, 100))}
-                            allowWrap
-                        />
-                    }
-                    headerAction={<More overlay={<></>} />}
-                />
-                <StepNodeShell
-                    step={makeStep('Churn', 4, 0, 100)}
-                    stepIndex={4}
-                    containerClassName="border-primary bg-bg-light"
-                    handles={<></>}
-                    eventDisplay={
-                        <EntityFilterInfo
-                            filter={getActionFilterFromFunnelStep(makeStep('Churn', 4, 0, 100))}
-                            allowWrap
-                        />
-                    }
-                    headerAction={<More overlay={<></>} />}
-                />
-                <StepNodeShell
-                    step={makeStep('Optional step', 1, 50, 100)}
-                    stepIndex={1}
-                    containerClassName="border-dashed border-primary bg-fill-highlight-50"
-                    handles={<></>}
-                    eventDisplay={
-                        <EntityFilterInfo
-                            filter={getActionFilterFromFunnelStep(makeStep('Optional step', 1, 50, 100))}
-                            allowWrap
-                        />
-                    }
-                    headerExtra={
-                        <span className="ml-8 text-xxs lowercase tracking-wide px-1 rounded text-muted bg-fill-highlight-100 border border-primary-highlight">
-                            Optional
-                        </span>
-                    }
-                    headerAction={<More overlay={<></>} />}
-                />
-            </div>
-        </InsightProvider>
+        <div className="flex flex-wrap gap-4" style={{ maxWidth: spacing * 3 }}>
+            <JourneyNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />
+            <JourneyNodeStory step={makeStep('Complete profile', 1, 80, 100)} stepIndex={1} />
+            <JourneyNodeStory step={makeStep('First action', 2, 50, 100)} stepIndex={2} />
+            <JourneyNodeStory step={makeStep('Activation', 3, 10, 100)} stepIndex={3} />
+            <JourneyNodeStory step={makeStep('Churn', 4, 0, 100)} stepIndex={4} />
+            <JourneyNodeStory step={makeStep('Optional step', 1, 50, 100)} stepIndex={1} isOptional />
+        </div>
     )
 }

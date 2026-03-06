@@ -1,13 +1,12 @@
-import '@xyflow/react/dist/style.css'
-
 import { Meta, StoryFn } from '@storybook/react'
-import { Node, NodeTypes, ReactFlow, ReactFlowProvider } from '@xyflow/react'
+import { NodeTypes } from '@xyflow/react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
+import { NodeCanvas, pathNode } from './__mocks__/nodeStoryUtils'
 import { PathFlowNodeShell } from './PathFlowNode'
 import { PathFlowNodeData, PATH_NODE_WIDTH } from './pathFlowUtils'
 
@@ -78,38 +77,6 @@ const nodeTypes: NodeTypes = {
     ),
 }
 
-function pathNode(id: string, type: string, data: PathFlowNodeData, x: number): Node {
-    return {
-        id,
-        type,
-        data,
-        position: { x, y: 0 },
-        draggable: false,
-        connectable: false,
-    }
-}
-
-function SingleNodeCanvas({ nodes }: { nodes: ReturnType<typeof pathNode>[] }): JSX.Element {
-    return (
-        <ReactFlowProvider>
-            <div style={{ width: '100%', height: 100 }}>
-                <ReactFlow
-                    nodes={nodes}
-                    edges={[]}
-                    nodeTypes={nodeTypes}
-                    nodesDraggable={false}
-                    nodesConnectable={false}
-                    fitView
-                    fitViewOptions={{ padding: 0.5 }}
-                    proOptions={{ hideAttribution: true }}
-                    minZoom={0.5}
-                    maxZoom={1}
-                />
-            </div>
-        </ReactFlowProvider>
-    )
-}
-
 const sampleData: PathFlowNodeData = { eventName: '$pageview', displayName: '/home', count: 42 }
 
 const meta: Meta = {
@@ -123,10 +90,12 @@ const meta: Meta = {
 }
 export default meta
 
-export const Default: StoryFn = () => <SingleNodeCanvas nodes={[pathNode('p1', 'path', sampleData, 0)]} />
+export const Default: StoryFn = () => (
+    <NodeCanvas nodes={[pathNode('p1', 'path', sampleData, 0)]} nodeTypes={nodeTypes} height={100} padding={0.5} />
+)
 
 export const LongEventName: StoryFn = () => (
-    <SingleNodeCanvas
+    <NodeCanvas
         nodes={[
             pathNode(
                 'p1',
@@ -139,15 +108,27 @@ export const LongEventName: StoryFn = () => (
                 0
             ),
         ]}
+        nodeTypes={nodeTypes}
+        height={100}
+        padding={0.5}
     />
 )
 
-export const Addable: StoryFn = () => <SingleNodeCanvas nodes={[pathNode('p1', 'addable', sampleData, 0)]} />
+export const Addable: StoryFn = () => (
+    <NodeCanvas nodes={[pathNode('p1', 'addable', sampleData, 0)]} nodeTypes={nodeTypes} height={100} padding={0.5} />
+)
 
-export const Staged: StoryFn = () => <SingleNodeCanvas nodes={[pathNode('p1', 'staged', sampleData, 0)]} />
+export const Staged: StoryFn = () => (
+    <NodeCanvas nodes={[pathNode('p1', 'staged', sampleData, 0)]} nodeTypes={nodeTypes} height={100} padding={0.5} />
+)
 
 export const StagedOptional: StoryFn = () => (
-    <SingleNodeCanvas nodes={[pathNode('p1', 'stagedOptional', sampleData, 0)]} />
+    <NodeCanvas
+        nodes={[pathNode('p1', 'stagedOptional', sampleData, 0)]}
+        nodeTypes={nodeTypes}
+        height={100}
+        padding={0.5}
+    />
 )
 
 export const AllVariants: StoryFn = () => {
@@ -164,22 +145,5 @@ export const AllVariants: StoryFn = () => {
             spacing * 4
         ),
     ]
-    return (
-        <ReactFlowProvider>
-            <div style={{ width: '100%', height: 100 }}>
-                <ReactFlow
-                    nodes={nodes}
-                    edges={[]}
-                    nodeTypes={nodeTypes}
-                    nodesDraggable={false}
-                    nodesConnectable={false}
-                    fitView
-                    fitViewOptions={{ padding: 0.2 }}
-                    proOptions={{ hideAttribution: true }}
-                    minZoom={0.5}
-                    maxZoom={1}
-                />
-            </div>
-        </ReactFlowProvider>
-    )
+    return <NodeCanvas nodes={nodes} nodeTypes={nodeTypes} height={100} padding={0.2} />
 }

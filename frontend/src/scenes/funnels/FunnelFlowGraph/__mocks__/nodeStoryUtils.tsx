@@ -55,14 +55,27 @@ export function makeStep(name: string, order: number, count: number, total: numb
     } as unknown as FunnelStepWithConversionMetrics
 }
 
+export function pathNode(id: string, type: string, data: Record<string, unknown>, x: number): Node {
+    return {
+        id,
+        type,
+        data,
+        position: { x, y: 0 },
+        draggable: false,
+        connectable: false,
+    }
+}
+
 export function NodeCanvas<T extends Record<string, unknown>>({
     nodes,
     nodeTypes,
     height = 200,
+    padding = 0.3,
 }: {
     nodes: Node<T>[]
     nodeTypes: NodeTypes
     height?: number
+    padding?: number
 }): JSX.Element {
     return (
         <ReactFlowProvider>
@@ -74,7 +87,7 @@ export function NodeCanvas<T extends Record<string, unknown>>({
                     nodesDraggable={false}
                     nodesConnectable={false}
                     fitView
-                    fitViewOptions={{ padding: 0.3 }}
+                    fitViewOptions={{ padding }}
                     proOptions={{ hideAttribution: true }}
                     minZoom={0.5}
                     maxZoom={1}

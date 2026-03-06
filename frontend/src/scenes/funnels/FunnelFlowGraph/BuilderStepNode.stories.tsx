@@ -95,68 +95,11 @@ export const AllVariants: StoryFn = () => {
     } as unknown as FunnelStepWithConversionMetrics
 
     return (
-        <InsightProvider>
-            <div className="flex flex-wrap gap-4" style={{ maxWidth: spacing * 3 }}>
-                <StepNodeShell
-                    step={makeStep('Sign up', 0, 100, 100)}
-                    stepIndex={0}
-                    containerClassName="group/builder-node border-primary bg-bg-light"
-                    hasConversionData={true}
-                    handles={<></>}
-                    eventDisplay={
-                        <EntityFilterInfo
-                            filter={getActionFilterFromFunnelStep(makeStep('Sign up', 0, 100, 100))}
-                            allowWrap
-                        />
-                    }
-                    headerAction={<LemonButton icon={<IconX />} size="xsmall" noPadding />}
-                    emptyState={<span className="text-xs text-muted italic">Waiting for data...</span>}
-                />
-                <StepNodeShell
-                    step={makeStep('First action', 2, 0, 100)}
-                    stepIndex={2}
-                    containerClassName="group/builder-node border-primary bg-bg-light"
-                    hasConversionData={false}
-                    handles={<></>}
-                    eventDisplay={
-                        <EntityFilterInfo
-                            filter={getActionFilterFromFunnelStep(makeStep('First action', 2, 0, 100))}
-                            allowWrap
-                        />
-                    }
-                    headerAction={<LemonButton icon={<IconX />} size="xsmall" noPadding />}
-                    emptyState={<span className="text-xs text-muted italic">Waiting for data...</span>}
-                />
-                <StepNodeShell
-                    step={emptyStep}
-                    stepIndex={0}
-                    containerClassName="group/builder-node border-primary bg-bg-light"
-                    hasConversionData={false}
-                    handles={<></>}
-                    eventDisplay={
-                        <LemonButton type="secondary" size="small">
-                            Select an event
-                        </LemonButton>
-                    }
-                    headerAction={<LemonButton icon={<IconX />} size="xsmall" noPadding />}
-                    emptyState={<span className="text-xs text-muted italic">Pick an event to see data</span>}
-                />
-                <StepNodeShell
-                    step={makeStep('Sign up', 0, 100, 100)}
-                    stepIndex={0}
-                    containerClassName="group/builder-node border-primary bg-bg-light"
-                    hasConversionData={true}
-                    handles={<></>}
-                    eventDisplay={
-                        <EntityFilterInfo
-                            filter={getActionFilterFromFunnelStep(makeStep('Sign up', 0, 100, 100))}
-                            allowWrap
-                        />
-                    }
-                    headerAction={<></>}
-                    emptyState={<span className="text-xs text-muted italic">Waiting for data...</span>}
-                />
-            </div>
-        </InsightProvider>
+        <div className="flex flex-wrap gap-4" style={{ maxWidth: spacing * 3 }}>
+            <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />
+            <BuilderNodeStory step={makeStep('First action', 2, 0, 100)} stepIndex={2} />
+            <BuilderNodeStory step={emptyStep} stepIndex={0} hasEvent={false} />
+            <BuilderNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} canRemove={false} />
+        </div>
     )
 }
