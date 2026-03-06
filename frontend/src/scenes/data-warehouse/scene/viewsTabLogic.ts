@@ -7,12 +7,14 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import {
+    DataModelingNode,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryRunHistory,
 } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { dataModelingLogic } from './dataModelingLogic'
 import type { viewsTabLogicType } from './viewsTabLogicType'
 
 export const PAGE_SIZE = 10
@@ -20,7 +22,12 @@ export const PAGE_SIZE = 10
 export const viewsTabLogic = kea<viewsTabLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'viewsTabLogic']),
     connect(() => ({
-        values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading']],
+        values: [
+            dataWarehouseViewsLogic,
+            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading'],
+            dataModelingLogic,
+            ['dataModelingNodes'],
+        ],
         actions: [dataWarehouseViewsLogic, ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery']],
     })),
     actions({
@@ -153,6 +160,11 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
     })),
     selectors({
         viewsLoading: [(s) => [s.dataWarehouseSavedQueriesLoading], (loading): boolean => loading],
+        savedQueryIdToNodeId: [
+            (s) => [s.dataModelingNodes],
+            (nodes: DataModelingNode[]): Record<string, string> =>
+                Object.fromEntries(nodes.filter((n) => n.saved_query_id).map((n) => [n.saved_query_id, n.id])),
+        ],
         enrichedMaterializedViews: [
             (s) => [s.dataWarehouseSavedQueries, s.materializedViewDependenciesMap, s.runHistoryMap],
             (
