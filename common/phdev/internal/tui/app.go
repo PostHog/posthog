@@ -15,14 +15,15 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"log"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/viewport"
-	bubbletea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	bubbletea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
+	"charm.land/lipgloss/v2"
 	"github.com/posthog/posthog/phdev/internal/process"
 )
 
@@ -108,8 +109,8 @@ func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
 		// Re-fetch the process slice so status icons refresh on the next render.
 		m.procs = m.mgr.Procs()
 
-	case bubbletea.KeyMsg:
-		m.dbg("key: %q (type=%v)", msg.String(), msg.Type)
+	case bubbletea.KeyPressMsg:
+		m.dbg("key: %q", msg.String())
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			m.mgr.StopAll()
@@ -173,11 +174,14 @@ func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
 }
 
 // View renders the full TUI as a single string.
-func (m Model) View() string {
+func (m Model) View() bubbletea.View {
 	if !m.ready {
-		return "\n  Initialising...\n"
+		v := bubbletea.NewView("\n  Initialising...\n")
+		v.AltScreen = true
+		v.MouseMode = bubbletea.MouseModeCellMotion
+		return v
 	}
-	return lipgloss.JoinVertical(
+	v := bubbletea.NewView(lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.renderHeader(),
 		lipgloss.JoinHorizontal(
@@ -186,7 +190,10 @@ func (m Model) View() string {
 			m.renderOutput(),
 		),
 		m.renderFooter(),
-	)
+	))
+	v.AltScreen = true
+	v.MouseMode = bubbletea.MouseModeCellMotion
+	return v
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -217,12 +224,12 @@ func (m Model) applySize() Model {
 	}
 
 	if !m.ready {
-		m.viewport = viewport.New(vpW, contentH)
+		m.viewport = viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(contentH))
 		m.ready = true
 		m = m.loadActiveProc()
 	} else {
-		m.viewport.Width = vpW
-		m.viewport.Height = contentH
+		m.viewport.SetWidth(vpW)
+		m.viewport.SetHeight(contentH)
 	}
 
 	// Keep every pty window size in sync with the output pane so programs
@@ -361,7 +368,7 @@ func statusIconChar(s process.Status) string {
 }
 
 // statusIconColor returns the lipgloss colour associated with the given status.
-func statusIconColor(s process.Status) lipgloss.Color {
+func statusIconColor(s process.Status) color.Color {
 	switch s {
 	case process.StatusRunning:
 		return colorGreen

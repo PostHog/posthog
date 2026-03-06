@@ -10,7 +10,7 @@ import (
 	"sync"
 	"syscall"
 
-	bubbletea "github.com/charmbracelet/bubbletea"
+	bubbletea "charm.land/bubbletea/v2"
 	"github.com/creack/pty"
 	"github.com/posthog/posthog/phdev/internal/config"
 )

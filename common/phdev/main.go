@@ -19,7 +19,7 @@ import (
 	"log"
 	"os"
 
-	bubbletea "github.com/charmbracelet/bubbletea"
+	bubbletea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phdev/internal/config"
 	"github.com/posthog/posthog/phdev/internal/process"
 	"github.com/posthog/posthog/phdev/internal/tui"
@@ -61,11 +61,7 @@ func main() {
 	mgr := process.NewManager(cfg)
 	m := tui.New(mgr, logger)
 
-	p := bubbletea.NewProgram(
-		m,
-		bubbletea.WithAltScreen(),
-		bubbletea.WithMouseCellMotion(),
-	)
+	p := bubbletea.NewProgram(m)
 
 	// Wire the send function before starting processes.
 	// StartAll is launched in a goroutine so it doesn't block: p.Send() inside

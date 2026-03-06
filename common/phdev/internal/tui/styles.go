@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 // Process status icon runes — plain Unicode, no embedded ANSI so they can be
 // safely composed inside a larger lipgloss-styled container without resetting
@@ -14,7 +14,7 @@ const (
 )
 
 // PostHog brand palette.
-const (
+var (
 	colorOrange   = lipgloss.Color("#F54E00")
 	colorBlue     = lipgloss.Color("#1D4AFF")
 	colorGrey     = lipgloss.Color("#9BA1B2")
