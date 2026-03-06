@@ -20,6 +20,11 @@ const janitorPoisonedCounter = new Counter({
     help: 'Number of poison pill jobs failed by the janitor',
 })
 
+const janitorRunCounter = new Counter({
+    name: 'cdp_cyclotron_v2_janitor_runs',
+    help: 'Number of janitor cleanup runs completed',
+})
+
 const queueDepthGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_depth',
     help: 'Number of available jobs per queue',
@@ -68,6 +73,8 @@ export class CyclotronV2Janitor {
         const poisoned = await this.failPoisonPills()
         const stalled = await this.resetStalledJobs()
         const depths = await this.measureQueueDepths()
+
+        janitorRunCounter.inc()
 
         return { deleted, stalled, poisoned, depths }
     }

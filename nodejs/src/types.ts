@@ -201,6 +201,15 @@ export type CdpConfig = {
     CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: number // Records per batch fetch request
     CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: string // Base URL for WarpStream HTTP fetch endpoint (e.g. 'https://warpstream.example.com')
 
+    // Cyclotron Node (node postgres job queue)
+    CYCLOTRON_NODE_MAX_CONNECTIONS: number
+    CYCLOTRON_NODE_IDLE_TIMEOUT_MS: number
+    CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE: number
+    CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: number
+    CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
+    CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
+    CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
+
     // SES (Workflows email sending)
     SES_ENDPOINT: string
     SES_ACCESS_KEY_ID: string
