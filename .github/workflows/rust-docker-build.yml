@@ -179,9 +179,12 @@ jobs:
 
             - name: Container image digest
               id: digest
+              env:
+                  IMAGE_DIGEST: ${{ steps.docker_build.outputs.digest }}
+                  IMAGE_NAME: ${{ matrix.image }}
               run: |
-                  echo ${{ steps.docker_build.outputs.digest }}
-                  echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
+                  echo "$IMAGE_DIGEST"
+                  echo "${IMAGE_NAME}_digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
                   cat $GITHUB_OUTPUT
 
     deploy:

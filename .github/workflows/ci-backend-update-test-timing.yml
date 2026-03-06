@@ -90,8 +90,9 @@ jobs:
             - name: Download timing artifacts
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
               run: |
-                  gh run download ${{ steps.find-run.outputs.run_id }} --pattern "timing_data-*" --dir timing_artifacts
+                  gh run download "$RUN_ID" --pattern "timing_data-*" --dir timing_artifacts
 
             - name: Process timing data
               run: |

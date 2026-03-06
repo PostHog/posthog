@@ -78,12 +78,14 @@ jobs:
                       ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-
 
             - name: Run Python and Node setup in parallel
+              env:
+                  UV_CACHE_HIT: ${{ steps.setup-uv.outputs.cache-hit }}
               run: |
                   set -e
                   set -m
 
                   (
-                    if [ "${{ steps.setup-uv.outputs.cache-hit }}" != "true" ]; then
+                    if [ "$UV_CACHE_HIT" != "true" ]; then
                       echo ">>> [Python] Installing SAML (python3-saml) dependencies..."
                       sudo apt-get update
                       sudo apt-get install -y libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl

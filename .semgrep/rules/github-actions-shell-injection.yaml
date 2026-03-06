@@ -1,0 +1,56 @@
+# this rule is an extention of semgrep's oss run-shell-injection rule.
+# step output checking was removed due to high false positive rate/noisiness.
+# however we prefer to be extra cautious and thus have added this check back.
+# see https://github.com/semgrep/semgrep-rules/pull/3602
+rules:
+    - id: github-actions-shell-injection
+      languages:
+          - yaml
+      message: 'Using a steps output in another `run:` or `script:` step could allow an attacker to inject their own
+          code into the runner. This would allow them to steal secrets and code. Step output can have arbitrary
+          user input and should be treated as untrusted. Instead, use an intermediate environment variable with
+          `env:` to store the data and use the environment variable in the `run:` script. Be sure to
+          use double-quotes the environment variable, like this: "$ENVVAR".'
+      metadata:
+          category: security
+          cwe:
+              - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+          owasp:
+              - A01:2017 - Injection
+              - A03:2021 - Injection
+              - A05:2025 - Injection
+          references:
+              - https://docs.github.com/en/actions/learn-github-actions/security-hardening-for-github-actions#understanding-the-risk-of-script-injections
+              - https://securitylab.github.com/research/github-actions-untrusted-input/
+          technology:
+              - github-actions
+          cwe2022-top25: true
+          cwe2021-top25: true
+          subcategory:
+              - vuln
+          likelihood: HIGH
+          impact: HIGH
+          confidence: HIGH
+      patterns:
+          - pattern-inside: 'steps: [...]'
+          - pattern-either:
+                - patterns:
+                      - pattern-inside: |
+                            - run: ...
+                              ...
+                      - pattern: 'run: $SHELL'
+                - patterns:
+                      - pattern-inside: |
+                            - script: ...
+                              ...
+                      - pattern: 'script: $SHELL'
+          - metavariable-pattern:
+                language: generic
+                metavariable: $SHELL
+                patterns:
+                    - pattern-either:
+                          - pattern: ${{ ... steps. ... .outputs ... }}
+                    # Exclude safe patterns where variable is only checked for truthiness (left of &&)
+                    # e.g., ${{ github.head_ref && 'literal' }} is safe - value not interpolated
+                    - pattern-not: ${{ ... steps. ... .outputs ... && ... }}
+      severity: ERROR
