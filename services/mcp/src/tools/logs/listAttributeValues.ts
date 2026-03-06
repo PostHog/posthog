@@ -7,7 +7,7 @@ const schema = LogsListAttributeValuesInputSchema
 
 type Params = z.infer<typeof schema>
 
-export const logsListAttributeValuesHandler: ToolBase<typeof schema>['handler'] = async (
+export const logsListAttributeValuesHandler: ToolBase<typeof schema, unknown>['handler'] = async (
     context: Context,
     params: Params
 ) => {
