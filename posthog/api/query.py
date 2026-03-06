@@ -184,7 +184,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                         "response_bytes": response_bytes,
                         "client_query_id": client_query_id,
                     },
-                    user=request.user if hasattr(request.user, "distinct_id") else None,
+                    user=request.user if isinstance(request.user, User) else None,
                     team=self.team,
                     organization=self.team.organization,
                     request=request,
