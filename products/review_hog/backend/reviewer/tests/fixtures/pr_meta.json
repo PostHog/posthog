@@ -1,0 +1,21 @@
+{
+  "number": 12345,
+  "title": "feat: add new feature",
+  "body": "## Problem\nNeed to implement feature X.\n\n## Changes\nAdded feature X implementation.\n\n## How did you test this code?\nUnit tests and manual testing.\n",
+  "state": "open",
+  "draft": true,
+  "created_at": "2025-01-15T10:30:00+00:00",
+  "updated_at": "2025-01-15T14:45:00+00:00",
+  "author": "test_user",
+  "author_association": "MEMBER",
+  "base_branch": "main",
+  "head_branch": "feat/new-feature",
+  "mergeable_state": "blocked",
+  "requested_reviewers": [],
+  "assignee": null,
+  "labels": [],
+  "commits": 1,
+  "additions": 250,
+  "deletions": 15,
+  "changed_files": 6
+}

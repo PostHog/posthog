@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "ChunkMeta": {
+      "description": "Metadata about a chunk.",
+      "properties": {
+        "chunk_id": {
+          "description": "Chunk ID",
+          "title": "Chunk Id",
+          "type": "integer"
+        },
+        "files_in_this_chunk": {
+          "description": "List of files included in this chunk",
+          "items": {
+            "type": "string"
+          },
+          "title": "Files In This Chunk",
+          "type": "array"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "files_in_this_chunk"
+      ],
+      "title": "ChunkMeta",
+      "type": "object"
+    }
+  },
+  "description": "Complete analysis for a chunk.",
+  "properties": {
+    "goal": {
+      "description": "2-3 paragraphs explaining in detail what this chunk accomplishes, including technical implementation details",
+      "title": "Goal",
+      "type": "string"
+    },
+    "chunk_meta": {
+      "$ref": "#/$defs/ChunkMeta"
+    }
+  },
+  "required": [
+    "goal",
+    "chunk_meta"
+  ],
+  "title": "ChunkAnalysis",
+  "type": "object"
+}

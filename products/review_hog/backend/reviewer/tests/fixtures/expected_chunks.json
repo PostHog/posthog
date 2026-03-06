@@ -1,0 +1,84 @@
+{
+  "chunks": [
+    {
+      "chunk_id": 1,
+      "description": "Core configuration and initialization files. This chunk contains the foundational configuration setup including the main config module and package initialization. These files establish the basic structure and settings that other components depend on.",
+      "files": [
+        {
+          "filename": "src/core/__init__.py",
+          "is_test": false
+        },
+        {
+          "filename": "src/core/config.py",
+          "is_test": false
+        }
+      ],
+      "chunk_type": "infrastructure",
+      "dependencies": [],
+      "key_changes": [
+        "New configuration module with environment settings",
+        "Package initialization for core module",
+        "Configuration constants and default values"
+      ],
+      "comment": "Foundation that needs to be reviewed first"
+    },
+    {
+      "chunk_id": 2,
+      "description": "Main processing logic and utility functions. This chunk includes the core processor implementation and helper utilities that support the main business logic. The processor handles the main data transformation pipeline.",
+      "files": [
+        {
+          "filename": "src/core/processor.py",
+          "is_test": false
+        },
+        {
+          "filename": "src/utils/helpers.py",
+          "is_test": false
+        }
+      ],
+      "chunk_type": "business_logic",
+      "dependencies": [1],
+      "key_changes": [
+        "Modified processor logic with performance improvements",
+        "New helper functions for data validation",
+        "Enhanced error handling in processing pipeline"
+      ],
+      "comment": "Core business logic that requires careful review"
+    },
+    {
+      "chunk_id": 3,
+      "description": "Test suite for the processor module. This chunk contains comprehensive unit tests for the processor functionality, ensuring all business logic is properly tested.",
+      "files": [
+        {
+          "filename": "tests/test_processor.py",
+          "is_test": true
+        }
+      ],
+      "chunk_type": "tests",
+      "dependencies": [2],
+      "key_changes": [
+        "New test cases for processor functionality",
+        "Edge case testing for error conditions",
+        "Performance benchmarks"
+      ],
+      "comment": "Tests should be reviewed after understanding the implementation"
+    },
+    {
+      "chunk_id": 4,
+      "description": "Documentation updates. This chunk contains updates to the project documentation reflecting the new features and changes.",
+      "files": [
+        {
+          "filename": "README.md",
+          "is_test": false
+        }
+      ],
+      "chunk_type": "documentation",
+      "dependencies": [],
+      "key_changes": [
+        "Updated installation instructions",
+        "New feature documentation",
+        "Usage examples"
+      ],
+      "comment": "Documentation can be reviewed independently"
+    }
+  ]
+}

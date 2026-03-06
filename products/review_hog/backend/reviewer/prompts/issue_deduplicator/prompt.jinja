@@ -1,0 +1,57 @@
+{{CLAUDE_CODE_CONTEXT|safe}}
+
+<pr_issue_deduplication_instructions>
+You are analyzing a list of issues found across multiple review passes for a pull request. Your task is to identify and remove duplicate issues based on file location, line ranges, and issue descriptions.
+
+You also need to check if any of the current issues have already been reported in previous review comments.
+
+**Duplication Criteria (AGGRESSIVE MODE):**
+- Issues targeting the **same file** AND **same or overlapping line ranges** are considered duplicates if they address similar problems
+- Consider issues duplicates even if they have slightly different wording but address the same root cause
+- When multiple passes find similar issues, keep only ONE instance (preferably the most comprehensive one)
+- Issues that match previous review comments should be marked as duplicates
+
+**Your Task:**
+1. Analyze all issues in the provided list
+2. Check if any issues match the previous review comments
+3. Group issues aggressively - err on the side of deduplication for same-ish issues in same files
+4. For each group of duplicates, select the best representative to keep
+5. Provide clear reasoning for your aggressive deduplication decisions
+
+**Key Guidelines (AGGRESSIVE DEDUPLICATION):**
+- Be aggressive: mark issues as duplicates if they address similar problems in the same file, even with different line ranges
+- When in doubt about same-file issues with similar concerns, DEDUPLICATE them
+- Prefer keeping the most comprehensive and actionable issue from each group
+- Pay attention to file paths and line ranges - issues in different files or significantly different lines are likely NOT duplicates
+- Only keep separate issues if they address completely different categories of problems
+- Consider the completeness and clarity of issue descriptions when choosing which to keep
+- If an issue matches a previous review comment, mark it as a duplicate
+
+Return your analysis as a JSON object that conforms to the provided schema.
+</pr_issue_deduplication_instructions>
+
+<pr_context>
+{{PR_CONTEXT|safe}}
+</pr_context>
+
+<previous_issues>
+{{PREVIOUS_ISSUES_JSON|safe}}
+</previous_issues>
+
+<issues_to_deduplicate>
+{{ISSUES_JSON|safe}}
+</issues_to_deduplicate>
+
+<output_format>
+Generate your deduplication analysis as a JSON object that conforms to the provided schema.
+
+IMPORTANT:
+- Include all required fields as specified in the schema
+- The "duplicates" list should contain only the issue IDs that should be removed, with clear explanations
+- Return ONLY the final JSON output (without any additional text or markdown formatting)
+
+JSON Schema:
+```json
+{{DEDUPLICATION_SCHEMA|safe}}
+```
+</output_format>

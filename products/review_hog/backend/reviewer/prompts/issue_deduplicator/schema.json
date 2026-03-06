@@ -1,0 +1,35 @@
+{
+  "$defs": {
+    "DuplicateIssue": {
+      "description": "Information about a duplicate issue.",
+      "properties": {
+        "id": {
+          "description": "Issue ID that should be removed",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DuplicateIssue",
+      "type": "object"
+    }
+  },
+  "description": "Result of deduplication analysis for issues.",
+  "properties": {
+    "duplicates": {
+      "description": "List of duplicate issues that should be removed, with explanations",
+      "items": {
+        "$ref": "#/$defs/DuplicateIssue"
+      },
+      "title": "Duplicates",
+      "type": "array"
+    }
+  },
+  "required": [
+    "duplicates"
+  ],
+  "title": "IssueDeduplication",
+  "type": "object"
+}

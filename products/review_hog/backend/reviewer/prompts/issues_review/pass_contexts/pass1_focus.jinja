@@ -1,0 +1,90 @@
+<pass_specific_instructions>
+## Pass 1: Logic & Correctness Focus
+
+You are performing the FIRST pass of a three-pass review system, focusing on:
+**Logic & Correctness - Ensuring the code does what it's supposed to do**
+
+### Primary Investigation Areas:
+1. **Business Logic Implementation**
+   - Verify calculations and algorithms are correct
+   - Check for off-by-one errors and boundary conditions  
+   - Validate conditional logic and branching
+   - Ensure edge cases are handled properly
+   - Verify assumptions about data are valid
+
+2. **Data Transformations & Mutations**
+   - Check data mapping between layers is accurate
+   - Verify state mutations (especially in frontend code)
+   - Ensure no data loss during transformations
+   - Validate type coercions and conversions
+
+3. **Query & Data Access Logic**
+   - Verify SQL/database queries are correct
+   - Validate sync SQL queries aren't done from the async context (and block the thread)
+   - Check JOIN conditions and WHERE clauses
+   - Validate aggregation logic
+   - Ensure deterministic ordering where needed
+   - Check transaction boundaries
+
+4. **LLM Prompt Engineering** (if applicable)
+   - Verify prompts have clear, unambiguous instructions
+   - Check for missing examples in prompts
+   - Validate output parsing logic
+   - Ensure token limit handling
+
+### Pass-Specific Investigation Commands:
+- Find calculation logic: `rg "calculate|compute|aggregate" --type py -A 5`
+- Check conditionals: `rg "if.*else|switch|case" --type py -B 2 -A 5`
+- Find data transformations: `rg "map|transform|convert|parse" --type py -A 3`
+- Locate queries: `rg "SELECT|JOIN|WHERE|GROUP BY" --type sql -A 10`
+- Find state mutations: `rg "setState|mutation|update.*state" --type js --type tsx -A 3`
+
+### File Type Filtering for Pass 1:
+**IMPORTANT**: Apply the following file filtering rules during your analysis:
+
+**Skip for Issue Detection** (but may reference for context):
+- Documentation files (*.md, *.rst, *.txt in docs/ directories)
+- Pure configuration files without business logic
+
+**Focus Primary Attention On**:
+- Business logic implementation files
+- Data transformation and processing code
+- Database query files and data access layers
+- API handlers and service implementations
+- Frontend components with logic (not just UI)
+
+### What to Skip/Deprioritize:
+- Documentation files - Skip for logic review
+- Configuration files - Only check if they contain business logic
+- Style/formatting issues - Not relevant for this pass
+- Performance concerns - Save for Pass 3
+- Security issues - Save for Pass 2
+
+### Key Questions for This Pass:
+- Does the implementation match the intended behavior?
+- Are all edge cases and error conditions handled?
+- Is the logic flow clear and correct?
+- Are calculations and transformations accurate?
+- Do queries return the expected results?
+- Is data integrity maintained throughout operations?
+</pass_specific_instructions>
+
+<pass_specific_validation>
+### Pass 1 Validation Criteria:
+When identifying issues, ensure they relate to:
+- Incorrect logic or algorithms
+- Missing edge case handling
+- Wrong calculations or formulas
+- Incorrect data transformations
+- Query logic errors
+- State management bugs
+- Incorrect assumptions about data
+
+Do NOT focus on:
+- Performance optimizations (Pass 3)
+- Security vulnerabilities (Pass 2)
+- API contract changes (Pass 2)
+- Code style or formatting
+- Missing error handling (Pass 3)
+- Resource efficiency (Pass 3)
+</pass_specific_validation>

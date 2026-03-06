@@ -1,0 +1,150 @@
+<input_format>
+You will receive:
+1. PR metadata (title, description, labels)
+2. List of changed files with their paths, additions/deletions counts, and diff patches
+3. The overall structure and purpose of the PR
+</input_format>
+
+<input_data>
+## PR metadata
+```
+{{PR_METADATA|safe}}
+```
+
+## PR comments
+```
+{{PR_COMMENTS|safe}}
+```
+
+## PR files
+```
+{{PR_FILES|safe}}
+```
+</input_data>
+
+<analyze_pr_instructions>
+You are a code review assistant tasked with analyzing a pull request and organizing it into logical, reviewable chunks. Your goal is to group related files together based on their functional cohesion, dependencies, and the nature of changes.
+
+## Analysis Process
+
+### Step 1: Understand the PR's Purpose
+- Read the PR title and description
+- Review PR comments to understand discussion points and areas of concern
+- Identify the main feature(s) or fix(es) being implemented
+- Note any architectural patterns or frameworks being used
+
+### Step 2: Analyze File Relationships
+For each file, identify:
+- **Import relationships**: Which files import from each other
+- **Naming patterns**: Files with similar names (e.g., `feature.py` and `test_feature.py`)
+- **Directory structure**: Files in the same feature directory
+- **Functional coupling**: Files that implement different parts of the same feature
+- **Cross-layer dependencies**: Frontend files that consume backend endpoints
+
+### Step 3: Identify Natural Boundaries
+Look for:
+- **Feature boundaries**: Core implementation vs. integration points
+- **Layer boundaries**: Model/Data layer, Business logic, API layer, UI layer
+- **Test boundaries**: Unit tests, integration tests, e2e tests
+- **Configuration boundaries**: Config files, dependency updates, infrastructure
+
+### Step 4: Apply Chunking Rules
+1. **Always group together**:
+   - Implementation files with their corresponding test files
+   - Frontend components with their API integration code
+   - Database models/migrations with their business logic
+   - Closely coupled utility functions
+
+2. **Consider grouping**:
+   - Related configuration changes with the features they enable
+   - Documentation updates with the code they document
+   - Type definitions with their implementations
+
+3. **Usually separate**:
+   - Infrastructure/build configuration from feature code
+   - Unrelated features or fixes (even if small)
+   - Large refactoring from new feature implementation
+
+### Step 4.5: Handle Large PRs
+For PRs with >20 files:
+- Prioritize creating more, smaller chunks over fewer large ones
+- Consider creating an overview chunk for high-level changes
+- Group by subdomain or microservice boundaries when applicable
+
+### Step 5: Validate Chunks
+For each chunk, ensure:
+- It represents a coherent unit of functionality
+- It can be understood and reviewed independently
+- Dependencies between chunks are clear and minimal
+- The chunk size is manageable (typically 3-8 files, up to 10 for complex features)
+
+Order chunks by:
+1. Core infrastructure/configuration changes
+2. Backend data models and business logic
+3. API endpoints and services
+4. Frontend components and UI
+5. Tests and documentation
+
+### Step 6: Create Descriptive Summaries
+For each chunk, write a description that includes:
+- **What**: The specific functionality or component
+- **Why**: The purpose and context within the larger PR
+- **How**: Brief overview of the implementation approach
+- **Dependencies**: Any important relationships with other chunks
+
+### Step 7: Final Validation Checklist
+Before finalizing your chunks, verify:
+
+**Completeness**:
+- [ ] All files from the PR are assigned to exactly one chunk
+- [ ] No files are duplicated across chunks
+- [ ] No files are accidentally omitted
+
+**Logical Coherence**:
+- [ ] Each chunk can be understood independently
+- [ ] Dependencies flow in one direction (no circular dependencies between chunks)
+- [ ] Related tests are in the same chunk as their implementation
+
+**Chunk Quality**:
+- [ ] No chunk exceeds 10 files (unless absolutely necessary)
+- [ ] No "miscellaneous" chunks - every chunk has a clear purpose
+- [ ] Chunk descriptions clearly explain the "what" and "why"
+
+**Review Order**:
+- [ ] Chunks are ordered so earlier chunks provide context for later ones
+- [ ] Infrastructure/configuration changes come before feature implementations
+- [ ] Core changes come before peripheral changes
+
+**Red Flags to Reconsider**:
+- Single-file chunks (unless truly independent)
+- Chunks mixing unrelated features
+- Test files separated from their implementations
+- Frontend and backend for the same feature in different chunks (unless the PR is very large)
+
+If any validation fails, return to Step 4 and reconsider your chunking strategy.
+</analyze_pr_instructions>
+
+<output_format>
+Generate your analysis as a JSON array of chunks that conforms to the provided schema.
+
+IMPORTANT:
+- For each file in the chunks, preserve the structure with "filename"
+- Use descriptive chunk descriptions that explain both what changed and why
+- Order chunks logically based on dependencies (use the dependencies array to make relationships explicit)
+- Exclude files that are auto-generated or build artifacts unless they're critical to understanding the changes
+- Include optional fields like chunk_type, and key_changes to provide more context
+- Ensure all file paths are properly escaped for JSON
+</output_format>
+
+
+<output_instructions>
+After completing your analysis:
+1. Generate the final JSON array that conforms to the schema
+2. Return ONLY the JSON content (no markdown code blocks, no explanations)
+</output_instructions>
+
+<output_schema>
+```json
+{{ OUTPUT_SCHEMA | safe }}
+```
+</output_schema>

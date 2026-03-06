@@ -1,0 +1,110 @@
+<pass_specific_instructions>
+## Pass 3: Performance & Reliability Focus
+
+You are performing the THIRD and FINAL pass of a three-pass review system, focusing on:
+**Performance & Reliability - Ensuring the code will perform well in production**
+
+### Primary Investigation Areas:
+1. **Resource Efficiency**
+   - Identify N+1 query problems
+   - Check for missing database indexes
+   - Find unnecessary re-renders (frontend)
+   - Look for memory leaks
+   - Check bundle sizes and imports
+
+2. **Error Handling & Recovery**
+   - Verify try-catch blocks are present
+   - Check for swallowed errors
+   - Validate retry logic for failures
+   - Ensure error boundaries (React)
+   - Check error message quality
+
+3. **Scalability Patterns**
+   - Look for missing caching opportunities
+   - Check pagination implementation
+   - Find synchronous operations that should be async
+   - Identify resource pool exhaustion risks
+   - Verify rate limiting where needed
+
+4. **Operational Readiness**
+   - Check logging completeness
+   - Verify metrics/monitoring hooks
+   - Validate timeout configurations
+   - Ensure health check coverage
+   - Check for cleanup handlers
+
+### Pass-Specific Investigation Commands:
+- Find queries in loops: `rg "for.*in|while" --type py -A 10 | rg "query|select|fetch"`
+- Check error handling: `rg "try:|except:|catch|finally" --type py --type js -B 2 -A 5`
+- Find async operations: `rg "async|await|Promise|then\(" --type js --type ts -A 3`
+- Check caching: `rg "cache|memoize|memo|useMemo" --type py --type js -A 3`
+- Find timeouts: `rg "timeout|deadline|ttl" --type py --type js -A 2`
+- Check logging: `rg "logger|log\.|console\." --type py --type js`
+
+### File Type Filtering for Pass 3:
+**IMPORTANT**: Apply the following file filtering rules during your analysis:
+
+**Skip for Issue Detection** (but may reference for context):
+- Vendor/third-party files (node_modules/, vendor/, external libraries)
+- Generated files (*.generated.*, build outputs)
+- Documentation files
+
+**Focus Primary Attention On**:
+- Core application code with performance implications
+- Database query files and ORM usage
+- API endpoints and request handlers
+- Frontend components with rendering logic
+- Background job processors and async tasks
+- Caching implementations
+- File I/O and network operations
+
+**Specifically Include**:
+- Configuration files - Check timeout/limit settings
+- Build configuration - Check bundle optimization
+- Database indexes and query optimization files
+- Monitoring and logging setup
+
+### What to Skip/Deprioritize:
+- Issues already covered in Pass 1 (logic) or Pass 2 (security)
+- Code style or formatting
+- Minor performance optimizations with minimal impact
+- Vendor/third-party files
+
+### Key Questions for This Pass:
+- Will this code scale under load?
+- Are errors handled gracefully with proper recovery?
+- Is there sufficient observability (logs, metrics)?
+- Are resources used efficiently?
+- Are there potential bottlenecks or performance cliffs?
+- Is the system resilient to failures?
+</pass_specific_instructions>
+
+<pass_specific_validation>
+### Pass 3 Validation Criteria:
+When identifying issues, ensure they relate to:
+- Performance bottlenecks (N+1, missing indexes, etc.)
+- Missing error handling or recovery
+- Scalability limitations
+- Resource inefficiencies
+- Insufficient observability
+- Missing operational safeguards
+- Reliability concerns
+
+Do NOT focus on:
+- Logic errors (covered in Pass 1)
+- Security issues (covered in Pass 2)
+- API contracts (covered in Pass 2)
+- Code style or formatting
+- Feature completeness
+
+### Duplicate Detection:
+Before reporting an issue, check if it overlaps with previous pass findings:
+- Same file + overlapping lines = potential duplicate
+- If fixing a Pass 1/2 issue would also fix this, don't report
+- Only report if it's a distinct performance/reliability concern
+
+### Performance Issue Severity:
+- **Must Fix**: Will cause production outages or severe degradation
+- **Should Fix**: Noticeable performance impact or reliability risk
+- **Consider**: Minor optimizations or nice-to-have improvements
+</pass_specific_validation>

@@ -1,0 +1,264 @@
+{{CLAUDE_CODE_CONTEXT|safe}}
+
+<pr_chunk_analysis_instructions>
+You are helping me review a specific chunk of a pull request submitted by another developer. This chunk represents a logical grouping of related files within the larger PR. Follow these steps to analyze the code changes in this chunk and generate thoughtful review comments. Review this PR chunk by examining the files above and the provided context.
+
+Each chunk is reviewed in multiple passes to better investigate the codebase and find issues. You are now conducting pass {{ PASS_NUMBER }}: {{ PASS_TYPE }}. This is a focused review pass with specific objectives defined in `pass_specific_*` blocks. Each pass builds on the previous one to provide comprehensive coverage without redundancy.
+</pr_chunk_analysis_instructions>
+
+<pr_current_chunk_context>
+{{CURRENT_CHUNK|safe}}
+</pr_current_chunk_context>
+
+{% if CHUNK_ANALYSIS_CONTEXT %}
+<pr_current_chunk_analysis>
+The following analysis was performed on this chunk to understand its architecture and design:
+
+```json
+{{ CHUNK_ANALYSIS_CONTEXT | safe }}
+```
+
+### How to Use This Analysis:
+- Use the `goal` section to understand what this chunk accomplishes
+- This analysis provides architectural context but does NOT replace your need to find issues
+</pr_current_chunk_analysis>
+{% endif %}
+
+<pr_metadata>
+{{PR_METADATA|safe}}
+</pr_metadata>
+
+<pr_comments_for_chunk>
+{{PR_COMMENTS|safe}}
+</pr_comments_for_chunk>
+
+<pr_file_changes_for_chunk>
+{{PR_FILE_CHANGES|safe}}
+</pr_file_changes_for_chunk>
+
+{% if PREVIOUS_PASSES_CONTEXT %}
+<previous_passes_context>
+## Issues Found in Previous Passes for This Chunk
+
+```
+{{ PREVIOUS_PASSES_CONTEXT | safe }}
+```
+
+### Duplicate Detection Guidelines
+- Before reporting any issue, check if it was already found in previous passes
+- An issue is considered a duplicate if it has:
+  - Same file + overlapping line ranges
+  - Similar issue description or root cause
+- If you find a related issue from a previous pass:
+  - Don't report it again as a new issue
+  - You may reference it if your current pass adds significant new context
+  - Focus on aspects specific to your current pass's objectives
+</previous_passes_context>
+{% endif %}
+
+<claude_code_instructions>
+## Instructions for Claude Code
+
+### Investigation Requirements
+**IMPORTANT**: Do not rush to conclusions. Thoroughly investigate the codebase before forming opinions.
+
+### Required Investigation Steps:
+1. **Map the architecture first**:
+   - Find and examine related interfaces, base classes, and type definitions
+   - Trace data flow through the system
+   - Identify architectural patterns used in this area of the codebase
+
+2. **Investigate usage patterns**:
+   - Search for all usages of new/modified functions: `rg "function_name\(" --type py`
+   - Find similar implementations: `rg "class.*Node" --type py` (for pattern matching)
+   - Check how existing code handles similar scenarios
+
+3. **Understand the context**:
+   - Read parent classes/interfaces completely before analyzing implementations
+   - Check configuration files that might affect behavior
+   - Look for related tests (even outside the chunk) to understand expected behavior
+
+### Investigation Commands:
+- **Find implementations**: `rg "class.*SearchNode" --type py -A 5`
+- **Trace imports**: `rg "from.*tool import" --type py`
+- **Find usages**: `rg "search_insights\(" --type py -B 2 -A 2`
+- **Check patterns**: `rg "Field\(.*description=" --type py` (to see field pattern conventions)
+- **View full context**: Always use `cat` to read entire files, not just diffs
+- **Find related files**: `find . -name "*.py" -path "*hogai*" -type f | grep -E "(search|insight|tool)"`
+
+### Investigation Mindset:
+- Question every assumption - verify with code search
+- If something seems unusual, search for precedents before flagging
+- Spend at least 40% of your time exploring before analyzing
+</claude_code_instructions>
+
+{{ PASS_SPECIFIC_CONTENT | safe }}
+
+<general_analyze_pr_chunk_instructions>
+## Step 1: Review Provided Context
+- The PR changes for this chunk have been provided below
+- Review the chunk description to understand its purpose within the larger PR
+- Note which files are included in this chunk
+- Review the brief descriptions of other chunks to understand how this chunk fits into the overall changes
+
+## Step 2: Understand Chunk Context
+- Read the PR description and title to understand the overall goal
+- Focus on how this specific chunk contributes to that goal
+- Review the chunk description and its relationship to other chunks
+- Identify the author's intent for this specific part of the implementation
+- Note the scope of changes within this chunk (files modified, lines changed)
+
+## Step 3: Review Existing Discussion for This Chunk
+- Read ALL comments posted on files within this chunk
+- Create a comprehensive list of ALL issues already identified
+- Note ongoing discussions and unresolved questions related to this chunk
+- Track what the author has already agreed to fix in these files
+- Be aware of discussions in other chunks that might impact this chunk's implementation
+- This list will be used to avoid raising already discussed issues in later steps
+
+## Step 4: Deep-Dive Analysis and Code Understanding
+
+### Part A: Investigation Phase (MANDATORY - spend significant time here)
+Before analyzing, you MUST investigate:
+1. **Architecture mapping**: Find and document the system's structure around these changes
+2. **Pattern discovery**: Search for similar code patterns and conventions
+3. **Dependency tracking**: Map out what depends on this code and what it depends on
+4. **Usage analysis**: Find all places where new/modified code will be called
+
+### Part B: Issue Identification
+Only after thorough investigation and understanding:
+  - Test files often have different patterns and conventions than production code
+  - Focus your issue detection only on non-test files
+  - However, you may still reference test files for context when validating issues in non-test files
+- **Pass-Specific Focus**: Concentrate on issues relevant to {{ PASS_TYPE }}
+- **Previous Pass Awareness**: Check previous pass results before reporting issues
+- Identify what the code is trying to accomplish within the chunk's context
+- Look for potential issues or improvements in non-test files only
+- Before adding any issue to your findings check that issue hasn't already been mentioned in Step 3.
+- Note the specific lines involved
+- Track whether each issue is in changed or unchanged code
+- Consider the impact on both this chunk and related chunks
+- Pay special attention to interfaces/contracts that other chunks might depend on
+
+## Step 5: Manage Analysis Scope
+Given the focused nature of this chunk review:
+- Spend 70% of analysis time on the chunk's core files
+- Spend 20% examining immediate dependencies and interfaces
+- Spend 10% on cross-chunk impact analysis
+- If you discover issues outside this chunk, note them briefly in a "Cross-Chunk Observations" section
+
+## Step 6: Categorize Your Findings
+Take all chunk-related issues identified in Step 4 and mark them by severity:
+
+### MUST FIX (Request Changes)
+Critical issues that should block merge:
+- Security vulnerabilities
+- Data corruption risks
+- Breaking API changes
+- Logic errors causing failures
+- Memory leaks or resource issues
+
+### SHOULD FIX (Important)
+Significant improvements needed:
+- Performance bottlenecks
+- Error handling gaps
+- Code duplication (DRY)
+- Missing validation
+- Unclear/misleading code
+
+### CONSIDER (Minor)
+Nice-to-have improvements:
+- Better naming
+- Abstraction opportunities
+- Alternative approaches
+- Documentation needs
+
+## Step 7: Verify Suggestions Against Codebase
+Before finalizing your findings, validate each suggestion:
+
+- **Check existing patterns**: Search the codebase for similar code patterns to ensure your suggestion aligns with project conventions
+- **Verify defaults**: Confirm that suggested parameters/configurations aren't already the default behavior
+- **Look for precedents**: Find how similar issues are handled elsewhere in the codebase
+- **Check dependencies**: Verify version-specific features or API behaviors in the project's dependencies
+
+For each suggestion:
+1. Search/grep for relevant code in the current codebase
+2. Check framework/library documentation for defaults
+3. If the pattern varies across the codebase → Note this in your comment
+
+Example validations:
+- Before suggesting a Django setting, check if it's already the default
+- Before suggesting a refactor pattern, verify how it's used elsewhere in the project
+- Before flagging missing error handling, check if it's handled by a parent caller
+
+## Step 8: Cross-Reference with Existing Comments{% if PREVIOUS_PASSES_CONTEXT %} and Previous Passes{% endif %}
+For each finding from Step 6:
+- Double-check against your Step 3 list of already-identified issues to avoid including issues that were already discussed.
+{% if PREVIOUS_PASSES_CONTEXT %}
+- Also check against issues found in previous passes (from Step 1)
+- Apply duplicate detection rules from the previous_passes_context section
+{% endif %}
+- If yes → Move to "Previously Mentioned" section
+- If related to existing discussion on this chunk → Plan how to add value
+- If new → Keep in main review
+- Note: Only check comments on files within this chunk
+
+## Step 9: Draft Review Comments
+For each remaining finding, write a comment that is:
+- **Constructive**: Focuses on improving code, not criticizing
+- **Specific**: References exact lines with concrete suggestions
+- **Educational**: Explains why the change matters
+- **Contextual**: For issues in unchanged code, clearly explains the connection to PR changes
+
+For comments building on existing discussions:
+- Reference the original thread explicitly
+- Only include if you have substantial value to add
+- Clearly state what NEW insight or perspective you're adding
+
+**Content Guidelines:**
+- Include code snippets for concrete suggestions
+- Reference relevant documentation or existing patterns when applicable
+- For complex issues, break down into smaller, actionable steps
+- When suggesting major changes, acknowledge the effort involved
+
+## Step 10: Validation Check
+Before finalizing, verify:
+- [ ] Each suggestion was verified against the existing codebase
+- [ ] Suggestions align with project's existing patterns
+- [ ] No recommendations for already-default behaviors
+- [ ] Each comment includes specific line references
+- [ ] All critical security/data issues in this chunk are marked as MUST FIX
+- [ ] Comments are instructive and educational
+- [ ] Focused only on business logic within this chunk, not style or test files
+- [ ] No issues that duplicate ANY existing comment
+- [ ] If referencing existing discussions, clearly stated what NEW value is being added
+- [ ] Provided actionable feedback rather than vague observations
+- [ ] Considered how changes in this chunk might affect other chunks
+- [ ] Verified that suggestions are relevant to this chunk's specific purpose
+
+If any validation fails, revise the affected comments before proceeding.
+</general_analyze_pr_chunk_instructions>
+
+<output_format>
+Generate your analysis as a JSON object that conforms to the provided schema.
+
+IMPORTANT:
+- Use descriptive content that explains both what changed and why
+- Include all required fields as specified in the schema
+- Provide detailed, actionable feedback for each issue
+- Ensure file paths are properly formatted
+- Set `detected_in_pass` field to {{ PASS_NUMBER }} for all issues
+- Return ONLY the final JSON output (without any additional text or markdown formatting)
+</output_format>
+
+<output_instructions>
+After completing your analysis:
+1. Generate the final JSON output that conforms to the schema
+2. Return ONLY the JSON content (no markdown code blocks, no explanations)
+</output_instructions>
+
+<output_schema>
+```json
+{{ OUTPUT_SCHEMA | safe }}
+```
+</output_schema>

@@ -1,0 +1,44 @@
+{
+  "properties": {
+    "is_valid": {
+      "description": "Whether the suggested change should be implemented (true) or dismissed (false)",
+      "title": "Is Valid",
+      "type": "boolean"
+    },
+    "argumentation": {
+      "description": "Focused, concise explanation covering why the change should be implemented or dismissed. Should include technical reasoning and potential impact.",
+      "title": "Argumentation",
+      "type": "string"
+    },
+    "category": {
+      "anyOf": [
+        {
+          "enum": [
+            "bug",
+            "security",
+            "performance",
+            "code_quality",
+            "best_practice",
+            "documentation",
+            "testing",
+            "accessibility",
+            "compatibility"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Category of the issue",
+      "title": "Category"
+    }
+  },
+  "required": [
+    "is_valid",
+    "argumentation"
+  ],
+  "title": "IssueValidation",
+  "type": "object"
+}
