@@ -172,6 +172,22 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 'appMetricsTrends as exitNodeCompletedTrends',
                 'getSingleTrendSeries as getExitNodeSingleTrendSeries',
             ],
+            appMetricsLogic({
+                logicKey: `workflow-early-exit-${props.id}`,
+                loadOnMount: true,
+                loadOnChanges: true,
+                forceParams: {
+                    appSource: 'hog_flow',
+                    appSourceId: props.id,
+                    metricName: 'early_exit',
+                    breakdownBy: 'metric_name' as const,
+                },
+            }),
+            [
+                'appMetricsTrendsLoading as earlyExitLoading',
+                'appMetricsTrends as earlyExitTrends',
+                'getSingleTrendSeries as getEarlyExitSingleTrendSeries',
+            ],
         ],
         actions: [appMetricsLogic({ logicKey: props.logicKey }), ['setParams', 'loadAppMetricsTrendsSuccess']],
     })),
@@ -233,10 +249,12 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
     })),
     selectors({
         loading: [
-            (s) => [s.appMetricsTrendsLoading, s.exitNodeCompletedLoading],
-            (appMetricsTrendsLoading: boolean, exitNodeCompletedLoading: boolean) =>
-                appMetricsTrendsLoading || exitNodeCompletedLoading,
+            (s) => [s.appMetricsTrendsLoading, s.exitNodeCompletedLoading, s.earlyExitLoading],
+            (appMetricsTrendsLoading: boolean, exitNodeCompletedLoading: boolean, earlyExitLoading: boolean) =>
+                appMetricsTrendsLoading || exitNodeCompletedLoading || earlyExitLoading,
         ],
+
+        hasConversion: [(s) => [s.workflow], (workflow) => !!workflow.conversion],
 
         emailActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isEmailAction)],
 
@@ -307,6 +325,72 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             },
         ],
 
+        conversionRateSeries: [
+            (s) => [s.appMetricsTrends, s.earlyExitTrends, s.metricNameBySummaryMetric],
+            (appMetricsTrends, earlyExitTrends, metricNameBySummaryMetric): AppMetricsTimeSeriesResponse | null => {
+                if (!appMetricsTrends && !earlyExitTrends) {
+                    return null
+                }
+
+                const labels = appMetricsTrends?.labels ?? earlyExitTrends?.labels ?? []
+                const startedMetricName = metricNameBySummaryMetric.started
+                const startedValues =
+                    appMetricsTrends?.series.find((series: { name: string }) => series.name === startedMetricName)
+                        ?.values ?? Array.from({ length: labels.length }, () => 0)
+                const earlyExitValues =
+                    earlyExitTrends?.series.find((series: { name: string }) => series.name === 'early_exit')?.values ??
+                    Array.from({ length: labels.length }, () => 0)
+
+                return {
+                    labels,
+                    series: [
+                        {
+                            name: 'Conversion rate',
+                            values: startedValues.map((started: number, i: number) =>
+                                started > 0 ? Math.round((earlyExitValues[i] / started) * 10000) / 100 : 0
+                            ),
+                        },
+                    ],
+                }
+            },
+        ],
+
+        conversionTotal: [
+            (s) => [s.getEarlyExitSingleTrendSeries],
+            (getEarlyExitSingleTrendSeries): number => {
+                const series = getEarlyExitSingleTrendSeries('early_exit')
+                if (!series) {
+                    return 0
+                }
+                return series.series.reduce(
+                    (acc: number, curr: { values: number[] }) =>
+                        acc + curr.values.reduce((a: number, v: number) => a + v, 0),
+                    0
+                )
+            },
+        ],
+
+        startedTotal: [
+            (s) => [s.appMetricsTrends, s.metricNameBySummaryMetric],
+            (appMetricsTrends, metricNameBySummaryMetric): number => {
+                if (!appMetricsTrends) {
+                    return 0
+                }
+                const startedMetricName = metricNameBySummaryMetric.started
+                const series = appMetricsTrends.series.find((s: { name: string }) => s.name === startedMetricName)
+                if (!series) {
+                    return 0
+                }
+                return series.values.reduce((acc: number, v: number) => acc + v, 0)
+            },
+        ],
+
+        conversionRate: [
+            (s) => [s.conversionTotal, s.startedTotal],
+            (conversionTotal: number, startedTotal: number): number =>
+                startedTotal > 0 ? Math.round((conversionTotal / startedTotal) * 10000) / 100 : 0,
+        ],
+
         emailMetricsRows: [
             (s) => [s.emailActions, s.emailTotalsByActionId],
             (emailActions, emailTotalsByActionId): EmailMetricRow[] =>
@@ -334,15 +418,18 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
 
     listeners(({ actions, values, props }) => ({
         setParams: () => {
-            // Sync date/interval params to the exit node logic
-            const exitNodeLogic = appMetricsLogic({
-                logicKey: `workflow-exit-node-completed-${props.id}`,
-            })
-            exitNodeLogic.actions.setParams({
+            // Sync date/interval params to the exit node and early exit logics
+            const dateIntervalParams = {
                 interval: values.params.interval,
                 dateFrom: values.params.dateFrom,
                 dateTo: values.params.dateTo,
-            })
+            }
+            appMetricsLogic({
+                logicKey: `workflow-exit-node-completed-${props.id}`,
+            }).actions.setParams(dateIntervalParams)
+            appMetricsLogic({
+                logicKey: `workflow-early-exit-${props.id}`,
+            }).actions.setParams(dateIntervalParams)
             actions.loadEmailTotals({})
         },
     })),

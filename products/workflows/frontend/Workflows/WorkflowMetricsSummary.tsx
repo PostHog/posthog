@@ -8,6 +8,7 @@ import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { humanFriendlyNumber } from 'lib/utils'
 
+import { ConversionRatesSection } from './WorkflowConversionRates'
 import {
     WORKFLOW_SUMMARY_METRICS,
     type EmailMetricRow,
@@ -32,6 +33,12 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
         workflowSummaryTrends,
         emailMetricsRows,
         emailTotalsByActionIdLoading,
+        hasConversion,
+        conversionRate,
+        conversionTotal,
+        startedTotal,
+        conversionRateSeries,
+        getEarlyExitSingleTrendSeries,
     } = useValues(workflowMetricsSummaryLogic(props))
 
     const emailMetricsColumns: LemonTableColumns<EmailMetricRow> = useMemo(
@@ -138,6 +145,21 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                 size="small"
                 emptyState="No email actions in this workflow"
             />
+
+            {hasConversion && (
+                <ConversionRatesSection
+                    loading={loading}
+                    conversionRate={conversionRate}
+                    conversionTotal={conversionTotal}
+                    startedTotal={startedTotal}
+                    conversionRateSeries={conversionRateSeries}
+                    earlyExitSeries={withDisplayName(getEarlyExitSingleTrendSeries('early_exit'), 'Converted')}
+                    earlyExitPreviousPeriodSeries={withDisplayName(
+                        getEarlyExitSingleTrendSeries('early_exit', true),
+                        'Converted'
+                    )}
+                />
+            )}
 
             <AppMetricsTrends appMetricsTrends={workflowSummaryTrends} loading={loading} />
         </>
