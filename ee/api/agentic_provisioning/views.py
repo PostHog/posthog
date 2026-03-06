@@ -351,7 +351,6 @@ def _exchange_authorization_code(request: Request) -> Response:
             "access_token": access_token_value,
             "refresh_token": refresh_token_value,
             "expires_in": 365 * 24 * 3600,
-            "scope": scope_str,
             "account": {
                 "id": account_id,
                 "payment_credentials": "provider",
@@ -407,7 +406,6 @@ def _exchange_refresh_token(request: Request) -> Response:
             "access_token": new_access_value,
             "refresh_token": new_refresh_value,
             "expires_in": 365 * 24 * 3600,
-            "scope": old_scope,
         }
     )
 

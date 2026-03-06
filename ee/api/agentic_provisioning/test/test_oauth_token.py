@@ -50,7 +50,7 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
         assert data["access_token"].startswith("pha_")
         assert data["refresh_token"].startswith("phr_")
         assert data["expires_in"] > 0
-        assert data["scope"] == "query:read project:read"
+        assert "scope" not in data
         assert "account" in data
         assert data["account"]["id"] == str(self.organization.id)
 
