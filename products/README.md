@@ -105,7 +105,7 @@ Keep shared code minimal to avoid tight coupling.
   - Please keep the top level folders `under_score` cased, as dashes make it hard to import files in some languages (e.g. Python).
 - Each product has a few required files / folders:
   - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx` and `frontend/src/products.json` on build.
-  - `package.json` - describes the frontend dependencies. Ideally they should all be `peerDependencies` of whatever is in `frontend/package.json`
+  - `package.json` - required for all products. Defines the product package in Turborepo. If the product has a `backend/` directory, it must include a `backend:test` script so turbo can discover the product for testing. Example: `"scripts": { "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short" }`
   - `__init__.py` - allows imports like `products.<product>.backend.*` (only if backend exists)
     - `backend/__init__.py` - marks the backend directory as a Python package/Django app (only if backend exists).
     - `frontend/` - React frontend code. We run oxfmt/eslint only on files in the `frontend` folder on commit.
@@ -146,6 +146,7 @@ This shows a summary with strict/lenient mode per product and exits with code 1 
 - Create a `package.json` file:
   - Keep the package name as `@posthog/products-your-product-name`. Include `@posthog/products-` in the name.
   - Update the global `frontend/package.json`: add your new npm package under `dependencies`.
+  - If the product has a `backend/` directory, add a `backend:test` script so turbo can discover it for testing.
   - If your scenes are linked up with the right paths, things should just work.
   - Each scene can either export a React component as its default export, or define a `export const scene: SceneExport = { logic, component }` object to export both a logic and a component. This way the logic stays mounted when you move away from the page. This is useful if you don't want to reload everything each time the scene is loaded.
 - Create `__init__.py` and `backend/__init__.py` files if your product has python backend code.
