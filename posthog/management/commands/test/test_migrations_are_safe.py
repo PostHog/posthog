@@ -1,6 +1,6 @@
 import re
 
-from posthog.management.commands.test_migrations_are_safe import validate_migration_sql
+from posthog.management.migration_sql_checks import validate_migration_sql
 
 
 def test_new_tables_must_not_have_int_32_ids() -> None:

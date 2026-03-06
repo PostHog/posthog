@@ -24,6 +24,8 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
+            persons_migrations: ${{ steps.filter.outputs.persons_migrations || 'true' }}
+            persons_migrations_files: ${{ steps.filter.outputs.persons_migrations_files }}
             matrix: ${{ steps.shards.outputs.matrix }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -35,6 +37,7 @@ jobs:
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  list-files: 'escape'
                   filters: |
                       rust:
                         # Avoid running rust tests for irrelevant changes
@@ -49,6 +52,10 @@ jobs:
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'
+                      persons_migrations:
+                        - 'rust/persons_migrations/*.sql'
+                        - 'posthog/management/migration_sql_checks.py'
+                        - 'rust/bin/check-migration-safety'
 
             # Bin-pack packages into balanced test shards.
             # Weights are approximate test durations in seconds — update periodically.
@@ -384,10 +391,45 @@ jobs:
 
             - run: cargo shear
 
+    migration-safety:
+        name: Check persons migration safety
+        needs: changes
+        if: needs.changes.outputs.persons_migrations == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: |
+                      rust/persons_migrations/
+                      rust/bin/check-migration-safety
+                      posthog/management/migration_sql_checks.py
+                  sparse-checkout-cone-mode: false
+                  clean: false
+
+            - name: Check migration safety
+              run: |
+                  CHANGED_FILES="${{ needs.changes.outputs.persons_migrations_files }}"
+                  # Filter to only .sql files from the changed file list
+                  SQL_FILES=""
+                  for file in $CHANGED_FILES; do
+                    if [[ $file == rust/persons_migrations/*.sql ]]; then
+                      SQL_FILES="$SQL_FILES $file"
+                    fi
+                  done
+
+                  if [ -z "$SQL_FILES" ]; then
+                    echo "No persons migration SQL files changed (checker or config change only)"
+                    exit 0
+                  fi
+
+                  python3 rust/bin/check-migration-safety $SQL_FILES
+
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.
     rust_tests:
-        needs: [changes, build, test, linting, shear]
+        needs: [changes, build, test, linting, shear, migration-safety]
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -423,6 +465,11 @@ jobs:
 
                   if [[ "${{ needs.shear.result }}" != "success" && "${{ needs.shear.result }}" != "skipped" ]]; then
                     echo "Rust shear failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.migration-safety.result }}" != "success" && "${{ needs.migration-safety.result }}" != "skipped" ]]; then
+                    echo "Persons migration safety check failed."
                     exit 1
                   fi
 
