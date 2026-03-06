@@ -24,7 +24,7 @@ _REVIEW_HOG_DIR = Path(__file__).parent.parent.parent
 async def main(pr_url: str) -> None:
     """Main entry point for running PR review tools."""
 
-    # Parse PR URL into PR metadata
+    # 1. Parse PR URL into PR metadata
     try:
         pr_info = PRParser().parse_github_pr_url(pr_url)
     except ValueError as e:
@@ -35,11 +35,11 @@ async def main(pr_url: str) -> None:
     pr_number = int(pr_info["pr_number"])
     logger.info(f"Processing PR #{pr_number} from {owner}/{repo}")
 
-    # Create output directory (if doesn't exist)
+    # 2. Create output directory (if doesn't exist)
     review_dir = _REVIEW_HOG_DIR / "reviews" / str(pr_number)
     review_dir.mkdir(parents=True, exist_ok=True)
 
-    # Fetch PR data from GitHub
+    # 3. Fetch PR data from GitHub
     try:
         pr_metadata, pr_comments, pr_files = PRFetcher(
             owner=owner, repo=repo, pr_number=pr_number, review_dir=str(review_dir)
@@ -50,11 +50,11 @@ async def main(pr_url: str) -> None:
 
     branch = pr_metadata.head_branch
 
-    # Generate schemas
+    # 4. Generate schemas
     logger.info("Generating schemas...")
     generate_all_schemas()
 
-    # Split PR into chunks
+    # 5. Split PR into chunks
     logger.info("Splitting PR into chunks...")
     await split_pr_into_chunks(
         pr_metadata=pr_metadata,
@@ -64,12 +64,12 @@ async def main(pr_url: str) -> None:
         branch=branch,
     )
 
-    # Load chunks
+    # 6. Load chunks
     chunks_path = review_dir / "chunks.json"
     with chunks_path.open() as f:
         chunks_data = ChunksList.model_validate_json(f.read())
 
-    # Analyze chunks to better understand their logic/architecture
+    # 7. Analyze chunks to better understand their logic/architecture
     logger.info("Starting chunk analysis process...")
     await analyze_chunks(
         chunks_data=chunks_data,
@@ -80,7 +80,7 @@ async def main(pr_url: str) -> None:
         branch=branch,
     )
 
-    # Find issues in each chunk in multiple passes
+    # 8. Find issues in each chunk in multiple passes
     logger.info("Starting issues review process...")
     await review_chunks(
         chunks_data=chunks_data,
@@ -92,15 +92,15 @@ async def main(pr_url: str) -> None:
     )
     logger.info("Issues review completed successfully!")
 
-    # Combine issues found in all passes
+    # 9. Combine issues found in all passes
     logger.info("Combining issues found in all passes...")
     combine_issues(review_dir=review_dir)
 
-    # Clean issues based on PR scope
+    # 10. Clean issues based on PR scope
     logger.info("Cleaning issues based on PR scope...")
     clean_issues(review_dir=review_dir)
 
-    # Deduplicate issues found in all passes
+    # 11. Deduplicate issues found in all passes
     logger.info("Starting issue deduplication process...")
     await deduplicate_issues(
         pr_metadata=pr_metadata,
@@ -109,7 +109,7 @@ async def main(pr_url: str) -> None:
     )
     logger.info("Issue deduplication completed successfully!")
 
-    # Validate issues found in all passes
+    # 12. Validate issues found in all passes
     logger.info("Starting issue validation process...")
     await validate_issues(
         chunks_data=chunks_data,
@@ -120,7 +120,7 @@ async def main(pr_url: str) -> None:
     )
     logger.info("Issue validation completed successfully!")
 
-    # Prepare validation markdown documents
+    # 13. Prepare validation markdown documents
     logger.info("Preparing validation markdown documents...")
     await prepare_validation_markdown(
         chunks_data=chunks_data,
