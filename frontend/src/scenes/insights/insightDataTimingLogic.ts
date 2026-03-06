@@ -10,6 +10,25 @@ import { InsightLogicProps } from '~/types'
 import type { insightDataTimingLogicType } from './insightDataTimingLogicType'
 import { keyForInsightLogicProps } from './sharedUtils'
 
+function getQueryResourceTiming(): {
+    ttfb_ms?: number
+    download_ms?: number
+    api_response_bytes?: number
+} {
+    const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[]
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i]
+        if (entry.name.includes('/api/') && entry.name.includes('query') && entry.responseStart > 0) {
+            return {
+                ttfb_ms: Math.round(entry.responseStart - entry.requestStart),
+                download_ms: Math.round(entry.responseEnd - entry.responseStart),
+                api_response_bytes: entry.transferSize || undefined,
+            }
+        }
+    }
+    return {}
+}
+
 export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -70,6 +89,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 // api_url: values.response?.apiUrl,
                 insight: values.query.kind,
                 is_primary_interaction: true,
+                ...getQueryResourceTiming(),
             })
 
             actions.removeQuery(payload.queryId)
