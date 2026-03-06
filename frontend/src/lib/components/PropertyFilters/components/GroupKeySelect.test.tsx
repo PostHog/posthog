@@ -91,7 +91,7 @@ describe('GroupKeySelect', () => {
 
         await userEvent.click(screen.getByText('Fjellride AB'))
 
-        expect(onChange).toHaveBeenCalledWith('uuid-001')
+        expect(onChange).toHaveBeenCalledWith(['uuid-001'])
     })
 
     it('resolves existing UUID values to display names', async () => {
