@@ -1088,6 +1088,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         columns = self.visit(ctx.columnExprList())
         return ast.ColumnsExpr(columns=columns, start=self.start(ctx), end=self.end(ctx))
 
+    def visitColumnExprSpreadColumnsRegex(self, ctx: HogQLParser.ColumnExprSpreadColumnsRegexContext):
+        pattern = parse_string_literal_ctx(ctx.STRING_LITERAL())
+        return ast.SpreadExpr(
+            expr=ast.ColumnsExpr(regex=pattern, start=self.start(ctx), end=self.end(ctx)),
+            start=self.start(ctx),
+            end=self.end(ctx),
+        )
+
+    def visitColumnExprSpreadColumnsList(self, ctx: HogQLParser.ColumnExprSpreadColumnsListContext):
+        columns = self.visit(ctx.columnExprList())
+        return ast.SpreadExpr(
+            expr=ast.ColumnsExpr(columns=columns, start=self.start(ctx), end=self.end(ctx)),
+            start=self.start(ctx),
+            end=self.end(ctx),
+        )
+
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
         return self.visit(ctx.hogqlxTagElement())
 

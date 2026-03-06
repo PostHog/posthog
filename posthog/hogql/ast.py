@@ -822,6 +822,11 @@ class ColumnsExpr(Expr):
 
 
 @dataclass(kw_only=True)
+class SpreadExpr(Expr):
+    expr: Expr
+
+
+@dataclass(kw_only=True)
 class Placeholder(Expr):
     expr: Expr
 

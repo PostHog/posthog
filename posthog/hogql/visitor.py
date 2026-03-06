@@ -109,6 +109,9 @@ class TraversingVisitor(Visitor[None]):
             for expr in node.columns:
                 self.visit(expr)
 
+    def visit_spread_expr(self, node: ast.SpreadExpr):
+        self.visit(node.expr)
+
     def visit_placeholder(self, node: ast.Placeholder):
         self.visit(node.expr)
 
@@ -586,6 +589,14 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             regex=node.regex,
             columns=[self.visit(col) for col in node.columns] if node.columns else None,
+        )
+
+    def visit_spread_expr(self, node: ast.SpreadExpr):
+        return ast.SpreadExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
         )
 
     def visit_placeholder(self, node: ast.Placeholder):

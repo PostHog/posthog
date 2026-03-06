@@ -604,6 +604,33 @@ class TestResolver(BaseTest):
         column_names = [col.type.name if isinstance(col.type, ast.FieldType) else col.alias for col in node.select]
         assert sorted(column_names) == ["a1", "a2"]
 
+    def test_spread_columns_in_function_call(self):
+        node = self._select("select coalesce(*COLUMNS('a')) from (select 1 as a1, 2 as a2, 3 as b1)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        call = node.select[0]
+        assert isinstance(call, ast.Call)
+        assert call.name == "coalesce"
+        assert len(call.args) == 2
+
+    def test_spread_columns_list_in_function_call(self):
+        node = self._select("select coalesce(*COLUMNS(event, timestamp)) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        call = node.select[0]
+        assert isinstance(call, ast.Call)
+        assert len(call.args) == 2
+
+    def test_spread_columns_top_level_select_raises(self):
+        node = self._select("select *COLUMNS('^event$') from events")
+        with self.assertRaises(QueryError) as e:
+            resolve_types(node, self.context, dialect="clickhouse")
+        assert "*COLUMNS" in str(e.exception)
+        assert "COLUMNS(...) instead" in str(e.exception)
+
+    def test_spread_columns_no_match_raises(self):
+        node = self._select("select coalesce(*COLUMNS('^nonexistent$')) from events")
+        with self.assertRaises(QueryError):
+            resolve_types(node, self.context, dialect="clickhouse")
+
     def test_lambda_parent_scope(self):
         # does not raise
         node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) as am from events")
