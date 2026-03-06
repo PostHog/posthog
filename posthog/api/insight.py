@@ -207,7 +207,7 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         }
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "legacy insight endpoint called",
             properties,
             team=team,
@@ -1084,10 +1084,14 @@ class InsightViewSet(
             InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
             .select_related("insight")
             .exclude(insight__deleted=True)
-            .only("insight")
+            .only("insight", "last_viewed_at")
         )
 
-        recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
+        recently_viewed = []
+        for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
+            insight = rv.insight
+            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
+            recently_viewed.append(insight)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)

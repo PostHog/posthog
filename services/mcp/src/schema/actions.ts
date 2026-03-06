@@ -86,29 +86,8 @@ export const ListActionsInputSchema = z.object({
     offset: z.number().int().min(0).optional().describe('Number of actions to skip for pagination'),
 })
 
-// Action response schema - permissive to handle API response variations
-export const ActionResponseSchema = z
-    .object({
-        id: z.number(),
-        name: z.string(),
-        description: z.string().optional().nullable(),
-        team_id: z.number(),
-        steps: z.array(z.record(z.string(), z.any())).optional().nullable(),
-        tags: z.array(z.string()).optional().nullable(),
-        post_to_slack: z.boolean().optional(),
-        slack_message_format: z.string().optional().nullable(),
-        deleted: z.boolean().optional(),
-        pinned_at: z.string().optional().nullable(),
-        created_at: z.string().optional(),
-        created_by: z.record(z.string(), z.any()).optional().nullable(),
-        is_action: z.boolean().optional(),
-        bytecode_error: z.string().optional().nullable(),
-    })
-    .passthrough() // Allow additional fields from API
-
 // Export types for use in handlers
 export type ActionStepInput = z.infer<typeof ActionStepInputSchema>
 export type CreateActionInput = z.infer<typeof CreateActionInputSchema>
 export type UpdateActionInput = z.infer<typeof UpdateActionInputSchema>
 export type ListActionsInput = z.infer<typeof ListActionsInputSchema>
-export type ActionResponse = z.infer<typeof ActionResponseSchema>
