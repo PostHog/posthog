@@ -2,7 +2,6 @@ from unittest import mock
 
 from django.core.cache import cache
 from django.test import TestCase
-
 from parameterized import parameterized
 
 from posthog.models import Dashboard, DashboardTile, Organization, Team, User
