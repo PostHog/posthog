@@ -3393,10 +3393,10 @@
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Hosts - store unique hostnames seen in this session (extracted from $host property)
-      hosts SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   
       -- Emails - store unique emails seen in this session (extracted from person_properties.email)
-      emails SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -3608,7 +3608,7 @@
       if(_host IS NOT NULL AND _host != '', [_host], []) AS hosts,
   
       -- emails
-      if(_person_email != '', [_person_email], []) AS emails,
+      if(_person_email IS NOT NULL AND _person_email != '', [_person_email], []) AS emails,
   
       false as has_replay_events
   FROM posthog_test.sharded_events AS source_table
@@ -4697,10 +4697,10 @@
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Hosts - store unique hostnames seen in this session (extracted from $host property)
-      hosts SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   
       -- Emails - store unique emails seen in this session (extracted from person_properties.email)
-      emails SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -5766,10 +5766,10 @@
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Hosts - store unique hostnames seen in this session (extracted from $host property)
-      hosts SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   
       -- Emails - store unique emails seen in this session (extracted from person_properties.email)
-      emails SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -7417,10 +7417,10 @@
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Hosts - store unique hostnames seen in this session (extracted from $host property)
-      hosts SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   
       -- Emails - store unique emails seen in this session (extracted from person_properties.email)
-      emails SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+      emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
