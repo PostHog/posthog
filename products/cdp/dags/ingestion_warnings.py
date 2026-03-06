@@ -74,7 +74,10 @@ def detect_ingestion_warnings(
                 wt = r.payload["warning_type"]
                 type_teams[wt] = type_teams.get(wt, 0) + 1
                 type_counts[wt] = type_counts.get(wt, 0) + r.payload["affected_count"]
-                type_severity.setdefault(wt, r.severity)
+                if r.severity == HealthIssue.Severity.CRITICAL:
+                    type_severity[wt] = HealthIssue.Severity.CRITICAL
+                else:
+                    type_severity.setdefault(wt, r.severity)
 
         lines = [f"Ingestion warnings breakdown ({len(type_counts)} types across {len(issues)} teams):"]
         for wt in sorted(type_counts, key=lambda k: type_counts[k], reverse=True):
