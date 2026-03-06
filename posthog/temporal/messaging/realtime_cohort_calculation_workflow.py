@@ -176,9 +176,9 @@ def _get_percentile_bucket_label(inputs: RealtimeCohortCalculationWorkflowInputs
     if min_p is None and max_p is None:
         return "manual"
     elif min_p is None:
-        return f"p0-p{int(max_p)}"
+        return f"p0-p{int(max_p)}" if max_p is not None else "p0-p100"
     elif max_p is None:
-        return f"p{int(min_p)}-p100"
+        return f"p{int(min_p)}-p100" if min_p is not None else "p0-p100"
     else:
         return f"p{int(min_p)}-p{int(max_p)}"
 
