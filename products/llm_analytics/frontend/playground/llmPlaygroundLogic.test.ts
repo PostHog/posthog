@@ -1050,4 +1050,270 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Only message')
         })
     })
+
+    describe('linkedSource', () => {
+        it('should return null source when no source is set', () => {
+            expect(llmPlaygroundPromptsLogic.values.linkedSource).toEqual({
+                type: null,
+                promptId: null,
+                promptName: null,
+                evaluationId: null,
+                evaluationName: null,
+            })
+        })
+
+        it('should reflect source after setupPlaygroundFromEvent with sourcePromptId', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/:id/': {
+                        id: 'prompt-123',
+                        name: 'my-prompt',
+                        prompt: 'You are helpful.',
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptId: 'prompt-123',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            const linked = llmPlaygroundPromptsLogic.values.linkedSource
+            expect(linked.type).toBe('prompt')
+            expect(linked.promptId).toBe('prompt-123')
+            expect(linked.promptName).toBe('my-prompt')
+        })
+
+        it('should reflect source after setupPlaygroundFromEvent with sourceEvaluationId', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-456',
+                        name: 'my-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Judge this.' },
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId: 'eval-456',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            const linked = llmPlaygroundPromptsLogic.values.linkedSource
+            expect(linked.type).toBe('evaluation')
+            expect(linked.evaluationId).toBe('eval-456')
+            expect(linked.evaluationName).toBe('my-eval')
+        })
+
+        it('should clear linked source', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/:id/': {
+                        id: 'prompt-123',
+                        name: 'my-prompt',
+                        prompt: 'You are helpful.',
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptId: 'prompt-123',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            llmPlaygroundPromptsLogic.actions.clearLinkedSource()
+
+            const linked = llmPlaygroundPromptsLogic.values.linkedSource
+            expect(linked.type).toBeNull()
+            expect(linked.promptId).toBeNull()
+            expect(linked.promptName).toBeNull()
+        })
+    })
+
+    describe('setupPlaygroundFromEvent with source', () => {
+        it('should set system prompt from fetched prompt', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/:id/': {
+                        id: 'prompt-1',
+                        name: 'test-prompt',
+                        prompt: 'Be concise.',
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptId: 'prompt-1',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('Be concise.')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([])
+        })
+
+        it('should set system prompt and model from fetched evaluation', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-1',
+                        name: 'judge-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Rate the response.' },
+                        model_configuration: { model: 'gpt-5', provider_key_id: null },
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId: 'eval-1',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('Rate the response.')
+        })
+
+        it('should show error toast when prompt fetch fails', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/:id/': () => [404, { detail: 'Not found' }],
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptId: 'nonexistent',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundPromptsLogic.values.sourceSetupLoading).toBe(false)
+        })
+    })
+
+    describe('save actions', () => {
+        it('saveAsNewPrompt should call create API', async () => {
+            let createCalled = false
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/llm_prompts/': () => {
+                        createCalled = true
+                        return [201, { id: 'new-1', name: 'saved-prompt', prompt: 'test' }]
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('My system prompt')
+            llmPlaygroundPromptsLogic.actions.saveAsNewPrompt('saved-prompt')
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(createCalled).toBe(true)
+        })
+
+        it('saveAsNewEvaluation should call create API', async () => {
+            let createCalled = false
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/evaluations/': () => {
+                        createCalled = true
+                        return [201, { id: 'eval-new', name: 'saved-eval' }]
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('Judge prompt')
+            llmPlaygroundPromptsLogic.actions.saveAsNewEvaluation('saved-eval', {
+                model: 'gpt-5',
+                provider: 'openai',
+                provider_key_id: null,
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(createCalled).toBe(true)
+        })
+
+        it('saveToLinkedPrompt should call update API with current system prompt', async () => {
+            let updatedPrompt: string | undefined
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/:id/': {
+                        id: 'prompt-linked',
+                        name: 'linked',
+                        prompt: 'Old prompt.',
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/llm_prompts/:id/': (req: any) => {
+                        updatedPrompt = req.body.prompt
+                        return [200, { id: 'prompt-linked', name: 'linked', prompt: req.body.prompt }]
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptId: 'prompt-linked',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('Updated prompt.')
+            llmPlaygroundPromptsLogic.actions.saveToLinkedPrompt()
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(updatedPrompt).toBe('Updated prompt.')
+        })
+
+        it('saveToLinkedEvaluation should call update API', async () => {
+            let updateCalled = false
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-linked',
+                        name: 'linked-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Old eval prompt.' },
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/evaluations/:id/': () => {
+                        updateCalled = true
+                        return [200, { id: 'eval-linked', name: 'linked-eval' }]
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId: 'eval-linked',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('New eval prompt.')
+            llmPlaygroundPromptsLogic.actions.saveToLinkedEvaluation({
+                model: 'gpt-5',
+                provider: 'openai',
+                provider_key_id: null,
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(updateCalled).toBe(true)
+        })
+    })
 })

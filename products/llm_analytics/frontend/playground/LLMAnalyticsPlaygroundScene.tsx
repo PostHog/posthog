@@ -28,10 +28,8 @@ import {
     LemonTextArea,
     Spinner,
     Link,
-    lemonToast,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -43,7 +41,6 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -764,7 +761,8 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: PromptConfig }): JSX.Element | null {
     const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
     const { linkedSource } = useValues(llmPlaygroundPromptsLogic)
-    const { clearLinkedSource } = useActions(llmPlaygroundPromptsLogic)
+    const { clearLinkedSource, saveToLinkedPrompt, saveToLinkedEvaluation, saveAsNewPrompt, saveAsNewEvaluation } =
+        useActions(llmPlaygroundPromptsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
 
@@ -790,7 +788,15 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
 
     const { source_prompt_id: _, source_evaluation_id: __, ...cleanSearchParams } = searchParams
 
-    const saveAsNewPrompt = (): void => {
+    const modelConfig = selectedModel
+        ? {
+              model: prompt.model,
+              provider: selectedModel.provider?.toLowerCase() ?? '',
+              provider_key_id: prompt.selectedProviderKeyId ?? null,
+          }
+        : null
+
+    const openSaveAsNewPromptDialog = (): void => {
         LemonDialog.openForm({
             title: 'Save as new prompt',
             initialValues: { name: '' },
@@ -800,25 +806,11 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
                 </LemonField>
             ),
             errors: { name: (name) => (!name ? 'A name is required' : undefined) },
-            onSubmit: async ({ name }) => {
-                try {
-                    const saved = await api.llmPrompts.create({ name, prompt: prompt.systemPrompt })
-                    lemonToast.success(
-                        <>
-                            Prompt saved.{' '}
-                            <Link to={urls.llmAnalyticsPrompt(saved.name)} className="font-semibold">
-                                View prompt
-                            </Link>
-                        </>
-                    )
-                } catch {
-                    lemonToast.error('Failed to save prompt')
-                }
-            },
+            onSubmit: ({ name }) => saveAsNewPrompt(name),
         })
     }
 
-    const saveAsNewEvaluation = (): void => {
+    const openSaveAsNewEvaluationDialog = (): void => {
         LemonDialog.openForm({
             title: 'Save as new evaluation',
             initialValues: { name: '' },
@@ -828,53 +820,8 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
                 </LemonField>
             ),
             errors: { name: (name) => (!name ? 'A name is required' : undefined) },
-            onSubmit: async ({ name }) => {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    lemonToast.error('Could not determine team')
-                    return
-                }
-                try {
-                    const saved = await api.create(`/api/environments/${teamId}/evaluations/`, {
-                        name,
-                        evaluation_type: 'llm_judge',
-                        evaluation_config: { prompt: prompt.systemPrompt },
-                        model_configuration: selectedModel
-                            ? {
-                                  model: prompt.model,
-                                  provider: selectedModel.provider?.toLowerCase(),
-                                  provider_key_id: prompt.selectedProviderKeyId ?? null,
-                              }
-                            : null,
-                        output_type: 'boolean',
-                        conditions: [],
-                        enabled: false,
-                    })
-                    lemonToast.success(
-                        <>
-                            Evaluation saved.{' '}
-                            <Link to={urls.llmAnalyticsEvaluation(saved.id)} className="font-semibold">
-                                View evaluation
-                            </Link>
-                        </>
-                    )
-                } catch {
-                    lemonToast.error('Failed to save evaluation')
-                }
-            },
+            onSubmit: ({ name }) => saveAsNewEvaluation(name, modelConfig),
         })
-    }
-
-    const saveToLinkedPrompt = async (): Promise<void> => {
-        if (!linkedPromptId) {
-            return
-        }
-        try {
-            await api.llmPrompts.update(linkedPromptId, { prompt: prompt.systemPrompt })
-            lemonToast.success(`Prompt "${linkedPromptLabel}" updated`)
-        } catch {
-            lemonToast.error('Failed to update prompt')
-        }
     }
 
     const confirmSaveToLinkedPrompt = (): void => {
@@ -884,37 +831,9 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
         LemonDialog.open({
             title: `Save to prompt "${linkedPromptLabel}"?`,
             description: 'This will overwrite the current prompt with the system prompt from the playground.',
-            primaryButton: { children: 'Save', type: 'primary', onClick: () => void saveToLinkedPrompt() },
+            primaryButton: { children: 'Save', type: 'primary', onClick: () => saveToLinkedPrompt() },
             secondaryButton: { children: 'Cancel', type: 'secondary' },
         })
-    }
-
-    const saveToLinkedEvaluation = async (): Promise<void> => {
-        if (!linkedEvaluationId) {
-            return
-        }
-        const teamId = teamLogic.values.currentTeamId
-        if (!teamId) {
-            lemonToast.error('Could not determine team')
-            return
-        }
-        try {
-            await api.update(`/api/environments/${teamId}/evaluations/${linkedEvaluationId}/`, {
-                evaluation_config: { prompt: prompt.systemPrompt },
-                ...(selectedModel
-                    ? {
-                          model_configuration: {
-                              model: prompt.model,
-                              provider: selectedModel.provider?.toLowerCase(),
-                              provider_key_id: prompt.selectedProviderKeyId ?? null,
-                          },
-                      }
-                    : {}),
-            })
-            lemonToast.success(`Evaluation "${linkedEvaluationLabel}" updated`)
-        } catch {
-            lemonToast.error('Failed to update evaluation')
-        }
     }
 
     const confirmSaveToLinkedEvaluation = (): void => {
@@ -928,7 +847,7 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
             primaryButton: {
                 children: 'Save',
                 type: 'primary',
-                onClick: () => void saveToLinkedEvaluation(),
+                onClick: () => saveToLinkedEvaluation(modelConfig),
             },
             secondaryButton: { children: 'Cancel', type: 'secondary' },
         })
@@ -993,7 +912,13 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
 
     if (isPromptManagementEnabled) {
         saveAsNewActions.push(
-            <LemonButton key="save-new-prompt" type="tertiary" size="small" fullWidth onClick={saveAsNewPrompt}>
+            <LemonButton
+                key="save-new-prompt"
+                type="tertiary"
+                size="small"
+                fullWidth
+                onClick={openSaveAsNewPromptDialog}
+            >
                 Save as new prompt
             </LemonButton>
         )
@@ -1012,7 +937,13 @@ function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: Prompt
 
     if (isEvaluationsEnabled) {
         saveAsNewActions.push(
-            <LemonButton key="save-new-evaluation" type="tertiary" size="small" fullWidth onClick={saveAsNewEvaluation}>
+            <LemonButton
+                key="save-new-evaluation"
+                type="tertiary"
+                size="small"
+                fullWidth
+                onClick={openSaveAsNewEvaluationDialog}
+            >
                 Save as new evaluation
             </LemonButton>
         )
