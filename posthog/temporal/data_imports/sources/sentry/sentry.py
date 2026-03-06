@@ -1,5 +1,4 @@
 import re
-import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -9,28 +8,47 @@ import requests
 from dateutil import parser as dateutil_parser
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from tenacity import (
+    RetryCallState,
+    retry,
+    retry_if_exception_type,
+    retry_if_result,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    IncrementalConfig,
+)
 from posthog.temporal.data_imports.sources.sentry.settings import SENTRY_ENDPOINTS, SentryEndpointConfig
 
 _MAX_PAGES_PER_PARENT = 10
 _REQUEST_TIMEOUT = 30
 _MAX_RETRIES = 3
+_RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
 
 
 def _normalize_api_base_url(api_base_url: str | None) -> str:
     return (api_base_url or "https://sentry.io").rstrip("/")
 
 
-def _format_incremental_value(value: Any) -> str:
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, date):
-        return datetime.combine(value, datetime.min.time()).isoformat()
-    return str(value)
+def _auth_headers(auth_token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {auth_token}", "Accept": "application/json"}
+
+
+def _rest_api_client_config(base_api_url: str, auth_token: str) -> ClientConfig:
+    return {
+        "base_url": base_api_url,
+        "auth": {"type": "bearer", "token": auth_token},
+        "headers": {"Accept": "application/json"},
+        "paginator": SentryPaginator(),
+    }
 
 
 def _coerce_datetime_to_utc(value: Any) -> datetime | None:
@@ -56,7 +74,7 @@ def _start_param_for_sentry(value: Any) -> str:
     return capped.strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def _sentry_incremental_window(cursor_path: str) -> dict[str, Any]:
+def _sentry_incremental_window(cursor_path: str) -> IncrementalConfig:
     return {
         "cursor_path": cursor_path,
         "start_param": "start",
@@ -106,48 +124,34 @@ class SentryPaginator(BasePaginator):
 # ---------------------------------------------------------------------------
 
 
+def _is_retryable_response(response: requests.Response) -> bool:
+    return response.status_code in _RETRYABLE_STATUS_CODES
+
+
+def _raise_on_failed_retry(state: RetryCallState) -> requests.Response:
+    if state.outcome is None:
+        raise RuntimeError("Unexpected request retry state")
+    if state.outcome.failed:
+        exc = state.outcome.exception()
+        if exc is None:
+            raise RuntimeError("Unexpected request retry state")
+        raise exc
+    return state.outcome.result()
+
+
+@retry(
+    stop=stop_after_attempt(_MAX_RETRIES + 1),
+    wait=wait_exponential(multiplier=1, max=30),
+    retry=retry_if_exception_type(requests.exceptions.RequestException) | retry_if_result(_is_retryable_response),
+    retry_error_callback=_raise_on_failed_retry,
+)
 def _request_with_retry(
     url: str,
     headers: dict[str, str],
     params: dict[str, Any] | None,
     timeout: int = _REQUEST_TIMEOUT,
-    max_retries: int = _MAX_RETRIES,
 ) -> requests.Response:
-    last_response: requests.Response | None = None
-    last_exception: Exception | None = None
-
-    for attempt in range(max_retries + 1):
-        try:
-            response = external_requests.get(url, headers=headers, params=params, timeout=timeout)
-            last_response = response
-            if response.status_code not in (429, 500, 502, 503, 504):
-                return response
-            if attempt == max_retries:
-                return response
-        except requests.exceptions.RequestException as exc:
-            last_exception = exc
-            if attempt == max_retries:
-                raise
-
-        backoff = min(2**attempt, 30)
-        time.sleep(backoff)
-
-    if last_response is not None:
-        return last_response
-    if last_exception is not None:
-        raise last_exception
-    raise RuntimeError("Unexpected request retry state")
-
-
-def _extract_rows(payload: Any) -> list[dict[str, Any]]:
-    if isinstance(payload, list):
-        return [row for row in payload if isinstance(row, dict)]
-    if isinstance(payload, dict):
-        data = payload.get("data")
-        if isinstance(data, list):
-            return [row for row in data if isinstance(row, dict)]
-        return [payload]
-    return []
+    return external_requests.get(url, headers=headers, params=params, timeout=timeout)
 
 
 def _iter_endpoint_rows(
@@ -170,7 +174,7 @@ def _iter_endpoint_rows(
         response.raise_for_status()
 
         payload = response.json()
-        yield from _extract_rows(payload)
+        yield from payload
 
         pages_read += 1
         next_url = _parse_next_link(response.headers.get("Link", ""))
@@ -219,16 +223,13 @@ def _iter_issue_tag_values_rows(
 
         issue_id = str(issue["id"])
 
-        tags = list(
-            _iter_endpoint_rows(
-                base_api_url=base_api_url,
-                path=f"/organizations/{organization_slug}/issues/{issue_id}/tags/",
-                headers=headers,
-                params={"limit": 100},
-                max_pages=_MAX_PAGES_PER_PARENT,
-            )
+        tags = _iter_endpoint_rows(
+            base_api_url=base_api_url,
+            path=f"/organizations/{organization_slug}/issues/{issue_id}/tags/",
+            headers=headers,
+            params={"limit": 100},
+            max_pages=_MAX_PAGES_PER_PARENT,
         )
-
         for tag in tags:
             tag_key = tag.get("key") or tag.get("id")
             if not isinstance(tag_key, str) or not tag_key:
@@ -245,7 +246,7 @@ def _iter_issue_tag_values_rows(
 
                 response = _request_with_retry(url=values_url, headers=headers, params=values_params)
                 response.raise_for_status()
-                rows = _extract_rows(response.json())
+                rows = response.json()
 
                 should_stop = False
                 for row in rows:
@@ -282,7 +283,7 @@ def validate_credentials(
 ) -> tuple[bool, str | None]:
     base_url = _normalize_api_base_url(api_base_url)
     url = f"{base_url}/api/0/organizations/{organization_slug}/projects/"
-    headers = {"Authorization": f"Bearer {auth_token}", "Accept": "application/json"}
+    headers = _auth_headers(auth_token)
 
     try:
         response = external_requests.get(url, headers=headers, timeout=10)
@@ -312,7 +313,6 @@ def get_resource(
     endpoint: str,
     organization_slug: str,
     should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
 ) -> EndpointResource:
     config = SENTRY_ENDPOINTS[endpoint]
@@ -321,7 +321,7 @@ def get_resource(
 
     params: dict[str, Any] = {"limit": config.page_size}
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path.format(organization_slug=organization_slug),
         "params": params,
     }
@@ -329,7 +329,7 @@ def get_resource(
     if endpoint == "issues":
         params["query"] = ""
         params["sort"] = "date" if (incremental_field or config.default_incremental_field) == "lastSeen" else "new"
-        if should_use_incremental_field and bool(config.incremental_fields):
+        if should_use_incremental_field and config.incremental_fields:
             endpoint_config["incremental"] = _sentry_incremental_window(
                 incremental_field or config.default_incremental_field or "lastSeen"
             )
@@ -342,7 +342,7 @@ def get_resource(
             "disposition": "merge",
             "strategy": "upsert",
         }
-        if should_use_incremental_field and bool(config.incremental_fields)
+        if should_use_incremental_field and config.incremental_fields
         else "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
@@ -445,11 +445,11 @@ def _build_dependent_source(
         },
         "limit": child_config.page_size,
     }
-    child_endpoint_config: dict[str, Any] = {
+    child_endpoint_config: Endpoint = {
         "path": child_path,
         "params": child_params,
     }
-    use_merge = bool(should_use_incremental_field and child_config.incremental_fields)
+    use_merge = should_use_incremental_field and bool(child_config.incremental_fields)
     if use_merge:
         child_endpoint_config["incremental"] = _sentry_incremental_window(
             incremental_field or child_config.default_incremental_field or "dateCreated"
@@ -466,12 +466,7 @@ def _build_dependent_source(
     }
 
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_api_url,
-            "auth": {"type": "bearer", "token": auth_token},
-            "headers": {"Accept": "application/json"},
-            "paginator": SentryPaginator(),
-        },
+        "client": _rest_api_client_config(base_api_url, auth_token),
         "resource_defaults": {},
         "resources": [parent_resource, child_resource],
     }
@@ -534,7 +529,7 @@ def sentry_source(
         # issue_tag_values needs two-level fan-out (issues → tags → values)
         # which can't be expressed as a single parent→child dependency.
         if endpoint == "issue_tag_values":
-            headers = {"Authorization": f"Bearer {auth_token}", "Accept": "application/json"}
+            headers = _auth_headers(auth_token)
             return _make_source_response(
                 endpoint_config,
                 lambda: _iter_issue_tag_values_rows(
@@ -557,12 +552,7 @@ def sentry_source(
 
     # --- Flat org-level endpoints (via rest_api_resources) ---
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_api_url,
-            "auth": {"type": "bearer", "token": auth_token},
-            "headers": {"Accept": "application/json"},
-            "paginator": SentryPaginator(),
-        },
+        "client": _rest_api_client_config(base_api_url, auth_token),
         "resource_defaults": {
             "primary_key": endpoint_config.primary_key,
             "write_disposition": "replace",
@@ -573,7 +563,6 @@ def sentry_source(
                 endpoint=endpoint,
                 organization_slug=organization_slug,
                 should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=db_incremental_field_last_value,
                 incremental_field=incremental_field,
             )
         ],

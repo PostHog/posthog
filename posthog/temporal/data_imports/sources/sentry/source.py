@@ -91,15 +91,19 @@ Create a token in Sentry and make sure it includes:
         }
 
     def get_schemas(self, config: SentrySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+        schemas: list[SourceSchema] = []
+        for endpoint in ENDPOINTS:
+            incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
+            supports_incremental = bool(incremental_fields)
+            schemas.append(
+                SourceSchema(
+                    name=endpoint,
+                    supports_incremental=supports_incremental,
+                    supports_append=supports_incremental,
+                    incremental_fields=incremental_fields,
+                )
             )
-            for endpoint in list(ENDPOINTS)
-        ]
+        return schemas
 
     def validate_credentials(
         self, config: SentrySourceConfig, team_id: int, schema_name: Optional[str] = None

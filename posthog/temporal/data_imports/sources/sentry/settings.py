@@ -1,30 +1,33 @@
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
-# Reusable incremental field definitions (typed as list[IncrementalField])
-ISSUES_INCREMENTAL_FIELDS: list[IncrementalField] = [
-    {
-        "label": "lastSeen",
-        "type": IncrementalFieldType.DateTime,
-        "field": "lastSeen",
-        "field_type": IncrementalFieldType.DateTime,
-    },
-    {
-        "label": "firstSeen",
-        "type": IncrementalFieldType.DateTime,
-        "field": "firstSeen",
-        "field_type": IncrementalFieldType.DateTime,
-    },
-]
+LAST_SEEN_INCREMENTAL: IncrementalField = {
+    "label": "lastSeen",
+    "type": IncrementalFieldType.DateTime,
+    "field": "lastSeen",
+    "field_type": IncrementalFieldType.DateTime,
+}
+FIRST_SEEN_INCREMENTAL: IncrementalField = {
+    "label": "firstSeen",
+    "type": IncrementalFieldType.DateTime,
+    "field": "firstSeen",
+    "field_type": IncrementalFieldType.DateTime,
+}
+DATE_CREATED_INCREMENTAL: IncrementalField = {
+    "label": "dateCreated",
+    "type": IncrementalFieldType.DateTime,
+    "field": "dateCreated",
+    "field_type": IncrementalFieldType.DateTime,
+}
+
+ISSUES_INCREMENTAL_FIELDS: list[IncrementalField] = [LAST_SEEN_INCREMENTAL, FIRST_SEEN_INCREMENTAL]
 DATE_CREATED_INCREMENTAL_FIELD: list[IncrementalField] = [
-    {
-        "label": "dateCreated",
-        "type": IncrementalFieldType.DateTime,
-        "field": "dateCreated",
-        "field_type": IncrementalFieldType.DateTime,
-    },
+    DATE_CREATED_INCREMENTAL,
+]
+LAST_SEEN_INCREMENTAL_FIELD: list[IncrementalField] = [
+    LAST_SEEN_INCREMENTAL,
 ]
 
 
@@ -33,8 +36,8 @@ class SentryEndpointConfig:
     name: str
     path: str
     incremental_fields: list[IncrementalField]
-    default_incremental_field: Optional[str] = None
-    partition_key: Optional[str] = None
+    default_incremental_field: str | None = None
+    partition_key: str | None = None
     page_size: int = 100
     sort_mode: Literal["asc", "desc"] = "asc"
     primary_key: str | list[str] = "id"
@@ -142,14 +145,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     "issue_tag_values": SentryEndpointConfig(
         name="issue_tag_values",
         path="/organizations/{organization_slug}/issues/{issue_id}/tags/{tag_key}/values/",
-        incremental_fields=[
-            {
-                "label": "lastSeen",
-                "type": IncrementalFieldType.DateTime,
-                "field": "lastSeen",
-                "field_type": IncrementalFieldType.DateTime,
-            }
-        ],
+        incremental_fields=LAST_SEEN_INCREMENTAL_FIELD,
         default_incremental_field="lastSeen",
         partition_key="last_seen",
         sort_mode="desc",
@@ -158,7 +154,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     ),
 }
 
-ENDPOINTS = tuple(SENTRY_ENDPOINTS.keys())
+ENDPOINTS = tuple(SENTRY_ENDPOINTS)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in SENTRY_ENDPOINTS.items()
