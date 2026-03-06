@@ -41,7 +41,8 @@
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
         "update-ai-costs": "ts-node src/ingestion/ai/costs/scripts/update-ai-costs.ts",
-        "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts"
+        "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
+        "start:recording-rasterizer": "node dist/session-replay/recording-rasterizer/index.js"
     },
     "dependencies": {
         "@amplitude/ua-parser-js": "^0.7.33",
@@ -76,6 +77,7 @@
         "@pyroscope/nodejs": "^0.4.8",
         "@segment/action-destinations": "^3.383.0",
         "@temporalio/client": "^1.12.0",
+        "@temporalio/worker": "^1.12.0",
         "@types/node": "catalog:",
         "@types/tail": "^2.2.1",
         "avsc": "^5.7.9",
@@ -103,6 +105,8 @@
         "nodemailer": "^7.0.5",
         "p-limit": "3.1.0",
         "pg": "^8.6.0",
+        "puppeteer": "^19.0.0",
+        "puppeteer-screen-recorder": "^3.0.6",
         "pino": "^8.6.0",
         "posthog-node": "5.25.0",
         "pretty-bytes": "^5.6.0",
@@ -133,6 +137,7 @@
         "@types/generic-pool": "^3.1.9",
         "@types/ioredis": "^4.26.4",
         "@types/jest": "^30.0.0",
+        "jest-environment-node": "^30.0.0",
         "@types/jsonwebtoken": "^9.0.10",
         "@types/libsodium-wrappers": "^0.7.14",
         "@types/lodash": "^4.17.16",

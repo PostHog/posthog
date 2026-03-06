@@ -521,6 +521,10 @@ tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
+    tool:temporal-recording-rasterizer-worker:
+        bin_script: temporal-recording-rasterizer-worker
+        description: Start recording rasterizer Temporal worker (Puppeteer + Chromium)
+        hidden: true
     tool:nodejs:
         bin_script: nodejs
         description: Start nodejs with optional restart loop
