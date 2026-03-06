@@ -23,7 +23,7 @@ resource "posthog_dashboard_layout" "team_analytics_platform_slos" {
       })
     },
     {
-      text_body = "**Success rate** is a 30-day rolling window showing the percentage of successful operations per SLO. **Burn rate** (below) measures how fast you're consuming your error budget (1%) — 1.0 means you're spending at exactly the sustainable rate, >1.0 means you'll exhaust it before the window ends."
+      text_body = "**Success rate** is a 30-day rolling window showing the percentage of successful operations per SLO. **Burn rate** (below) measures how fast you're consuming your error budget — 1.0 means you're spending at exactly the sustainable rate, >1.0 means you'll exhaust it before the window ends."
       layouts_json = jsonencode({
         sm = {
           h      = 1

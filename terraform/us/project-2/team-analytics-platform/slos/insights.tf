@@ -293,7 +293,7 @@ resource "posthog_insight" "slo" {
       columns = [
         { column = "date",   settings = { formatting = { prefix = "", suffix = "" } } },
         { column = "metric", settings = { formatting = { prefix = "", suffix = "" } } },
-        { column = "value",  settings = { formatting = { prefix = "", suffix = "%" } } },
+        { column = "value",  settings = { formatting = { prefix = "", suffix = "" } } },
       ]
     }
   })
