@@ -51,9 +51,7 @@ export function daysAgo(days: number): string {
 }
 
 export function hoursAgo(hours: number): string {
-    const date = new Date()
-    date.setHours(date.getHours() - hours)
-    return date.toISOString()
+    return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
 }
 
 // --- Event creation ---
