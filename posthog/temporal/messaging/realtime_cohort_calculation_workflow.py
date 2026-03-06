@@ -16,13 +16,13 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
-from posthog.models.cohort.cohort import Cohort, CohortType
-from posthog.sync import database_sync_to_async
-from posthog.tasks.calculate_cohort import (
+from posthog.metrics.cohorts import (
     COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM,
     COHORT_DURATION_UPDATE_HISTOGRAM,
     COHORT_QUERY_EXECUTION_DURATION_HISTOGRAM,
 )
+from posthog.models.cohort.cohort import Cohort, CohortType
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -158,11 +158,11 @@ def _get_percentile_bucket_label(inputs: RealtimeCohortCalculationWorkflowInputs
     if min_p is None and max_p is None:
         return "manual"
     elif min_p is None:
-        return f"p0-p{int(max_p) if max_p is not None else 100}"
+        return f"p0-p{int(max_p)}"
     elif max_p is None:
-        return f"p{int(min_p) if min_p is not None else 0}-p100"
+        return f"p{int(min_p)}-p100"
     else:
-        return f"p{int(min_p) if min_p is not None else 0}-p{int(max_p) if max_p is not None else 100}"
+        return f"p{int(min_p)}-p{int(max_p)}"
 
 
 @database_sync_to_async
@@ -298,63 +298,71 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     # Time the ClickHouse query execution
                     query_start_time = time.monotonic()
                     query_execution_complete = False
+                    percentile_bucket = _get_percentile_bucket_label(inputs)
 
                     async with get_client(team_id=cohort.team_id) as client:
-                        async for row in client.stream_query_as_jsonl(
-                            final_query,
-                            query_parameters=query_params,
-                        ):
-                            # Record query execution time on first result (when streaming starts)
+                        try:
+                            async for row in client.stream_query_as_jsonl(
+                                final_query,
+                                query_parameters=query_params,
+                            ):
+                                # Record query execution time on first result (when streaming starts)
+                                if not query_execution_complete:
+                                    query_duration = time.monotonic() - query_start_time
+                                    COHORT_QUERY_EXECUTION_DURATION_HISTOGRAM.labels(
+                                        percentile_bucket=percentile_bucket
+                                    ).observe(query_duration)
+                                    query_execution_complete = True
+                                person_id = row["person_id"]
+                                status = row["status"]
+                                status_counts[status] += 1
+                                payload = {
+                                    "team_id": cohort.team_id,
+                                    "cohort_id": cohort.pk,
+                                    "person_id": str(person_id),
+                                    # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
+                                    "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                                    "status": status,
+                                }
+                                # Produce to Kafka without blocking - collect send results for later flushing
+                                try:
+                                    send_result = kafka_producer.produce(
+                                        topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                        key=payload["person_id"],
+                                        data=payload,
+                                    )
+                                    pending_kafka_messages.append(send_result)
+                                    total_messages += 1
+
+                                    # Flush in batches to allow heartbeats
+                                    if len(pending_kafka_messages) >= FLUSH_BATCH_SIZE:
+                                        flushed = await flush_kafka_batch(
+                                            kafka_producer,
+                                            pending_kafka_messages,
+                                            cohort.pk,
+                                            idx,
+                                            len(cohorts),
+                                            heartbeater,
+                                            logger,
+                                        )
+                                        total_flushed += flushed
+                                        pending_kafka_messages.clear()
+
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.pk}: {e}",
+                                        cohort_id=cohort.pk,
+                                        person_id=payload["person_id"],
+                                        error=str(e),
+                                    )
+                                    # Continue processing even if Kafka produce fails
+                        finally:
+                            # Ensure query execution time is recorded even for empty results or failures
                             if not query_execution_complete:
                                 query_duration = time.monotonic() - query_start_time
-                                percentile_bucket = _get_percentile_bucket_label(inputs)
                                 COHORT_QUERY_EXECUTION_DURATION_HISTOGRAM.labels(
-                                    percentile_bucket=percentile_bucket, team_id=str(cohort.team_id)
+                                    percentile_bucket=percentile_bucket
                                 ).observe(query_duration)
-                                query_execution_complete = True
-                            person_id = row["person_id"]
-                            status = row["status"]
-                            status_counts[status] += 1
-                            payload = {
-                                "team_id": cohort.team_id,
-                                "cohort_id": cohort.pk,
-                                "person_id": str(person_id),
-                                # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
-                                "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
-                                "status": status,
-                            }
-                            # Produce to Kafka without blocking - collect send results for later flushing
-                            try:
-                                send_result = kafka_producer.produce(
-                                    topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                                    key=payload["person_id"],
-                                    data=payload,
-                                )
-                                pending_kafka_messages.append(send_result)
-                                total_messages += 1
-
-                                # Flush in batches to allow heartbeats
-                                if len(pending_kafka_messages) >= FLUSH_BATCH_SIZE:
-                                    flushed = await flush_kafka_batch(
-                                        kafka_producer,
-                                        pending_kafka_messages,
-                                        cohort.pk,
-                                        idx,
-                                        len(cohorts),
-                                        heartbeater,
-                                        logger,
-                                    )
-                                    total_flushed += flushed
-                                    pending_kafka_messages.clear()
-
-                            except Exception as e:
-                                logger.warning(
-                                    f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.pk}: {e}",
-                                    cohort_id=cohort.pk,
-                                    person_id=payload["person_id"],
-                                    error=str(e),
-                                )
-                                # Continue processing even if Kafka produce fails
 
                     # Flush any remaining messages
                     if pending_kafka_messages:
@@ -389,9 +397,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
                 # Record total cohort calculation duration
                 percentile_bucket = _get_percentile_bucket_label(inputs)
-                COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM.labels(
-                    percentile_bucket=percentile_bucket, team_id=str(cohort.team_id)
-                ).observe(cohort_end_time - cohort_start_time)
+                COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(
+                    cohort_end_time - cohort_start_time
+                )
 
                 # Time the duration update operation
                 duration_update_start = time.monotonic()
@@ -399,9 +407,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 duration_update_end = time.monotonic()
 
                 # Record duration update time
-                COHORT_DURATION_UPDATE_HISTOGRAM.labels(
-                    percentile_bucket=percentile_bucket, team_id=str(cohort.team_id)
-                ).observe(duration_update_end - duration_update_start)
+                COHORT_DURATION_UPDATE_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(
+                    duration_update_end - duration_update_start
+                )
 
                 logger.info(
                     f"Cohort {cohort.pk} processing completed",
