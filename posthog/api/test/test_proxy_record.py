@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ProxyRecord
@@ -111,12 +112,86 @@ class TestProxyRecordAPI(APIBaseTest):
         self.organization.save()
 
     def test_non_admin_cannot_create_proxy_record(self):
-        """Members below admin should not be able to create proxy records."""
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/proxy_records/",
             {"domain": "test.example.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("erroring", ProxyRecord.Status.ERRORING, "Cloudflare API error"),
+            ("timed_out", ProxyRecord.Status.TIMED_OUT, None),
+        ]
+    )
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_retry_proxy_record(self, _name, initial_status, initial_message, mock_capture, mock_sync_connect):
+        mock_temporal = AsyncMock()
+        mock_sync_connect.return_value = mock_temporal
+
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="retry.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=initial_status,
+            message=initial_message,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["status"], "waiting")
+        self.assertIsNone(data["message"])
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, ProxyRecord.Status.WAITING)
+        self.assertIsNone(record.message)
+        mock_temporal.start_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("waiting", ProxyRecord.Status.WAITING),
+            ("issuing", ProxyRecord.Status.ISSUING),
+            ("valid", ProxyRecord.Status.VALID),
+            ("warning", ProxyRecord.Status.WARNING),
+            ("deleting", ProxyRecord.Status.DELETING),
+        ]
+    )
+    def test_cannot_retry_proxy_in_non_error_state(self, _name, initial_status):
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="noretrystatus.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=initial_status,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot retry", response.json()["detail"])
+
+    def test_non_admin_cannot_retry_proxy_record(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="noadmin.example.com",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

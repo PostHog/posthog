@@ -817,6 +817,7 @@ class DashboardsViewSet(
                     query,
                     execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                     user=request.user if request.user.is_authenticated else None,
+                    request=request,
                 )
 
                 result_data = None

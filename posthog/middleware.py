@@ -254,7 +254,7 @@ class AutoProjectMiddleware:
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
+                    return FeatureFlag.objects.filter(id=feature_flag_id)
             elif path_parts[0] == "action":
                 action_id = path_parts[1]
                 if action_id.isnumeric():

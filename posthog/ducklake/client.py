@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import psycopg
 from psycopg.conninfo import make_conninfo
 
-from posthog.ducklake.common import get_duckgres_config
+from posthog.ducklake.common import get_duckgres_config, sanitize_ducklake_identifier
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
@@ -19,6 +19,25 @@ class DuckLakeQueryResult:
     results: list[list[Any]]
     sql: str
     hogql: str | None = None
+
+
+@dataclass
+class DuckLakeTableResult:
+    schema_name: str
+    table_name: str
+    row_count: int
+
+
+def _make_duckgres_conninfo(team_id: int) -> str:
+    config = get_duckgres_config(team_id)
+    return make_conninfo(
+        host=config["DUCKGRES_HOST"],
+        port=int(config["DUCKGRES_PORT"]),
+        dbname=config["DUCKGRES_DATABASE"],
+        user=config["DUCKGRES_USERNAME"],
+        password=config["DUCKGRES_PASSWORD"],
+        sslmode="require",
+    )
 
 
 def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, str]:
@@ -59,15 +78,7 @@ def execute_ducklake_query(
 
     assert sql is not None
 
-    config = get_duckgres_config(team_id)
-    conninfo = make_conninfo(
-        host=config["DUCKGRES_HOST"],
-        port=int(config["DUCKGRES_PORT"]),
-        dbname=config["DUCKGRES_DATABASE"],
-        user=config["DUCKGRES_USERNAME"],
-        password=config["DUCKGRES_PASSWORD"],
-        sslmode="require",
-    )
+    conninfo = _make_duckgres_conninfo(team_id)
     with psycopg.connect(conninfo) as conn:
         conn.execute("SET search_path TO 'posthog'")
         with conn.cursor() as cur:
@@ -81,4 +92,34 @@ def execute_ducklake_query(
         results=[list(r) for r in rows],
         sql=sql,
         hogql=hogql_pretty,
+    )
+
+
+def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, table_name: str) -> DuckLakeTableResult:
+    """Execute a query via duckgres and materialize the result as a DuckLake table.
+
+    Creates or replaces a table in the given schema using CREATE OR REPLACE TABLE ... AS.
+    The table is stored natively in DuckLake (Parquet on S3 + Postgres catalog metadata).
+    """
+    safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
+    safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
+    qualified = f"{safe_schema}.{safe_table}"
+
+    conninfo = _make_duckgres_conninfo(team_id)
+    with psycopg.connect(conninfo) as conn:
+        conn.execute("SET search_path TO 'posthog'")
+        with conn.cursor() as cur:
+            cur.execute(f"CREATE SCHEMA IF NOT EXISTS {safe_schema}")
+            cur.execute(f"CREATE OR REPLACE TABLE {qualified} AS {sql}")
+
+    with psycopg.connect(conninfo) as conn:
+        conn.execute("SET search_path TO 'posthog'")
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT count(*) FROM {qualified}")
+            row = cur.fetchone()
+            row_count = int(row[0]) if row else 0
+    return DuckLakeTableResult(
+        schema_name=safe_schema,
+        table_name=safe_table,
+        row_count=row_count,
     )

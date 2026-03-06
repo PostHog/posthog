@@ -24,6 +24,7 @@ pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
 pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle_total";
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
+pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
@@ -66,6 +67,16 @@ pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total"
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Flag definitions cache metrics
+// Labels: source (redis, s3, fallback)
+pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";
+// Labels: reason (cache_miss, s3_error, redis_error, json_parse_error, timeout)
+pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_cache_miss_total";
+
+// Flag definitions ETag metrics
+// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag, redis_error = etag read failed)
+pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
 
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";

@@ -1,5 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -63,19 +64,25 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
     }),
 
     listeners(({ actions }) => ({
+        openJobsPanel: () => {
+            posthog.capture('llma clustering jobs panel opened')
+        },
         deleteJob: async ({ jobId }) => {
             try {
                 await api.delete(API_PATH + '/' + jobId + '/')
                 lemonToast.success('Clustering job deleted')
+                posthog.capture('llma clustering job deleted', { job_id: jobId })
                 actions.loadJobs()
             } catch {
                 lemonToast.error('Failed to delete clustering job')
             }
         },
-        createJobSuccess: () => {
+        createJobSuccess: ({ jobs }) => {
+            posthog.capture('llma clustering job created', { total_jobs_count: jobs.length })
             actions.setEditingJob(null)
         },
         updateJobSuccess: () => {
+            posthog.capture('llma clustering job updated')
             actions.setEditingJob(null)
         },
     })),

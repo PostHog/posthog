@@ -23,6 +23,7 @@ import type {
     FileSystemListParams,
     FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
+    GitHubReposResponseApi,
     IntegrationApi,
     IntegrationsList2Params,
     InvitesListParams,
@@ -1810,8 +1811,8 @@ export const integrationsGithubReposRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
+): Promise<GitHubReposResponseApi> => {
+    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

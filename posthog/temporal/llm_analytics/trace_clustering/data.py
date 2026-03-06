@@ -10,8 +10,8 @@ from datetime import datetime
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
@@ -27,17 +27,10 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
 
 logger = structlog.get_logger(__name__)
 
-# AI event types to query for trace filtering (same as TracesQueryRunner)
-AI_EVENT_TYPES = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
-
-
-def _build_property_filter_expr(event_filters: list[dict], team: Team) -> ast.Expr:
-    """Build an AND-combined property filter AST expression from a list of filter dicts."""
-    property_exprs: list[ast.Expr] = []
-    for prop in event_filters:
-        property_exprs.append(property_to_expr(prop, team))
-
-    return ast.And(exprs=property_exprs) if len(property_exprs) > 1 else property_exprs[0]
+# ClickHouse max_execution_time for clustering queries (seconds).
+# Default HogQL timeout is 60s which is too tight for the legacy unfiltered
+# query path on high-volume teams. These run in background Temporal activities.
+CLUSTERING_QUERY_MAX_EXECUTION_TIME = 120
 
 
 def fetch_item_embeddings_for_clustering(
@@ -46,47 +39,21 @@ def fetch_item_embeddings_for_clustering(
     window_end: datetime,
     max_samples: int,
     analysis_level: AnalysisLevel = "trace",
-    event_filters: list[dict] | None = None,
+    job_id: str | None = None,
 ) -> tuple[list[ItemId], ItemEmbeddings, ItemBatchRunIds]:
-    """Query item IDs and embeddings from document_embeddings table using HogQL.
+    """Query item IDs and embeddings from document_embeddings table.
 
-    When event_filters are provided, uses ClickHouse subqueries to push the
-    trace→generation→embedding join into the database rather than materializing
-    intermediate ID lists in Python.
-
-    Args:
-        team: Team object to query embeddings for
-        window_start: Start of time window
-        window_end: End of time window
-        max_samples: Maximum number of items to sample
-        analysis_level: "trace" or "generation" - determines which document_type to query
-        event_filters: Optional property filters to scope which traces are included
-
-    Returns:
-        Tuple of (list of item IDs, dict mapping item_id -> embedding vector,
-                  dict mapping item_id -> batch_run_id for linking to summaries)
+    Two paths:
+    - job_id present: filter by rendering suffix (batch_run_id = {team}_{ts}_{job_id})
+    - no job_id: return all embeddings for the document type (legacy/unfiltered)
     """
-    # Select document_type based on analysis_level
-    document_type_new = (
+    document_type = (
         constants.LLMA_GENERATION_DOCUMENT_TYPE
         if analysis_level == "generation"
         else constants.LLMA_TRACE_DOCUMENT_TYPE
     )
 
-    has_filters = bool(event_filters)
-
-    # Build the appropriate query based on (has_filters, analysis_level)
-    # Backwards compatibility: support both old and new document type formats
-    # - New format: document_type = "llm-trace-summary-detailed" (mode in document_type, batch_run_id in rendering)
-    # - Old format: document_type = "llm-trace-summary" AND rendering = "llma_trace_detailed"
-    if has_filters and analysis_level == "generation":
-        # Generation-level with filters: 2-level nested subquery
-        # embeddings WHERE document_id IN (SELECT generation UUIDs matching filters
-        #   WHERE trace_id IN (SELECT filtered trace_ids))
-        # The property_filters are applied at BOTH levels:
-        # - Inner: scopes to traces where any event matches the filter
-        # - Outer: ensures only generation events matching the filter are included
-        #   (e.g. a trace with both openai and anthropic generations only gets the openai ones)
+    if job_id:
         query = parse_select(
             """
             SELECT document_id, embedding, rendering
@@ -94,64 +61,14 @@ def fetch_item_embeddings_for_clustering(
             WHERE timestamp >= {start_dt}
                 AND timestamp < {end_dt}
                 AND product = {product}
-                AND (
-                    document_type = {document_type_new}
-                    OR (document_type = {document_type_legacy} AND rendering = {rendering_legacy})
-                )
+                AND document_type = {document_type}
                 AND length(embedding) > 0
-                AND document_id IN (
-                    SELECT DISTINCT toString(uuid)
-                    FROM events
-                    WHERE event = {generation_event}
-                        AND timestamp >= {start_dt}
-                        AND timestamp < {end_dt}
-                        AND {property_filters}
-                        AND properties.$ai_trace_id IN (
-                            SELECT DISTINCT properties.$ai_trace_id
-                            FROM events
-                            WHERE event IN {event_types}
-                                AND timestamp >= {start_dt}
-                                AND timestamp < {end_dt}
-                                AND isNotNull(properties.$ai_trace_id)
-                                AND properties.$ai_trace_id != ''
-                                AND {property_filters}
-                        )
-                )
-            ORDER BY rand()
-            LIMIT {max_samples}
-            """
-        )
-    elif has_filters:
-        # Trace-level with filters: 1-level subquery
-        # embeddings WHERE document_id IN (SELECT filtered trace_ids)
-        query = parse_select(
-            """
-            SELECT document_id, embedding, rendering
-            FROM raw_document_embeddings
-            WHERE timestamp >= {start_dt}
-                AND timestamp < {end_dt}
-                AND product = {product}
-                AND (
-                    document_type = {document_type_new}
-                    OR (document_type = {document_type_legacy} AND rendering = {rendering_legacy})
-                )
-                AND length(embedding) > 0
-                AND document_id IN (
-                    SELECT DISTINCT properties.$ai_trace_id
-                    FROM events
-                    WHERE event IN {event_types}
-                        AND timestamp >= {start_dt}
-                        AND timestamp < {end_dt}
-                        AND isNotNull(properties.$ai_trace_id)
-                        AND properties.$ai_trace_id != ''
-                        AND {property_filters}
-                )
+                AND endsWith(rendering, {job_id_suffix})
             ORDER BY rand()
             LIMIT {max_samples}
             """
         )
     else:
-        # No filters: simple query on embeddings table
         query = parse_select(
             """
             SELECT document_id, embedding, rendering
@@ -160,7 +77,7 @@ def fetch_item_embeddings_for_clustering(
                 AND timestamp < {end_dt}
                 AND product = {product}
                 AND (
-                    document_type = {document_type_new}
+                    document_type = {document_type}
                     OR (document_type = {document_type_legacy} AND rendering = {rendering_legacy})
                 )
                 AND length(embedding) > 0
@@ -173,20 +90,15 @@ def fetch_item_embeddings_for_clustering(
         "start_dt": ast.Constant(value=window_start),
         "end_dt": ast.Constant(value=window_end),
         "product": ast.Constant(value=constants.LLMA_TRACE_PRODUCT),
-        "document_type_new": ast.Constant(value=document_type_new),
-        "document_type_legacy": ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY),
-        "rendering_legacy": ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY),
+        "document_type": ast.Constant(value=document_type),
         "max_samples": ast.Constant(value=max_samples),
     }
 
-    if has_filters:
-        assert event_filters is not None
-        event_types_tuple = ast.Tuple(exprs=[ast.Constant(value=e) for e in AI_EVENT_TYPES])
-        placeholders["event_types"] = event_types_tuple
-        placeholders["property_filters"] = _build_property_filter_expr(event_filters, team)
-
-        if analysis_level == "generation":
-            placeholders["generation_event"] = ast.Constant(value="$ai_generation")
+    if job_id:
+        placeholders["job_id_suffix"] = ast.Constant(value=f"_{job_id}")
+    else:
+        placeholders["document_type_legacy"] = ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY)
+        placeholders["rendering_legacy"] = ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY)
 
     with tags_context(product=Product.LLM_ANALYTICS):
         result = execute_hogql_query(
@@ -194,6 +106,7 @@ def fetch_item_embeddings_for_clustering(
             query=query,
             placeholders=placeholders,
             team=team,
+            settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
     rows = result.results or []
@@ -202,7 +115,7 @@ def fetch_item_embeddings_for_clustering(
         "fetch_item_embeddings_for_clustering_result",
         num_rows=len(rows),
         analysis_level=analysis_level,
-        has_filters=has_filters,
+        job_id=job_id,
     )
 
     # Build all maps in single loop to ensure item_ids, embeddings_map, and batch_run_ids are aligned
@@ -303,6 +216,7 @@ def fetch_item_summaries(
                 "max_rows": ast.Constant(value=max_rows),
             },
             team=team,
+            settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
     rows = result.results or []

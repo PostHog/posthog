@@ -75,6 +75,7 @@
     'posthog.tasks.integrations.refresh_integrations',
     'posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report',
     'posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports',
+    'posthog.tasks.llm_prompt_cache.invalidate_archived_prompt_versions_cache_task',
     'posthog.tasks.plugin_server.fatal_plugin_error',
     'posthog.tasks.plugin_server.hog_function_state_transition',
     'posthog.tasks.remote_config.sync_all_remote_configs',
