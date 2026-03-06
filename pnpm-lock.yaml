@@ -1764,6 +1764,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/alerts: {}
+
   products/analytics_platform: {}
 
   products/batch_exports: {}
@@ -1868,6 +1870,8 @@ importers:
       ts-pattern:
         specifier: 'catalog:'
         version: 4.3.0
+
+  products/core_events: {}
 
   products/customer_analytics:
     dependencies:
@@ -2081,6 +2085,8 @@ importers:
       use-resize-observer:
         specifier: '*'
         version: 8.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+
+  products/event_definitions: {}
 
   products/experiments:
     dependencies:
@@ -2635,6 +2641,10 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+
+  products/signals: {}
+
+  products/slack_app: {}
 
   products/surveys:
     dependencies:
