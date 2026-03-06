@@ -19,6 +19,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth_refresh_token
 from posthog.models.team.team import Team
@@ -668,12 +669,14 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
             status=404,
         )
 
-    host = _get_instance_host()
+    region = get_instance_region() or "US"
+    host = _region_to_host(region)
 
     return Response(
         {
             "status": "complete",
             "id": resource_id,
+            "service_id": "product_analytics",
             "complete": {
                 "access_configuration": {
                     "api_key": team.api_token,
