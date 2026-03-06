@@ -26,6 +26,7 @@ import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
@@ -66,7 +67,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
-        logic: [cohortsModel],
+        logic: [cohortsModel, propertyDefinitionsModel],
     })),
 
     actions({
@@ -291,6 +292,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 // Prevent multiple concurrent saves
                 if (values.cohortLoading) {
                     return
+                }
+
+                // Additional numeric validation check before submitting
+                if (!cohort.is_static) {
+                    for (const group of cohort.filters.properties.values) {
+                        const groupValidation = validateGroup(group)
+                        if (groupValidation.values.some((v) => v.value_property)) {
+                            lemonToast.error('Please fix validation errors before saving.')
+                            scrollToFormError('#cohort-form')
+                            return
+                        }
+                    }
                 }
 
                 if (cohort.id !== 'new') {
