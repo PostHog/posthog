@@ -10,7 +10,7 @@ packages:
     - playwright
     - nodejs
     - nodejs/src/scripts
-    - products/*
+    - products/**/*
     - docs/onboarding
     - services/oauth-proxy
     - services/mcp
