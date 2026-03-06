@@ -27,6 +27,7 @@ export function TicketTags({
             tagsAvailable={tagsAvailable}
             className={className}
             data-attr="ticket-tags"
+            actionButtonSize="medium"
         />
     )
 }
