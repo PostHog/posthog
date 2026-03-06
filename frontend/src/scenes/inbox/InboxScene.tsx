@@ -580,7 +580,7 @@ function ReportDetailPane(): JSX.Element {
                                                         title: `Delete report "${selectedReport.title}"?`,
                                                         className: 'max-w-120',
                                                         description:
-                                                            'This will soft-delete all signals in this report and remove the report. Report deletion cannot be undone.',
+                                                            'This will delete all signals in this report and remove the report. Report deletion cannot be undone.',
                                                         primaryButton: {
                                                             children: 'Delete report & signals',
                                                             status: 'danger',
