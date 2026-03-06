@@ -37,8 +37,6 @@ A long-running entity workflow that serializes all signal grouping for a single 
 
 Step 1 runs two activities in parallel. Step 2 depends on step 1 (needs the type examples). Steps 3+4 fan out in parallel for each query/embedding.
 
-> **Note:** The legacy `EmitSignalWorkflow` (`emit-signal`) is kept registered temporarily for any in-flight workflows from before the migration. It runs the same `_process_one_signal()` logic but as a one-shot workflow per signal. It will be removed once all existing executions have completed.
-
 **Future opportunities the entity model unlocks:**
 
 - **Batching:** Process N signals in a single LLM call instead of 1:1.
@@ -406,7 +404,7 @@ products/signals/
 │   └── temporal/
 │       ├── __init__.py             # Registers all workflows and activities (WORKFLOWS + ACTIVITIES lists)
 │       ├── emit_eval_signal.py     # EmitEvalSignalWorkflow + activity — LLMA eval → signal (fire-and-forget from evals queue)
-│       ├── grouping.py             # TeamSignalGroupingWorkflow, EmitSignalWorkflow (legacy) + grouping activities
+│       ├── grouping.py             # TeamSignalGroupingWorkflow + grouping activities
 │       ├── llm.py                  # call_llm() helper + shared LLM config + grouping LLM calls
 │       ├── summary.py              # SignalReportSummaryWorkflow + state management activities
 │       ├── summarize_signals.py    # Summarization LLM prompt + activity
