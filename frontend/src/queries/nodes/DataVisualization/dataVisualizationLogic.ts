@@ -789,7 +789,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         yData: [
             (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings],
-            (ySeries, response, columns, chartSettings): AxisSeries<number>[] => {
+            (ySeries, response, columns, chartSettings): AxisSeries<number | null>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
                 }
@@ -846,7 +846,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                             settings: series.settings,
                         }
                     })
-                    .filter((series): series is AxisSeries<number> => Boolean(series))
+                    .filter((series): series is AxisSeries<number | null> => Boolean(series))
             },
         ],
         xData: [
