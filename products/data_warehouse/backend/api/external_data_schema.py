@@ -200,21 +200,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if should_sync is True and sync_type is None and instance.sync_type is None and source.supports_scheduled_sync:
             raise ValidationError("Sync type must be set up first before enabling schema")
 
-        # Direct query sources never create Temporal schedules. Toggling the schema
-        # only exposes or hides the live table definition.
-        should_expose_direct_table = should_sync is True and instance.should_sync is False and source.is_direct_query
-        if should_expose_direct_table and source.is_direct_postgres:
-            expected_columns = postgres_schema_metadata_to_dwh_columns(instance.schema_metadata)
-            validated_data["table"] = upsert_direct_postgres_table(
-                instance.table,
-                schema_name=instance.name,
-                source=source,
-                columns=expected_columns,
-            )
+        # Direct query sources never create Temporal schedules.
+        # Toggling the schema only exposes or hides the live table definition.
+        # We use "should_sync" to determine if the table should be exposed or hidden.
+        if source.is_direct_postgres:
+            if should_sync is True and instance.should_sync is False:
+                validated_data["table"] = upsert_direct_postgres_table(
+                    instance.table,
+                    schema_name=instance.name,
+                    source=source,
+                    columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
+                )
 
-        should_hide_direct_table = should_sync is False and instance.should_sync is True and source.is_direct_query
-        if should_hide_direct_table and source.is_direct_postgres:
-            hide_direct_postgres_table(instance.table)
+            if should_sync is False and instance.should_sync is True:
+                hide_direct_postgres_table(instance.table)
 
         if source.supports_scheduled_sync:
             schedule_exists = external_data_workflow_exists(str(instance.id))
