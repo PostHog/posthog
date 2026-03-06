@@ -554,6 +554,11 @@ class ConsumerGroup(typing.Protocol[_C]):
 
         records_left = self.settings.total_size_records - self.records_exported
         time_left = self.settings.target_duration_seconds - self.time_elapsed
+
+        if time_left <= 0:
+            # Overshot target, scale to max
+            return self.settings.max_consumers - self.number_of_consumers
+
         target_records_consumption_rate = records_left / time_left
 
         records_consumption_rate_per_consumer = self.records_exported_per_second_window / self.number_of_consumers
