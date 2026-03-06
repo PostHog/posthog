@@ -149,8 +149,9 @@ const actionDelete = (): ToolBase<typeof ActionDeleteSchema, unknown> => ({
     handler: async (context: Context, params: z.infer<typeof ActionDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
-            method: 'DELETE',
+            method: 'PATCH',
             path: `/api/projects/${projectId}/actions/${params.id}/`,
+            body: { deleted: true },
         })
         return result
     },

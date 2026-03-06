@@ -88,6 +88,7 @@ tools:
     action-delete:
         operation: actions_destroy
         enabled: true
+        soft_delete: true
         scopes:
             - action:write
         annotations:
