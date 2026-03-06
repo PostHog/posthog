@@ -176,7 +176,7 @@ const CohortsRemovePersonFromStaticCohortPartialUpdateSchema =
 const cohortsRemovePersonFromStaticCohortPartialUpdate = (): ToolBase<
     typeof CohortsRemovePersonFromStaticCohortPartialUpdateSchema
 > => ({
-    name: 'cohorts-rem-person-from-static-cohort-partial-update',
+    name: 'cohorts-rm-person-from-static-cohort-partial-update',
     schema: CohortsRemovePersonFromStaticCohortPartialUpdateSchema,
     handler: async (
         context: Context,
@@ -205,5 +205,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cohorts-retrieve': cohortsRetrieve,
     'cohorts-partial-update': cohortsPartialUpdate,
     'cohorts-add-persons-to-static-cohort-partial-update': cohortsAddPersonsToStaticCohortPartialUpdate,
-    'cohorts-rem-person-from-static-cohort-partial-update': cohortsRemovePersonFromStaticCohortPartialUpdate,
+    'cohorts-rm-person-from-static-cohort-partial-update': cohortsRemovePersonFromStaticCohortPartialUpdate,
 }
