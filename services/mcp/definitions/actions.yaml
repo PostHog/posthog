@@ -88,7 +88,6 @@ tools:
     action-delete:
         operation: actions_destroy
         enabled: true
-        soft_delete: true
         scopes:
             - action:write
         annotations:
@@ -98,3 +97,4 @@ tools:
         title: Delete action
         description: |
             Delete an action by ID. The action will no longer appear in lists but historical data is preserved.
+        soft_delete: true
