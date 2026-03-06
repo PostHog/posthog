@@ -29,10 +29,8 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import (
-    ErrorTrackingQueryRunner,
-    search_tokenizer,
-)
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -44,7 +42,18 @@ from products.error_tracking.backend.models import (
 from ee.models.rbac.role import Role
 
 
-class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class ErrorTrackingQueryRunnerTestsMixin:
+    """Pure test mixin — no Django test base.
+
+    Contains all shared test methods and helpers. Concrete subclasses mix this
+    with the appropriate Django test base (TestCase for V1, TransactionTestCase
+    for V2 so the CH postgres connector can see committed data).
+    """
+
+    __test__ = False
+
+    use_v2: bool = False
+
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
 
@@ -181,6 +190,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     personId=personId,
                     groupKey=groupKey,
                     groupTypeIndex=groupTypeIndex,
+                    useQueryV2=self.use_v2,
                 ),
             )
             .calculate()
@@ -496,7 +506,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=[self.distinct_id_one],
         )
         flush_persons_and_events()
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user)
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
 
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
@@ -512,7 +522,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         role = Role.objects.create(name="Test Team", organization=self.organization)
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role)
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role, team=self.team)
 
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
@@ -708,6 +718,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
         self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
+
+
+class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, APIBaseTest):
+    """V1 path — pure CH aggregation, Postgres metadata fetched separately."""
+
+    __test__ = True
+    use_v2 = False
 
 
 class TestSearchTokenizer(TestCase):

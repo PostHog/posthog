@@ -41,6 +41,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => ({ orderDirection }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
+        setUseQueryV2: (useQueryV2: boolean) => ({ useQueryV2 }),
     }),
 
     reducers({
@@ -70,6 +71,13 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             { persist: true },
             {
                 setStatus: (_, { status }) => status,
+            },
+        ],
+        useQueryV2: [
+            false as boolean,
+            { persist: true },
+            {
+                setUseQueryV2: (_, { useQueryV2 }) => useQueryV2,
             },
         ],
     }),
