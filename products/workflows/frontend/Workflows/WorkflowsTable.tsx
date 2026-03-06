@@ -349,8 +349,9 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
             <LemonTable
                 dataSource={filteredWorkflows}
                 loading={workflowsLoading}
+                rowKey="id"
                 columns={columns}
-                defaultSorting={{ columnKey: 'status', order: 1 }}
+                defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
             />
             {archivedWorkflows.length > 0 && (
                 <LemonCollapse
