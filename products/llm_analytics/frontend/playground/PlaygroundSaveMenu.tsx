@@ -14,6 +14,16 @@ import { urls } from 'scenes/urls'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
 
+function getLinkedEvaluationLabel(name: string | null, id: string | null): string {
+    if (name) {
+        return `evaluation "${name}"`
+    }
+    if (id) {
+        return `evaluation ${id.slice(0, 8)}`
+    }
+    return 'linked evaluation'
+}
+
 export function getLinkedSourceLabel(source: {
     promptId: string | null
     promptName: string | null
@@ -57,11 +67,7 @@ export function PlaygroundSaveMenu({
     const hasLinkedSource = !!linkedPromptId || !!linkedEvaluationId
 
     const linkedPromptLabel = linkedPromptName ?? 'linked prompt'
-    const linkedEvaluationLabel = linkedEvaluationName
-        ? `evaluation "${linkedEvaluationName}"`
-        : linkedEvaluationId
-          ? `evaluation ${linkedEvaluationId.slice(0, 8)}`
-          : 'linked evaluation'
+    const linkedEvaluationLabel = getLinkedEvaluationLabel(linkedEvaluationName, linkedEvaluationId)
 
     const { source_prompt_id: _, source_evaluation_id: __, ...cleanSearchParams } = searchParams
 
