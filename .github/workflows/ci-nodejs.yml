@@ -150,7 +150,7 @@ jobs:
                 shard: [1, 2, 3]
 
         env:
-            REDIS_URL: 'rediss://localhost'
+            REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
@@ -310,7 +310,7 @@ jobs:
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
                   PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
-                  REDIS_URL: 'rediss://localhost'
+                  REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
@@ -326,7 +326,7 @@ jobs:
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
                   PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
-                  REDIS_URL: 'rediss://localhost'
+                  REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   LOG_LEVEL: info
               run: cd nodejs && pnpm run test:postgres-parity
