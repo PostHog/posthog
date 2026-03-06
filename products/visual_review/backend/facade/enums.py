@@ -40,4 +40,4 @@ class ReviewState(StrEnum):
 
     PENDING = "pending"  # Not yet reviewed
     APPROVED = "approved"  # Accepted the change
-    # REJECTED = "rejected"  # Future: explicitly rejected (uncomment when needed)
+    REJECTED = "rejected"  # Explicitly rejected

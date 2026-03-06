@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonSegmentedButton, LemonSlider, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSlider, LemonSwitch, LemonTag, type LemonTagType } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -24,7 +24,7 @@ const RESULT_LABELS: Record<VisualDiffResult, string> = {
     unchanged: 'Unchanged',
 }
 
-const RESULT_TAG_TYPES: Record<VisualDiffResult, 'warning' | 'primary' | 'danger' | 'success'> = {
+const RESULT_TAG_TYPES: Record<VisualDiffResult, LemonTagType> = {
     changed: 'warning',
     new: 'primary',
     removed: 'danger',

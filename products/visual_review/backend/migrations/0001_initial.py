@@ -33,6 +33,7 @@ class Migration(migrations.Migration):
                 ("repo_external_id", models.BigIntegerField()),
                 ("repo_full_name", models.CharField(max_length=255)),
                 ("baseline_file_paths", models.JSONField(blank=True, default=dict)),
+                ("signing_keys", models.JSONField(blank=True, default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
@@ -195,7 +196,7 @@ class Migration(migrations.Migration):
                 (
                     "review_state",
                     models.CharField(
-                        choices=[("pending", "pending"), ("approved", "approved")],
+                        choices=[("pending", "pending"), ("approved", "approved"), ("rejected", "rejected")],
                         default=products.visual_review.backend.facade.enums.ReviewState["PENDING"],
                         max_length=20,
                     ),
