@@ -3217,6 +3217,292 @@
                                                 }
                                             },
                                             "required": ["kind", "series"]
+                                        },
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "dateRange": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "date_from": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "date_to": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "explicitDate": {
+                                                            "type": "boolean"
+                                                        }
+                                                    }
+                                                },
+                                                "filterTestAccounts": {
+                                                    "default": false,
+                                                    "type": "boolean"
+                                                },
+                                                "properties": {
+                                                    "default": [],
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "number"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "array",
+                                                                                                "items": {
+                                                                                                    "type": "string"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "array",
+                                                                                                "items": {
+                                                                                                    "type": "number"
+                                                                                                }
+                                                                                            }
+                                                                                        ]
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "null"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "operator": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key"]
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "type": {
+                                                                                "type": "string",
+                                                                                "enum": ["AND", "OR"]
+                                                                            },
+                                                                            "values": {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "key": {
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "anyOf": [
+                                                                                                {
+                                                                                                    "anyOf": [
+                                                                                                        {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        {
+                                                                                                            "type": "number"
+                                                                                                        },
+                                                                                                        {
+                                                                                                            "type": "array",
+                                                                                                            "items": {
+                                                                                                                "type": "string"
+                                                                                                            }
+                                                                                                        },
+                                                                                                        {
+                                                                                                            "type": "array",
+                                                                                                            "items": {
+                                                                                                                "type": "number"
+                                                                                                            }
+                                                                                                        }
+                                                                                                    ]
+                                                                                                },
+                                                                                                {
+                                                                                                    "type": "null"
+                                                                                                }
+                                                                                            ]
+                                                                                        },
+                                                                                        "operator": {
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        "type": {
+                                                                                            "type": "string"
+                                                                                        }
+                                                                                    },
+                                                                                    "required": ["key"]
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        "required": ["type", "values"]
+                                                                    }
+                                                                ]
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "type": {
+                                                                    "type": "string",
+                                                                    "enum": ["AND", "OR"]
+                                                                },
+                                                                "values": {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "key": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "value": {
+                                                                                "anyOf": [
+                                                                                    {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "number"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "array",
+                                                                                                "items": {
+                                                                                                    "type": "string"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "array",
+                                                                                                "items": {
+                                                                                                    "type": "number"
+                                                                                                }
+                                                                                            }
+                                                                                        ]
+                                                                                    },
+                                                                                    {
+                                                                                        "type": "null"
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "operator": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": ["key"]
+                                                                    }
+                                                                }
+                                                            },
+                                                            "required": ["type", "values"]
+                                                        }
+                                                    ]
+                                                },
+                                                "kind": {
+                                                    "type": "string",
+                                                    "const": "PathsQuery"
+                                                },
+                                                "pathsFilter": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "includeEventTypes": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "$pageview",
+                                                                    "$screen",
+                                                                    "custom_event",
+                                                                    "hogql"
+                                                                ]
+                                                            }
+                                                        },
+                                                        "pathsHogQLExpression": {
+                                                            "description": "A HogQL expression to use as the path step name. Requires includeEventTypes to contain \"hogql\".",
+                                                            "type": "string"
+                                                        },
+                                                        "startPoint": {
+                                                            "description": "Only show paths starting at this step",
+                                                            "type": "string"
+                                                        },
+                                                        "endPoint": {
+                                                            "description": "Only show paths ending at this step",
+                                                            "type": "string"
+                                                        },
+                                                        "stepLimit": {
+                                                            "default": 5,
+                                                            "description": "Maximum number of path steps (default 5)",
+                                                            "type": "number"
+                                                        },
+                                                        "edgeLimit": {
+                                                            "default": 50,
+                                                            "description": "Maximum number of edges to return (default 50)",
+                                                            "type": "number"
+                                                        },
+                                                        "excludeEvents": {
+                                                            "description": "Events to exclude from the path",
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "pathGroupings": {
+                                                            "description": "Wildcard groups to merge similar path steps",
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "localPathCleaningFilters": {
+                                                            "description": "Regex rules to clean/simplify path step names",
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "alias": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "regex": {
+                                                                        "type": "string"
+                                                                    }
+                                                                }
+                                                            }
+                                                        },
+                                                        "minEdgeWeight": {
+                                                            "type": "number"
+                                                        },
+                                                        "maxEdgeWeight": {
+                                                            "type": "number"
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "required": ["kind"]
                                         }
                                     ]
                                 }
