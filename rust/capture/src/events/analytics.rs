@@ -13,11 +13,8 @@ use tracing::{error, instrument, Span};
 
 use crate::{
     api::CaptureError,
-    config::CaptureMode,
     debug_or_info, error_tracking_sampler,
-    event_restrictions::{
-        AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
-    },
+    event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     prometheus::report_dropped_events,
     router, sinks,
     utils::uuid_v7,
