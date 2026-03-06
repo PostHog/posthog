@@ -2189,6 +2189,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "BoxPlot",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -2280,7 +2284,8 @@
                         "ActionsTable",
                         "WorldMap",
                         "CalendarHeatmap",
-                        "TwoDimensionalHeatmap"
+                        "TwoDimensionalHeatmap",
+                        "BoxPlot"
                     ],
                     "type": "string"
                 },
@@ -2512,6 +2517,37 @@
         "BingAdsTableKeywords": {
             "enum": ["campaigns"],
             "type": "string"
+        },
+        "BoxPlotDatum": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "max": {
+                    "type": "number"
+                },
+                "mean": {
+                    "type": "number"
+                },
+                "median": {
+                    "type": "number"
+                },
+                "min": {
+                    "type": "number"
+                },
+                "p25": {
+                    "type": "number"
+                },
+                "p75": {
+                    "type": "number"
+                }
+            },
+            "required": ["day", "label", "min", "p25", "median", "p75", "max", "mean"],
+            "type": "object"
         },
         "Breakdown": {
             "additionalProperties": false,
@@ -6995,6 +7031,13 @@
         "CachedTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "boxplot_data": {
+                    "description": "Box plot data when display type is BoxPlot",
+                    "items": {
+                        "$ref": "#/definitions/BoxPlotDatum"
+                    },
+                    "type": "array"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -8144,7 +8187,8 @@
                 "ActionsTable",
                 "WorldMap",
                 "CalendarHeatmap",
-                "TwoDimensionalHeatmap"
+                "TwoDimensionalHeatmap",
+                "BoxPlot"
             ],
             "type": "string"
         },
@@ -12781,9 +12825,6 @@
                 "name": {
                     "type": ["string", "null"]
                 },
-                "revenue": {
-                    "type": "number"
-                },
                 "source": {
                     "type": "string"
                 },
@@ -12994,7 +13035,7 @@
                     "type": "array"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
@@ -13081,7 +13122,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
@@ -13093,14 +13134,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
-                },
-                "revenueEntity": {
-                    "enum": ["person", "group_0", "group_1", "group_2", "group_3", "group_4"],
-                    "type": "string"
-                },
-                "revenuePeriod": {
-                    "enum": ["all_time", "mrr"],
-                    "type": "string"
                 },
                 "searchQuery": {
                     "type": "string"
@@ -15863,6 +15896,7 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
+                "visual_review",
                 "settings",
                 "health",
                 "inbox",
@@ -23249,6 +23283,7 @@
                 "teams",
                 "toolbar",
                 "user_interviews",
+                "visual_review",
                 "web_analytics",
                 "workflows"
             ],
@@ -27064,6 +27099,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "boxplot_data": {
+                            "description": "Box plot data when display type is BoxPlot",
+                            "items": {
+                                "$ref": "#/definitions/BoxPlotDatum"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -33351,6 +33393,13 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "boxplot_data": {
+                    "description": "Box plot data when display type is BoxPlot",
+                    "items": {
+                        "$ref": "#/definitions/BoxPlotDatum"
+                    },
+                    "type": "array"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"

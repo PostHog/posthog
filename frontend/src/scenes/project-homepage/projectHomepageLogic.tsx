@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
@@ -35,6 +37,8 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             ['currentProjectId'],
             dashboardsModel,
             ['rawDashboards', 'dashboardsLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
 
@@ -83,6 +87,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         ],
         maxContext: [
             (s) => [
+                s.featureFlags,
                 (state) => {
                     // Get the dashboard from the mounted dashboardLogic
                     const dashboardLogicProps = s.dashboardLogicProps(state)
@@ -96,7 +101,14 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                     return logic.selectors.dashboard(state)
                 },
             ],
-            (dashboard: DashboardType<QueryBasedInsightModel> | null): MaxContextInput[] => {
+            (
+                featureFlags: Record<string, any>,
+                dashboard: DashboardType<QueryBasedInsightModel> | null
+            ): MaxContextInput[] => {
+                // In AI-first mode, context should only be added explicitly via @Context button
+                if (featureFlags[FEATURE_FLAGS.AI_FIRST]) {
+                    return []
+                }
                 if (!dashboard) {
                     return []
                 }
