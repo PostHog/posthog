@@ -144,6 +144,10 @@ class ReplaceFilters(CloningVisitor):
                 )
 
             if self.filters.filterTestAccounts:
+                if not found_events:
+                    raise QueryError(
+                        "Filtering out internal and test users is only supported for queries that select from the events table."
+                    )
                 for prop in self.team.test_account_filters or []:
                     exprs.append(property_to_expr(prop, self.team))
 

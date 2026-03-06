@@ -35,7 +35,6 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
@@ -292,16 +291,9 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { setActiveTab } = useActions(outputPaneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        sourceQuery,
-        exportContext,
-        editingInsight,
-        insightLoading,
-        updateInsightButtonEnabled,
-        showLegacyFilters,
-        hasQueryInput,
-    } = useValues(sqlEditorLogic)
-    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
+    const { sourceQuery, exportContext, editingInsight, insightLoading, updateInsightButtonEnabled, hasQueryInput } =
+        useValues(sqlEditorLogic)
+    const { saveAsInsight, updateInsight, setSourceQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -494,7 +486,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             <div
                                 key={tab.key}
                                 className={clsx(
-                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
+                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap text-xs',
                                     {
                                         'font-semibold !border-brand-yellow': tab.key === activeTab,
                                         'border-transparent': tab.key !== activeTab,
@@ -507,20 +499,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             </div>
                         ))}
                 </div>
-                <div className="flex gap-2 py-2 px-4 flex-shrink-0">
-                    {showLegacyFilters && (
-                        <DateRange
-                            key="date-range"
-                            query={sourceQuery.source}
-                            setQuery={(query) => {
-                                setSourceQuery({
-                                    ...sourceQuery,
-                                    source: query,
-                                })
-                                runQuery(query.query)
-                            }}
-                        />
-                    )}
+                <div className="flex gap-2 py-1 px-4 flex-shrink-0 items-center">
                     {activeTab === OutputTab.Visualization && (
                         <>
                             <div className="flex justify-between flex-wrap">
@@ -529,11 +508,13 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                     <div className="flex gap-2 items-center flex-wrap">
                                         <TableDisplay
                                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                                            size="xsmall"
                                         />
 
                                         <LemonButton
                                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
                                             type="secondary"
+                                            size="xsmall"
                                             icon={<IconGear />}
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
@@ -549,6 +530,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                                 }
                                                 loading={insightLoading}
                                                 type="primary"
+                                                size="xsmall"
                                                 onClick={() => updateInsight()}
                                                 id="sql-editor-update-insight"
                                                 sideAction={{
@@ -573,6 +555,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                             <LemonButton
                                                 disabledReason={!hasColumns ? 'No results to save' : undefined}
                                                 type="primary"
+                                                size="xsmall"
                                                 onClick={() => saveAsInsight()}
                                                 id="sql-editor-save-insight"
                                             >
@@ -594,6 +577,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                       : undefined
                             }
                             type="secondary"
+                            size="xsmall"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
                             id={`sql-editor-${editingInsight || insightLoading ? 'view' : 'create'}-insight`}
                             icon={<IconGraph />}
@@ -619,6 +603,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 id="sql-editor-copy-dropdown"
                                 disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
                                 type="secondary"
+                                size="xsmall"
                                 icon={<IconCopy />}
                             />
                         </LemonMenu>
@@ -629,6 +614,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 id="sql-editor-export"
                                 disabledReason={!hasColumns ? 'No results to export' : undefined}
                                 type="secondary"
+                                size="xsmall"
                                 icon={<IconDownload />}
                                 sideIcon={null}
                                 buttonCopy=""
@@ -651,6 +637,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 id="sql-editor-share"
                                 disabledReason={!hasQueryInput && 'No query to share'}
                                 type="secondary"
+                                size="xsmall"
                                 icon={<IconShare />}
                                 onClick={() => shareTab()}
                             />
