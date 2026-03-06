@@ -1,9 +1,9 @@
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pytest import MonkeyPatch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
@@ -69,13 +69,9 @@ def pass2_context() -> PassContext:
 class TestLoadPreviousPassResults:
     """Test load_previous_pass_results function."""
 
-    def test_load_previous_pass_results_no_previous(
-        self, temp_review_dir: Path
-    ) -> None:
+    def test_load_previous_pass_results_no_previous(self, temp_review_dir: Path) -> None:
         """Test loading when no previous passes exist (first pass)."""
-        results = load_previous_pass_results(
-            review_dir=temp_review_dir, current_pass=1, chunks_count=2
-        )
+        results = load_previous_pass_results(review_dir=temp_review_dir, current_pass=1, chunks_count=2)
         assert results == []
 
     def test_load_previous_pass_results_single_pass(
@@ -92,17 +88,13 @@ class TestLoadPreviousPassResults:
             chunk_file.write_text(sample_issues_review_simple.model_dump_json())
 
         # Load for pass 2
-        results = load_previous_pass_results(
-            review_dir=temp_review_dir, current_pass=2, chunks_count=2
-        )
+        results = load_previous_pass_results(review_dir=temp_review_dir, current_pass=2, chunks_count=2)
 
         assert len(results) == 1
         assert results[0].pass_number == 1
         assert results[0].pass_type == PassType.LOGIC_CORRECTNESS
         # Count must_fix issues (1 issue per chunk)
-        must_fix_count = sum(
-            1 for issue in results[0].issues if issue.priority == IssuePriority.MUST_FIX
-        )
+        must_fix_count = sum(1 for issue in results[0].issues if issue.priority == IssuePriority.MUST_FIX)
         assert must_fix_count == 2
 
     def test_load_previous_pass_results_multiple_passes(
@@ -119,9 +111,7 @@ class TestLoadPreviousPassResults:
                 chunk_file.write_text(sample_issues_review_simple.model_dump_json())
 
         # Load for pass 3
-        results = load_previous_pass_results(
-            review_dir=temp_review_dir, current_pass=3, chunks_count=2
-        )
+        results = load_previous_pass_results(review_dir=temp_review_dir, current_pass=3, chunks_count=2)
 
         assert len(results) == 2
         assert results[0].pass_number == 1
@@ -141,12 +131,8 @@ class TestLoadPreviousPassResults:
         chunk_file.write_text(sample_issues_review_simple.model_dump_json())
 
         # Should raise error for missing chunk 2
-        with pytest.raises(
-            FileNotFoundError, match="Summary file not found for chunk 2"
-        ):
-            load_previous_pass_results(
-                review_dir=temp_review_dir, current_pass=2, chunks_count=2
-            )
+        with pytest.raises(FileNotFoundError, match="Summary file not found for chunk 2"):
+            load_previous_pass_results(review_dir=temp_review_dir, current_pass=2, chunks_count=2)
 
 
 class TestGeneratePrompts:
@@ -266,9 +252,7 @@ class TestGeneratePrompts:
         with monkeypatch.context() as m:
             m.setattr(Environment, "get_template", mock_get_template)
 
-            with pytest.raises(
-                FileNotFoundError, match="Could not load pass1_focus.jinja"
-            ):
+            with pytest.raises(FileNotFoundError, match="Could not load pass1_focus.jinja"):
                 await generate_prompts(
                     chunks_list=expected_chunks,
                     pr_metadata=pr_metadata,
@@ -316,15 +300,11 @@ class TestProcessChunk:
         review = IssuesReview.model_validate_json(output_path.read_text())
         assert review.issues is not None
         # Check we have at least one must_fix issue
-        must_fix_count = sum(
-            1 for issue in review.issues if issue.priority == IssuePriority.MUST_FIX
-        )
+        must_fix_count = sum(1 for issue in review.issues if issue.priority == IssuePriority.MUST_FIX)
         assert must_fix_count == 1
 
     @pytest.mark.asyncio
-    async def test_process_chunk_missing_prompt(
-        self, temp_review_dir: Path, temp_project_dir: Path
-    ) -> None:
+    async def test_process_chunk_missing_prompt(self, temp_review_dir: Path, temp_project_dir: Path) -> None:
         """Test error when prompt file is missing."""
         prompt_path = temp_review_dir / "nonexistent-prompt.md"
         output_path = temp_review_dir / "output.json"
@@ -427,9 +407,7 @@ class TestReviewChunksPass:
         existing_result = results_dir / "chunk-1-issues-review.json"
         existing_result.write_text(sample_issues_review_simple.model_dump_json())
 
-        mock_run_claude = AsyncMock(
-            side_effect=create_mock_run_code(sample_issues_review_simple)
-        )
+        mock_run_claude = AsyncMock(side_effect=create_mock_run_code(sample_issues_review_simple))
         with patch("app.tools.issues_review.CodeExecutor.run_code", mock_run_claude):
             await review_chunks_pass(
                 chunks_data=expected_chunks,
@@ -542,11 +520,7 @@ class TestReviewChunks:
         # Verify all passes completed
         for pass_num in [1, 2, 3]:
             assert (temp_review_dir / f"pass{pass_num}_results").exists()
-            result_file = (
-                temp_review_dir
-                / f"pass{pass_num}_results"
-                / "chunk-1-issues-review.json"
-            )
+            result_file = temp_review_dir / f"pass{pass_num}_results" / "chunk-1-issues-review.json"
             assert result_file.exists()
 
     @pytest.mark.asyncio
@@ -648,17 +622,9 @@ class TestEndToEnd:
 
             # Determine pass number from output path or prompt content
             pass_num = 1
-            if (
-                "pass2" in output_path_str
-                or "Pass 2:" in prompt
-                or "PASS_NUMBER=2" in prompt
-            ):
+            if "pass2" in output_path_str or "Pass 2:" in prompt or "PASS_NUMBER=2" in prompt:
                 pass_num = 2
-            elif (
-                "pass3" in output_path_str
-                or "Pass 3:" in prompt
-                or "PASS_NUMBER=3" in prompt
-            ):
+            elif "pass3" in output_path_str or "Pass 3:" in prompt or "PASS_NUMBER=3" in prompt:
                 pass_num = 3
 
             review = reviews_by_pass[pass_num]
@@ -692,11 +658,7 @@ class TestEndToEnd:
 
             # Check all chunks have results
             for chunk in expected_chunks.chunks:
-                result_file = (
-                    temp_review_dir
-                    / f"pass{pass_num}_results"
-                    / f"chunk-{chunk.chunk_id}-issues-review.json"
-                )
+                result_file = temp_review_dir / f"pass{pass_num}_results" / f"chunk-{chunk.chunk_id}-issues-review.json"
                 assert result_file.exists()
 
                 # Verify content matches expected pass
@@ -706,43 +668,24 @@ class TestEndToEnd:
 
                 # Verify issue types by pass
                 if pass_num == 1:
-                    assert any(
-                        issue.priority == IssuePriority.MUST_FIX
-                        for issue in review.issues
-                    )
+                    assert any(issue.priority == IssuePriority.MUST_FIX for issue in review.issues)
                 elif pass_num == 2:
-                    assert any(
-                        issue.priority == IssuePriority.SHOULD_FIX
-                        for issue in review.issues
-                    )
+                    assert any(issue.priority == IssuePriority.SHOULD_FIX for issue in review.issues)
                 elif pass_num == 3:
-                    assert any(
-                        issue.priority == IssuePriority.CONSIDER
-                        for issue in review.issues
-                    )
+                    assert any(issue.priority == IssuePriority.CONSIDER for issue in review.issues)
 
             # Check prompts were generated
             for chunk in expected_chunks.chunks:
-                prompt_file = (
-                    temp_review_dir
-                    / f"pass{pass_num}_prompts"
-                    / f"chunk-{chunk.chunk_id}-code-prompt.md"
-                )
+                prompt_file = temp_review_dir / f"pass{pass_num}_prompts" / f"chunk-{chunk.chunk_id}-code-prompt.md"
                 assert prompt_file.exists()
 
                 # Verify prompt contains correct pass info
                 content = prompt_file.read_text()
-                assert (
-                    f"Pass {pass_num}" in content
-                    or f"PASS_NUMBER={pass_num}" in content
-                )
+                assert f"Pass {pass_num}" in content or f"PASS_NUMBER={pass_num}" in content
 
                 # Verify previous context included for pass 2 and 3
                 if pass_num > 1:
-                    assert (
-                        "previous_passes_context" in content
-                        or "PREVIOUS_PASSES_CONTEXT" in content
-                    )
+                    assert "previous_passes_context" in content or "PREVIOUS_PASSES_CONTEXT" in content
 
         # Verify context accumulation (pass 3 should have context from pass 1 and 2)
         last_prompt = temp_review_dir / "pass3_prompts" / "chunk-1-code-prompt.md"

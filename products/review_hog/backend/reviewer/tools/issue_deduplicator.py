@@ -169,5 +169,5 @@ IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema.""
 
         return True
     except Exception as e:
-        logger.error(f"Error running issue deduplication: {e}")
+        logger.exception(f"Error running issue deduplication: {e}")
         return False

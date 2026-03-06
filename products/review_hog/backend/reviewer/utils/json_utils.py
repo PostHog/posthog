@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
+import re
 import json
 import logging
-import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any

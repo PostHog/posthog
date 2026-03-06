@@ -124,7 +124,8 @@ def _is_issue_in_scope(issue: Issue, modified_files: dict[str, list[tuple[int, i
             # Two ranges overlap if: start1 <= end2 AND start2 <= end1
             if issue_start <= pr_end and pr_start <= issue_end:
                 logger.debug(
-                    f"Issue {issue.id} is in scope: lines [{issue_start}-{issue_end}] overlap with changes [{pr_start}, {pr_end}]"
+                    f"Issue {issue.id} is in scope: lines [{issue_start}-{issue_end}]"
+                    f" overlap with changes [{pr_start}, {pr_end}]"
                 )
                 return True
 

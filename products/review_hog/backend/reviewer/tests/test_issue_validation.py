@@ -2,19 +2,16 @@ import json
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any, Literal
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from jinja2 import select_autoescape
 
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import (
-    Issue,
-    IssuePriority,
-    LineRange,
-)
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_code
 from products.review_hog.backend.reviewer.tools.issue_validation import (

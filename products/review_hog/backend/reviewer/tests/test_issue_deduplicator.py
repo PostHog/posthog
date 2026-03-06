@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
+from unittest.mock import patch
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
@@ -353,9 +353,7 @@ class TestIssueDeduplicator:
                 f.write(result.model_dump_json())
             return True
 
-        with patch(
-            "app.tools.issue_deduplicator.CodeExecutor.run_code", capture_prompt
-        ):
+        with patch("app.tools.issue_deduplicator.CodeExecutor.run_code", capture_prompt):
             # Run deduplication
             await deduplicate_issues(
                 pr_metadata=pr_metadata,
@@ -407,9 +405,7 @@ class TestIssueDeduplicator:
                 f.write(result.model_dump_json())
             return True
 
-        with patch(
-            "app.tools.issue_deduplicator.CodeExecutor.run_code", capture_prompt
-        ):
+        with patch("app.tools.issue_deduplicator.CodeExecutor.run_code", capture_prompt):
             # Run deduplication
             await deduplicate_issues(
                 pr_metadata=pr_metadata,

@@ -1,13 +1,14 @@
 """Tests for app.llm.code module with focus on semaphore functionality."""
 
+import os
 import asyncio
 import importlib
-import os
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
+from unittest.mock import patch
+
 from pydantic import BaseModel
 
 import products.review_hog.backend.reviewer.llm.code as code_module
@@ -113,9 +114,7 @@ class TestSemaphoreFunctionality:
                 # With limit of 1, executions should not overlap
                 # Each task should complete before next starts
                 for i in range(len(execution_order) - 1):
-                    if execution_order[i].startswith("end_") and i + 1 < len(
-                        execution_order
-                    ):
+                    if execution_order[i].startswith("end_") and i + 1 < len(execution_order):
                         # After an end, next should be a start (not another end)
                         assert execution_order[i + 1].startswith("start_")
 

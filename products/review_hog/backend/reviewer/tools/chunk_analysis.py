@@ -38,7 +38,7 @@ async def analyze_chunks(
         )
         logger.info(f"Generated {len(prompt_paths)} prompts for chunk analysis")
     except Exception as e:
-        logger.error(f"Failed to generate chunk analysis prompts: {e}")
+        logger.exception(f"Failed to generate chunk analysis prompts: {e}")
         raise
 
     # Prepare tasks for async processing
@@ -177,7 +177,7 @@ IMPORTANT: Return ONLY valid JSON output without any markdown formatting or expl
             logger.error(f"Failed to analyze chunk {chunk_id} using sandbox")
             return False
     except Exception as e:
-        logger.error(f"Failed to analyze chunk {chunk_id} using sandbox: {e}")
+        logger.exception(f"Failed to analyze chunk {chunk_id} using sandbox: {e}")
         return False
     # Final success message
     logger.info(f"Chunk {chunk_id} analyzed successfully!")

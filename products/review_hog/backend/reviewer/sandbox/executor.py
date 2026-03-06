@@ -36,7 +36,7 @@ async def run_sandbox_review(
         try:
             last_message, full_log = await run_review(prompt=full_prompt, branch=branch)
         except Exception as e:
-            logger.error(f"Sandbox execution failed: {e}")
+            logger.exception(f"Sandbox execution failed: {e}")
             return False
 
         # Save full logs for debugging
@@ -65,5 +65,5 @@ async def run_sandbox_review(
             error_path = str(output_path).replace(".json", "_error.txt")
             with Path(error_path).open("w") as f:
                 f.write(last_message)
-            logger.error(f"Error processing sandbox output: {e}")
+            logger.exception(f"Error processing sandbox output: {e}")
             return False

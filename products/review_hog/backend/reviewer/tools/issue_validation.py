@@ -174,5 +174,5 @@ IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema.""
             return False
         return True
     except Exception as e:
-        logger.error(f"Error validating chunk {chunk_index} issue {issue_index}: {e}")
+        logger.exception(f"Error validating chunk {chunk_index} issue {issue_index}: {e}")
         return False

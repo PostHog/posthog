@@ -7,7 +7,10 @@ from pydantic import BaseModel, Field
 class IssueValidation(BaseModel):
     is_valid: bool = Field(description="Whether the suggested change should be implemented (true) or dismissed (false)")
     argumentation: str = Field(
-        description="Focused, concise explanation covering why the change should be implemented or dismissed. Should include technical reasoning and potential impact."
+        description=(
+            "Focused, concise explanation covering why the change should be implemented or dismissed."
+            " Should include technical reasoning and potential impact."
+        )
     )
     category: (
         Literal[
