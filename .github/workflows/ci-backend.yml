@@ -159,6 +159,7 @@ jobs:
                         - 'common/migration_utils/**/*'
                         - 'common/ingestion/**/*'
                         - 'common/__init__.py'
+                        - 'common/plugin_transpiler/src'
                         - 'posthog/**/*'
                         - 'bin/*.py'
                         - pyproject.toml
@@ -174,6 +175,7 @@ jobs:
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
                         - docker-compose.base.yml
+                        - docker/clickhouse
 
     detect-snapshot-mode:
         name: Detect snapshot mode
