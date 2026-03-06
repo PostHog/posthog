@@ -65,7 +65,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
         },
     })
 
-    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic(props))
+    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
 
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params } = useValues(logic)
     const { setParams } = useActions(logic)

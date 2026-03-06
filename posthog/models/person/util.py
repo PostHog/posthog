@@ -109,7 +109,7 @@ if TEST:
             # Round to the hour for last_seen_at
             last_seen_at = dt.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S.%f")
             person_inserts.append(
-                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0, '{last_seen_at}', '', '', '', '', '')"
+                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0, '{last_seen_at}')"
             )
 
         PersonDistinctId.objects.bulk_create(distinct_ids)
@@ -134,11 +134,6 @@ def create_person(
     timestamp: Optional[Union[datetime.datetime, str]] = None,
     created_at: Optional[datetime.datetime] = None,
     last_seen_at: Optional[datetime.datetime] = None,
-    group_0_key: str = "",
-    group_1_key: str = "",
-    group_2_key: str = "",
-    group_3_key: str = "",
-    group_4_key: str = "",
 ) -> str:
     if properties is None:
         properties = {}
@@ -177,11 +172,6 @@ def create_person(
         "version": version,
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         "last_seen_at": last_seen_at_formatted,
-        "group_0_key": group_0_key,
-        "group_1_key": group_1_key,
-        "group_2_key": group_2_key,
-        "group_3_key": group_3_key,
-        "group_4_key": group_4_key,
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
