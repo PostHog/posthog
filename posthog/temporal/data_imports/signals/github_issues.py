@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from structlog import get_logger
@@ -8,10 +9,13 @@ logger = get_logger(__name__)
 
 GITHUB_IGNORED_STATES = ("closed",)
 
-GITHUB_SUMMARIZATION_PROMPT = """Summarize this GitHub issue into a concise description for semantic search.
-Capture the core problem or request, the product area affected, and key context like error messages or what the user was doing when the issue occurred.
+GITHUB_SUMMARIZATION_PROMPT = """Summarize this GitHub issue for semantic search.
+Output exactly two parts separated by a newline:
+1. A short title (under 100 characters) that captures the core issue
+2. A concise summary capturing the problem or request, the product area affected, and key context like error messages or what the user was doing when the issue occurred
+
 Strip raw logs, full stack traces, and large code blocks — but keep specific error messages and high-level reproduction context if they clarify the issue.
-Keep the summary under {max_length} characters. Respond with only the summary text.
+Keep the total output under {max_length} characters. Respond with only the title and summary, nothing else.
 
 <issue>
 {description}
@@ -75,8 +79,32 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         source_id=str(issue_id),
         description=f"{title}\n{body}",
         weight=1.0,
-        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
+        extra=_build_extra(record),
     )
+
+
+def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
+    extra = {k: v for k, v in record.items() if k in EXTRA_FIELDS}
+    raw_labels = extra.get("labels")
+    if raw_labels is None:
+        extra["labels"] = []
+    elif isinstance(raw_labels, str):
+        try:
+            parsed = json.loads(raw_labels)
+        except (json.JSONDecodeError, TypeError) as e:
+            msg = f"GitHub issue labels field is not valid JSON: {raw_labels!r}"
+            logger.exception(msg, record=record, signals_type="data-import-signals")
+            raise ValueError(msg) from e
+        if not isinstance(parsed, list):
+            msg = f"GitHub issue labels field is not a JSON array: {raw_labels!r}"
+            logger.exception(msg, record=record, signals_type="data-import-signals")
+            raise ValueError(msg)
+        extra["labels"] = [label["name"] for label in parsed if isinstance(label, dict) and "name" in label]
+    else:
+        msg = f"GitHub issue labels field has unexpected type {type(raw_labels).__name__}: {raw_labels!r}"
+        logger.exception(msg, record=record, signals_type="data-import-signals")
+        raise ValueError(msg)
+    return extra
 
 
 GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(

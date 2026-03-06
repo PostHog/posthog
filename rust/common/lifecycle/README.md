@@ -231,6 +231,50 @@ async fn consumer_loop(handle: lifecycle::Handle) {
 
 After `signal_failure()`, just return — the manager records the failure immediately and the subsequent handle drop is harmlessly ignored. For normal shutdown or `request_shutdown()`, just return too — drop during shutdown is treated as completion. For one-shot/finite work that completes during normal operation, call `work_completed()` to prevent the drop from signaling "died". (see test `direct_work_completed_prevents_died_on_drop`)
 
+### Pull-based worker pattern (poll-for-work loop)
+
+Use when your component polls for work (e.g. claim a job from a queue, process it, loop) rather than receiving pushed messages.
+The key difference from the push-based patterns above: there's no inner `tokio::select!` on the work itself — instead, check `is_shutting_down()` at logical boundaries between units of work.
+Active health reporting (`with_liveness_deadline`) is typically not needed here — individual network clients (S3, Kafka, PG) should have their own timeouts as the defense against hangs.
+
+```rust
+let job_handle = manager.register(
+    "job-loop",
+    ComponentOptions::new()
+        .with_graceful_shutdown(Duration::from_secs(30)),
+);
+let monitor = manager.monitor_background();
+
+tokio::spawn(async move {
+    let _guard = job_handle.process_scope();
+
+    while !job_handle.is_shutting_down() {
+        let Some(job) = claim_next_job().await else {
+            // No work available — sleep, but wake immediately on shutdown
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {},
+                _ = job_handle.shutdown_recv() => break,
+            }
+            continue;
+        };
+
+        // Process the job; check shutdown at logical boundaries
+        if let Err(e) = job.process().await {
+            tracing::error!("job failed: {e}");
+        }
+    }
+});
+
+monitor.wait().await?;
+```
+
+Key points:
+
+- **`process_scope()`** in the spawned task — the manager is notified when the task returns.
+- **`is_shutting_down()`** as the while-loop condition — sync check, no allocation.
+- **`tokio::select!`** on idle sleep + `shutdown_recv()` — responsive wakeup instead of sleeping through a shutdown signal.
+- **No `with_liveness_deadline`** — the worker is pull-based and may legitimately idle. Client-level timeouts (S3, PG, Kafka) prevent indefinite hangs in network calls.
+
 ### Handle API summary
 
 | Method                   | Use when                                                                                                                                                                                              |

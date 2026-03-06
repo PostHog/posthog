@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-04 10:10:04 UTC
+// Generated at: 2026-03-05 20:08:58 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -9,7 +9,6 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
-    | 'ambient-bf16'
     | 'anthropic'
     | 'arcee-ai-bf16'
     | 'arcee-ai-modal'
@@ -72,7 +71,6 @@ export type CanonicalProvider =
     | 'minimax-fp8'
     | 'minimax-highspeed'
     | 'mistral'
-    | 'modelrun-fp4'
     | 'moonshotai'
     | 'moonshotai-fp8'
     | 'moonshotai-int4'
