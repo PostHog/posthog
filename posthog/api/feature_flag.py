@@ -17,7 +17,6 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiRespo
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
-from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey, PropertyOperator
@@ -30,6 +29,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
@@ -543,7 +543,7 @@ class FeatureFlagSerializer(
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
-    analytics_dashboards = serializers.PrimaryKeyRelatedField(
+    analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
         queryset=Dashboard.objects.all(),
@@ -612,16 +612,6 @@ class FeatureFlagSerializer(
             "_should_create_usage_dashboard",
             "is_used_in_replay_settings",
         ]
-
-    def get_fields(self):
-        fields = super().get_fields()
-        analytics_dashboards_field = cast(ManyRelatedField, fields["analytics_dashboards"])
-        if team_id := self.context.get("team_id"):
-            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.filter(team_id=team_id)
-        else:
-            # Fail safe: if no team context, allow no dashboards to prevent IDOR
-            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.none()
-        return fields
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         from typing import cast
