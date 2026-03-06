@@ -72,8 +72,16 @@ export function HogFunctionFilters({
     showTriggerOptions?: boolean
 }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, isLegacyPlugin } =
-        useValues(hogFunctionConfigurationLogic)
+    const {
+        configuration,
+        type,
+        useMapping,
+        filtersContainPersonProperties,
+        globalFiltersEventConflict,
+        oldFilters,
+        newFilters,
+        isLegacyPlugin,
+    } = useValues(hogFunctionConfigurationLogic)
     const {
         setOldFilters,
         setNewFilters,
@@ -343,6 +351,20 @@ export function HogFunctionFilters({
                     You are filtering on Person properties. Be aware that this filtering applies at the time the event
                     is processed so if Person Profiles are not enabled or the person property has not been set by then
                     then the filters may not work as expected.
+                </LemonBanner>
+            ) : null}
+            {globalFiltersEventConflict ? (
+                <LemonBanner type="warning">
+                    Your event name filter includes{' '}
+                    {globalFiltersEventConflict.map((v, i) => (
+                        <span key={v}>
+                            {i > 0 && ', '}
+                            <code>{v}</code>
+                        </span>
+                    ))}{' '}
+                    which {globalFiltersEventConflict.length === 1 ? "doesn't" : "don't"} match any events in your
+                    mappings, and therefore will never trigger this destination. We recommend removing the filter and
+                    updating your mappings to include the event instead.
                 </LemonBanner>
             ) : null}
             {showMasking ? (
