@@ -5,14 +5,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExperimentStatsMethod } from '~/types'
 
-import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { WebExperimentImplementationDetails } from '../WebExperimentImplementationDetails'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
-    const { experiment, statsMethod, isExperimentDraft } = useValues(experimentLogic)
+    const { experiment, statsMethod } = useValues(experimentLogic)
     const { openStatsEngineModal } = useActions(modalsLogic)
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
@@ -33,16 +31,6 @@ export function SettingsTab(): JSX.Element {
                 </div>
                 <StatsMethodModal />
             </div>
-            {!isExperimentDraft && (
-                <div>
-                    <h2 className="font-semibold text-lg">Code</h2>
-                    {experiment.type === 'web' ? (
-                        <WebExperimentImplementationDetails experiment={experiment} />
-                    ) : (
-                        <ExperimentImplementationDetails experiment={experiment} />
-                    )}
-                </div>
-            )}
         </div>
     )
 }

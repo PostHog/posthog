@@ -314,7 +314,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                       },
                                   ]
                                 : []),
-                            ...(!isExperimentDraft && !usesNewQueryRunner
+                            ...(!isExperimentDraft
                                 ? [
                                       {
                                           key: 'code',
