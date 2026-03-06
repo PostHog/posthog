@@ -24,7 +24,6 @@ use limiters::token_dropper::TokenDropper;
 use crate::config::CaptureMode;
 use crate::metrics_middleware::{apply_request_timeout, track_metrics};
 use crate::quota_limiters::CaptureQuotaLimiter;
-use lifecycle::Handle as LifecycleHandle;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
@@ -48,7 +47,6 @@ pub struct State {
     pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
-    pub lifecycle_handle: Option<LifecycleHandle>,
 }
 
 #[derive(Clone)]
@@ -113,7 +111,6 @@ pub fn router<
     request_timeout_seconds: Option<u64>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
-    lifecycle_handle: Option<LifecycleHandle>,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -135,7 +132,6 @@ pub fn router<
         ai_blob_storage,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
-        lifecycle_handle,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -292,10 +288,7 @@ pub fn router<
     router
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            track_metrics,
-        ))
+        .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state)
 }
 
