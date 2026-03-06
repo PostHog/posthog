@@ -111,7 +111,7 @@ pub fn router(
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
-        config.effective_rate_limits(),
+        config.flag_definitions_rate_limits.0.clone(),
         FLAG_DEFINITIONS_REQUESTS_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
     )
