@@ -533,7 +533,7 @@ class TestUpdateExternalDataSchema:
             job_inputs={},
         )
         table = DataWarehouseTable.objects.create(
-            name=f"postgres_{source.pk.hex}_accounts",
+            name="accounts",
             format=DataWarehouseTable.TableFormat.Parquet,
             team=team,
             url_pattern="direct://postgres",

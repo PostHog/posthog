@@ -447,7 +447,7 @@ class TestTable(APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
         table = DataWarehouseTable.objects.create(
-            name=f"postgres_{source.pk.hex}_accounts",
+            name="accounts",
             format="Parquet",
             team=self.team,
             team_id=self.team.pk,

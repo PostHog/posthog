@@ -58,7 +58,6 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         schemas_to_sync,
         source_id=inputs.source_id,
         team_id=inputs.team_id,
-        default_should_sync=source.access_method == ExternalDataSource.AccessMethod.DIRECT,
     )
 
     if len(schemas_created) > 0:

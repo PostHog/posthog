@@ -74,14 +74,6 @@ def postgres_schema_metadata(
     }
 
 
-def direct_postgres_table_prefix(external_data_source: ExternalDataSource) -> str:
-    return f"{external_data_source.source_type.lower()}_{external_data_source.pk.hex}_"
-
-
-def direct_postgres_table_name(external_data_source: ExternalDataSource, schema_name: str) -> str:
-    return f"{direct_postgres_table_prefix(external_data_source)}{schema_name}"
-
-
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that have PASSWORD type from a source config's fields."""
     password_fields: set[str] = set()
@@ -570,7 +562,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
-            should_sync = schema.get("should_sync", access_method == ExternalDataSource.AccessMethod.DIRECT)
+            should_sync = schema.get("should_sync", False)
 
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
@@ -627,7 +619,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
                 table_model = DataWarehouseTable.objects.create(
-                    name=direct_postgres_table_name(new_source_model, schema_name),
+                    name=schema_name,
                     format=DataWarehouseTable.TableFormat.Parquet,
                     team=self.team,
                     url_pattern="direct://postgres",
@@ -790,7 +782,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
-                default_should_sync=instance.access_method == ExternalDataSource.AccessMethod.DIRECT,
             )
 
             if (
@@ -811,7 +802,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     if schema_model is None:
                         continue
 
-                    expected_table_name = direct_postgres_table_name(instance, source_schema.name)
                     expected_columns = postgres_columns_to_dwh_columns(source_schema.columns)
                     schema_metadata = postgres_schema_metadata(source_schema.columns, source_schema.foreign_keys)
 
@@ -827,7 +817,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
                     if table_model is None or table_model.deleted:
                         table_model = DataWarehouseTable.objects.create(
-                            name=expected_table_name,
+                            name=source_schema.name,
                             format=DataWarehouseTable.TableFormat.Parquet,
                             team=self.team,
                             url_pattern="direct://postgres",
@@ -837,7 +827,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         schema_model.table = table_model
                         schema_model.save(update_fields=["table"])
                     else:
-                        table_model.name = expected_table_name
+                        table_model.name = source_schema.name
                         table_model.url_pattern = "direct://postgres"
                         table_model.external_data_source = instance
                         table_model.columns = expected_columns

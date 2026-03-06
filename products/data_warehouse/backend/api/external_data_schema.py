@@ -40,10 +40,6 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 logger = structlog.get_logger(__name__)
 
 
-def direct_postgres_table_name(source: ExternalDataSource, schema_name: str) -> str:
-    return f"{source.source_type.lower()}_{source.pk.hex}_{schema_name}"
-
-
 def postgres_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | None) -> dict[str, dict[str, str | bool]]:
     resolved_columns: dict[str, dict[str, str | bool]] = {}
     if not schema_metadata:
@@ -228,13 +224,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if should_enable_direct_schema and instance.source.source_type == ExternalDataSourceType.POSTGRES:
             from products.data_warehouse.backend.models.table import DataWarehouseTable
 
-            expected_table_name = direct_postgres_table_name(instance.source, instance.name)
-            expected_columns = postgres_schema_metadata_to_dwh_columns(instance.sync_type_config.get("schema_metadata"))
+            expected_columns = postgres_schema_metadata_to_dwh_columns(instance.schema_metadata)
 
             table_model = instance.table
             if table_model is None:
                 table_model = DataWarehouseTable.objects.create(
-                    name=expected_table_name,
+                    name=instance.name,
                     format=DataWarehouseTable.TableFormat.Parquet,
                     team_id=instance.team_id,
                     url_pattern="direct://postgres",
@@ -243,7 +238,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 )
                 validated_data["table"] = table_model
             else:
-                table_model.name = expected_table_name
+                table_model.name = instance.name
                 table_model.url_pattern = "direct://postgres"
                 table_model.external_data_source = instance.source
                 table_model.columns = expected_columns

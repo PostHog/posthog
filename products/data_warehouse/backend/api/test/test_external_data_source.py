@@ -838,12 +838,13 @@ class TestExternalDataSource(APIBaseTest):
                 team_id=self.team.pk,
                 external_data_source=source,
                 deleted=False,
-                name=f"postgres_{source.pk.hex}_table_a",
+                name="table_a",
             ).count(),
-            1,
+            0,
         )
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="table_a")
-        self.assertTrue(schema.should_sync)
+        self.assertFalse(schema.should_sync)
+        self.assertIsNone(schema.table)
         self.assertEqual(
             schema.sync_type_config.get("schema_metadata", {}).get("foreign_keys"),
             [{"column": "user_id", "target_table": "posthog_user", "target_column": "id"}],
@@ -866,7 +867,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         table = DataWarehouseTable.objects.create(
-            name=f"postgres_{source.pk.hex}_legacy_table",
+            name="legacy_table",
             format=DataWarehouseTable.TableFormat.Parquet,
             team=self.team,
             url_pattern="direct://postgres",
@@ -914,7 +915,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         table = DataWarehouseTable.objects.create(
-            name=f"postgres_{source.pk.hex}_Accounts",
+            name="Accounts",
             format=DataWarehouseTable.TableFormat.Parquet,
             team=self.team,
             url_pattern="direct://postgres",
@@ -1022,6 +1023,50 @@ class TestExternalDataSource(APIBaseTest):
         self.assertFalse(schema.deleted)
         self.assertFalse(schema.should_sync)
         self.assertIsNone(schema.table)
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_direct_postgres_preserves_enabled_schema_when_it_reappears(self, mock_get_source):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="Accounts",
+            should_sync=True,
+            deleted=True,
+            sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
+        )
+
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="Accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            )
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        schema.refresh_from_db()
+        self.assertFalse(schema.deleted)
+        self.assertTrue(schema.should_sync)
+        self.assertIsNotNone(schema.table)
+        self.assertEqual(schema.table.name, "Accounts")
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
@@ -1214,7 +1259,7 @@ class TestExternalDataSource(APIBaseTest):
                 team_id=self.team.pk,
                 external_data_source=source,
                 deleted=False,
-                name=f"postgres_{source.pk.hex}_accounts",
+                name="accounts",
             ).count(),
             1,
         )
