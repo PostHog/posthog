@@ -70,6 +70,8 @@ const errorHandler = async (response: Response): Promise<Response> => {
         const body = await response.clone().text()
         if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
             return new Response('OAuth token is inactive', { status: 401 })
+        } else if (body.includes(ErrorCode.INVALID_API_KEY)) {
+            return new Response('Invalid API key', { status: 401 })
         }
     }
 
