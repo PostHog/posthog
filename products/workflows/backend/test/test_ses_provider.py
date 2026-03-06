@@ -179,6 +179,13 @@ class TestSESProvider(TestCase):
                     "status": "pending",
                     "type": "mail_from",
                 },
+                {
+                    "type": "dmarc",
+                    "recordType": "TXT",
+                    "recordHostname": "_dmarc.test.posthog.com",
+                    "recordValue": "v=DMARC1; p=none;",
+                    "status": "pending",
+                },
             ],
         }
 

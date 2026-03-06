@@ -410,6 +410,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
+        layout: 'app-raw-no-header',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,

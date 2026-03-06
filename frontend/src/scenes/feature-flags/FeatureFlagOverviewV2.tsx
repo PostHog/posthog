@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconMessage, IconServer } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDialog, LemonDivider, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,7 +14,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
@@ -64,7 +65,7 @@ function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDi
  */
 export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFlagOverviewV2Props): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { recordingFilterForFlag } = useValues(featureFlagLogic)
+    const { recordingFilterForFlag, featureFlagActiveUpdateLoading } = useValues(featureFlagLogic)
     const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
@@ -173,13 +174,25 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                 </LemonTag>
                             </div>
                         ) : (
-                            <LemonSwitch
-                                checked={featureFlag.active}
-                                onChange={handleToggleClick}
-                                label="Enable feature flag"
-                                bordered
-                                fullWidth
-                            />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.FeatureFlag}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={featureFlag.user_access_level}
+                            >
+                                <LemonSwitch
+                                    checked={featureFlag.active}
+                                    onChange={handleToggleClick}
+                                    loading={featureFlagActiveUpdateLoading}
+                                    disabledReason={
+                                        !featureFlag.can_edit
+                                            ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                            : null
+                                    }
+                                    label="Enable feature flag"
+                                    bordered
+                                    fullWidth
+                                />
+                            </AccessControlAction>
                         )}
                     </div>
 

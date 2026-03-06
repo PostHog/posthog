@@ -1641,6 +1641,7 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -2347,6 +2348,7 @@
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
          "posthog_experiment"."exposure_preaggregation_enabled",
+         "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
@@ -2649,6 +2651,7 @@
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
          "posthog_experiment"."exposure_preaggregation_enabled",
+         "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"

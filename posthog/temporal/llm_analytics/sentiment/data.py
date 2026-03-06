@@ -63,7 +63,10 @@ def fetch_generations(
         raw_ai_input = row[1]
         if isinstance(raw_ai_input, str):
             fetch.total_input_bytes += len(raw_ai_input.encode("utf-8"))
-            ai_input = json.loads(raw_ai_input)
+            try:
+                ai_input = json.loads(raw_ai_input)
+            except (json.JSONDecodeError, ValueError):
+                continue
         else:
             ai_input = raw_ai_input
         fetch.rows_by_trace.setdefault(row_trace_id, []).append((str(row[0]), ai_input))
@@ -110,7 +113,10 @@ def fetch_generations_by_uuid(
         raw_ai_input = row[1]
         if isinstance(raw_ai_input, str):
             total_input_bytes += len(raw_ai_input.encode("utf-8"))
-            ai_input = json.loads(raw_ai_input)
+            try:
+                ai_input = json.loads(raw_ai_input)
+            except (json.JSONDecodeError, ValueError):
+                continue
         else:
             ai_input = raw_ai_input
         rows.append((str(row[0]), ai_input))

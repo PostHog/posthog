@@ -61,6 +61,38 @@ export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketin
     ])
 ) as Record<NativeMarketingSource, string[]>
 
+// Legacy table name fallbacks for native sources.
+// When a source's stats table was renamed, old syncs may still use the legacy name.
+// Mirrors the fallback logic in backend factory.py _create_googleads_config.
+const LEGACY_TABLE_NAME_FALLBACKS: Partial<Record<NativeMarketingSource, Record<string, string[]>>> = {
+    GoogleAds: {
+        campaign_overview_stats: ['campaign_stats'],
+    },
+}
+
+/** Find a schema by field name, falling back to legacy table names if needed */
+export function findSchemaByFieldName<T extends { name: string }>(
+    schemas: T[] | undefined,
+    fieldName: string,
+    sourceType: string
+): T | null {
+    const schema = schemas?.find((s) => s.name === fieldName)
+    if (schema) {
+        return schema
+    }
+
+    const fallbacks = LEGACY_TABLE_NAME_FALLBACKS[sourceType as NativeMarketingSource]?.[fieldName]
+    if (fallbacks) {
+        for (const fallbackName of fallbacks) {
+            const fallbackSchema = schemas?.find((s) => s.name === fallbackName)
+            if (fallbackSchema) {
+                return fallbackSchema
+            }
+        }
+    }
+    return null
+}
+
 export const MAX_ATTRIBUTION_WINDOW_DAYS = 90
 export const MIN_ATTRIBUTION_WINDOW_DAYS = 1
 export const DEFAULT_ATTRIBUTION_WINDOW_DAYS = 90

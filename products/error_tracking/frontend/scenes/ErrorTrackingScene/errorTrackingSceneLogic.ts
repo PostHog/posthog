@@ -26,7 +26,7 @@ export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
 
 const DEFAULT_ACTIVE_TAB = 'issues'
 
-export type ErrorTrackingSceneActiveTab = 'issues' | 'impact' | 'insights'
+export type ErrorTrackingSceneActiveTab = 'issues' | 'insights' | 'configuration'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
@@ -83,11 +83,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 searchQuery,
                 orderDirection
             ): DataTableNode => {
-                const columns =
-                    orderBy === 'revenue'
-                        ? ['error', 'volume', 'occurrences', 'sessions', 'users', 'revenue']
-                        : ['error', 'volume', 'occurrences', 'sessions', 'users']
-
                 return errorTrackingQuery({
                     orderBy,
                     status,
@@ -97,7 +92,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterGroup: mergedFilterGroup,
                     volumeResolution: ERROR_TRACKING_LISTING_RESOLUTION,
                     searchQuery,
-                    columns,
+                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
                 })
             },
