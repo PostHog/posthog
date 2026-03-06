@@ -310,6 +310,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         )
 
         if is_direct_postgres:
+            # we use the "prefix" field for the source's name for direct queries
             normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
             if not normalized_prefix:
                 raise ValidationError("Name is required for direct query sources")
