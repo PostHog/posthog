@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconDecisionTree } from '@posthog/icons'
+import { IconUserPaths } from '@posthog/icons'
 
 import { escapeRegex } from 'lib/actionUtils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -81,7 +81,7 @@ export function LLMAnalyticsTools(): JSX.Element {
                                         </Tooltip>
                                         <Tooltip title={`View tool paths from ${toolString}`}>
                                             <LemonButton
-                                                icon={<IconDecisionTree />}
+                                                icon={<IconUserPaths />}
                                                 size="xsmall"
                                                 to={urls.insightNew({
                                                     query: {
