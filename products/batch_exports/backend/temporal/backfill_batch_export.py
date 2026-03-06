@@ -45,12 +45,25 @@ class TemporalScheduleNotFoundError(Exception):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
+class HeartbeatDetailsParseError(Exception):
+    def __init__(self, reason: str):
+        super().__init__(f"Failed to parse heartbeat details: {reason}")
+
+
 class HeartbeatDetails(typing.NamedTuple):
     """Details sent over in a Temporal Activity heartbeat."""
 
     schedule_id: str
     workflow_id: str
     last_batch_data_interval_end: str
+
+    @classmethod
+    def from_details(cls, details: collections.abc.Sequence[typing.Any]) -> typing.Self:
+        """Parse from activity details, raise non-retryable error if it fails."""
+        try:
+            return cls(*details)
+        except Exception as e:
+            raise HeartbeatDetailsParseError(str(e)) from e
 
 
 @dataclasses.dataclass
@@ -89,42 +102,58 @@ class UpdateBatchExportBackfillInputs:
 
     id: str
     adjusted_start_at: str | None = None
+    # Kept for backwards compatibility with running workflows
+    # TODO: Remove later
     total_records_count: int | None = None
+    estimated_records_count: int | None = None
     status: str | None = None
     finished: bool = False
+    latest_error: str | None = None
 
 
 @temporalio.activity.defn
 async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillInputs) -> None:
     """Activity that updates a BatchExportBackfill.
 
-    When finished=True, this also sets finished_at and calculates the actual
-    total_records_count from completed runs if total_records_count is not provided.
+    When finished=True, this also sets finished_at and calculates the actual total_records_count
+    from completed runs.
     """
     bind_contextvars(id=inputs.id, status=inputs.status)
     logger = LOGGER.bind()
 
     finished_at = None
-    total_records_count = inputs.total_records_count
+    # TODO: Remove use of total_records_count once existing workflows have completed
+    estimated_records_count = (
+        inputs.estimated_records_count if inputs.estimated_records_count is not None else inputs.total_records_count
+    )
+    total_records_count = estimated_records_count
 
     if inputs.finished:
-        # Calculate actual total from completed runs when finished successfully or not,
-        # but only if total_records_count was not explicitly provided (e.g. early exit with 0 records)
-        if inputs.status in (
-            BatchExportBackfill.Status.COMPLETED,
-            BatchExportBackfill.Status.FAILED,
-            BatchExportBackfill.Status.CANCELLED,
+        # Calculate actual total from completed runs when finished,
+        # but skip if estimated count is 0 (early exit, no runs to aggregate)
+        if (
+            inputs.status
+            in (
+                BatchExportBackfill.Status.COMPLETED,
+                BatchExportBackfill.Status.FAILED,
+                BatchExportBackfill.Status.CANCELLED,
+            )
+            and estimated_records_count != 0
         ):
-            if inputs.total_records_count is None:
-                result = await database_sync_to_async(
-                    lambda: BatchExportRun.objects.filter(
-                        backfill_id=inputs.id,
-                        status=BatchExportRun.Status.COMPLETED,
-                    ).aggregate(total=Sum("records_completed"))
-                )()
-                total_records_count = result["total"]
-            else:
-                total_records_count = inputs.total_records_count
+            result = await database_sync_to_async(
+                lambda: BatchExportRun.objects.filter(
+                    backfill_id=inputs.id,
+                    status=BatchExportRun.Status.COMPLETED,
+                ).aggregate(total=Sum("records_completed"))
+            )()
+            total_records_count = result["total"]
+
+            if estimated_records_count is not None:
+                logger.info(
+                    "Backfill records count: estimated vs actual",
+                    estimated_records_count=estimated_records_count,
+                    actual_records_count=total_records_count,
+                )
 
         finished_at = dt.datetime.now(dt.UTC)
 
@@ -138,9 +167,9 @@ async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillIn
 
     if inputs.finished:
         if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
-            logger.error("Batch export backfill failed")
+            logger.error("Batch export backfill failed: %s", inputs.latest_error or "Unknown error")
         elif backfill.status == BatchExportBackfill.Status.CANCELLED:
-            logger.warning("Batch export backfill was cancelled.")
+            logger.warning("Batch export backfill was canceled")
         else:
             logger.info(
                 "Successfully finished backfilling batches in range %s - %s",
@@ -248,7 +277,7 @@ async def _get_backfill_info_for_events(
     exclude_events: list[str],
     filters_str: str,
     extra_query_parameters: dict[str, typing.Any],
-) -> tuple[dt.datetime | None, int]:
+) -> tuple[dt.datetime | None, int | None]:
     """Get adjusted start time and estimated record count for events model.
 
     Returns:
@@ -310,6 +339,123 @@ async def _get_backfill_info_for_events(
     return earliest_start, record_count
 
 
+async def _get_backfill_info_for_persons(
+    batch_export: BatchExport,
+    start_at: dt.datetime | None,
+    end_at: dt.datetime | None,
+) -> tuple[dt.datetime | None, int | None]:
+    """Get adjusted start time and estimated record count for persons model.
+
+    Queries both `person` and `person_distinct_id2` tables. The count uses
+    `uniq()` for an approximate count to reduce memory usage on large teams.
+
+    Returns:
+        A tuple of (adjusted_start_at, estimated_records_count).
+        If no data exists, returns (None, 0).
+        For limited export teams, returns (adjusted_start_at, None) since
+        the count would not reflect the actual export behavior.
+    """
+    team_id = batch_export.team_id
+    is_limited_export = str(team_id) in settings.BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS
+
+    date_conditions = ""
+    having_date_conditions = ""
+    query_parameters: dict[str, typing.Any] = {"team_id": team_id}
+
+    if start_at is not None:
+        date_conditions += "AND _timestamp >= %(start_at)s "
+        having_date_conditions += "AND argMax(_timestamp, version) >= %(start_at)s "
+        query_parameters["start_at"] = start_at.astimezone(dt.UTC)
+    if end_at is not None:
+        date_conditions += "AND _timestamp < %(end_at)s "
+        having_date_conditions += "AND argMax(_timestamp, version) < %(end_at)s "
+        query_parameters["end_at"] = end_at.astimezone(dt.UTC)
+
+    min_timestamp_query = f"""
+        SELECT MIN(_timestamp) as min_timestamp
+        FROM person
+        WHERE team_id = %(team_id)s
+        AND _timestamp > '2000-01-01'
+        {date_conditions}
+
+        UNION ALL
+
+        SELECT MIN(_timestamp) as min_timestamp
+        FROM person_distinct_id2
+        WHERE team_id = %(team_id)s
+        AND _timestamp > '2000-01-01'
+        {date_conditions}
+        FORMAT JSONEachRow
+    """
+
+    async with get_client(team_id=team_id) as client:
+        min_timestamp_results = await client.read_query_as_jsonl(min_timestamp_query, query_parameters=query_parameters)
+
+    # Find the earliest valid timestamp across both tables
+    earliest_timestamp: dt.datetime | None = None
+    for row in min_timestamp_results:
+        ts_str = row["min_timestamp"]
+        ts = dt.datetime.fromisoformat(ts_str)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=dt.UTC)
+        else:
+            ts = ts.astimezone(dt.UTC)
+
+        if ts.year == 1970:
+            continue
+
+        if earliest_timestamp is None or ts < earliest_timestamp:
+            earliest_timestamp = ts
+
+    if earliest_timestamp is None:
+        return None, 0
+
+    earliest_start = _align_timestamp_to_interval(earliest_timestamp, batch_export)
+
+    if is_limited_export:
+        return earliest_start, None
+
+    count_query = f"""
+        WITH new_persons AS (
+            SELECT id
+            FROM person
+            WHERE team_id = %(team_id)s
+            GROUP BY id
+            HAVING argMax(_timestamp, version) > '2000-01-01'
+                {having_date_conditions}
+        ),
+        distinct_ids AS (
+
+            -- new distinct_ids
+            SELECT distinct_id
+            FROM person_distinct_id2
+            WHERE team_id = %(team_id)s
+            GROUP BY distinct_id
+            HAVING argMax(_timestamp, version) > '2000-01-01'
+                {having_date_conditions}
+
+            UNION ALL
+
+            -- existing distinct_ids for new/updated persons
+            SELECT DISTINCT distinct_id
+            FROM person_distinct_id2
+            WHERE team_id = %(team_id)s
+                AND person_id IN new_persons
+        )
+        SELECT uniq(distinct_id) AS record_count
+        FROM distinct_ids
+        FORMAT JSONEachRow
+        SETTINGS optimize_uniq_to_count = 0
+    """
+
+    async with get_client(team_id=team_id) as client:
+        count_results = await client.read_query_as_jsonl(count_query, query_parameters=query_parameters)
+
+    record_count = int(count_results[0]["record_count"])
+
+    return earliest_start, record_count
+
+
 @temporalio.activity.defn
 async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOutputs:
     """Validate backfill parameters and estimate record count.
@@ -363,51 +509,14 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             filters_str=filters_str,
             extra_query_parameters=extra_query_parameters,
         )
-
-        if adjusted_start_at is None:
-            logger.info(
-                "No data exists for backfill",
-                team_id=inputs.team_id,
-                batch_export_id=inputs.batch_export_id,
-                model=model,
-            )
-            return GetBackfillInfoOutputs(
-                adjusted_start_at=inputs.start_at,
-                total_records_count=0,
-                interval_seconds=interval_seconds,
-            )
-
-        adjusted_start_at_str = inputs.start_at
-        if start_at is not None and adjusted_start_at != start_at:
-            adjusted_start_at_str = adjusted_start_at.astimezone(start_at.tzinfo).isoformat()
-            logger.info(
-                "Narrowing backfill start to earliest available data",
-                original_start_at=inputs.start_at,
-                adjusted_start_at=adjusted_start_at_str,
-            )
-
-        return GetBackfillInfoOutputs(
-            adjusted_start_at=adjusted_start_at_str,
-            total_records_count=record_count,
-            interval_seconds=interval_seconds,
+    elif model == "persons":
+        adjusted_start_at, record_count = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=start_at,
+            end_at=end_at,
         )
-
     else:
-        # For persons/sessions, we don't support estimation yet.
-        # Just return None for the count and let the workflow proceed normally.
-        #
-        # TODO: When implementing persons model support, note:
-        # - Need to check 2 tables: `person` and `person_distinct_id2`
-        # - Query both tables separately and take the minimum timestamp (more efficient than joining)
-        # - Use `_timestamp` field (not `timestamp`)
-        # - Filter invalid timestamps with `_timestamp > '2000-01-01'`
-        # - Example query pattern:
-        #     SELECT toStartOfInterval(MIN(_timestamp), INTERVAL X SECONDS)
-        #     FROM person WHERE team_id = Y AND _timestamp > '2000-01-01'
-        #     UNION ALL
-        #     SELECT toStartOfInterval(MIN(_timestamp), INTERVAL X SECONDS)
-        #     FROM person_distinct_id2 WHERE team_id = Y AND _timestamp > '2000-01-01'
-        #   Then take min() of results, excluding any 1970 dates (no data indicator).
+        # For sessions and other models, proceed without estimation
         logger.info(
             "Backfill info not yet implemented for model, skipping estimation",
             model=model,
@@ -417,6 +526,34 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             total_records_count=None,
             interval_seconds=interval_seconds,
         )
+
+    if adjusted_start_at is None:
+        logger.info(
+            "No data exists for backfill",
+            team_id=inputs.team_id,
+            batch_export_id=inputs.batch_export_id,
+            model=model,
+        )
+        return GetBackfillInfoOutputs(
+            adjusted_start_at=inputs.start_at,
+            total_records_count=0,
+            interval_seconds=interval_seconds,
+        )
+
+    adjusted_start_at_str = inputs.start_at
+    if start_at is not None and adjusted_start_at != start_at:
+        adjusted_start_at_str = adjusted_start_at.astimezone(start_at.tzinfo).isoformat()
+        logger.info(
+            "Narrowing backfill start to earliest available data",
+            original_start_at=inputs.start_at,
+            adjusted_start_at=adjusted_start_at_str,
+        )
+
+    return GetBackfillInfoOutputs(
+        adjusted_start_at=adjusted_start_at_str,
+        total_records_count=record_count,
+        interval_seconds=interval_seconds,
+    )
 
 
 @dataclasses.dataclass
@@ -480,7 +617,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         if details:
             # If we receive details from a previous run, it means we were restarted for some reason.
             # Let's not double-backfill and instead wait for any outstanding runs.
-            last_activity_details = HeartbeatDetails(*details)
+            last_activity_details = HeartbeatDetails.from_details(details)
             logger.info(
                 "Heartbeat details received",
                 backfill_run_id=last_activity_details.workflow_id,
@@ -715,7 +852,8 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             )
 
             # Step 3: Update backfill with adjusted start and estimated count
-            # If total_records_count is 0, complete early; if None (non-events), proceed normally
+            update_inputs.estimated_records_count = backfill_info.total_records_count
+            # If estimated count is 0, complete early; if None (sessions/other models), proceed normally
             should_complete_early = backfill_info.total_records_count == 0
 
             await temporalio.workflow.execute_activity(
@@ -723,7 +861,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 UpdateBatchExportBackfillInputs(
                     id=backfill_id,
                     adjusted_start_at=backfill_info.adjusted_start_at,
-                    total_records_count=backfill_info.total_records_count,
+                    estimated_records_count=backfill_info.total_records_count,
                     status=(
                         BatchExportBackfill.Status.COMPLETED
                         if should_complete_early
@@ -783,7 +921,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
-                    non_retryable_error_types=["TemporalScheduleNotFoundError"],
+                    non_retryable_error_types=["TemporalScheduleNotFoundError", "HeartbeatDetailsParseError"],
                 ),
                 start_to_close_timeout=start_to_close_timeout,
                 heartbeat_timeout=dt.timedelta(seconds=30),
@@ -795,10 +933,12 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             else:
                 update_inputs.status = BatchExportBackfill.Status.FAILED
 
+            update_inputs.latest_error = str(e.cause)
             raise
 
         except Exception:
             update_inputs.status = BatchExportBackfill.Status.FAILED
+            update_inputs.latest_error = "An unexpected error has occurred"
             raise
 
         finally:

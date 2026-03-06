@@ -44,47 +44,37 @@ export const LogsListAttributeValuesInputSchema = z.object({
 
 export type LogsListAttributeValuesInput = z.infer<typeof LogsListAttributeValuesInputSchema>
 
-export const LogEntrySchema = z.object({
-    uuid: z.string(),
-    timestamp: z.string(),
-    body: z.string(),
-    level: z.string(),
-    severity_text: z.string().optional(),
-    severity_number: z.number().optional(),
-    trace_id: z.string().optional(),
-    span_id: z.string().optional(),
-    service_name: z.string().optional(),
-    attributes: z.record(z.string(), z.any()).optional(),
-    resource_attributes: z.record(z.string(), z.any()).optional(),
-})
+export interface LogEntry {
+    uuid: string
+    timestamp: string
+    body: string
+    level: string
+    severity_text?: string
+    severity_number?: number
+    trace_id?: string
+    span_id?: string
+    service_name?: string
+    attributes?: Record<string, unknown>
+    resource_attributes?: Record<string, unknown>
+}
 
-export type LogEntry = z.infer<typeof LogEntrySchema>
+export interface LogsQueryResponse {
+    results: LogEntry[]
+    hasMore: boolean
+    nextCursor: string | null
+}
 
-export const LogsQueryResponseSchema = z.object({
-    results: z.array(LogEntrySchema),
-    hasMore: z.boolean(),
-    nextCursor: z.string().nullable(),
-})
+export interface LogAttribute {
+    name: string
+    propertyFilterType: string
+}
 
-export type LogsQueryResponse = z.infer<typeof LogsQueryResponseSchema>
+export interface LogsListAttributesResponse {
+    results: LogAttribute[]
+    count: number
+}
 
-export const LogAttributeSchema = z.object({
-    name: z.string(),
-    propertyFilterType: z.string(),
-})
-
-export type LogAttribute = z.infer<typeof LogAttributeSchema>
-
-export const LogsListAttributesResponseSchema = z.object({
-    results: z.array(LogAttributeSchema),
-    count: z.number(),
-})
-
-export type LogsListAttributesResponse = z.infer<typeof LogsListAttributesResponseSchema>
-
-export const LogAttributeValueSchema = z.object({
-    id: z.string(),
-    name: z.string(),
-})
-
-export type LogAttributeValue = z.infer<typeof LogAttributeValueSchema>
+export interface LogAttributeValue {
+    id: string
+    name: string
+}
