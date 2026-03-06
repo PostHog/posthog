@@ -34,42 +34,10 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.models.util import postgres_column_to_dwh_column
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
-
-
-POSTGRES_TO_CLICKHOUSE_TYPE = {
-    "smallint": "Int16",
-    "integer": "Int32",
-    "bigint": "Int64",
-    "real": "Float32",
-    "double precision": "Float64",
-    "numeric": "Float64",
-    "boolean": "Bool",
-    "date": "Date",
-    "timestamp without time zone": "DateTime64",
-    "timestamp with time zone": "DateTime64",
-    "character varying": "String",
-    "character": "String",
-    "text": "String",
-    "json": "String",
-    "jsonb": "String",
-    "uuid": "String",
-}
-
-
-HOGQL_BY_CLICKHOUSE_TYPE = {
-    "Int16": "integer",
-    "Int32": "integer",
-    "Int64": "integer",
-    "Float32": "float",
-    "Float64": "float",
-    "Bool": "boolean",
-    "Date": "date",
-    "DateTime64": "datetime",
-    "String": "string",
-}
 
 
 def direct_postgres_table_name(source: ExternalDataSource, schema_name: str) -> str:
@@ -95,27 +63,7 @@ def postgres_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | No
         if not isinstance(column_name, str) or not isinstance(postgres_type, str):
             continue
 
-        normalized_type = postgres_type.lower()
-        clickhouse_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
-        if clickhouse_type is None:
-            if normalized_type.startswith("timestamp"):
-                clickhouse_type = "DateTime64"
-            elif normalized_type.startswith("numeric") or normalized_type.startswith("decimal"):
-                clickhouse_type = "Float64"
-            elif "int" in normalized_type:
-                clickhouse_type = "Int64"
-            else:
-                clickhouse_type = "String"
-
-        if nullable:
-            clickhouse_type = f"Nullable({clickhouse_type})"
-
-        raw_clickhouse_type = clickhouse_type.replace("Nullable(", "").replace(")", "")
-        resolved_columns[column_name] = {
-            "clickhouse": clickhouse_type,
-            "hogql": HOGQL_BY_CLICKHOUSE_TYPE.get(raw_clickhouse_type, "string"),
-            "valid": True,
-        }
+        resolved_columns[column_name] = postgres_column_to_dwh_column(column_name, postgres_type, nullable)
 
     return resolved_columns
 

@@ -53,73 +53,10 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.models.util import validate_source_prefix
+from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
-
-
-POSTGRES_TO_CLICKHOUSE_TYPE = {
-    "smallint": "Int16",
-    "integer": "Int32",
-    "bigint": "Int64",
-    "real": "Float32",
-    "double precision": "Float64",
-    "numeric": "Float64",
-    "boolean": "Bool",
-    "date": "Date",
-    "timestamp without time zone": "DateTime64",
-    "timestamp with time zone": "DateTime64",
-    "character varying": "String",
-    "character": "String",
-    "text": "String",
-    "json": "String",
-    "jsonb": "String",
-    "uuid": "String",
-}
-
-
-HOGQL_BY_CLICKHOUSE_TYPE = {
-    "Int16": "integer",
-    "Int32": "integer",
-    "Int64": "integer",
-    "Float32": "float",
-    "Float64": "float",
-    "Bool": "boolean",
-    "Date": "date",
-    "DateTime64": "datetime",
-    "String": "string",
-}
-
-
-def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, str | bool]]:
-    resolved_columns: dict[str, dict[str, str | bool]] = {}
-
-    for column_name, postgres_type, nullable in columns:
-        normalized_type = postgres_type.lower()
-        clickhouse_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
-
-        if clickhouse_type is None:
-            if normalized_type.startswith("timestamp"):
-                clickhouse_type = "DateTime64"
-            elif normalized_type.startswith("numeric") or normalized_type.startswith("decimal"):
-                clickhouse_type = "Float64"
-            elif "int" in normalized_type:
-                clickhouse_type = "Int64"
-            else:
-                clickhouse_type = "String"
-
-        if nullable:
-            clickhouse_type = f"Nullable({clickhouse_type})"
-
-        raw_clickhouse_type = clickhouse_type.replace("Nullable(", "").replace(")", "")
-        resolved_columns[column_name] = {
-            "clickhouse": clickhouse_type,
-            "hogql": HOGQL_BY_CLICKHOUSE_TYPE.get(raw_clickhouse_type, "string"),
-            "valid": True,
-        }
-
-    return resolved_columns
 
 
 def postgres_schema_metadata(
@@ -853,7 +790,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
-                default_should_sync=instance.access_method == ExternalDataSource.AccessMethod.DIRECT,
+                default_should_sync=False,
             )
 
             if (
