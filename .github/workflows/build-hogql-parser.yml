@@ -40,16 +40,19 @@ jobs:
               id: version
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PARSER_CHANGED: ${{ steps.changed-files.outputs.parser_any_changed }}
+                  FORK_MESSAGE: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || '' }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   parser_release_needed='false'
-                  if [[ ${{ steps.changed-files.outputs.parser_any_changed }} == 'true' ]]; then
+                  if [[ "$PARSER_CHANGED" == 'true' ]]; then
                     published=$(curl -fSsl https://pypi.org/pypi/hogql-parser/json | jq -r '.info.version')
                     local=$(python common/hogql_parser/setup.py --version)
                     if [[ "$published" != "$local" ]]; then
                       parser_release_needed='true'
                     else
-                      message_body="It looks like the code of \`hogql-parser\` has changed since last push, but its version stayed the same at $local. 👀\nMake sure to resolve this in \`hogql_parser/setup.py\` before merging!${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || ''}}"
-                      gh pr comment ${{ github.event.pull_request.number }} --body "$message_body"
+                      message_body="It looks like the code of \`hogql-parser\` has changed since last push, but its version stayed the same at $local. 👀\nMake sure to resolve this in \`hogql_parser/setup.py\` before merging!$FORK_MESSAGE"
+                      gh pr comment "$PR_NUMBER" --body "$message_body"
                     fi
                   fi
                   echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT

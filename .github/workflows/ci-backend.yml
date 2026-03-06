@@ -485,6 +485,9 @@ jobs:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
+            - name: Lint product structure
+              run: ./bin/hogli product:lint --all
+
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |

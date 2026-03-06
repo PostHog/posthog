@@ -48,7 +48,7 @@ root_files:
 
     package.json:
         required: true
-        required_lenient: false
+        required_lenient: true
         template: |
             {{
                 "name": "@posthog/products-{product}",
@@ -316,8 +316,9 @@ frontend_files:
 
 # Files that are known but should live in specific locations
 # Used by lint to detect misplaced files in backend/
+# Only checked for isolated (strict) products — legacy products have flat backend/ by design
 backend_known_files:
-    api.py: facade/api.py
+    api.py: presentation/api.py
     contracts.py: facade/contracts.py
     serializers.py: presentation/serializers.py
     views.py: presentation/views.py
