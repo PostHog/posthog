@@ -349,19 +349,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         initial_query = self.visit(ctx.selectStmtWithParens())
 
         for subsequent in ctx.subsequentSelectSetClause():
-            if subsequent.UNION() and subsequent.ALL():
-                union_type = "UNION ALL"
-            elif subsequent.UNION() and subsequent.DISTINCT():
-                union_type = "UNION DISTINCT"
+            if subsequent.UNION():
+                if subsequent.ALL():
+                    union_type = "UNION ALL"
+                elif subsequent.DISTINCT():
+                    union_type = "UNION DISTINCT"
+                else:
+                    union_type = "UNION DISTINCT"
+                if subsequent.BY() and subsequent.NAME():
+                    union_type += " BY NAME"
+            elif subsequent.INTERSECT() and subsequent.ALL():
+                union_type = "INTERSECT ALL"
             elif subsequent.INTERSECT() and subsequent.DISTINCT():
                 union_type = "INTERSECT DISTINCT"
             elif subsequent.INTERSECT():
                 union_type = "INTERSECT"
+            elif subsequent.EXCEPT() and subsequent.ALL():
+                union_type = "EXCEPT ALL"
             elif subsequent.EXCEPT():
                 union_type = "EXCEPT"
             else:
                 raise SyntaxError(
-                    "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+                    "Set operator must be one of UNION ALL, UNION DISTINCT, UNION [ALL|DISTINCT] BY NAME, INTERSECT, INTERSECT ALL, INTERSECT DISTINCT, EXCEPT, and EXCEPT ALL"
                 )
             select_query = self.visit(subsequent.selectStmtWithParens())
             select_queries.append(

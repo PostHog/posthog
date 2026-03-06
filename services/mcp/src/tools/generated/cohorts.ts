@@ -30,10 +30,14 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema> => ({
             },
         })
         const items = (result as any).results ?? result
-        return (items as any[]).map((item: any) => ({
-            ...item,
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${item.id}`,
-        }))
+        return {
+            ...(result as any),
+            results: (items as any[]).map((item: any) => ({
+                ...item,
+                _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${item.id}`,
+            })),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts`,
+        }
     },
 })
 
@@ -75,7 +79,7 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema> => ({
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })
@@ -93,13 +97,13 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema> => ({
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })
 
-const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true }).merge(
-    CohortsPartialUpdateBody.omit({ groups: true, _create_in_folder: true, _create_static_person_ids: true })
+const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true }).extend(
+    CohortsPartialUpdateBody.omit({ groups: true, _create_in_folder: true, _create_static_person_ids: true }).shape
 )
 
 const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema> => ({
@@ -136,14 +140,14 @@ const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema> => 
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })
 
 const CohortsAddPersonsToStaticCohortPartialUpdateSchema = CohortsAddPersonsToStaticCohortPartialUpdateParams.omit({
     project_id: true,
-}).merge(CohortsAddPersonsToStaticCohortPartialUpdateBody)
+}).extend(CohortsAddPersonsToStaticCohortPartialUpdateBody.shape)
 
 const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
     typeof CohortsAddPersonsToStaticCohortPartialUpdateSchema
@@ -163,14 +167,14 @@ const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })
 
 const CohortsRemovePersonFromStaticCohortPartialUpdateSchema =
-    CohortsRemovePersonFromStaticCohortPartialUpdateParams.omit({ project_id: true }).merge(
-        CohortsRemovePersonFromStaticCohortPartialUpdateBody
+    CohortsRemovePersonFromStaticCohortPartialUpdateParams.omit({ project_id: true }).extend(
+        CohortsRemovePersonFromStaticCohortPartialUpdateBody.shape
     )
 
 const cohortsRemovePersonFromStaticCohortPartialUpdate = (): ToolBase<
@@ -194,7 +198,7 @@ const cohortsRemovePersonFromStaticCohortPartialUpdate = (): ToolBase<
         })
         return {
             ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
 })

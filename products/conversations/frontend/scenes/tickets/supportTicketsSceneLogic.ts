@@ -24,6 +24,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
         setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
         setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
+        setTagsFilter: (tags: string[]) => ({ tags }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setCurrentPage: (page: number) => ({ page }),
         loadTickets: true,
@@ -91,6 +92,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 setAssigneeFilter: (_, { assignee }) => assignee,
             },
         ],
+        tagsFilter: [
+            [] as string[],
+            { persist: true },
+            {
+                setTagsFilter: (_, { tags }) => tags,
+            },
+        ],
         dateFrom: [
             '-7d' as string | null,
             { persist: true },
@@ -132,6 +140,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                     params.assignee = `${values.assigneeFilter.type}:${values.assigneeFilter.id}`
                 }
             }
+            if (values.tagsFilter.length > 0) {
+                params.tags = JSON.stringify(values.tagsFilter)
+            }
             if (values.dateFrom) {
                 params.date_from = values.dateFrom
             }
@@ -166,6 +177,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setCurrentPage(1)
         },
         setAssigneeFilter: () => {
+            actions.setCurrentPage(1)
+        },
+        setTagsFilter: () => {
             actions.setCurrentPage(1)
         },
         setDateRange: () => {

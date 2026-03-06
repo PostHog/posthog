@@ -152,7 +152,7 @@ export const CohortsListResponse = zod.object({
             is_calculating: zod.boolean(),
             created_by: zod.object({
                 id: zod.number(),
-                uuid: zod.string().uuid(),
+                uuid: zod.string(),
                 distinct_id: zod.string().max(cohortsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
                 first_name: zod.string().max(cohortsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
                 last_name: zod.string().max(cohortsListResponseResultsItemCreatedByOneLastNameMax).optional(),
@@ -447,7 +447,7 @@ export const CohortsRetrieveResponse = zod.object({
     is_calculating: zod.boolean(),
     created_by: zod.object({
         id: zod.number(),
-        uuid: zod.string().uuid(),
+        uuid: zod.string(),
         distinct_id: zod.string().max(cohortsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
         first_name: zod.string().max(cohortsRetrieveResponseCreatedByOneFirstNameMax).optional(),
         last_name: zod.string().max(cohortsRetrieveResponseCreatedByOneLastNameMax).optional(),
@@ -721,7 +721,7 @@ export const CohortsUpdateResponse = zod.object({
     is_calculating: zod.boolean(),
     created_by: zod.object({
         id: zod.number(),
-        uuid: zod.string().uuid(),
+        uuid: zod.string(),
         distinct_id: zod.string().max(cohortsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
         first_name: zod.string().max(cohortsUpdateResponseCreatedByOneFirstNameMax).optional(),
         last_name: zod.string().max(cohortsUpdateResponseCreatedByOneLastNameMax).optional(),
@@ -1003,7 +1003,7 @@ export const CohortsPartialUpdateResponse = zod.object({
     is_calculating: zod.boolean(),
     created_by: zod.object({
         id: zod.number(),
-        uuid: zod.string().uuid(),
+        uuid: zod.string(),
         distinct_id: zod.string().max(cohortsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
         first_name: zod.string().max(cohortsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
         last_name: zod.string().max(cohortsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
@@ -1071,7 +1071,7 @@ export const CohortsAddPersonsToStaticCohortPartialUpdateParams = zod.object({
 })
 
 export const CohortsAddPersonsToStaticCohortPartialUpdateBody = zod.object({
-    person_ids: zod.array(zod.string().uuid()).optional().describe('List of person UUIDs to add to the cohort'),
+    person_ids: zod.array(zod.string()).optional().describe('List of person UUIDs to add to the cohort'),
 })
 
 export const CohortsCalculationHistoryRetrieveParams = zod.object({
@@ -1106,7 +1106,7 @@ export const CohortsRemovePersonFromStaticCohortPartialUpdateParams = zod.object
 })
 
 export const CohortsRemovePersonFromStaticCohortPartialUpdateBody = zod.object({
-    person_id: zod.string().uuid().optional().describe('Person UUID to remove from the cohort'),
+    person_id: zod.string().optional().describe('Person UUID to remove from the cohort'),
 })
 
 export const CohortsActivityRetrieveParams = zod.object({

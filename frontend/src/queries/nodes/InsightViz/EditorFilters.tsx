@@ -211,10 +211,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
-                    label: isTrends && display !== ChartDisplayType.CalendarHeatmap ? TrendsSeriesLabel : undefined,
+                    label:
+                        isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
+                            ? TrendsSeriesLabel
+                            : undefined,
                     component: TrendsSeries,
                 },
-                isTrends && hasFormula
+                isTrends && hasFormula && display !== ChartDisplayType.BoxPlot
                     ? {
                           key: 'formula',
                           label: 'Formula',

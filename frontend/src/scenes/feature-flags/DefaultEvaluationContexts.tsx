@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { IconBolt, IconPlus, IconPlusSmall, IconX } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -16,6 +17,10 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
     const { tags, isEnabled, canAddMoreTags, newTagInput, defaultEvaluationContextsLoading, isAdding } =
         useValues(defaultEvaluationContextsLogic)
     const { addTag, removeTag, toggleEnabled, setNewTagInput, setIsAdding } = useActions(defaultEvaluationContextsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     // Check if feature flag is enabled
     if (!featureFlags[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]) {
@@ -47,6 +52,7 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                 bordered
                 checked={isEnabled}
                 disabled={defaultEvaluationContextsLoading}
+                disabledReason={restrictedReason}
             />
 
             {isEnabled && (
@@ -74,6 +80,7 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                                     placeholder="e.g., production"
                                     autoFocus
                                     className="w-32"
+                                    disabledReason={restrictedReason}
                                 />
                                 <LemonButton
                                     size="small"
@@ -81,6 +88,7 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                                     onClick={handleAddTag}
                                     disabled={!newTagInput.trim()}
                                     icon={<IconPlusSmall />}
+                                    disabledReason={restrictedReason}
                                 />
                                 <LemonButton
                                     size="small"
@@ -89,6 +97,7 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                                         setNewTagInput('')
                                     }}
                                     icon={<IconX />}
+                                    disabledReason={restrictedReason}
                                 />
                             </div>
                         ) : (
@@ -98,6 +107,7 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                                     type="secondary"
                                     onClick={() => setIsAdding(true)}
                                     icon={<IconPlus />}
+                                    disabledReason={restrictedReason}
                                 >
                                     Add tag
                                 </LemonButton>

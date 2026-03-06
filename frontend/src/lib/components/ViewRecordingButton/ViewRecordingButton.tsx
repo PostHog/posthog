@@ -1,6 +1,6 @@
 import classNames from 'classnames'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useEffect } from 'react'
+import { isValidElement, ReactNode, useEffect } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -147,6 +147,7 @@ export default function ViewRecordingButton({
         return (
             <LemonButton
                 disabledReason={disabledReason}
+                disabledReasonInteractive={isValidElement(disabledReason)}
                 onClick={onClick}
                 icon={sideIcon}
                 tooltip="View recording"
@@ -158,7 +159,13 @@ export default function ViewRecordingButton({
     }
 
     return (
-        <LemonButton disabledReason={disabledReason} onClick={onClick} sideIcon={sideIcon} {...props}>
+        <LemonButton
+            disabledReason={disabledReason}
+            disabledReasonInteractive={isValidElement(disabledReason)}
+            onClick={onClick}
+            sideIcon={sideIcon}
+            {...props}
+        >
             <div className="flex items-center gap-2 whitespace-nowrap">
                 <span>{label ? label : 'View recording'}</span>
                 {maybeUnwatchedIndicator}
