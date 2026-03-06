@@ -9,6 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics, InsightLogicProps } from '~/types'
 
 import funnelInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
@@ -19,12 +20,13 @@ export function InsightProvider({ children }: { children: React.ReactNode }): JS
     const [dashboardItemId] = useState(() => `NodeStory.${uniqueNode++}`)
 
     const cachedInsight = { ...funnelInsight, short_id: dashboardItemId }
-    const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
+    const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as unknown as InsightLogicProps
+    const source = funnelInsight.query.source as unknown as InsightQueryNode
 
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: funnelInsight.query.source,
+        query: source,
         key: insightVizDataNodeKey(insightProps),
-        cachedResults: getCachedResults(insightProps.cachedInsight, funnelInsight.query.source),
+        cachedResults: getCachedResults(insightProps.cachedInsight, source),
         doNotLoad: insightProps.doNotLoad,
     }
 
