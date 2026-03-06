@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { Label } from 'lib/ui/Label/Label'
 
 import { experimentLogic } from '../experimentLogic'
 
@@ -80,7 +81,7 @@ export const ExperimentDuration = (): JSX.Element => {
 
     return (
         <div>
-            <h2 className="font-semibold text-lg">Duration</h2>
+            <Label intent="menu">Duration</Label>
             <div className="flex gap-2 items-center">
                 <div className="flex items-center gap-2">
                     <DateButton date={start_date} type="start" onChange={changeExperimentStartDate} />

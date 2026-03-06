@@ -57,7 +57,7 @@ import { Info } from './Info'
 import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
-import { SetupTab } from './SetupTab'
+import { SettingsTab } from './SettingsTab'
 import { SummaryTable } from './SummaryTable'
 
 const AiAnalysisTab = (): JSX.Element => {
@@ -289,9 +289,9 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             ...(usesNewQueryRunner
                                 ? [
                                       {
-                                          key: 'setup',
-                                          label: 'Setup',
-                                          content: <SetupTab />,
+                                          key: 'settings',
+                                          label: 'Settings',
+                                          content: <SettingsTab />,
                                       },
                                   ]
                                 : []),
@@ -314,7 +314,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                       },
                                   ]
                                 : []),
-                            ...(!isExperimentDraft
+                            ...(!isExperimentDraft && !usesNewQueryRunner
                                 ? [
                                       {
                                           key: 'code',
@@ -323,15 +323,11 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                       },
                                   ]
                                 : []),
-                            ...(!usesNewQueryRunner
-                                ? [
-                                      {
-                                          key: 'variants',
-                                          label: 'Variants',
-                                          content: <VariantsTab />,
-                                      },
-                                  ]
-                                : []),
+                            {
+                                key: 'variants',
+                                label: 'Variants',
+                                content: <VariantsTab />,
+                            },
                             {
                                 key: 'history',
                                 label: 'History',

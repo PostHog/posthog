@@ -5,14 +5,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExperimentStatsMethod } from '~/types'
 
+import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { DistributionTable } from './DistributionTable'
-import { ExperimentDuration } from './ExperimentDuration'
-import { ReleaseConditionsTable } from './ReleaseConditionsTable'
+import { WebExperimentImplementationDetails } from '../WebExperimentImplementationDetails'
 import { StatsMethodModal } from './StatsMethodModal'
 
-export function SetupTab(): JSX.Element {
+export function SettingsTab(): JSX.Element {
     const { experiment, statsMethod, isExperimentDraft } = useValues(experimentLogic)
     const { openStatsEngineModal } = useActions(modalsLogic)
 
@@ -36,11 +35,14 @@ export function SetupTab(): JSX.Element {
             </div>
             {!isExperimentDraft && (
                 <div>
-                    <ExperimentDuration />
+                    <h2 className="font-semibold text-lg">Code</h2>
+                    {experiment.type === 'web' ? (
+                        <WebExperimentImplementationDetails experiment={experiment} />
+                    ) : (
+                        <ExperimentImplementationDetails experiment={experiment} />
+                    )}
                 </div>
             )}
-            <ReleaseConditionsTable />
-            <DistributionTable />
         </div>
     )
 }

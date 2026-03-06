@@ -6,7 +6,6 @@ import { IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { TZLabel } from 'lib/components/TZLabel'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Label } from 'lib/ui/Label/Label'
@@ -21,6 +20,7 @@ import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { StatusTag } from './components'
+import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTimeNew } from './RunningTimeNew'
 
@@ -197,35 +197,8 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
                 {/* Column 2 */}
                 <div className="flex flex-col gap-4 overflow-hidden items-start min-[1100px]:items-end min-w-0">
-                    {/* Row 1: Duration - read-only display for launched experiments */}
-                    {!isExperimentDraft && (
-                        <div>
-                            <Label intent="menu">Duration</Label>
-                            <span>
-                                {experiment.start_date ? (
-                                    <TZLabel
-                                        time={experiment.start_date}
-                                        formatDate="MMM DD, YYYY"
-                                        formatTime="hh:mm A"
-                                        noStyles
-                                    />
-                                ) : (
-                                    'No start date'
-                                )}
-                                {' → '}
-                                {experiment.end_date ? (
-                                    <TZLabel
-                                        time={experiment.end_date}
-                                        formatDate="MMM DD, YYYY"
-                                        formatTime="hh:mm A"
-                                        noStyles
-                                    />
-                                ) : (
-                                    'Present'
-                                )}
-                            </span>
-                        </div>
-                    )}
+                    {/* Row 1: Duration (date pickers) - only for launched experiments */}
+                    {!isExperimentDraft && <ExperimentDuration />}
 
                     {/* Row 2: Running time, Last refreshed, Created by */}
                     <div className="flex flex-col overflow-hidden items-start min-[1100px]:items-end">
