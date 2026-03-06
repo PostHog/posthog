@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import React from 'react'
 
 import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -19,8 +18,8 @@ import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
 import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 
 export function PromptViewDetails(): JSX.Element {
-    const { prompt } = useValues(llmPromptLogic)
-    const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(false)
+    const { prompt, isRenderingMarkdown } = useValues(llmPromptLogic)
+    const { toggleMarkdownRendering } = useActions(llmPromptLogic)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -65,7 +64,7 @@ export function PromptViewDetails(): JSX.Element {
                         noPadding
                         icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
                         tooltip="Toggle markdown rendering"
-                        onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
+                        onClick={toggleMarkdownRendering}
                     />
                 </div>
                 {isRenderingMarkdown ? (
