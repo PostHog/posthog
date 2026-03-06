@@ -127,7 +127,7 @@ tools:
     cohorts-persons-retrieve:
         operation: cohorts_persons_retrieve
         enabled: false
-    cohorts-remove-person-from-static-cohort-partial-update:
+    cohorts-rm-person-from-static-cohort-partial-update:
         operation: cohorts_remove_person_from_static_cohort_partial_update
         enabled: true
         scopes:
