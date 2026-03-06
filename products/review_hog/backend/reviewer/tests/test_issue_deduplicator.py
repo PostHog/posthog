@@ -8,7 +8,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRComment, P
 from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
 from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
-from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_code
+from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import deduplicate_issues
 
 
@@ -86,16 +86,16 @@ class TestIssueDeduplicator:
         with (review_dir / "issues_cleaned.json").open("w") as f:
             f.write(issue_combination.model_dump_json())
 
-        # Mock the Claude Code call
+        # Mock the sandbox review call
         with patch(
-            "app.tools.issue_deduplicator.CodeExecutor.run_code",
-            create_mock_run_code(mock_deduplication_result),
+            "products.review_hog.backend.reviewer.tools.issue_deduplicator.run_sandbox_review",
+            create_mock_run_sandbox_review(mock_deduplication_result),
         ):
             # Run deduplication
             await deduplicate_issues(
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
-                project_dir=str(tmp_path),
+                branch="test-branch",
             )
 
         # Verify deduplicator.json was created
@@ -138,7 +138,7 @@ class TestIssueDeduplicator:
         await deduplicate_issues(
             pr_metadata=pr_metadata,
             review_dir=review_dir,
-            project_dir=str(tmp_path),
+            branch="test-branch",
         )
 
         # Verify empty results
@@ -184,17 +184,17 @@ class TestIssueDeduplicator:
         with (review_dir / "issues_found.json").open("w") as f:
             f.write(existing_empty_combination.model_dump_json())
 
-        # Mock Claude Code (should not be called)
-        with patch("app.tools.issue_deduplicator.CodeExecutor.run_code") as mock_claude:
+        # Mock sandbox review (should not be called)
+        with patch("products.review_hog.backend.reviewer.tools.issue_deduplicator.run_sandbox_review") as mock_sandbox:
             # Run deduplication
             await deduplicate_issues(
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
-                project_dir=str(tmp_path),
+                branch="test-branch",
             )
 
-            # Verify Claude was not called
-            mock_claude.assert_not_called()
+            # Verify sandbox was not called
+            mock_sandbox.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_deduplicate_issues_missing_input_file(
@@ -211,7 +211,7 @@ class TestIssueDeduplicator:
             await deduplicate_issues(
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
-                project_dir=str(tmp_path),
+                branch="test-branch",
             )
 
     @pytest.mark.asyncio
@@ -230,18 +230,18 @@ class TestIssueDeduplicator:
         with (review_dir / "issues_cleaned.json").open("w") as f:
             f.write(issue_combination.model_dump_json())
 
-        # Mock Claude Code failure
-        async def mock_failure(self: Any) -> bool:  # noqa: ARG001
+        # Mock sandbox review failure
+        async def mock_failure(**kwargs: Any) -> bool:
             return False
 
         with (
-            patch("app.tools.issue_deduplicator.CodeExecutor.run_code", mock_failure),
+            patch("products.review_hog.backend.reviewer.tools.issue_deduplicator.run_sandbox_review", mock_failure),
             pytest.raises(RuntimeError, match="Issue deduplication failed"),
         ):
             await deduplicate_issues(
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
-                project_dir=str(tmp_path),
+                branch="test-branch",
             )
 
     def test_duplicate_issue_model(self) -> None:
@@ -288,14 +288,14 @@ class TestIssueDeduplicator:
         )
 
         with patch(
-            "app.tools.issue_deduplicator.CodeExecutor.run_code",
-            create_mock_run_code(realistic_result),
+            "products.review_hog.backend.reviewer.tools.issue_deduplicator.run_sandbox_review",
+            create_mock_run_sandbox_review(realistic_result),
         ):
             # Run the full deduplication process
             await deduplicate_issues(
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
-                project_dir=str(tmp_path),
+                branch="test-branch",
             )
 
         # Verify the complete workflow
@@ -340,25 +340,25 @@ class TestIssueDeduplicator:
             for comment in pr_comments:
                 f.write(comment.model_dump_json() + "\n")
 
-        # Mock the Claude Code call to capture the prompt
+        # Mock the sandbox review call to capture the prompt
         captured_prompt = None
 
-        async def capture_prompt(self: Any) -> bool:
+        async def capture_prompt(**kwargs: Any) -> bool:
             nonlocal captured_prompt
-            captured_prompt = self.prompt
+            captured_prompt = kwargs["prompt"]
             # Create a valid result file
-            output_path = Path(self.output_path)
+            output_path = Path(kwargs["output_path"])
             result = IssueDeduplication(duplicates=[])
             with output_path.open("w") as f:
                 f.write(result.model_dump_json())
             return True
 
-        with patch("app.tools.issue_deduplicator.CodeExecutor.run_code", capture_prompt):
+        with patch("products.review_hog.backend.reviewer.tools.issue_deduplicator.run_sandbox_review", capture_prompt):
             # Run deduplication
             await deduplicate_issues(
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
-                project_dir=str(tmp_path),
+                branch="test-branch",
             )
 
         # Verify the prompt includes previous issues
@@ -392,25 +392,25 @@ class TestIssueDeduplicator:
 
         # Do NOT create pr_comments.jsonl
 
-        # Mock the Claude Code call to capture the prompt
+        # Mock the sandbox review call to capture the prompt
         captured_prompt = None
 
-        async def capture_prompt(self: Any) -> bool:
+        async def capture_prompt(**kwargs: Any) -> bool:
             nonlocal captured_prompt
-            captured_prompt = self.prompt
+            captured_prompt = kwargs["prompt"]
             # Create a valid result file
-            output_path = Path(self.output_path)
+            output_path = Path(kwargs["output_path"])
             result = IssueDeduplication(duplicates=[])
             with output_path.open("w") as f:
                 f.write(result.model_dump_json())
             return True
 
-        with patch("app.tools.issue_deduplicator.CodeExecutor.run_code", capture_prompt):
+        with patch("products.review_hog.backend.reviewer.tools.issue_deduplicator.run_sandbox_review", capture_prompt):
             # Run deduplication
             await deduplicate_issues(
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
-                project_dir=str(tmp_path),
+                branch="test-branch",
             )
 
         # Verify the prompt has empty previous issues

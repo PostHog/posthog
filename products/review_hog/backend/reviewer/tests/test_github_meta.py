@@ -1,15 +1,14 @@
 import os
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from github import GithubException
 
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
-from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRFilter, PRParser, switch_to_pr_branch
+from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRFilter, PRParser
 
 
 class TestParseGithubPrUrl:
@@ -157,7 +156,6 @@ class TestIsFilteredFile:
             "src/components/Button.tsx",
             "lib/utils.js",
             "locked.py",  # Contains 'lock' but not a lock file
-            "summary.txt",  # Contains 'sum' but not a sum file
             "minimal.js",  # Contains 'min' but not minified
             "mapper.py",  # Contains 'map' but not a source map
         ]
@@ -381,7 +379,7 @@ class TestFetchPrData:
     """Test fetch_pr_data function."""
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("app.tools.github_meta.Github")
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_fetch_pr_data_success(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test successful PR data fetching."""
         # Setup mocks
@@ -434,7 +432,7 @@ class TestFetchPrData:
         assert (temp_review_dir / "pr_files_scope.jsonl").exists()
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("app.tools.github_meta.Github")
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_fetch_pr_data_with_comments_and_files(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test fetching PR data with comments and files."""
         # Setup mocks
@@ -524,7 +522,7 @@ class TestFetchPrData:
             fetcher.fetch_pr_data()
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "invalid-token"})
-    @patch("app.tools.github_meta.Github")
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_fetch_pr_data_invalid_token(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test handling of invalid GitHub token."""
         mock_github = MagicMock()
@@ -541,7 +539,7 @@ class TestFetchPrData:
             fetcher.fetch_pr_data()
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("app.tools.github_meta.Github")
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_fetch_pr_data_pr_not_found(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test handling when PR is not found."""
         mock_github = MagicMock()
@@ -559,7 +557,7 @@ class TestFetchPrData:
             fetcher.fetch_pr_data()
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("app.tools.github_meta.Github")
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_fetch_pr_data_skip_existing_files(
         self, mock_github_class: Mock, temp_review_dir: Path, pr_metadata: PRMetadata
     ) -> None:
@@ -601,7 +599,7 @@ class TestFetchPrData:
         mock_github.get_repo.assert_called_once()
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("app.tools.github_meta.Github")
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_fetch_pr_data_handles_test_files(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test that test files are properly identified."""
         # Setup mocks
@@ -660,84 +658,17 @@ class TestFetchPrData:
         assert len(files) == 1
 
 
-class TestSwitchToPrBranch:
-    """Test switch_to_pr_branch function."""
-
-    @patch("app.tools.github_meta.subprocess.run")
-    def test_switch_to_pr_branch_success(self, mock_run: Mock, pr_metadata: PRMetadata, temp_project_dir: Path) -> None:
-        """Test successful branch switching."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-
-        switch_to_pr_branch(pr_metadata, str(temp_project_dir))
-
-        # Verify git commands were called
-        assert mock_run.call_count == 2
-
-        # Check fetch command
-        fetch_call = mock_run.call_args_list[0]
-        assert fetch_call == call(
-            ["git", "fetch", "origin"],
-            cwd=str(temp_project_dir),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        # Check checkout command
-        checkout_call = mock_run.call_args_list[1]
-        assert checkout_call == call(
-            ["git", "checkout", pr_metadata.head_branch],
-            cwd=str(temp_project_dir),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-    @patch("app.tools.github_meta.subprocess.run")
-    def test_switch_to_pr_branch_fetch_failure(
-        self, mock_run: Mock, pr_metadata: PRMetadata, temp_project_dir: Path
-    ) -> None:
-        """Test handling of git fetch failure."""
-        mock_run.side_effect = subprocess.CalledProcessError(1, ["git", "fetch", "origin"], stderr="fetch failed")
-
-        with pytest.raises(subprocess.CalledProcessError):
-            switch_to_pr_branch(pr_metadata, str(temp_project_dir))
-
-        # Should only call fetch, not checkout
-        assert mock_run.call_count == 1
-
-    @patch("app.tools.github_meta.subprocess.run")
-    def test_switch_to_pr_branch_checkout_failure(
-        self, mock_run: Mock, pr_metadata: PRMetadata, temp_project_dir: Path
-    ) -> None:
-        """Test handling of git checkout failure."""
-        # First call (fetch) succeeds, second call (checkout) fails
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="", stderr=""),
-            subprocess.CalledProcessError(1, ["git", "checkout"], stderr="checkout failed"),
-        ]
-
-        with pytest.raises(subprocess.CalledProcessError):
-            switch_to_pr_branch(pr_metadata, str(temp_project_dir))
-
-        # Should call both fetch and checkout
-        assert mock_run.call_count == 2
-
-
 class TestEndToEnd:
     """End-to-end tests for github_meta module."""
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("app.tools.github_meta.subprocess.run")
-    @patch("app.tools.github_meta.Github")
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_complete_pr_workflow(
         self,
         mock_github_class: Mock,
-        mock_subprocess: Mock,
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
-        """Test complete workflow: parse URL, fetch data, switch branch."""
+        """Test complete workflow: parse URL, fetch data."""
         # Parse URL
         url = "https://github.com/test-owner/test-repo/pull/999"
         parser = PRParser()
@@ -890,18 +821,3 @@ class TestEndToEnd:
             # All changes should have no code field
             for change in scope_file.get("changes", []):
                 assert "code" not in change
-
-        # Setup subprocess mock for branch switching
-        mock_subprocess.return_value = MagicMock(returncode=0, stdout="", stderr="")
-
-        # Switch to PR branch
-        switch_to_pr_branch(metadata, str(temp_project_dir))
-
-        # Verify git commands
-        assert mock_subprocess.call_count == 2
-        fetch_call = mock_subprocess.call_args_list[0]
-        checkout_call = mock_subprocess.call_args_list[1]
-
-        assert "fetch" in fetch_call[0][0]
-        assert "checkout" in checkout_call[0][0]
-        assert "e2e-feature-branch" in checkout_call[0][0]

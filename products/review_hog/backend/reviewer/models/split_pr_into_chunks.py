@@ -19,12 +19,8 @@ class FileInfo(BaseModel):
 
 
 class Chunk(BaseModel):
-    chunk_id: int = Field(
-        description="Unique identifier for the chunk, ordered by review priority"
-    )
-    files: list[FileInfo] = Field(
-        description="List of files that belong to this chunk", min_length=1
-    )
+    chunk_id: int = Field(description="Unique identifier for the chunk, ordered by review priority")
+    files: list[FileInfo] = Field(description="List of files that belong to this chunk", min_length=1)
     chunk_type: (
         Literal[
             "infrastructure",

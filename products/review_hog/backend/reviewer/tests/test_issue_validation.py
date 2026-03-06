@@ -1,10 +1,9 @@
 import json
-from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any, Literal
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 from jinja2 import select_autoescape
 
@@ -13,7 +12,7 @@ from products.review_hog.backend.reviewer.models.issue_combination import IssueC
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
-from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_code
+from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issue_validation import (
     create_validation_task,
     run_validation,
@@ -60,8 +59,8 @@ def sample_validation_result() -> IssueValidation:
 def mock_run_claude_code_validation(
     sample_validation_result: IssueValidation,
 ) -> Any:
-    """Create a mock for CodeExecutor.run_code that returns IssueValidation."""
-    return create_mock_run_code(sample_validation_result)
+    """Create a mock for run_sandbox_review that returns IssueValidation."""
+    return create_mock_run_sandbox_review(sample_validation_result)
 
 
 # mock_prepare_code_context fixture moved to conftest.py
@@ -119,8 +118,7 @@ class TestCreateValidationTask:
         pr_files: list[PRFile],
         sample_chunks_list: ChunksList,
         temp_review_dir: Path,
-        temp_project_dir: Path,
-        mock_prepare_code_context: MagicMock,
+        mock_prepare_code_context: str,
     ) -> None:
         """Test successful creation of validation task."""
         # Setup directories
@@ -140,8 +138,11 @@ class TestCreateValidationTask:
         template = env.get_template("prompt.jinja")
 
         with (
-            patch("app.llm.code.prepare_code_context", mock_prepare_code_context),
-            patch("app.tools.issue_validation.run_validation", return_value=True),
+            patch(
+                "products.review_hog.backend.reviewer.tools.issue_validation.prepare_code_context",
+                return_value=mock_prepare_code_context,
+            ),
+            patch("products.review_hog.backend.reviewer.tools.issue_validation.run_validation", return_value=True),
         ):
             result = await create_validation_task(
                 template=template,
@@ -154,7 +155,7 @@ class TestCreateValidationTask:
                 pr_metadata=pr_metadata,
                 chunk_data=sample_chunks_list.chunks[0].model_dump(),
                 pr_files=pr_files,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
             assert result is True
@@ -165,7 +166,7 @@ class TestCreateValidationTask:
 
             # Verify prompt content
             prompt_content = prompt_file.read_text()
-            assert "@src/analyzer.py" in prompt_content  # Code context
+            assert "@src/core/config.py#L10-20" in prompt_content  # Code context
             assert sample_issue.title in prompt_content
             assert "pr_issue_validation_instructions" in prompt_content
             assert schema in prompt_content
@@ -201,7 +202,7 @@ class TestCreateValidationTask:
         env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
         template = env.get_template("prompt.jinja")
 
-        with patch("app.tools.issue_validation.run_validation") as mock_run:
+        with patch("products.review_hog.backend.reviewer.tools.issue_validation.run_validation") as mock_run:
             result = await create_validation_task(
                 template=template,
                 issue=sample_issue,
@@ -213,7 +214,7 @@ class TestCreateValidationTask:
                 pr_metadata=pr_metadata,
                 chunk_data=sample_chunks_list.chunks[0].model_dump(),
                 pr_files=pr_files,
-                project_dir="/test/project",
+                branch="test-branch",
             )
 
             assert result is None  # Should return None for existing validation
@@ -226,7 +227,6 @@ class TestCreateValidationTask:
         pr_files: list[PRFile],
         sample_chunks_list: ChunksList,
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
         """Test validation task creation for issue without file context."""
         # Create issue without file
@@ -256,7 +256,7 @@ class TestCreateValidationTask:
         env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
         template = env.get_template("prompt.jinja")
 
-        with patch("app.tools.issue_validation.run_validation", return_value=True):
+        with patch("products.review_hog.backend.reviewer.tools.issue_validation.run_validation", return_value=True):
             result = await create_validation_task(
                 template=template,
                 issue=issue_no_file,
@@ -268,7 +268,7 @@ class TestCreateValidationTask:
                 pr_metadata=pr_metadata,
                 chunk_data=sample_chunks_list.chunks[0].model_dump(),
                 pr_files=pr_files,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
             assert result is True
@@ -290,21 +290,20 @@ class TestRunValidation:
     async def test_run_validation_success(
         self,
         temp_review_dir: Path,
-        temp_project_dir: Path,
-        mock_run_claude_code_validation: AsyncMock,
+        mock_run_claude_code_validation: Any,
     ) -> None:
         """Test successful validation run."""
         output_path = temp_review_dir / "test-validation.json"
         prompt = "Test validation prompt"
 
         with patch(
-            "app.tools.issue_validation.CodeExecutor.run_code",
+            "products.review_hog.backend.reviewer.tools.issue_validation.run_sandbox_review",
             mock_run_claude_code_validation,
         ):
             result = await run_validation(
                 prompt=prompt,
                 output_path=output_path,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
                 chunk_index=1,
                 issue_index=1,
             )
@@ -322,21 +321,22 @@ class TestRunValidation:
     async def test_run_validation_failure(
         self,
         temp_review_dir: Path,
-        temp_project_dir: Path,
-        mock_run_claude_code_failure: AsyncMock,
     ) -> None:
         """Test handling of validation failure."""
         output_path = temp_review_dir / "test-validation.json"
         prompt = "Test validation prompt"
 
+        async def mock_failure(**kwargs: Any) -> bool:
+            return False
+
         with patch(
-            "app.tools.issue_validation.CodeExecutor.run_code",
-            mock_run_claude_code_failure,
+            "products.review_hog.backend.reviewer.tools.issue_validation.run_sandbox_review",
+            mock_failure,
         ):
             result = await run_validation(
                 prompt=prompt,
                 output_path=output_path,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
                 chunk_index=1,
                 issue_index=1,
             )
@@ -344,19 +344,19 @@ class TestRunValidation:
             assert result is False
 
     @pytest.mark.asyncio
-    async def test_run_validation_exception_handling(self, temp_review_dir: Path, temp_project_dir: Path) -> None:
+    async def test_run_validation_exception_handling(self, temp_review_dir: Path) -> None:
         """Test exception handling in run_validation."""
         output_path = temp_review_dir / "test-validation.json"
         prompt = "Test validation prompt"
 
-        async def mock_exception(self: Any) -> bool:  # noqa: ARG001
+        async def mock_exception(**kwargs: Any) -> bool:
             raise Exception("Unexpected error")
 
-        with patch("app.tools.issue_validation.CodeExecutor.run_code", mock_exception):
+        with patch("products.review_hog.backend.reviewer.tools.issue_validation.run_sandbox_review", mock_exception):
             result = await run_validation(
                 prompt=prompt,
                 output_path=output_path,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
                 chunk_index=1,
                 issue_index=1,
             )
@@ -374,15 +374,17 @@ class TestValidateIssues:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         setup_review_dir_with_issues_found: Path,
-        temp_project_dir: Path,
-        mock_run_claude_code_validation: AsyncMock,
-        mock_prepare_code_context: MagicMock,
+        mock_run_claude_code_validation: Any,
+        mock_prepare_code_context: str,
     ) -> None:
         """Test validation of issues from combined issues_found.json file."""
         with (
-            patch("app.llm.code.prepare_code_context", mock_prepare_code_context),
             patch(
-                "app.tools.issue_validation.CodeExecutor.run_code",
+                "products.review_hog.backend.reviewer.tools.issue_validation.prepare_code_context",
+                return_value=mock_prepare_code_context,
+            ),
+            patch(
+                "products.review_hog.backend.reviewer.tools.issue_validation.run_sandbox_review",
                 mock_run_claude_code_validation,
             ),
         ):
@@ -391,7 +393,7 @@ class TestValidateIssues:
                 pr_metadata=pr_metadata,
                 pr_files=pr_files,
                 review_dir=setup_review_dir_with_issues_found,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
             # Check validation output files were created for different passes
@@ -417,7 +419,6 @@ class TestValidateIssues:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
         """Test validation when no issues_found.json file exists."""
         # Don't create issues_found.json file
@@ -429,7 +430,7 @@ class TestValidateIssues:
                 pr_metadata=pr_metadata,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
     @pytest.mark.asyncio
@@ -439,7 +440,6 @@ class TestValidateIssues:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
         """Test validation when issues_found.json is empty."""
         # Create empty issues_found.json file
@@ -452,7 +452,7 @@ class TestValidateIssues:
             pr_metadata=pr_metadata,
             pr_files=pr_files,
             review_dir=temp_review_dir,
-            project_dir=str(temp_project_dir),
+            branch="test-branch",
         )
 
         # Should complete without errors, check if any actual validation files were created
@@ -465,8 +465,7 @@ class TestValidateIssues:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
-        mock_run_claude_code_validation: Callable[[Any], Coroutine[Any, Any, bool]],
+        mock_run_claude_code_validation: Any,
         mock_prepare_code_context: str,
     ) -> None:
         """Test that issues are processed in batches."""
@@ -507,25 +506,27 @@ class TestValidateIssues:
 
         call_count = 0
 
-        async def counting_mock(self: Any) -> bool:
+        async def counting_mock(**kwargs: Any) -> bool:
             nonlocal call_count
             call_count += 1
-            # Use the create_mock_run_code function's logic
-            return await mock_run_claude_code_validation(self)
+            return await mock_run_claude_code_validation(**kwargs)
 
         with (
             patch(
-                "app.tools.issue_validation.prepare_code_context",
+                "products.review_hog.backend.reviewer.tools.issue_validation.prepare_code_context",
                 return_value=mock_prepare_code_context,
             ),
-            patch("app.tools.issue_validation.CodeExecutor.run_code", counting_mock),
+            patch(
+                "products.review_hog.backend.reviewer.tools.issue_validation.run_sandbox_review",
+                counting_mock,
+            ),
         ):
             await validate_issues(
                 chunks_data=chunks_list,
                 pr_metadata=pr_metadata,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
             # Should have processed all 15 issues (5 chunks * 3 issues)
@@ -545,8 +546,7 @@ class TestValidateIssuesEndToEnd:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
-        mock_prepare_code_context: MagicMock,
+        mock_prepare_code_context: str,
     ) -> None:
         """Test the complete validation flow from PR data to validation outputs."""
         # Setup comprehensive test data
@@ -617,14 +617,14 @@ class TestValidateIssuesEndToEnd:
         issues_found_file.write_text(issue_combination.model_dump_json(indent=2))
 
         # Mock validation responses
-        validation_results = []
+        validation_results: list[str] = []
 
         async def mock_validation(
-            self: Any,
+            **kwargs: Any,
         ) -> bool:
             """Create varied validation results."""
-            prompt = self.prompt
-            output_path = self.output_path
+            prompt = kwargs["prompt"]
+            output_path = kwargs["output_path"]
             # Parse issue from prompt to create appropriate validation
             is_valid = "Critical" in prompt  # Critical issues are valid
             if "Critical" in prompt:
@@ -660,9 +660,12 @@ class TestValidateIssuesEndToEnd:
             return True
 
         with (
-            patch("app.llm.code.prepare_code_context", mock_prepare_code_context),
             patch(
-                "app.tools.issue_validation.CodeExecutor.run_code",
+                "products.review_hog.backend.reviewer.tools.issue_validation.prepare_code_context",
+                return_value=mock_prepare_code_context,
+            ),
+            patch(
+                "products.review_hog.backend.reviewer.tools.issue_validation.run_sandbox_review",
                 mock_validation,
             ),
         ):
@@ -671,7 +674,7 @@ class TestValidateIssuesEndToEnd:
                 pr_metadata=pr_metadata,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
         # Verify all expected validations were created

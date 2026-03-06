@@ -4,10 +4,10 @@ from typing import Any
 
 import pytest
 from pytest import MonkeyPatch
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_code
+from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     generate_chunking_prompt,
@@ -112,23 +112,24 @@ class TestSplitPrIntoChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         expected_chunks: ChunksList,
     ) -> None:
         """Test successful PR chunking."""
-        with patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt:
+        with patch(
+            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
+        ) as mock_prompt:
             mock_prompt.return_value = "Test prompt"
 
             with patch(
-                "app.tools.split_pr_into_chunks.CodeExecutor.run_code",
-                create_mock_run_code(expected_chunks),
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
+                create_mock_run_sandbox_review(expected_chunks),
             ):
                 await split_pr_into_chunks(
                     pr_metadata=pr_metadata,
                     pr_comments=pr_comments,
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
-                    project_dir=str(temp_project_dir),
+                    branch="test-branch",
                 )
 
                 chunks_file: Path = temp_review_dir / "chunks.json"
@@ -146,7 +147,6 @@ class TestSplitPrIntoChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
         """Test that chunking is skipped when chunks.json already exists."""
         chunks_file: Path = temp_review_dir / "chunks.json"
@@ -155,21 +155,23 @@ class TestSplitPrIntoChunks:
             json.dump(existing_content, f)
 
         with (
-            patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt,
             patch(
-                "app.tools.split_pr_into_chunks.CodeExecutor.run_code",
-            ) as mock_run_code_executor,
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
+            ) as mock_prompt,
+            patch(
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
+            ) as mock_run_sandbox,
         ):
             await split_pr_into_chunks(
                 pr_metadata=pr_metadata,
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
             mock_prompt.assert_not_called()
-            mock_run_code_executor.assert_not_called()
+            mock_run_sandbox.assert_not_called()
 
             with chunks_file.open() as f:
                 content: dict[str, Any] = json.load(f)
@@ -182,26 +184,27 @@ class TestSplitPrIntoChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         expected_chunks: ChunksList,
     ) -> None:
         """Test that chunking proceeds when chunks.json exists but is empty."""
         chunks_file: Path = temp_review_dir / "chunks.json"
         chunks_file.touch()
 
-        with patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt:
+        with patch(
+            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
+        ) as mock_prompt:
             mock_prompt.return_value = "Test prompt"
 
             with patch(
-                "app.tools.split_pr_into_chunks.CodeExecutor.run_code",
-                create_mock_run_code(expected_chunks),
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
+                create_mock_run_sandbox_review(expected_chunks),
             ):
                 await split_pr_into_chunks(
                     pr_metadata=pr_metadata,
                     pr_comments=pr_comments,
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
-                    project_dir=str(temp_project_dir),
+                    branch="test-branch",
                 )
 
                 mock_prompt.assert_called_once()
@@ -217,26 +220,30 @@ class TestSplitPrIntoChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
-        mock_run_claude_code_failure: AsyncMock,
     ) -> None:
         """Test handling of LLM failure."""
-        with patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt:
+
+        async def mock_failure(**kwargs: Any) -> bool:
+            return False
+
+        with patch(
+            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
+        ) as mock_prompt:
             mock_prompt.return_value = "Test prompt"
 
             with (
                 patch(
-                    "app.tools.split_pr_into_chunks.CodeExecutor.run_code",
-                    mock_run_claude_code_failure,
+                    "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
+                    mock_failure,
                 ),
-                pytest.raises(RuntimeError, match="Failed to generate chunks using Claude Code"),
+                pytest.raises(RuntimeError, match="Failed to generate chunks using sandbox"),
             ):
                 await split_pr_into_chunks(
                     pr_metadata=pr_metadata,
                     pr_comments=pr_comments,
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
-                    project_dir=str(temp_project_dir),
+                    branch="test-branch",
                 )
 
     @pytest.mark.asyncio
@@ -246,10 +253,11 @@ class TestSplitPrIntoChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
         """Test handling of prompt generation error."""
-        with patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt:
+        with patch(
+            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
+        ) as mock_prompt:
             mock_prompt.side_effect = FileNotFoundError("Schema file not found")
 
             with pytest.raises(FileNotFoundError, match="Schema file not found"):
@@ -258,7 +266,7 @@ class TestSplitPrIntoChunks:
                     pr_comments=pr_comments,
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
-                    project_dir=str(temp_project_dir),
+                    branch="test-branch",
                 )
 
 
@@ -272,51 +280,37 @@ class TestSplitPrIntoChunksEndToEnd:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         expected_chunks: ChunksList,
     ) -> None:
         """Test the complete flow from PR data to validated chunks output."""
 
-        # Create a custom mock for e2e test that creates stream file
-        async def mock_e2e_run_code(self: Any) -> bool:
-            """Mock that creates both output and stream files."""
-            output_path = self.output_path
+        async def mock_e2e_run_sandbox(**kwargs: Any) -> bool:
+            """Mock that creates the output file."""
+            output_path = kwargs["output_path"]
             chunks_json = json.dumps(expected_chunks.model_dump(mode="json"), indent=2)
 
-            # Write main output file
             with Path(output_path).open("w") as f:
                 f.write(chunks_json)
-
-            # Write stream file (simulating Claude Code SDK behavior)
-            stream_output_path = str(output_path).replace(".json", "_stream.json")
-            result_message = {
-                "subtype": "result",
-                "result": f"```json\n{chunks_json}\n```",
-            }
-            with Path(stream_output_path).open("w") as f:
-                json.dump([result_message], f, indent=2)
 
             return True
 
         with patch(
-            "app.tools.split_pr_into_chunks.CodeExecutor.run_code",
-            mock_e2e_run_code,
+            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
+            mock_e2e_run_sandbox,
         ):
             await split_pr_into_chunks(
                 pr_metadata=pr_metadata,
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
             chunks_file: Path = temp_review_dir / "chunks.json"
             prompt_file: Path = temp_review_dir / "chunking_prompt.md"
-            stream_file: Path = temp_review_dir / "chunks_stream.json"
 
             assert chunks_file.exists()
             assert prompt_file.exists()
-            assert stream_file.exists()
 
             with chunks_file.open() as f:
                 saved_chunks: ChunksList = ChunksList.model_validate_json(f.read())

@@ -1,3 +1,4 @@
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,7 @@ from products.review_hog.backend.reviewer.models.issues_review import (
     PassType,
 )
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_code
+from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issues_review import (
     generate_prompts,
     load_previous_pass_results,
@@ -26,14 +27,14 @@ from products.review_hog.backend.reviewer.tools.issues_review import (
 
 
 @pytest.fixture
-def mock_run_claude_code_issues_review_failure() -> AsyncMock:
-    """Create a mock for run_code that fails."""
+def mock_run_claude_code_issues_review_failure() -> Callable[[Any], Coroutine[Any, Any, bool]]:
+    """Create a mock for run_sandbox_review that fails."""
 
-    async def mock_func() -> bool:
+    async def mock_func(**kwargs: Any) -> bool:
         """Mock implementation that returns failure."""
         return False
 
-    return AsyncMock(side_effect=mock_func)
+    return mock_func
 
 
 @pytest.fixture
@@ -271,7 +272,6 @@ class TestProcessChunk:
     async def test_process_chunk_success(
         self,
         temp_review_dir: Path,
-        temp_project_dir: Path,
         sample_issues_review_simple: IssuesReview,
     ) -> None:
         """Test successful chunk processing."""
@@ -282,18 +282,17 @@ class TestProcessChunk:
         output_path = temp_review_dir / "chunk-1-issues-review.json"
 
         with patch(
-            "app.tools.issues_review.CodeExecutor.run_code",
-            create_mock_run_code(sample_issues_review_simple),
+            "products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review",
+            create_mock_run_sandbox_review(sample_issues_review_simple),
         ):
             result = await process_chunk(
                 chunk_id=1,
                 prompt_path=prompt_path,
                 output_path=output_path,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
-        # The function doesn't return True on success, just None (missing return statement)
-        assert result is None or result is True
+        assert result is True
         assert output_path.exists()
 
         # Verify output is valid IssuesReview
@@ -304,7 +303,7 @@ class TestProcessChunk:
         assert must_fix_count == 1
 
     @pytest.mark.asyncio
-    async def test_process_chunk_missing_prompt(self, temp_review_dir: Path, temp_project_dir: Path) -> None:
+    async def test_process_chunk_missing_prompt(self, temp_review_dir: Path) -> None:
         """Test error when prompt file is missing."""
         prompt_path = temp_review_dir / "nonexistent-prompt.md"
         output_path = temp_review_dir / "output.json"
@@ -314,15 +313,14 @@ class TestProcessChunk:
                 chunk_id=1,
                 prompt_path=prompt_path,
                 output_path=output_path,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
     @pytest.mark.asyncio
     async def test_process_chunk_llm_failure(
         self,
         temp_review_dir: Path,
-        temp_project_dir: Path,
-        mock_run_claude_code_issues_review_failure: AsyncMock,
+        mock_run_claude_code_issues_review_failure: Callable[[Any], Coroutine[Any, Any, bool]],
     ) -> None:
         """Test handling of LLM failure."""
         prompt_path = temp_review_dir / "chunk-1-code-prompt.md"
@@ -331,14 +329,14 @@ class TestProcessChunk:
         output_path = temp_review_dir / "output.json"
 
         with patch(
-            "app.tools.issues_review.CodeExecutor.run_code",
+            "products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review",
             mock_run_claude_code_issues_review_failure,
         ):
             result = await process_chunk(
                 chunk_id=1,
                 prompt_path=prompt_path,
                 output_path=output_path,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
         assert result is False
@@ -355,7 +353,6 @@ class TestReviewChunksPass:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         sample_issues_review_simple: IssuesReview,
     ) -> None:
         """Test reviewing a single pass with chunks."""
@@ -363,8 +360,8 @@ class TestReviewChunksPass:
         single_chunk = ChunksList(chunks=[expected_chunks.chunks[0]])
 
         with patch(
-            "app.tools.issues_review.CodeExecutor.run_code",
-            create_mock_run_code(sample_issues_review_simple),
+            "products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review",
+            create_mock_run_sandbox_review(sample_issues_review_simple),
         ):
             await review_chunks_pass(
                 chunks_data=single_chunk,
@@ -372,7 +369,7 @@ class TestReviewChunksPass:
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
                 pass_number=1,
                 previous_passes_context=[],
             )
@@ -397,7 +394,6 @@ class TestReviewChunksPass:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         sample_issues_review_simple: IssuesReview,
     ) -> None:
         """Test that existing results are skipped."""
@@ -407,22 +403,22 @@ class TestReviewChunksPass:
         existing_result = results_dir / "chunk-1-issues-review.json"
         existing_result.write_text(sample_issues_review_simple.model_dump_json())
 
-        mock_run_claude = AsyncMock(side_effect=create_mock_run_code(sample_issues_review_simple))
-        with patch("app.tools.issues_review.CodeExecutor.run_code", mock_run_claude):
+        mock_run_sandbox = AsyncMock(side_effect=create_mock_run_sandbox_review(sample_issues_review_simple))
+        with patch("products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review", mock_run_sandbox):
             await review_chunks_pass(
                 chunks_data=expected_chunks,
                 pr_metadata=pr_metadata,
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
                 pass_number=1,
                 previous_passes_context=[],
             )
 
-        # Should not call run_code for chunk 1
+        # Should not call run_sandbox_review for chunk 1
         # But should process other chunks
-        mock_run_claude.assert_called()
+        mock_run_sandbox.assert_called()
 
         # Original file should be unchanged
         review = IssuesReview.model_validate_json(existing_result.read_text())
@@ -437,7 +433,6 @@ class TestReviewChunksPass:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
         """Test error handling for invalid pass number."""
         with pytest.raises(ValueError, match="Invalid pass number: 99"):
@@ -447,7 +442,7 @@ class TestReviewChunksPass:
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
                 pass_number=99,
                 previous_passes_context=[],
             )
@@ -460,7 +455,6 @@ class TestReviewChunksPass:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         pass1_context: PassContext,
         sample_issues_review_simple: IssuesReview,
     ) -> None:
@@ -468,8 +462,8 @@ class TestReviewChunksPass:
         single_chunk = ChunksList(chunks=[expected_chunks.chunks[0]])
 
         with patch(
-            "app.tools.issues_review.CodeExecutor.run_code",
-            create_mock_run_code(sample_issues_review_simple),
+            "products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review",
+            create_mock_run_sandbox_review(sample_issues_review_simple),
         ):
             await review_chunks_pass(
                 chunks_data=single_chunk,
@@ -477,7 +471,7 @@ class TestReviewChunksPass:
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
                 pass_number=2,
                 previous_passes_context=[pass1_context],
             )
@@ -498,15 +492,14 @@ class TestReviewChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
         sample_issues_review_simple: IssuesReview,
     ) -> None:
         """Test running all three passes."""
         single_chunk = ChunksList(chunks=[expected_chunks.chunks[0]])
 
         with patch(
-            "app.tools.issues_review.CodeExecutor.run_code",
-            create_mock_run_code(sample_issues_review_simple),
+            "products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review",
+            create_mock_run_sandbox_review(sample_issues_review_simple),
         ):
             await review_chunks(
                 chunks_data=single_chunk,
@@ -514,7 +507,7 @@ class TestReviewChunks:
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
         # Verify all passes completed
@@ -531,10 +524,9 @@ class TestReviewChunks:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
         """Test that failure in one pass stops execution."""
-        with patch("app.tools.issues_review.generate_prompts") as mock_prompts:
+        with patch("products.review_hog.backend.reviewer.tools.issues_review.generate_prompts") as mock_prompts:
             mock_prompts.side_effect = FileNotFoundError("Template error")
 
             with pytest.raises(FileNotFoundError, match="Template error"):
@@ -544,7 +536,7 @@ class TestReviewChunks:
                     pr_comments=pr_comments,
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
-                    project_dir=str(temp_project_dir),
+                    branch="test-branch",
                 )
 
             # Only pass 1 directory should be created
@@ -563,7 +555,6 @@ class TestEndToEnd:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
         temp_review_dir: Path,
-        temp_project_dir: Path,
     ) -> None:
         """Test complete multi-pass review flow end-to-end."""
         # Create mock reviews for each pass with different issues
@@ -611,13 +602,11 @@ class TestEndToEnd:
 
         reviews_by_pass = {1: pass1_review, 2: pass2_review, 3: pass3_review}
 
-        async def mock_run_claude(self: Any) -> bool:
+        async def mock_run_sandbox(**kwargs: Any) -> bool:
             """Mock that returns different reviews based on pass number in prompt."""
-            # Access attributes from the CodeExecutor instance
-            output_path = self.output_path
-            prompt = self.prompt
+            output_path = kwargs["output_path"]
+            prompt = kwargs["prompt"]
 
-            # Convert output_path to string if it's a Path object
             output_path_str = str(output_path)
 
             # Determine pass number from output path or prompt content
@@ -632,8 +621,8 @@ class TestEndToEnd:
             return True
 
         with patch(
-            "app.tools.issues_review.CodeExecutor.run_code",
-            mock_run_claude,
+            "products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review",
+            mock_run_sandbox,
         ):
             await review_chunks(
                 chunks_data=expected_chunks,
@@ -641,7 +630,7 @@ class TestEndToEnd:
                 pr_comments=pr_comments,
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
-                project_dir=str(temp_project_dir),
+                branch="test-branch",
             )
 
         # Verify all passes completed with correct data
