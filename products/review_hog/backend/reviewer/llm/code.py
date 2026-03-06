@@ -20,7 +20,6 @@ from reviewer.constants import (
     MAX_CONCURRENT_CODE_RUNS_CLAUDE,
     MAX_CONCURRENT_CODE_RUNS_CODEX,
 )
-from reviewer.models.calculate_token_usage import MetricsData, UsageDetails
 from reviewer.tools.github_meta import PRFile
 from reviewer.utils.json_utils import extract_json_from_text
 
@@ -38,11 +37,7 @@ GPT_5_PRICING = {
 }
 
 # Define max concurrence based on the tool, as TPM limits differ
-_max_concurrent = (
-    MAX_CONCURRENT_CODE_RUNS_CODEX
-    if os.getenv("USE_CODEX")
-    else MAX_CONCURRENT_CODE_RUNS_CLAUDE
-)
+_max_concurrent = MAX_CONCURRENT_CODE_RUNS_CODEX if os.getenv("USE_CODEX") else MAX_CONCURRENT_CODE_RUNS_CLAUDE
 _run_code_semaphore = asyncio.Semaphore(_max_concurrent)
 
 
@@ -154,21 +149,10 @@ class CodeExecutor:
                 else:
                     final_message = message
             if not final_message:
-                raise ValueError(
-                    f"No valid JSON found in Claude's response: {messages}"
-                )
+                raise ValueError(f"No valid JSON found in Claude's response: {messages}")
         except Exception as e:
             logger.error(f"Error getting final message from Claude Code SDK: {e}")
             return False
-        try:
-            # Build and save token usage metrics using helper function
-            token_usage = _build_claude_code_token_usage(final_message)
-            metrics_path = str(self.output_path).replace(".json", "_metrics.json")
-            with Path(metrics_path).open("w") as f:
-                json.dump(token_usage.model_dump(mode="json"), f, indent=2)
-        except Exception as e:
-            logger.error(f"Error building token usage metrics for Claude Code SDK: {e}")
-            # Continue - don't fail the whole operation
         try:
             result_text = final_message.result
             # Extract and parse JSON from the text
@@ -182,9 +166,7 @@ class CodeExecutor:
         except Exception as e:
             error_output_path = str(self.output_path).replace(".json", "_error.txt")
             if not final_message.result:
-                logger.error(
-                    f"Error processing output for Claude Code SDK, empty result: {e}"
-                )
+                logger.error(f"Error processing output for Claude Code SDK, empty result: {e}")
                 return False
             with Path(error_output_path).open("w") as f:
                 f.write(final_message.result)
@@ -202,13 +184,10 @@ class CodeExecutor:
         # Prepare stream output path
         stream_output_path = str(self.output_path).replace(".json", "_stream.jsonl")
         result_text = None
-        token_count_data = None
 
         try:
             # Create a temporary file to store the prompt
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".md", delete=False
-            ) as prompt_file:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as prompt_file:
                 # Combine system prompt and user prompt
                 full_prompt = f"{self.system_prompt}\n\n{self.prompt}"
                 prompt_file.write(full_prompt)
@@ -245,22 +224,6 @@ class CodeExecutor:
                         stream_file.write(line_text)
                         stream_file.flush()  # Ensure it's written immediately
 
-                        # Parse JSONL line to check for token_count message
-                        try:
-                            line_json = json.loads(line_text.strip())
-                            if (
-                                isinstance(line_json, dict)
-                                and line_json.get("msg", {}).get("type")
-                                == "token_count"
-                            ):
-                                # Keep the latest token_count message (overwrites previous ones)
-                                token_count_data = line_json["msg"]
-                                logger.debug(
-                                    f"Found token_count message: {token_count_data}"
-                                )
-                        except (json.JSONDecodeError, KeyError):
-                            pass  # Not a JSON line or not the format we expect
-
                         # Optionally log it for debugging
                         logger.debug(f"Codex output: {line_text.rstrip()}")
 
@@ -290,9 +253,7 @@ class CodeExecutor:
 
             # Check if file is empty
             if output_file.stat().st_size == 0:
-                logger.warning(
-                    f"Codex output file is empty, removing: {self.output_path}"
-                )
+                logger.warning(f"Codex output file is empty, removing: {self.output_path}")
                 output_file.unlink(missing_ok=True)
                 return False
 
@@ -306,24 +267,6 @@ class CodeExecutor:
             logger.error(f"Error getting result from Codex CLI: {e}")
             return False
 
-        # Build and save token usage metrics
-        try:
-            if token_count_data:
-                # Calculate cost using helper function
-                total_cost = _calculate_codex_cost(token_count_data)
-                # Build token usage dictionary using helper function
-                token_usage = _build_codex_token_usage(token_count_data, total_cost)
-                # Save metrics to file
-                metrics_path = str(self.output_path).replace(".json", "_metrics.json")
-                with Path(metrics_path).open("w") as f:
-                    json.dump(token_usage.model_dump(mode="json"), f, indent=2)
-                logger.info(f"Saved token usage metrics to: {metrics_path}")
-            else:
-                logger.error("No token_count message found in Codex output stream")
-        except Exception as e:
-            logger.error(f"Error building token usage metrics for Codex: {e}")
-            # Continue - don't fail the whole operation
-
         # Extract JSON, validate, and save
         try:
             # Extract and parse JSON from the text
@@ -332,9 +275,7 @@ class CodeExecutor:
             # Overwrite the output file with validated data
             with Path(self.output_path).open("w") as f:
                 f.write(json.dumps(validated_data.model_dump(mode="json"), indent=2))
-            logger.info(
-                f"Successfully saved validated Codex data to: {self.output_path}"
-            )
+            logger.info(f"Successfully saved validated Codex data to: {self.output_path}")
             return True
         except Exception as e:
             # Save raw output to error file if validation fails
@@ -353,9 +294,7 @@ class CodeExecutor:
         Returns True if successful, False otherwise.
         """
         async with _run_code_semaphore:  # Acquire semaphore, wait if limit reached
-            logger.info(
-                f"Acquired semaphore for run_code with limit: {_max_concurrent}"
-            )
+            logger.info(f"Acquired semaphore for run_code with limit: {_max_concurrent}")
             use_codex = os.getenv("USE_CODEX")
             if use_codex:
                 logger.info("USE_CODEX is set, using OpenAI Codex")
@@ -363,94 +302,6 @@ class CodeExecutor:
             else:
                 logger.info("USE_CODEX not set, using Claude Code")
                 return await self._run_claude_code()
-
-
-def _build_codex_token_usage(token_count_data: dict, cost_usd: float) -> MetricsData:
-    """
-    Build token usage metrics for Codex.
-
-    Args:
-        token_count_data: Dictionary containing token counts from Codex stream
-        cost_usd: Calculated cost in USD
-
-    Returns:
-        MetricsData with token usage metrics in the standard format
-    """
-    return MetricsData(
-        cost_usd=cost_usd,
-        duration_ms=0,  # As specified for Codex
-        num_turns=0,  # As specified for Codex
-        session_id="",  # As specified for Codex (empty string instead of None)
-        usage=UsageDetails(
-            input_tokens=token_count_data.get("input_tokens", 0),
-            cache_creation_input_tokens=token_count_data.get(
-                "cached_input_tokens", 0
-            ),  # Store cached_input_tokens here
-            cache_read_input_tokens=0,  # Not provided by Codex
-            output_tokens=token_count_data.get("output_tokens", 0),
-            reasoning_output_tokens=token_count_data.get("reasoning_output_tokens", 0),
-        ),
-    )
-
-
-def _calculate_codex_cost(token_count_data: dict) -> float:
-    """
-    Calculate cost for Codex token usage using GPT-5 pricing.
-
-    Args:
-        token_count_data: Dictionary containing token counts from Codex stream
-
-    Returns:
-        Total cost in USD
-    """
-    input_tokens = token_count_data.get("input_tokens", 0)
-    cached_input_tokens = token_count_data.get("cached_input_tokens", 0)
-    output_tokens = token_count_data.get("output_tokens", 0)
-    # Note: reasoning_output_tokens are not included in cost calculation
-
-    # Calculate costs for each token type
-    cached_cost = (cached_input_tokens / 1_000_000) * GPT_5_PRICING["cached_input"]
-    uncached_input_tokens = input_tokens - cached_input_tokens
-    input_cost = (uncached_input_tokens / 1_000_000) * GPT_5_PRICING["input"]
-    output_cost = (output_tokens / 1_000_000) * GPT_5_PRICING["output"]
-
-    return cached_cost + input_cost + output_cost
-
-
-def _build_claude_code_token_usage(final_message: ResultMessage) -> MetricsData:
-    """
-    Build token usage metrics for Claude Code.
-
-    Args:
-        final_message: ResultMessage from Claude Code SDK
-
-    Returns:
-        MetricsData with token usage metrics in the standard format
-    """
-    # Extract token usage data from the message
-    usage_data = UsageDetails()
-    if final_message.usage:
-        usage_data = UsageDetails(
-            input_tokens=final_message.usage.get("input_tokens", 0),
-            cache_creation_input_tokens=final_message.usage.get(
-                "cache_creation_input_tokens", 0
-            ),
-            cache_read_input_tokens=final_message.usage.get(
-                "cache_read_input_tokens", 0
-            ),
-            output_tokens=final_message.usage.get("output_tokens", 0),
-            reasoning_output_tokens=final_message.usage.get(
-                "reasoning_output_tokens", 0
-            ),
-        )
-
-    return MetricsData(
-        cost_usd=final_message.total_cost_usd,
-        duration_ms=final_message.duration_ms,
-        num_turns=final_message.num_turns,
-        session_id=final_message.session_id,
-        usage=usage_data,
-    )
 
 
 def prepare_code_context(chunk_filenames: list[str], pr_files: list[PRFile]) -> str:
@@ -466,17 +317,9 @@ def prepare_code_context(chunk_filenames: list[str], pr_files: list[PRFile]) -> 
                 if change.type not in ["addition", "deletion"]:
                     continue
                 # Use new line numbers for additions, old for deletions
-                if (
-                    change.type == "addition"
-                    and change.new_start_line
-                    and change.new_end_line
-                ):
+                if change.type == "addition" and change.new_start_line and change.new_end_line:
                     line_ranges.append((change.new_start_line, change.new_end_line))
-                elif (
-                    change.type == "deletion"
-                    and change.old_start_line
-                    and change.old_end_line
-                ):
+                elif change.type == "deletion" and change.old_start_line and change.old_end_line:
                     line_ranges.append((change.old_start_line, change.old_end_line))
 
             # Merge overlapping or adjacent ranges

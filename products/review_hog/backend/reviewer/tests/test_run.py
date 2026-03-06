@@ -31,7 +31,6 @@ def mock_tool_functions() -> Generator[dict[str, Mock], None, None]:
         patch("app.run.deduplicate_issues") as mock_deduplicate,
         patch("app.run.validate_issues") as mock_validate,
         patch("app.run.prepare_validation_markdown") as mock_prepare_validation,
-        patch("app.run.calculate_token_usage") as mock_calculate_token,
     ):
         yield {
             "parser_class": mock_parser_class,
