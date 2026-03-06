@@ -142,7 +142,7 @@ def direct_postgres_table_prefix(external_data_source: ExternalDataSource) -> st
 
 
 def direct_postgres_table_name(external_data_source: ExternalDataSource, schema_name: str) -> str:
-    return f"{direct_postgres_table_prefix(external_data_source)}{schema_name}".lower()
+    return f"{direct_postgres_table_prefix(external_data_source)}{schema_name}"
 
 
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
@@ -879,6 +879,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     schema_model.save(update_fields=["sync_type_config", "updated_at"])
 
                     table_model = schema_model.table
+                    if not schema_model.should_sync:
+                        if table_model is not None and not table_model.deleted:
+                            table_model.soft_delete()
+                        continue
+
                     if table_model is None or table_model.deleted:
                         table_model = DataWarehouseTable.objects.create(
                             name=expected_table_name,

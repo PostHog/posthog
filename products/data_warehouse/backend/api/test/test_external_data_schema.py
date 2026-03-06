@@ -518,6 +518,65 @@ class TestUpdateExternalDataSchema:
             mock_external_data_workflow_exists.assert_not_called()
             mock_sync_external_data_job_workflow.assert_not_called()
 
+    def test_update_schema_change_should_sync_off_soft_deletes_table_for_direct_source(
+        self, team, user, client: HttpClient, temporal
+    ):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        table = DataWarehouseTable.objects.create(
+            name=f"postgres_{source.pk.hex}_accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team,
+            url_pattern="direct://postgres",
+            external_data_source=source,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="accounts",
+            should_sync=True,
+            sync_type=None,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "foreign_keys": [],
+                }
+            },
+        )
+
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={
+                "id": str(schema.id),
+                "name": schema.name,
+                "should_sync": False,
+                "incremental": False,
+                "status": "Completed",
+                "sync_type": None,
+                "incremental_field": None,
+                "incremental_field_type": None,
+                "sync_frequency": "6hour",
+                "sync_time_of_day": "00:00:00",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
+
     def test_update_schema_change_sync_type_with_invalid_type(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source_id = create_external_data_source_ok(client, team.pk)

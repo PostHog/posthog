@@ -73,7 +73,7 @@ HOGQL_BY_CLICKHOUSE_TYPE = {
 
 
 def direct_postgres_table_name(source: ExternalDataSource, schema_name: str) -> str:
-    return f"{source.source_type.lower()}_{source.pk.hex}_{schema_name}".lower()
+    return f"{source.source_type.lower()}_{source.pk.hex}_{schema_name}"
 
 
 def postgres_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | None) -> dict[str, dict[str, str | bool]]:
@@ -313,6 +313,15 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     ]
                 )
                 validated_data["table"] = table_model
+
+        should_disable_direct_schema = should_sync is False and instance.should_sync is True and is_direct_query_source
+        if (
+            should_disable_direct_schema
+            and instance.source.source_type == ExternalDataSourceType.POSTGRES
+            and instance.table is not None
+            and not instance.table.deleted
+        ):
+            instance.table.soft_delete()
 
         if not is_direct_query_source:
             schedule_exists = external_data_workflow_exists(str(instance.id))

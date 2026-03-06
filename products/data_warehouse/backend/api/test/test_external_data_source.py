@@ -889,6 +889,51 @@ class TestExternalDataSource(APIBaseTest):
         self.assertTrue(DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists())
         self.assertTrue(ExternalDataSchema.objects.filter(pk=stale_schema.pk, deleted=True).exists())
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_direct_postgres_keeps_disabled_schema_table_deleted(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="Accounts", columns=[("id", "integer", False)], foreign_keys=[])
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+
+        table = DataWarehouseTable.objects.create(
+            name=f"postgres_{source.pk.hex}_Accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern="direct://postgres",
+            external_data_source=source,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="Accounts",
+            should_sync=False,
+            table=table,
+            sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        schema.refresh_from_db()
+        self.assertFalse(schema.should_sync)
+        self.assertTrue(DataWarehouseTable.raw_objects.get(pk=table.pk).deleted)
+        self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["name"], "id")
+
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
