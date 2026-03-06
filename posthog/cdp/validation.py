@@ -139,6 +139,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "dictionary",
             "choice",
             "json",
+            "hogql",
             "integration",
             "integration_field",
             "email",

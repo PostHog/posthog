@@ -6055,6 +6055,7 @@ export type CyclotronJobInputSchemaType = {
         | 'dictionary'
         | 'choice'
         | 'json'
+        | 'hogql'
         | 'integration'
         | 'integration_field'
         | 'email'
