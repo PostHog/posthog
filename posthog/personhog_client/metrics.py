@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import os
+from django.conf import settings
 
 from prometheus_client import Counter
 
 
 def get_client_name() -> str:
-    return os.environ.get("OTEL_SERVICE_NAME") or "posthog-django"
+    return getattr(settings, "OTEL_SERVICE_NAME", None) or "posthog-django"
 
 
 PERSONHOG_ROUTING_TOTAL = Counter(
