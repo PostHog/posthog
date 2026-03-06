@@ -63,7 +63,6 @@ jobs:
                       const isDraft = pr.draft;
                       const nodeId = pr.node_id;
                       const owner = process.env.ORG_NAME;
-                      const repo = pr.base.repo.name;
                       const prNumber = pr.number;
 
                       core.info(`Evaluating PR #${prNumber} (draft: ${isDraft})`);
@@ -86,12 +85,18 @@ jobs:
                               core.info(`'${teamSlug}' is not requested directly. Checking if any reviewer is a member…`);
                               let teamMembers = [];
                               try {
-                                  const { data } = await github.rest.teams.listMembersInOrg({
-                                      org: owner,
-                                      team_slug: teamSlug,
-                                      per_page: 100
-                                  });
-                                  teamMembers = data;
+                                  let page = 1;
+                                  while (true) {
+                                      const { data } = await github.rest.teams.listMembersInOrg({
+                                          org: owner,
+                                          team_slug: teamSlug,
+                                          per_page: 100,
+                                          page
+                                      });
+                                      teamMembers = teamMembers.concat(data);
+                                      if (data.length < 100) break;
+                                      page++;
+                                  }
                               } catch (err) {
                                   if (err.status === 404 || err.status === 403) {
                                       core.warning(`Team '${teamSlug}' not found or not accessible (HTTP ${err.status}) — skipping member check`);
@@ -202,10 +207,10 @@ jobs:
                               core.info(`Checking if PR #${prNumber} (${prTitle}) is already in project '${project.title}'…`);
 
                               const itemsQuery = `
-                                query($projectId: ID!) {
+                                query($projectId: ID!, $after: String) {
                                   node(id: $projectId) {
                                     ... on ProjectV2 {
-                                      items(first: 100) {
+                                      items(first: 100, after: $after) {
                                         nodes {
                                           id
                                           content {
@@ -214,15 +219,26 @@ jobs:
                                             }
                                           }
                                         }
+                                        pageInfo {
+                                          hasNextPage
+                                          endCursor
+                                        }
                                       }
                                     }
                                   }
                                 }
                               `;
 
-                              const result = await github.graphql(itemsQuery, { projectId });
-                              const items = result.node.items.nodes;
-                              let existingItemId = items.find(item => item.content?.id === contentId)?.id || null;
+                              let existingItemId = null;
+                              let after = null;
+                              let hasNextPage = true;
+                              while (hasNextPage && !existingItemId) {
+                                  const result = await github.graphql(itemsQuery, { projectId, after });
+                                  const page = result.node.items;
+                                  existingItemId = page.nodes.find(item => item.content?.id === contentId)?.id || null;
+                                  hasNextPage = page.pageInfo.hasNextPage;
+                                  after = page.pageInfo.endCursor;
+                              }
 
                               if (existingItemId) {
                                   core.info(`PR #${prNumber} (${prTitle}) already exists in project '${project.title}'. Updating status to '${statusOption.name}'…`);
