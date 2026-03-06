@@ -474,6 +474,42 @@ class TestExperimentService(APIBaseTest):
             "saved-secondary",
         }
 
+    # ------------------------------------------------------------------
+    # Status field
+    # ------------------------------------------------------------------
+
+    def test_create_draft_experiment_sets_status_draft(self):
+        self._create_flag(key="status-draft")
+        service = self._service()
+
+        experiment = service.create_experiment(name="Draft Status", feature_flag_key="status-draft")
+
+        assert experiment.status == "draft"
+
+    def test_create_running_experiment_sets_status_running(self):
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Running Status",
+            feature_flag_key="status-running",
+            start_date=timezone.now(),
+        )
+
+        assert experiment.status == "running"
+
+    def test_create_stopped_experiment_sets_status_stopped(self):
+        service = self._service()
+        now = timezone.now()
+
+        experiment = service.create_experiment(
+            name="Stopped Status",
+            feature_flag_key="status-stopped",
+            start_date=now,
+            end_date=now + timedelta(days=7),
+        )
+
+        assert experiment.status == "stopped"
+
     def test_create_experiment_with_unknown_field_raises_type_error(self):
         self._create_flag(key="unknown-key-flag")
         service = self._service()
