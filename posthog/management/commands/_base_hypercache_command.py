@@ -9,6 +9,7 @@ For other cache types, create a different base class.
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import connection
+from django.db.models import QuerySet
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
@@ -252,16 +253,13 @@ class BaseHyperCacheCommand(BaseCommand):
 
     # Team scoping
 
-    def get_teams_queryset(self):
+    def get_teams_queryset(self) -> QuerySet:
         """Return the base queryset of teams to process.
 
-        Uses the config's ``get_teams_queryset_fn`` when set, falling back to
-        all teams.
+        Uses the config's ``get_teams_queryset()`` method when set, falling
+        back to all teams.
         """
-        config = self.get_hypercache_config()
-        if config.get_teams_queryset_fn is not None:
-            return config.get_teams_queryset_fn().select_related("organization", "project")
-        return Team.objects.select_related("organization", "project")
+        return self.get_hypercache_config().get_teams_queryset().select_related("organization", "project")
 
     def _print_scope_info(self, scoped_count: int, total_count: int):
         """Print a message when team scoping reduces the verification set."""
@@ -764,12 +762,14 @@ class BaseHyperCacheCommand(BaseCommand):
         else:
             # Get current cache stats for upfront reporting
             total_teams = Team.objects.count()
+            scoped_teams = self.get_teams_queryset().count()
+            self._print_scope_info(scoped_teams, total_teams)
             cache_stats = get_cache_stats(config)
 
             # Handle all teams - show configuration and current state
             self.stdout.write(
                 f"\nStarting {cache_name} cache warm:\n"
-                f"  Total teams: {total_teams:,}\n"
+                f"  Teams to warm: {scoped_teams:,}\n"
                 f"  Current cache coverage: {cache_stats.get('cache_coverage', 'unknown')}\n"
                 f"  Batch size: {batch_size}\n"
                 f"  Invalidate first: {invalidate_first}\n"

@@ -16,6 +16,7 @@ from posthog.storage.hypercache_manager import (
     get_cache_stats,
     invalidate_all_caches,
     push_hypercache_stats_metrics,
+    warm_caches,
 )
 
 
@@ -502,7 +503,7 @@ class TestPushHypercacheStatsMetrics(BaseTest):
 
 
 class TestConfigGetTeamsQuerysetFn(BaseTest):
-    """Test HyperCacheManagementConfig.get_teams_queryset_fn."""
+    """Test HyperCacheManagementConfig.get_teams_queryset_fn and get_teams_queryset()."""
 
     def test_default_is_none(self):
         config = create_test_config()
@@ -524,3 +525,120 @@ class TestConfigGetTeamsQuerysetFn(BaseTest):
         )
         assert config.get_teams_queryset_fn is not None
         assert config.get_teams_queryset_fn().count() >= 0
+
+    def test_get_teams_queryset_uses_fn_when_set(self):
+        from posthog.models.team.team import Team
+
+        hypercache = create_test_hypercache()
+
+        def update_fn(team, ttl=None):
+            return True
+
+        config = HyperCacheManagementConfig(
+            hypercache=hypercache,
+            update_fn=update_fn,
+            cache_name="test_cache",
+            get_teams_queryset_fn=lambda: Team.objects.none(),
+        )
+        assert config.get_teams_queryset().count() == 0
+
+    def test_get_teams_queryset_falls_back_to_all_teams(self):
+        config = create_test_config()
+        assert config.get_teams_queryset().count() >= 1
+
+
+class TestWarmCachesQuerysetScoping(BaseTest):
+    """Test that warm_caches() scopes teams via config.get_teams_queryset()."""
+
+    def test_scopes_to_queryset_when_configured(self):
+        from posthog.models import Team
+
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+
+        warmed_team_ids: list[int] = []
+
+        def tracking_update_fn(team, ttl=None):
+            warmed_team_ids.append(team.id)
+            return True
+
+        hypercache = create_test_hypercache()
+        config = HyperCacheManagementConfig(
+            hypercache=hypercache,
+            update_fn=tracking_update_fn,
+            cache_name="test_cache",
+            get_teams_queryset_fn=lambda: Team.objects.filter(id=team2.id),
+        )
+
+        warm_caches(config, batch_size=100, stagger_ttl=False)
+
+        assert team2.id in warmed_team_ids
+        assert self.team.id not in warmed_team_ids
+
+    def test_warms_all_teams_when_queryset_fn_is_none(self):
+        from posthog.models import Team
+
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+
+        warmed_team_ids: list[int] = []
+
+        def tracking_update_fn(team, ttl=None):
+            warmed_team_ids.append(team.id)
+            return True
+
+        hypercache = create_test_hypercache()
+        config = HyperCacheManagementConfig(
+            hypercache=hypercache,
+            update_fn=tracking_update_fn,
+            cache_name="test_cache",
+        )
+
+        warm_caches(config, batch_size=100, stagger_ttl=False)
+
+        assert self.team.id in warmed_team_ids
+        assert team2.id in warmed_team_ids
+
+    def test_empty_queryset_warms_zero_teams(self):
+        from posthog.models import Team
+
+        warmed_team_ids: list[int] = []
+
+        def tracking_update_fn(team, ttl=None):
+            warmed_team_ids.append(team.id)
+            return True
+
+        hypercache = create_test_hypercache()
+        config = HyperCacheManagementConfig(
+            hypercache=hypercache,
+            update_fn=tracking_update_fn,
+            cache_name="test_cache",
+            get_teams_queryset_fn=lambda: Team.objects.none(),
+        )
+
+        successful, failed = warm_caches(config, batch_size=100, stagger_ttl=False)
+
+        assert warmed_team_ids == []
+        assert successful == 0
+        assert failed == 0
+
+    def test_explicit_team_ids_bypass_scoping(self):
+        """Explicit team_ids should bypass config scoping so operators can warm any team."""
+        from posthog.models import Team
+
+        warmed_team_ids: list[int] = []
+
+        def tracking_update_fn(team, ttl=None):
+            warmed_team_ids.append(team.id)
+            return True
+
+        hypercache = create_test_hypercache()
+        # Config scopes to no teams, but explicit team_ids should bypass that
+        config = HyperCacheManagementConfig(
+            hypercache=hypercache,
+            update_fn=tracking_update_fn,
+            cache_name="test_cache",
+            get_teams_queryset_fn=lambda: Team.objects.none(),
+        )
+
+        warm_caches(config, batch_size=100, stagger_ttl=False, team_ids=[self.team.id])
+
+        assert self.team.id in warmed_team_ids

@@ -117,6 +117,7 @@ def create_mock_config():
     mock_config.hypercache.expiry_sorted_set_key = None  # Disable expiry tracking by default
     mock_config.cache_display_name = "test cache"
     mock_config.get_teams_queryset_fn = None  # Match real config default
+    mock_config.get_teams_queryset.return_value = Team.objects.all()
     return mock_config
 
 
@@ -848,12 +849,10 @@ class TestGracePeriodSkipping(BaseTest):
 
 
 def create_scoped_mock_config(scoped_team_ids: list[int] | None = None):
-    """Create a mock config with optional get_teams_queryset_fn scoping."""
+    """Create a mock config with optional get_teams_queryset scoping."""
     mock_config = create_mock_config()
     if scoped_team_ids is not None:
-        mock_config.get_teams_queryset_fn = lambda: Team.objects.filter(id__in=scoped_team_ids)
-    else:
-        mock_config.get_teams_queryset_fn = None
+        mock_config.get_teams_queryset.return_value = Team.objects.filter(id__in=scoped_team_ids)
     return mock_config
 
 
@@ -862,15 +861,14 @@ class TestGetTeamsQueryset(BaseTest):
     """Test the get_teams_queryset() behavior driven by config."""
 
     def test_default_returns_all_teams_when_no_queryset_fn(self):
-        """When config has no get_teams_queryset_fn, returns all teams."""
+        """When config has no scoping function, returns all teams."""
         mock_config = create_mock_config()
-        mock_config.get_teams_queryset_fn = None
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
         qs = command.get_teams_queryset()
         assert self.team in list(qs)
 
     def test_config_queryset_fn_scopes_all_teams_path(self):
-        """Config's get_teams_queryset_fn restricts which teams are verified."""
+        """Config's get_teams_queryset() restricts which teams are verified."""
         from posthog.models import Team as TeamModel
 
         team2 = TeamModel.objects.create(organization=self.organization, name="Team 2")
@@ -886,7 +884,7 @@ class TestGetTeamsQueryset(BaseTest):
         assert "Verifying all 1 teams" in output
 
     def test_config_queryset_fn_scopes_sample_path(self):
-        """Config's get_teams_queryset_fn restricts the sample pool."""
+        """Config's get_teams_queryset() restricts the sample pool."""
         from posthog.models import Team as TeamModel
 
         team2 = TeamModel.objects.create(organization=self.organization, name="Team 2")
@@ -923,7 +921,7 @@ class TestGetTeamsQueryset(BaseTest):
         assert "Verifying random sample of 1 teams" in output
 
     def test_team_ids_ignores_config_scoping(self):
-        """Explicit --team-ids bypasses config's get_teams_queryset_fn."""
+        """Explicit --team-ids bypasses config's get_teams_queryset() scoping."""
         mock_config = create_scoped_mock_config(scoped_team_ids=[])
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
         command.stdout = StringIO()  # type: ignore[assignment]
@@ -948,7 +946,8 @@ class TestPrintScopeInfo(BaseTest):
 
         output = command.stdout.getvalue()
         assert "Scope:" in output
-        assert "teams skipped" in output
+        assert "1 of 10" in output
+        assert "9 teams skipped" in output
 
     def test_omits_message_when_not_scoped(self):
         """Scope info message omitted when scoped count equals total count."""
