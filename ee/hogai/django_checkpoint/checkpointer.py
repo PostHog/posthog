@@ -1,11 +1,22 @@
+import re
 import json
 import random
+import decimal
+import pathlib
+import dataclasses
+from collections import deque
 from collections.abc import AsyncIterator, Sequence
+from datetime import date, datetime, time, timedelta, timezone
+from enum import Enum
+from ipaddress import IPv4Address, IPv4Interface, IPv4Network, IPv6Address, IPv6Interface, IPv6Network
 from typing import Any, Optional, cast
+from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
 
+from langchain_core.load.serializable import Serializable
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -17,11 +28,68 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
+from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol, SendProtocol
 
 from posthog.sync import database_sync_to_async
 
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
+
+
+def _json_default(serde: JsonPlusSerializer, obj: Any) -> str | dict[str, Any]:
+    """JSON encoder hook for checkpoint metadata.
+
+    Replicates the old JsonPlusSerializer._default() method that was removed
+    in langgraph-checkpoint 3.0+. Converts special Python types to lc:2
+    constructor dicts for JSON storage.
+    """
+    if isinstance(obj, Serializable):
+        return cast(dict[str, Any], obj.to_json())
+    elif hasattr(obj, "model_dump") and callable(obj.model_dump):
+        return serde._encode_constructor_args(obj.__class__, method=(None, "model_construct"), kwargs=obj.model_dump())
+    elif hasattr(obj, "dict") and callable(obj.dict):
+        return serde._encode_constructor_args(obj.__class__, method=(None, "construct"), kwargs=obj.dict())
+    elif hasattr(obj, "_asdict") and callable(obj._asdict):
+        return serde._encode_constructor_args(obj.__class__, kwargs=obj._asdict())
+    elif isinstance(obj, pathlib.Path):
+        return serde._encode_constructor_args(pathlib.Path, args=obj.parts)
+    elif isinstance(obj, re.Pattern):
+        return serde._encode_constructor_args(re.compile, args=(obj.pattern, obj.flags))
+    elif isinstance(obj, UUID):
+        return serde._encode_constructor_args(UUID, args=(obj.hex,))
+    elif isinstance(obj, decimal.Decimal):
+        return serde._encode_constructor_args(decimal.Decimal, args=(str(obj),))
+    elif isinstance(obj, datetime):
+        return serde._encode_constructor_args(datetime, method="fromisoformat", args=(obj.isoformat(),))
+    elif isinstance(obj, timezone):
+        return serde._encode_constructor_args(timezone, args=obj.__getinitargs__())  # type: ignore[attr-defined]
+    elif isinstance(obj, ZoneInfo):
+        return serde._encode_constructor_args(ZoneInfo, args=(obj.key,))
+    elif isinstance(obj, timedelta):
+        return serde._encode_constructor_args(timedelta, args=(obj.days, obj.seconds, obj.microseconds))
+    elif isinstance(obj, date):
+        return serde._encode_constructor_args(date, args=(obj.year, obj.month, obj.day))
+    elif isinstance(obj, time):
+        return serde._encode_constructor_args(
+            time, args=(obj.hour, obj.minute, obj.second, obj.microsecond, obj.tzinfo), kwargs={"fold": obj.fold}
+        )
+    elif isinstance(obj, (set, frozenset, deque)):
+        return serde._encode_constructor_args(type(obj), args=(tuple(obj),))
+    elif isinstance(obj, (IPv4Address, IPv4Interface, IPv4Network, IPv6Address, IPv6Interface, IPv6Network)):
+        return serde._encode_constructor_args(obj.__class__, args=(str(obj),))
+    elif isinstance(obj, Enum):
+        return serde._encode_constructor_args(obj.__class__, args=(obj.value,))
+    elif isinstance(obj, SendProtocol):
+        return serde._encode_constructor_args(obj.__class__, kwargs={"node": obj.node, "arg": obj.arg})
+    elif isinstance(obj, (bytes, bytearray)):
+        return serde._encode_constructor_args(obj.__class__, method="fromhex", args=(obj.hex(),))
+    elif dataclasses.is_dataclass(obj):
+        return serde._encode_constructor_args(
+            obj.__class__, kwargs={field.name: getattr(obj, field.name) for field in dataclasses.fields(obj)}
+        )
+    elif isinstance(obj, BaseException):
+        return repr(obj)
+    else:
+        raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
@@ -46,11 +114,15 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         )
 
     def _load_json(self, obj: Any):
-        serialized = json.dumps(obj, ensure_ascii=False).encode("utf-8", "ignore")
+        serialized = json.dumps(
+            obj, default=lambda o: _json_default(self.jsonplus_serde, o), ensure_ascii=False
+        ).encode("utf-8", "ignore")
         return json.loads(serialized, object_hook=self.jsonplus_serde._reviver)
 
     def _dump_json(self, obj: Any) -> dict[str, Any]:
-        serialized_metadata = json.dumps(obj, ensure_ascii=False).encode("utf-8", "ignore")
+        serialized_metadata = json.dumps(
+            obj, default=lambda o: _json_default(self.jsonplus_serde, o), ensure_ascii=False
+        ).encode("utf-8", "ignore")
         # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
         nulls_removed = serialized_metadata.decode().replace("\\u0000", "")
         return json.loads(nulls_removed)
@@ -159,7 +231,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 else {}
             )
 
-            checkpoint_dict: Checkpoint = {
+            checkpoint_dict = {
                 **loaded_checkpoint,
                 "pending_sends": pending_sends,
                 "channel_values": channel_values,
@@ -350,7 +422,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 update_fields=["channel", "type", "blob"],
             )
 
-    def get_next_version(self, current: Optional[str | int], channel: ChannelProtocol) -> str:
+    def get_next_version(self, current: Optional[str | int], channel: ChannelProtocol | None) -> str:
         if current is None:
             current_v = 0
         elif isinstance(current, int):
