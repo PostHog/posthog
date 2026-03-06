@@ -18,8 +18,6 @@
 
 ### Implementation Details
 
-This section can chunk out any major portions/complicated implementations of the service into sections and provide relevant context. As a simple example:
-
 #### personhog-replica routing
 
 Routing decisions are made per-request in `src/router/routing.rs` based on two dimensions:
@@ -35,3 +33,7 @@ Person data (person, persondistinctid) checks the `ConsistencyLevel` on the requ
 - `EVENTUAL` or unset → routes to personhog-replica
 - `STRONG` → returns `UNIMPLEMENTED` (requires personhog-leader)
 - Writes → returns `UNIMPLEMENTED` (requires personhog-leader)
+
+#### personhog-leader routing
+
+TBD

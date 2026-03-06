@@ -55,6 +55,8 @@ TBD:
 
 #### vNode ownership
 
+TBD
+
 #### Request Path
 
 ```mermaid
@@ -65,10 +67,10 @@ graph TB
         direction TB
         PARSE[Parse request] --> DECIDE{Consistent Read/Write?}
         DECIDE -->|"Yes"| HASH["Hash person_id → vnode"]
-        HASH --> LOOKUP["Lookup vnode → pod(from metadata store cache)"]
+        HASH --> WATCH["Lookup vnode → pod(from metadata store cache)"]
     end
 
-    LOOKUP -->|"cache miss"| MS[(Metadata Store)]
+    WATCH -->|"handoff"| MS[(Metadata Store)]
     MS -->|"vnode assignments"| LOOKUP
 
     LOOKUP --> POD
