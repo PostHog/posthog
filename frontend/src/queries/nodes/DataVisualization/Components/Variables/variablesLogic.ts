@@ -304,6 +304,9 @@ export const variablesLogic = kea<variablesLogicType>([
         removeVariable: () => {
             actions.updateSourceQuery()
         },
+        _removeVariable: () => {
+            actions.updateSourceQuery()
+        },
         updateVariableValue: () => {
             actions.updateSourceQuery()
         },
