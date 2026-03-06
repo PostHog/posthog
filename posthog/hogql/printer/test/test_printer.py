@@ -4555,14 +4555,20 @@ class TestPostgresPrinter(BaseTest):
 
     def test_values_query(self):
         self.assertEqual(
-            self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)"),
-            "SELECT v.id, v.name FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name) LIMIT 50000",
+            self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)"),
+            "SELECT v.id, v.name FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name) LIMIT 50000",
         )
 
     def test_values_query_no_alias_columns(self):
         self.assertEqual(
             self._select("SELECT * FROM (VALUES (1, 'hello')) AS v"),
-            "SELECT v.column1, v.column2 FROM (VALUES (1, 'hello')) AS v LIMIT 50000",
+            "SELECT v.col0, v.col1 FROM (VALUES (1, 'hello')) AS v (col0, col1) LIMIT 50000",
+        )
+
+    def test_values_query_no_alias(self):
+        self.assertEqual(
+            self._select("SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))"),
+            "SELECT values.col0, values.col1, values.col2 FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted')) AS values (col0, col1, col2) LIMIT 50000",
         )
 
     def test_values_query_clickhouse_raises_error(self):

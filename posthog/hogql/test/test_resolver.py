@@ -1169,7 +1169,7 @@ class TestResolver(BaseTest):
             )
 
     def test_values_query_basic(self):
-        expr = self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, name)")
+        expr = self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)")
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(expr.select_from, ast.JoinExpr)
         assert isinstance(expr.select_from.type, ast.SelectQueryAliasType)
@@ -1194,5 +1194,5 @@ class TestResolver(BaseTest):
 
     def test_values_query_alias_column_count_mismatch(self):
         with self.assertRaisesMessage(QueryError, "VALUES has 2 column(s) but 3 column name(s) were provided"):
-            expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v(id, name, extra)")
+            expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v (id, name, extra)")
             resolve_types(expr, self.context, dialect="postgres")
