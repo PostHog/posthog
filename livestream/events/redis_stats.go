@@ -131,19 +131,19 @@ func (s *StatsInRedis) getCount(ctx context.Context, key string, ttl time.Durati
 
 // Writes a batch of user updates to Redis.
 // pending maps token: (distinctID: score).
-func (s *StatsInRedis) FlushUsers(ctx context.Context, pending map[string]map[string]float64) error {
-	return s.flushKeys(ctx, pending, userKeyTTL, "batch_add_user", userKey)
+func (s *StatsInRedis) FlushUsers(ctx context.Context, pending map[string]map[string]float64) {
+	s.flushKeys(ctx, pending, userKeyTTL, "batch_add_user", userKey)
 }
 
 // Writes a batch of session updates to Redis.
 // pending maps token: (sessionID: score).
-func (s *StatsInRedis) FlushSessions(ctx context.Context, pending map[string]map[string]float64) error {
-	return s.flushKeys(ctx, pending, sessionKeyTTL, "batch_add_session", sessionKey)
+func (s *StatsInRedis) FlushSessions(ctx context.Context, pending map[string]map[string]float64) {
+	s.flushKeys(ctx, pending, sessionKeyTTL, "batch_add_session", sessionKey)
 }
 
-func (s *StatsInRedis) flushKeys(ctx context.Context, pending map[string]map[string]float64, ttl time.Duration, metricsLabel string, keyFn func(string) string) error {
+func (s *StatsInRedis) flushKeys(ctx context.Context, pending map[string]map[string]float64, ttl time.Duration, metricsLabel string, keyFn func(string) string) {
 	if len(pending) == 0 {
-		return nil
+		return
 	}
 
 	metrics.RedisFlushBatchSize.WithLabelValues(metricsLabel).Observe(float64(len(pending)))
@@ -174,7 +174,6 @@ func (s *StatsInRedis) flushKeys(ctx context.Context, pending map[string]map[str
 
 	wg.Wait()
 	metrics.RedisLatency.WithLabelValues(metricsLabel).Observe(time.Since(now).Seconds())
-	return nil
 }
 
 // Testing helper
