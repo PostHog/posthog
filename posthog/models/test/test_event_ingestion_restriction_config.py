@@ -2,6 +2,8 @@ import json
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.models.event_ingestion_restriction_config import (
     DYNAMIC_CONFIG_REDIS_KEY_PREFIX,
     EventIngestionRestrictionConfig,
@@ -888,51 +890,28 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         self.assertEqual(data[0]["args"], {"topic": "my_topic"})
         self.assertEqual(data[0]["distinct_ids"], ["user1"])
 
-    def test_redirect_to_topic_rejects_missing_args(self):
+    @parameterized.expand(
+        [
+            ("missing_args", None),
+            ("empty_topic", {"topic": ""}),
+            ("whitespace_topic", {"topic": "   "}),
+            ("non_dict_args", "not_a_dict"),
+            ("missing_topic_key", {"other": "value"}),
+        ]
+    )
+    def test_redirect_to_topic_rejects_invalid_args(self, _name, args):
         from django.core.exceptions import ValidationError
 
-        with self.assertRaises(ValidationError) as ctx:
-            EventIngestionRestrictionConfig.objects.create(
-                token="test_token",
-                restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
-                pipelines=["analytics"],
-            )
-        self.assertIn("args", ctx.exception.message_dict)
-
-    def test_redirect_to_topic_rejects_empty_topic(self):
-        from django.core.exceptions import ValidationError
+        kwargs: dict = {
+            "token": "test_token",
+            "restriction_type": RestrictionType.REDIRECT_TO_TOPIC,
+            "pipelines": ["analytics"],
+        }
+        if args is not None:
+            kwargs["args"] = args
 
         with self.assertRaises(ValidationError) as ctx:
-            EventIngestionRestrictionConfig.objects.create(
-                token="test_token",
-                restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
-                args={"topic": ""},
-                pipelines=["analytics"],
-            )
-        self.assertIn("args", ctx.exception.message_dict)
-
-    def test_redirect_to_topic_rejects_non_dict_args(self):
-        from django.core.exceptions import ValidationError
-
-        with self.assertRaises(ValidationError) as ctx:
-            EventIngestionRestrictionConfig.objects.create(
-                token="test_token",
-                restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
-                args="not_a_dict",
-                pipelines=["analytics"],
-            )
-        self.assertIn("args", ctx.exception.message_dict)
-
-    def test_redirect_to_topic_rejects_missing_topic_key(self):
-        from django.core.exceptions import ValidationError
-
-        with self.assertRaises(ValidationError) as ctx:
-            EventIngestionRestrictionConfig.objects.create(
-                token="test_token",
-                restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
-                args={"other": "value"},
-                pipelines=["analytics"],
-            )
+            EventIngestionRestrictionConfig.objects.create(**kwargs)
         self.assertIn("args", ctx.exception.message_dict)
 
     def test_multiple_redirect_to_topic_index_ordering(self):
