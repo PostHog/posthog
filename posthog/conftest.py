@@ -439,6 +439,92 @@ def _runs_on_internal_pr() -> bool:
     return value.lower() in {"1", "true"}
 
 
+def pytest_addoption(parser):
+    parser.addoption("--check-access-control", action="store_true", default=False)
+
+
+@pytest.fixture(autouse=True)
+def enforce_detail_object_permissions(monkeypatch, request):
+    """
+    Runtime guard: every @action(detail=True) that returns 2xx for an
+    authenticated user on a viewset inheriting AccessControlViewSetMixin
+    MUST have called AccessControlPermission.has_object_permission().
+
+    Exceptions:
+    - Viewsets that override ``dangerously_get_permissions`` (outside of
+      ``TeamAndOrgViewSetMixin``) are assumed to handle permissions themselves.
+    - Actions that declare their own ``permission_classes`` without
+      ``AccessControlPermission`` are skipped.
+
+
+    To run this: `pytest --check-access-control`
+
+    Opt out per-test with @pytest.mark.skip_access_control_permission_check.
+    """
+    if not request.config.getoption("--check-access-control"):
+        return
+
+    if "skip_access_control_permission_check" in request.keywords:
+        return
+
+    from rest_framework.views import APIView
+
+    from posthog.api.routing import TeamAndOrgViewSetMixin
+    from posthog.permissions import AccessControlPermission
+
+    from ee.api.rbac.access_control import AccessControlViewSetMixin
+
+    original_dispatch = APIView.dispatch
+    original_has_object_permission = AccessControlPermission.has_object_permission
+
+    def tracked_has_object_permission(self, req, view, obj):
+        view._access_control_hop_called = True
+        return original_has_object_permission(self, req, view, obj)
+
+    def patched_dispatch(self, http_request, *args, **kwargs):
+        self._access_control_hop_called = False
+        response = original_dispatch(self, http_request, *args, **kwargs)
+
+        if not isinstance(self, AccessControlViewSetMixin):
+            return response
+
+        if any(
+            "dangerously_get_permissions" in cls.__dict__
+            for cls in type(self).__mro__
+            if cls is not TeamAndOrgViewSetMixin
+        ):
+            return response
+
+        action_fn = getattr(self, getattr(self, "action", ""), None)
+        action_kwargs = getattr(action_fn, "kwargs", {}) or {}
+        if "permission_classes" in action_kwargs and AccessControlPermission not in action_kwargs["permission_classes"]:
+            return response
+
+        drf_request = getattr(self, "request", None)
+        is_auth = bool(getattr(getattr(drf_request, "user", None), "is_authenticated", False))
+        is_detail = getattr(self, "detail", False) is True
+        should_assert = is_detail and is_auth and 200 <= response.status_code < 300
+
+        if should_assert and not self._access_control_hop_called:
+            view_name = self.__class__.__name__
+            action = getattr(self, "action", "?")
+            raise AssertionError(
+                f"{view_name}.{action} returned 2xx on a detail action without "
+                f"AccessControlPermission.has_object_permission() being called.\n"
+                f"\n"
+                f"This means object-level access control is bypassed. To fix:\n"
+                f"  - Ensure the action calls self.get_object() (which triggers check_object_permissions), or\n"
+                f"  - Call self.check_object_permissions(request, obj) explicitly.\n"
+                f"\n"
+                f"To bypass this check (after review):\n"
+                f"  - Mark the test with @pytest.mark.skip_access_control_permission_check"
+            )
+        return response
+
+    monkeypatch.setattr(AccessControlPermission, "has_object_permission", tracked_has_object_permission)
+    monkeypatch.setattr(APIView, "dispatch", patched_dispatch)
+
+
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
