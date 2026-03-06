@@ -268,4 +268,3 @@ class TestTeam(BaseTest):
         assert len(series) == 1
         assert series[0]["kind"] == "GroupNode"
         assert {n["event"] for n in series[0]["nodes"]} == {"$pageview", "$screen"}
-
