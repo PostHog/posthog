@@ -212,6 +212,8 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
         }
     }, [isLoading, initialLoad])
 
+    const getPreviewQuery = useCallback((tableName: string): string => `SELECT * FROM ${tableName} LIMIT 100`, [])
+
     return (
         <>
             <LemonTable
@@ -223,6 +225,14 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                         title: 'Schema Name',
                         key: 'name',
                         render: function RenderName(_, schema) {
+                            if (isDirectQuerySource && schema.table) {
+                                return (
+                                    <Link to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}>
+                                        {schema.name}
+                                    </Link>
+                                )
+                            }
+
                             return <span>{schema.name}</span>
                         },
                     },
@@ -464,72 +474,105 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                             <More
                                                 disabledReason={disabledReason}
                                                 overlay={
-                                                    <>
-                                                        <Tooltip
-                                                            title={
-                                                                schema.incremental
-                                                                    ? 'Sync incremental data since the last run.'
-                                                                    : 'Sync all data.'
-                                                            }
-                                                        >
+                                                    isDirectQuerySource ? (
+                                                        <>
+                                                            {schema.table && (
+                                                                <LemonButton
+                                                                    type="tertiary"
+                                                                    size="xsmall"
+                                                                    fullWidth
+                                                                    to={urls.sqlEditor({
+                                                                        query: getPreviewQuery(schema.table.name),
+                                                                    })}
+                                                                >
+                                                                    Open in SQL editor
+                                                                </LemonButton>
+                                                            )}
                                                             <LemonButton
+                                                                id="data-warehouse-schema-toggle-visibility"
                                                                 type="tertiary"
-                                                                size="xsmall"
                                                                 fullWidth
-                                                                key={`reload-data-warehouse-schema-${schema.id}`}
-                                                                id="data-warehouse-schema-reload"
-                                                                onClick={() => reloadSchema(schema)}
+                                                                size="xsmall"
+                                                                status={schema.should_sync ? 'danger' : 'default'}
+                                                                onClick={() =>
+                                                                    updateSchema({
+                                                                        ...schema,
+                                                                        should_sync: !schema.should_sync,
+                                                                    })
+                                                                }
                                                                 disabledReason={disabledReason}
                                                             >
-                                                                Sync now
+                                                                {schema.should_sync ? 'Hide table' : 'Enable table'}
                                                             </LemonButton>
-                                                        </Tooltip>
-                                                        {schema.incremental && (
-                                                            <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
-                                                                <LemonButton
-                                                                    type="tertiary"
-                                                                    size="xsmall"
-                                                                    fullWidth
-                                                                    key={`resync-data-warehouse-schema-${schema.id}`}
-                                                                    id="data-warehouse-schema-resync"
-                                                                    onClick={() => resyncSchema(schema)}
-                                                                    status="danger"
-                                                                    disabledReason={disabledReason}
-                                                                >
-                                                                    Delete table and resync
-                                                                </LemonButton>
-                                                            </Tooltip>
-                                                        )}
-                                                        {schema.table && (
+                                                        </>
+                                                    ) : (
+                                                        <>
                                                             <Tooltip
-                                                                title={`Delete this table from PostHog. ${
-                                                                    source?.source_type
-                                                                        ? `This will not delete the data in ${source.source_type}`
-                                                                        : ''
-                                                                }`}
+                                                                title={
+                                                                    schema.incremental
+                                                                        ? 'Sync incremental data since the last run.'
+                                                                        : 'Sync all data.'
+                                                                }
                                                             >
                                                                 <LemonButton
-                                                                    status="danger"
-                                                                    id="data-warehouse-schema-delete"
                                                                     type="tertiary"
-                                                                    fullWidth
                                                                     size="xsmall"
-                                                                    onClick={() => {
-                                                                        if (
-                                                                            window.confirm(
-                                                                                `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
-                                                                            )
-                                                                        ) {
-                                                                            deleteTable(schema)
-                                                                        }
-                                                                    }}
+                                                                    fullWidth
+                                                                    key={`reload-data-warehouse-schema-${schema.id}`}
+                                                                    id="data-warehouse-schema-reload"
+                                                                    onClick={() => reloadSchema(schema)}
                                                                     disabledReason={disabledReason}
                                                                 >
-                                                                    Delete table from PostHog
+                                                                    Sync now
                                                                 </LemonButton>
                                                             </Tooltip>
-                                                        )}
-                                                    </>
+                                                            {schema.incremental && (
+                                                                <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
+                                                                    <LemonButton
+                                                                        type="tertiary"
+                                                                        size="xsmall"
+                                                                        fullWidth
+                                                                        key={`resync-data-warehouse-schema-${schema.id}`}
+                                                                        id="data-warehouse-schema-resync"
+                                                                        onClick={() => resyncSchema(schema)}
+                                                                        status="danger"
+                                                                        disabledReason={disabledReason}
+                                                                    >
+                                                                        Delete table and resync
+                                                                    </LemonButton>
+                                                                </Tooltip>
+                                                            )}
+                                                            {schema.table && (
+                                                                <Tooltip
+                                                                    title={`Delete this table from PostHog. ${
+                                                                        source?.source_type
+                                                                            ? `This will not delete the data in ${source.source_type}`
+                                                                            : ''
+                                                                    }`}
+                                                                >
+                                                                    <LemonButton
+                                                                        status="danger"
+                                                                        id="data-warehouse-schema-delete"
+                                                                        type="tertiary"
+                                                                        fullWidth
+                                                                        size="xsmall"
+                                                                        onClick={() => {
+                                                                            if (
+                                                                                window.confirm(
+                                                                                    `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
+                                                                                )
+                                                                            ) {
+                                                                                deleteTable(schema)
+                                                                            }
+                                                                        }}
+                                                                        disabledReason={disabledReason}
+                                                                    >
+                                                                        Delete table from PostHog
+                                                                    </LemonButton>
+                                                                </Tooltip>
+                                                            )}
+                                                        </>
+                                                    )
                                                 }
                                             />
                                         )}

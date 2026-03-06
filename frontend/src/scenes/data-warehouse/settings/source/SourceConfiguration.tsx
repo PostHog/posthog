@@ -68,7 +68,10 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
 
     return (
         <>
-            <span className="block mb-2">Overwrite your existing configuration here</span>
+            <span className="block mb-2">
+                Update this source&apos;s connection details here. Access mode is fixed after creation, so create a new
+                source to switch between Sync to warehouse and Query directly.
+            </span>
             <Form logic={dataWarehouseSourceSettingsLogic} formKey="sourceConfig" enableFormOnSubmit>
                 <SourceFormComponent
                     showPrefix={false}

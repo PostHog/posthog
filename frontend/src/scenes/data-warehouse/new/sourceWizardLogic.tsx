@@ -901,9 +901,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
+                const selectedAccessMethod =
+                    (sourceValues as Record<string, any>)?.access_method === 'direct' ? 'direct' : 'warehouse'
                 const normalizedValues = {
                     ...(sourceValues as Record<string, any>),
-                    access_method: values.isDirectQueryMode ? 'direct' : 'warehouse',
+                    access_method: selectedAccessMethod,
                 }
                 const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], normalizedValues as any)
 

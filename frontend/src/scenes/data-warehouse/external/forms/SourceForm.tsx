@@ -285,46 +285,48 @@ export function SourceFormComponent({
 
     return (
         <div className="deprecated-space-y-4">
-            {sourceConfig.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
-                <LemonField name="access_method" label="How should PostHog query this source?">
-                    {({ value, onChange }) => (
-                        <LemonRadio
-                            data-attr="postgres-access-method"
-                            value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
-                            onChange={(newValue) => {
-                                const nextValue = newValue as 'warehouse' | 'direct'
-                                setSelectedAccessMethod(nextValue)
-                                onChange(nextValue)
-                            }}
-                            options={[
-                                {
-                                    value: 'warehouse',
-                                    label: (
-                                        <div>
-                                            <div>Sync to warehouse</div>
-                                            <div className="text-xs text-secondary">
-                                                Sync selected tables into PostHog-managed storage for querying.
+            {!isUpdateMode &&
+                sourceConfig.name === 'Postgres' &&
+                featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
+                    <LemonField name="access_method" label="How should PostHog query this source?">
+                        {({ value, onChange }) => (
+                            <LemonRadio
+                                data-attr="postgres-access-method"
+                                value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
+                                onChange={(newValue) => {
+                                    const nextValue = newValue as 'warehouse' | 'direct'
+                                    setSelectedAccessMethod(nextValue)
+                                    onChange(nextValue)
+                                }}
+                                options={[
+                                    {
+                                        value: 'warehouse',
+                                        label: (
+                                            <div>
+                                                <div>Sync to warehouse</div>
+                                                <div className="text-xs text-secondary">
+                                                    Sync selected tables into PostHog-managed storage for querying.
+                                                </div>
                                             </div>
-                                        </div>
-                                    ),
-                                },
-                                {
-                                    value: 'direct',
-                                    label: (
-                                        <div>
-                                            <div>Query directly</div>
-                                            <div className="text-xs text-secondary">
-                                                Run queries live against this Postgres connection. Data from this source
-                                                can&apos;t be joined with PostHog data.
+                                        ),
+                                    },
+                                    {
+                                        value: 'direct',
+                                        label: (
+                                            <div>
+                                                <div>Query directly</div>
+                                                <div className="text-xs text-secondary">
+                                                    Run queries live against this Postgres connection. Data from this
+                                                    source can&apos;t be joined with PostHog data.
+                                                </div>
                                             </div>
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                        />
-                    )}
-                </LemonField>
-            )}
+                                        ),
+                                    },
+                                ]}
+                            />
+                        )}
+                    </LemonField>
+                )}
             {isPostgresDirectQuery && (
                 <LemonField
                     name="prefix"
