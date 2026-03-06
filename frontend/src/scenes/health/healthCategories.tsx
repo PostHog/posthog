@@ -44,6 +44,7 @@ const KIND_TO_CATEGORY: Record<string, HealthIssueCategory> = {
     // Ingestion
     no_live_events: 'ingestion',
     ingestion_lag: 'ingestion',
+    ingestion_warning: 'ingestion',
 
     // SDKs
     sdk_outdated: 'sdk',
@@ -52,6 +53,7 @@ const KIND_TO_CATEGORY: Record<string, HealthIssueCategory> = {
 export const KIND_LABELS: Record<string, string> = {
     no_live_events: 'No live events',
     ingestion_lag: 'Ingestion lag',
+    ingestion_warning: 'Ingestion warning',
     sdk_outdated: 'SDK outdated',
 }
 
