@@ -12,32 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
-import { llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
-
-function getLinkedEvaluationLabel(name: string | null, id: string | null): string {
-    if (name) {
-        return `evaluation "${name}"`
-    }
-    if (id) {
-        return `evaluation ${id.slice(0, 8)}`
-    }
-    return 'linked evaluation'
-}
-
-export function getLinkedSourceLabel(source: {
-    promptId: string | null
-    promptName: string | null
-    evaluationId: string | null
-    evaluationName: string | null
-}): string | null {
-    if (source.promptId) {
-        return `Editing prompt: ${source.promptName ?? source.promptId}`
-    }
-    if (source.evaluationId) {
-        return `Editing evaluation: ${source.evaluationName ?? source.evaluationId.slice(0, 8)}`
-    }
-    return null
-}
+import { getLinkedEvaluationLabel, llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
 
 export function PlaygroundSaveMenu({
     promptId,
@@ -47,7 +22,7 @@ export function PlaygroundSaveMenu({
     prompt: PromptConfig
 }): JSX.Element | null {
     const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
-    const { linkedSource } = useValues(llmPlaygroundPromptsLogic)
+    const { linkedSource, saving } = useValues(llmPlaygroundPromptsLogic)
     const { clearLinkedSource, saveToLinkedPrompt, saveToLinkedEvaluation, saveAsNewPrompt, saveAsNewEvaluation } =
         useActions(llmPlaygroundPromptsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -271,6 +246,7 @@ export function PlaygroundSaveMenu({
                         : 'Save this system prompt as a prompt or evaluation'
                 }
                 noPadding
+                loading={saving}
                 data-attr="llma-playground-save-system-prompt"
             />
         </LemonDropdown>

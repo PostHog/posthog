@@ -46,13 +46,14 @@ import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '
 import { modelPickerLogic } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
+    getLinkedSourceLabel,
     llmPlaygroundPromptsLogic,
     type Message,
     type MessageRole,
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
-import { getLinkedSourceLabel, PlaygroundSaveMenu } from './PlaygroundSaveMenu'
+import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460

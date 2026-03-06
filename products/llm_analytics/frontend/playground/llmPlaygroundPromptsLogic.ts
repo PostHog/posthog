@@ -54,6 +54,31 @@ export interface PlaygroundSetupPayload {
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
 
+export function getLinkedEvaluationLabel(name: string | null, id: string | null): string {
+    if (name) {
+        return `evaluation "${name}"`
+    }
+    if (id) {
+        return `evaluation ${id.slice(0, 8)}`
+    }
+    return 'linked evaluation'
+}
+
+export function getLinkedSourceLabel(source: {
+    promptId: string | null
+    promptName: string | null
+    evaluationId: string | null
+    evaluationName: string | null
+}): string | null {
+    if (source.promptId) {
+        return `Editing prompt: ${source.promptName ?? source.promptId}`
+    }
+    if (source.evaluationId) {
+        return `Editing evaluation: ${source.evaluationName ?? source.evaluationId.slice(0, 8)}`
+    }
+    return null
+}
+
 export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptConfig {
     return {
         id: partial.id ?? uuid(),
@@ -213,6 +238,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             name: string,
             modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
         ) => ({ name, modelConfig }),
+        saveComplete: true,
     }),
 
     reducers({
@@ -444,6 +470,16 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 setSourceSetupLoading: (_: boolean, { isLoading }: { isLoading: boolean }) => isLoading,
             },
         ],
+        saving: [
+            false as boolean,
+            {
+                saveToLinkedPrompt: () => true,
+                saveToLinkedEvaluation: () => true,
+                saveAsNewPrompt: () => true,
+                saveAsNewEvaluation: () => true,
+                saveComplete: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -658,10 +694,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         saveToLinkedPrompt: async () => {
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.promptId) {
+                actions.saveComplete()
                 return
             }
             const prompt = promptConfigs[0]
             if (!prompt) {
+                actions.saveComplete()
                 return
             }
             const label = linkedSource.promptName ?? 'linked prompt'
@@ -670,21 +708,26 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 lemonToast.success(`Prompt "${label}" updated`)
             } catch {
                 lemonToast.error('Failed to update prompt')
+            } finally {
+                actions.saveComplete()
             }
         },
 
         saveToLinkedEvaluation: async ({ modelConfig }) => {
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.evaluationId) {
+                actions.saveComplete()
                 return
             }
             const prompt = promptConfigs[0]
             if (!prompt) {
+                actions.saveComplete()
                 return
             }
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 lemonToast.error('Could not determine team')
+                actions.saveComplete()
                 return
             }
             try {
@@ -692,20 +735,19 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     evaluation_config: { prompt: prompt.systemPrompt },
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
                 })
-                const label = linkedSource.evaluationName
-                    ? `Evaluation "${linkedSource.evaluationName}"`
-                    : linkedSource.evaluationId
-                      ? `Evaluation ${linkedSource.evaluationId.slice(0, 8)}`
-                      : 'Linked evaluation'
-                lemonToast.success(`${label} updated`)
+                const label = getLinkedEvaluationLabel(linkedSource.evaluationName, linkedSource.evaluationId)
+                lemonToast.success(`${label[0].toUpperCase()}${label.slice(1)} updated`)
             } catch {
                 lemonToast.error('Failed to update evaluation')
+            } finally {
+                actions.saveComplete()
             }
         },
 
         saveAsNewPrompt: async ({ name }) => {
             const prompt = values.promptConfigs[0]
             if (!prompt) {
+                actions.saveComplete()
                 return
             }
             try {
@@ -713,17 +755,21 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 lemonToast.success('Prompt saved')
             } catch {
                 lemonToast.error('Failed to save prompt')
+            } finally {
+                actions.saveComplete()
             }
         },
 
         saveAsNewEvaluation: async ({ name, modelConfig }) => {
             const prompt = values.promptConfigs[0]
             if (!prompt) {
+                actions.saveComplete()
                 return
             }
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 lemonToast.error('Could not determine team')
+                actions.saveComplete()
                 return
             }
             try {
@@ -739,6 +785,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 lemonToast.success('Evaluation saved')
             } catch {
                 lemonToast.error('Failed to save evaluation')
+            } finally {
+                actions.saveComplete()
             }
         },
     })),
