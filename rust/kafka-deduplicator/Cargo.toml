@@ -19,6 +19,7 @@ common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 dashmap = "6.1"
 envconfig = { workspace = true }
+kafka-assigner-proto = { path = "../kafka-assigner-proto" }
 futures = { workspace = true }
 futures-util = { workspace = true }
 health = { path = "../common/health" }
@@ -43,6 +44,7 @@ strum = "0.27.0"
 strum_macros = "0.27.2"
 time = { workspace = true }
 tokio = { workspace = true }
+tonic = { workspace = true }
 tokio-util = { version = "0.7.16", features = ["rt"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }

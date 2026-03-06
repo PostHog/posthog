@@ -4,7 +4,7 @@ import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
-import { colonDelimitedDuration, toString } from 'lib/utils'
+import { colonDelimitedDuration, toString, isKeyOf } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -243,7 +243,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             {} as Record<string, Option>,
             {
                 setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
-                setOptions: (state, { key, values, allowCustomValues, refreshing }) => {
+                setOptions: (state, { key, values: rawValues, allowCustomValues, refreshing }) => {
+                    const values = Array.isArray(rawValues) ? rawValues : []
                     const current = state[key]
                     const valueNames = values.map((v) => toString(v.name))
 
@@ -323,10 +324,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     type = `${type}/${rest[0]}`
                     rest = rest.slice(1)
                 }
-                if (!(type in pendingByType)) {
+
+                if (isKeyOf(type, pendingByType)) {
+                    pendingByType[type].push(rest.join('/'))
+                } else {
                     throw new Error(`Unknown property definition type: ${type}`)
                 }
-                pendingByType[type].push(rest.join('/'))
             }
             try {
                 // since this is a unique query, there is no breakpoint here to prevent out of order replies
@@ -444,7 +447,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             )
             breakpoint()
 
-            const propValues = responseData.results
+            const propValues = Array.isArray(responseData.results) ? responseData.results : []
             const refreshing = responseData.refreshing
 
             actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue, refreshing)
@@ -545,7 +548,11 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             (s) => [s.propertyDefinitionStorage],
             (
                 propertyDefinitionStorage
-            ): ((s: TaxonomicFilterValue, type: PropertyDefinitionType, groupTypeIndex?: number) => string | null) =>
+            ): ((
+                s: TaxonomicFilterValue,
+                type: PropertyDefinitionType,
+                groupTypeIndex?: number
+            ) => PropertyType | null) =>
                 (propertyName: TaxonomicFilterValue, type: PropertyDefinitionType, groupTypeIndex?: number) => {
                     if (
                         !propertyName ||

@@ -40,7 +40,7 @@ class SaveSummaryEventContext:
     trace_first_timestamp: str
     mode: str
     batch_run_id: str
-    job_id: int
+    job_id: str
     job_name: str
     team: Team
     team_id: int

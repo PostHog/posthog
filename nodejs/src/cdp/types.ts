@@ -248,18 +248,10 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
-    'hog',
-    'hogoverflow',
-    'hogflow',
-    'delay10m',
-    'delay60m',
-    'delay24h',
-    'datawarehouse_table',
-] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'delay', 'shadow'] as const
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'shadow'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
 // Agnostic job invocation type
@@ -339,6 +331,8 @@ export type HogFunctionInputSchemaType = {
         | 'integration_field'
         | 'email'
         | 'native_email'
+        | 'posthog_assignee'
+        | 'posthog_ticket_tags'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

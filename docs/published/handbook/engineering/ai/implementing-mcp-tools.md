@@ -1,4 +1,8 @@
-# Implementing MCP tools
+---
+title: Implementing MCP tools
+sidebar: Docs
+showTitle: true
+---
 
 MCP tools are atomic capabilities – CRUD operations and simple actions that agents compose into workflows.
 Every product should be accessible through the MCP server.
@@ -11,7 +15,8 @@ see [Writing skills](/handbook/engineering/ai/writing-skills).
 
 ```sh
 # 1. Scaffold a starter YAML with all operations disabled
-pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
+pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
+    --output ../../products/your_product/mcp/tools.yaml
 
 # 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
@@ -162,8 +167,12 @@ Product teams own their definitions and control which operations are exposed as 
 **Workflow: scaffold, configure, generate.**
 
 1. **Scaffold** a starter YAML with all operations disabled.
-   Operations are discovered by matching URL paths against product names
-   (e.g., `error_tracking` matches all paths containing `/error_tracking/`).
+   `--product` is a **substring match** on URL paths —
+   it selects every endpoint whose path contains `/<name>/`
+   (hyphens are normalized to underscores before matching).
+   The value doesn't have to be an exact product name;
+   any string that appears as a path segment will work
+   (e.g., `--product actions` matches `/api/projects/{project_id}/actions/`).
 
    ```sh
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
@@ -250,6 +259,9 @@ Product teams should **type and describe** their serializer fields.
 These descriptions are what agents read to understand tool parameters –
 vague or missing descriptions lead to worse agent behavior.
 
+See the [type system guide](/handbook/engineering/type-system) for the full backend → frontend pipeline,
+including how to set up viewsets, serializers, and `@extend_schema` correctly.
+
 **Tips:**
 
 - Use `help_text` on serializer fields – it becomes the OpenAPI description.
@@ -259,6 +271,15 @@ vague or missing descriptions lead to worse agent behavior.
   This is useful when you want to add imperative instructions for specific fields.
 - Be specific about formats, constraints, and valid values.
 - Avoid jargon that an LLM wouldn't understand without context.
+- `ListField` and `JSONField` need explicit types —
+  use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
+  and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses
+  (see `posthog/api/alert.py` for the pattern).
+  Without this, Orval generates `z.unknown()`.
+- Plain `ViewSet` methods that validate manually need `@extend_schema(request=YourSerializer)` —
+  without it, drf-spectacular can't discover the request body
+  and the generated tool gets an empty schema with zero parameters.
+  `ModelViewSet` with `serializer_class` works automatically.
 
 ## HogQL query schemas (WIP)
 

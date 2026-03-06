@@ -716,13 +716,17 @@ function ConversionGoalSection(): JSX.Element {
                 <IconTarget className="text-lg" />
                 <span className="text-md font-semibold">Conversion goal (optional)</span>
             </span>
-            <p>Define what a user must do to be considered converted.</p>
+            <p>
+                Define what a user must do to be considered converted. All conditions must be met for the user to be
+                considered converted.
+            </p>
 
-            <div className="flex flex-col gap-4 max-w-240">
+            <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1 items-start">
                     <LemonLabel>Detect conversion from property changes</LemonLabel>
                     <PropertyFilters
                         buttonText="Add property conversion"
+                        buttonClassName="grow-0"
                         propertyFilters={workflow.conversion?.filters ?? []}
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.PersonProperties,
@@ -732,6 +736,7 @@ function ConversionGoalSection(): JSX.Element {
                         pageKey="workflow-conversion-properties"
                         hideBehavioralCohorts
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
+                        logicalRowDivider
                     />
                 </div>
 
@@ -742,7 +747,6 @@ function ConversionGoalSection(): JSX.Element {
                     </LemonLabel>
                     <LemonButton
                         type="secondary"
-                        size="small"
                         icon={<IconPlusSmall />}
                         onClick={() => {
                             posthog.capture('workflows workflow event conversion clicked')

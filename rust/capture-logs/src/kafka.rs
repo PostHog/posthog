@@ -194,9 +194,14 @@ impl KafkaSink {
         token: &str,
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
+        timestamps_overridden: u64,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
+        }
+
+        if timestamps_overridden > 0 {
+            counter!("capture_logs_timestamps_overridden").increment(timestamps_overridden);
         }
 
         let schema = Schema::parse_str(AVRO_SCHEMA)?;
@@ -244,6 +249,10 @@ impl KafkaSink {
                     .insert(Header {
                         key: "batch_uuid",
                         value: Some(&uuid::Uuid::new_v4().to_string()),
+                    })
+                    .insert(Header {
+                        key: "timestamps_overridden",
+                        value: Some(&timestamps_overridden.to_string()),
                     })
             }),
         }) {

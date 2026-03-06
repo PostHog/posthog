@@ -205,7 +205,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     const queryChanged = values.remoteItems.searchQuery !== searchQuery
 
-                    await captureTimeToSeeData(values.currentTeamId, {
+                    // Cache before the second await — the logic may unmount during captureTimeToSeeData,
+                    // and kea's no-arg breakpoint() does not protect against unmount (only new invocations).
+                    const currentTeamId = values.currentTeamId
+                    const existingResults = values.remoteItems.results
+
+                    await captureTimeToSeeData(currentTeamId, {
                         type: 'properties_load',
                         context: 'filters',
                         action: listGroupType,
@@ -218,7 +223,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     return {
                         results: appendAtIndex(
-                            queryChanged ? [] : values.remoteItems.results,
+                            queryChanged ? [] : existingResults,
                             response.results || response,
                             offset
                         ),

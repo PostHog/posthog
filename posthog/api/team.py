@@ -1093,6 +1093,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 if not non_team_config_fields:
                     return ["project:read"]
 
+        # Team-level config actions that any member should be able to edit via the UI.
+        # Only downgrade for session auth to preserve read-only API key semantics.
+        if self.action in ("default_release_conditions", "default_evaluation_tags"):
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                return ["project:read"]
+
         # Fall back to the default behavior
         return None
 
@@ -1262,7 +1269,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                 if created:
                     report_user_action(
-                        cast(User, request.user),
+                        request.user,
                         "default evaluation tag added",
                         {"team_id": team.id, "tag_name": tag_name},
                         team=team,
@@ -1286,7 +1293,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                     if deleted_count > 0:
                         report_user_action(
-                            cast(User, request.user),
+                            request.user,
                             "default evaluation tag removed",
                             {"team_id": team.id, "tag_name": tag_name},
                             team=team,
@@ -1300,7 +1307,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PUT"],
         detail=True,
-        permission_classes=[TeamMemberStrictManagementPermission],
+        permission_classes=[TeamMemberLightManagementPermission],
         url_path="default_release_conditions",
     )
     def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
@@ -1340,7 +1347,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         config.save()
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "default release conditions updated",
             {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
         )

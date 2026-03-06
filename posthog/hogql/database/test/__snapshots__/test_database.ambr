@@ -323,6 +323,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_datawarehousecredential"."created_by_id",
@@ -383,6 +384,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_datawarehousecredential"."created_by_id",
@@ -447,6 +449,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_datawarehousecredential"."created_by_id",
@@ -536,6 +539,26 @@
   FROM "posthog_datamodelingnode"
   INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.20
+  '''
+  SELECT "posthog_datawarehousejoin"."created_by_id",
+         "posthog_datawarehousejoin"."created_at",
+         "posthog_datawarehousejoin"."deleted",
+         "posthog_datawarehousejoin"."deleted_at",
+         "posthog_datawarehousejoin"."id",
+         "posthog_datawarehousejoin"."team_id",
+         "posthog_datawarehousejoin"."source_table_name",
+         "posthog_datawarehousejoin"."source_table_key",
+         "posthog_datawarehousejoin"."joining_table_name",
+         "posthog_datawarehousejoin"."joining_table_key",
+         "posthog_datawarehousejoin"."field_name",
+         "posthog_datawarehousejoin"."configuration"
+  FROM "posthog_datawarehousejoin"
+  WHERE ("posthog_datawarehousejoin"."team_id" = 99999
+         AND NOT ("posthog_datawarehousejoin"."deleted"
+                  AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
@@ -647,6 +670,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_datawarehousecredential"."created_by_id",
@@ -707,6 +731,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_datawarehousecredential"."created_by_id",
@@ -771,6 +796,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
          "posthog_datawarehousecredential"."created_by_id",

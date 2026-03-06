@@ -50,6 +50,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.llm_analytics.coordinator_metrics import (
         increment_team_failed,
         increment_team_succeeded,
+        record_jobs_dispatched,
         record_teams_discovered,
     )
     from posthog.temporal.llm_analytics.shared_activities import (
@@ -247,6 +248,9 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
                     )
                     workflow_handles.append((team_id, handle))
+
+            if workflow_handles:
+                record_jobs_dispatched(len(workflow_handles), "summarization", inputs.analysis_level)
 
             # Wait for all workflows in batch to complete
             for team_id, handle in workflow_handles:
