@@ -4,6 +4,7 @@ packages:
     - common/hogvm/typescript
     - common/plugin_transpiler
     - common/storybook
+    - common/mosaic
     - common/tailwind
     - frontend
     - playwright

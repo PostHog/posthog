@@ -1471,7 +1471,14 @@ export interface GroupActorType extends CommonActorType {
     group_type_index: integer
 }
 
-export type ActorType = PersonActorType | GroupActorType
+export interface SessionActorType extends CommonActorType {
+    type: 'session'
+    /** Session ID. */
+    id: string
+    person?: PersonActorType
+}
+
+export type ActorType = PersonActorType | GroupActorType | SessionActorType
 
 export interface CohortGroupType {
     id: string
@@ -4138,6 +4145,7 @@ export type HotKey =
     | 'arrowup'
     | 'forwardslash'
     | 'delete'
+    | 'atsign'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export enum SchemaEnforcementMode {
@@ -5071,6 +5079,7 @@ export type APIScopeObject =
     | 'ticket'
     | 'uploaded_media'
     | 'user'
+    | 'visual_review'
     | 'warehouse_table'
     | 'warehouse_view'
     | 'web_analytics'
@@ -6050,6 +6059,7 @@ export type CyclotronJobInputSchemaType = {
         | 'integration_field'
         | 'email'
         | 'native_email'
+        | 'posthog_assignee'
     key: string
     label: string
     choices?: { value: string; label: string }[]

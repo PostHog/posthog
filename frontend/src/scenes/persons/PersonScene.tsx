@@ -188,7 +188,7 @@ export function PersonScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
     if (personError) {
-        throw new Error(personError)
+        return <NotFound object="person" meta={{ urlId }} />
     }
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
