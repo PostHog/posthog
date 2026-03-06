@@ -343,6 +343,12 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default="background",
         help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
     )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Git branch to checkout in the sandbox",
+    )
 
 
 class TaskRunCommandRequestSerializer(serializers.Serializer):

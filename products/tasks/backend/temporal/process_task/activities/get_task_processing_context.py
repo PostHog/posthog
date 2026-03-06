@@ -42,6 +42,10 @@ class TaskProcessingContext:
     def interaction_origin(self) -> str | None:
         return (self.state or {}).get("interaction_origin")
 
+    @property
+    def branch(self) -> str | None:
+        return (self.state or {}).get("branch")
+
     def to_log_context(self) -> dict:
         """Return a dict suitable for structured logging."""
         return {

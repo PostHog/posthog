@@ -1,3 +1,4 @@
+import shlex
 import logging
 from dataclasses import dataclass
 
@@ -111,6 +112,20 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             if clone_result.exit_code != 0:
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
+
+        if ctx.branch:
+            emit_agent_log(ctx.run_id, "info", f"Checking out branch {ctx.branch}")
+            org, repo = ctx.repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+            fetch_and_checkout = (
+                f"cd {shlex.quote(repo_path)} && "
+                f"git fetch --depth 1 origin {shlex.quote(ctx.branch)} && "
+                f"git checkout -B {shlex.quote(ctx.branch)} FETCH_HEAD"
+            )
+            result = sandbox.execute(fetch_and_checkout, timeout_seconds=5 * 60)
+            if result.exit_code != 0:
+                sandbox.destroy()
+                raise RuntimeError(f"Failed to checkout branch {ctx.branch}: {result.stderr}")
 
         credentials = sandbox.get_connect_credentials()
 
