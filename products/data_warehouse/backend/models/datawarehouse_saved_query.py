@@ -288,7 +288,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
                 raise Exception(f"Unknown column type: {type}")  # Never reached
 
             is_nullable = clickhouse_type.startswith("Nullable(")
-            if clickhouse_type.startswith("Nullable("):
+            if is_nullable:
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
