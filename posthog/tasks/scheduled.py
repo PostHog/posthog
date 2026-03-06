@@ -540,7 +540,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
         add_periodic_task_with_expiry(
             sender,
-            crontab(hour="4", minute="0"),
+            crontab(minute="0"),
             cleanup_old_scim_request_logs.s(),
             name="clean up old SCIM request logs",
         )
