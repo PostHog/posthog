@@ -360,14 +360,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasDataWarehouseSeries: [
-            (s) => [s.isTrends, s.isFunnels, s.series],
-            (isTrends, isFunnels, series): boolean => {
-                return (
-                    (isTrends || isFunnels) &&
-                    (series || []).length > 0 &&
-                    !!series?.some((node) => isDataWarehouseNode(node))
-                )
-            },
+            (s) => [s.series],
+            (series): boolean => (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node)),
         ],
 
         currentDataWarehouseSchemaColumns: [
@@ -578,15 +572,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // query
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
-                if (query.source.kind === NodeKind.TrendsQuery) {
-                    // Disable filter test account when using a data warehouse series
-                    const hasWarehouseSeries = query.source.series?.some((node) => isDataWarehouseNode(node))
-                    const filterTestAccountsEnabled = query.source.filterTestAccounts ?? false
-                    if (hasWarehouseSeries && filterTestAccountsEnabled) {
-                        query.source.filterTestAccounts = false
-                    }
-                }
-
                 if (props.setQuery) {
                     props.setQuery(query)
                 }
