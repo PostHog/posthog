@@ -439,6 +439,17 @@ export interface ExternalDataSourceRevenueAnalyticsConfigApi {
 }
 
 /**
+ * * `warehouse` - warehouse
+ * `direct` - direct
+ */
+export type AccessMethodEnumApi = (typeof AccessMethodEnumApi)[keyof typeof AccessMethodEnumApi]
+
+export const AccessMethodEnumApi = {
+    Warehouse: 'warehouse',
+    Direct: 'direct',
+} as const
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface ExternalDataSourceSerializersApi {
@@ -458,6 +469,7 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     description?: string | null
+    access_method?: AccessMethodEnumApi
     readonly last_run_at: string
     readonly schemas: string
     job_inputs?: unknown | null
@@ -498,6 +510,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     description?: string | null
+    access_method?: AccessMethodEnumApi
     readonly last_run_at?: string
     readonly schemas?: string
     job_inputs?: unknown | null
