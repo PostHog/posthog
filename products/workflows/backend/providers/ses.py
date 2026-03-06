@@ -155,7 +155,7 @@ class SESProvider:
                 "recordType": "TXT",
                 "recordHostname": f"_dmarc.{domain}",
                 "recordValue": "v=DMARC1; p=none;",
-                "status": "pending",
+                "status": "unknown",
             }
         )
 
