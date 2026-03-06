@@ -167,16 +167,11 @@ class SCIMBaseView(APIView):
 
         if organization_domain is not None:
             try:
-                raw_headers = {
-                    key[5:].replace("_", "-").title(): value
-                    for key, value in drf_request.META.items()
-                    if key.startswith("HTTP_")
-                }
                 SCIMRequestLog.objects.create(
                     organization_domain=organization_domain,
                     request_method=drf_request.method or "",
                     request_path=drf_request.path,
-                    request_headers=mask_headers(raw_headers),
+                    request_headers=mask_headers(dict(drf_request.headers)),
                     request_body=masked_body,
                     response_status=response.status_code,
                     response_body=response.data if hasattr(response, "data") else None,
