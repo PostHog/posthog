@@ -31,7 +31,7 @@ class DashboardExportInsightsField(serializers.Field):
     """Custom field to handle ManyToMany dashboard_export_insights as a list of IDs."""
 
     def to_representation(self, value):
-        return list(value.values_list("id", flat=True))
+        return [obj.id for obj in value.all()]
 
     def to_internal_value(self, data):
         if not isinstance(data, list):
@@ -138,8 +138,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
 
             # Ensure all selected insights belong to the team
-            if Insight.objects.filter(id__in=selected_ids).exclude(team_id=self.context["team_id"]).exists():
-                raise ValidationError({"dashboard_export_insights": ["Some insights do not belong to your team."]})
+            if Insight.objects.filter(id__in=selected_ids, team_id=self.context["team_id"]).count() != len(
+                selected_ids
+            ):
+                raise ValidationError(
+                    {"dashboard_export_insights": ["Some insights do not belong to your team or do no longer exist."]}
+                )
 
             # Ensure all selected insights belong to the dashboard (and are not deleted)
             dashboard_insight_ids = set(
