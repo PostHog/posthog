@@ -61,11 +61,14 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
         activeFieldIsHogQL,
         isAggregatingByGroup,
         isAggregatingByHogQL,
+        linkedTables,
         previewTable,
         previewExpressionColumns,
         previewSelectedKey,
     } = useValues(logic)
     const { setActiveFieldKey, selectTable, setLocalDefinition } = useActions(logic)
+
+    console.debug('linkedTables', linkedTables)
 
     return (
         <div className="flex flex-col">
@@ -104,6 +107,11 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                     className="mt-2"
                     hogQLValue={activeFieldValue || ''}
                     tableName={activeField.tableName || table.name}
+                    hogQLEditorPlaceholder={
+                        linkedTables
+                            ? `Enter an SQL Expression, for example:\n- json_column.my_person_id\n- person_distinct_ids.person_id\n\nYou can also reference these linked tables: ${linkedTables.join(', ')}`
+                            : `Enter an SQL Expression, for example:\n- json_column.my_person_id\n- person_distinct_ids.person_id`
+                    }
                     onHogQLValueChange={(value) =>
                         setLocalDefinition({
                             [activeFieldKey]: value,

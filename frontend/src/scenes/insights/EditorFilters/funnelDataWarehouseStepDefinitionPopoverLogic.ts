@@ -24,7 +24,8 @@ const ALLOWED_COLUMN_TYPES_BY_FIELD_KEY: Record<FunnelFieldKey, DatabaseSerializ
     timestamp_field: ['datetime', 'date', 'string'],
     id_field: ['string', 'integer', 'decimal', 'float'],
 }
-const HIDDEN_FIELD_TYPES: DatabaseSerializedFieldType[] = ['virtual_table', 'view', 'materialized_view', 'lazy_table']
+const HIDDEN_FIELD_TYPES: DatabaseSerializedFieldType[] = ['lazy_table', 'virtual_table', 'view', 'materialized_view']
+const LINKED_TABLE_TYPES: DatabaseSerializedFieldType[] = ['lazy_table', 'virtual_table']
 
 export interface FunnelDataWarehouseStepDefinitionPopoverLogicProps {
     table: DataWarehouseTableForInsight
@@ -66,6 +67,13 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
                     value: column.name,
                     type: column.type,
                 })),
+        ],
+        linkedTables: [
+            (_, p) => [p.table],
+            (table) =>
+                Object.values(table.fields)
+                    .filter((field) => LINKED_TABLE_TYPES.includes(field.type))
+                    .map((field) => field.name),
         ],
         activeFieldKeyOptions: [
             (s) => [s.dataWarehousePopoverFields],
