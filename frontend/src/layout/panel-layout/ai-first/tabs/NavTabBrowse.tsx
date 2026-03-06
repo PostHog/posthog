@@ -99,9 +99,9 @@ export function NavTabBrowse(): JSX.Element {
                 >
                     Project
                 </Collapsible.Trigger>
-                <Collapsible.Panel className={cn(isLayoutNavCollapsed && 'items-center')}>
+                <Collapsible.Panel className={cn('pl-2', isLayoutNavCollapsed && 'items-center')}>
                     <NavLink
-                        to={urls.projectHomepage()}
+                        to={urls.projectRoot()}
                         label="Home"
                         icon={<IconHome />}
                         isCollapsed={isLayoutNavCollapsed}
@@ -181,7 +181,7 @@ export function NavTabBrowse(): JSX.Element {
                 />
                 <Collapsible.Panel
                     className={cn(
-                        '-ml-2 w-[calc(100%+(var(--spacing)*4))]',
+                        '-ml-2 pl-2 w-[calc(100%+(var(--spacing)*4))]',
                         isLayoutNavCollapsed ? 'items-center' : ''
                     )}
                 >

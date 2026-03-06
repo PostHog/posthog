@@ -132,12 +132,12 @@ export function NavTabChat(): JSX.Element {
                                             <Combobox.Group items={group.items}>
                                                 <Combobox.GroupLabel
                                                     render={
-                                                        <Collapsible.Trigger className="sticky top-0 bg-surface-tertiary z-10" />
+                                                        <Collapsible.Trigger className="sticky top-0 bg-surface-tertiary z-10 pl-3" />
                                                     }
                                                 >
                                                     {group.value}
                                                 </Combobox.GroupLabel>
-                                                <Collapsible.Panel className="p-1">
+                                                <Collapsible.Panel className="p-1 pl-3">
                                                     <Combobox.Collection>
                                                         {(conversation: Conversation) => (
                                                             <AiChatListItem.Root>
