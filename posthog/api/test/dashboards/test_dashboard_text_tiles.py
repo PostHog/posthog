@@ -357,6 +357,40 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         assert old_media.deleted is True
         assert new_media.deleted is False
 
+    def test_deleting_tile_preserves_media_referenced_by_other_tile(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="img.gif", content_type="image/gif"
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard_id, _ = self.dashboard_api.create_text_tile(dashboard_id, text=body)
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text=body)
+
+        tiles = dashboard_json["tiles"]
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tiles[0]["id"], "deleted": True}]},
+        )
+
+        media.refresh_from_db()
+        assert media.deleted is False
+
+    def test_editing_tile_preserves_media_referenced_by_other_tile(self) -> None:
+        media = UploadedMedia.objects.create(
+            team=self.team, created_by=self.user, file_name="img.gif", content_type="image/gif"
+        )
+        body = f'<img src="/uploaded_media/{media.id}"/>'
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard_id, _ = self.dashboard_api.create_text_tile(dashboard_id, text=body)
+        dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text=body)
+
+        tile = dashboard_json["tiles"][1]
+        tile["text"]["body"] = "removed the image"
+        self.dashboard_api.update_text_tile(dashboard_id, tile)
+
+        media.refresh_from_db()
+        assert media.deleted is False
+
     def test_deleting_insight_tile_does_not_affect_media(self) -> None:
         media = UploadedMedia.objects.create(
             team=self.team, created_by=self.user, file_name="img.gif", content_type="image/gif"

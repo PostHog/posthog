@@ -54,12 +54,46 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
         return set(UPLOADED_MEDIA_UUID_PATTERN.findall(text_body))
 
     @classmethod
-    def soft_delete_for_removed_images(cls, old_body: str, new_body: Optional[str], team_id: int) -> None:
+    def _uuids_referenced_by_other_texts(cls, team_id: int, exclude_text_ids: Optional[list[int]] = None) -> set[str]:
+        from posthog.models.dashboard_tile import Text
+
+        qs = Text.objects.filter(team_id=team_id, body__contains="/uploaded_media/")
+        if exclude_text_ids:
+            qs = qs.exclude(id__in=exclude_text_ids)
+        referenced: set[str] = set()
+        for body in qs.values_list("body", flat=True):
+            referenced.update(cls.extract_media_uuids(body))
+        return referenced
+
+    @classmethod
+    def soft_delete_for_removed_images(
+        cls, old_body: str, new_body: Optional[str], team_id: int, exclude_text_ids: Optional[list[int]] = None
+    ) -> None:
         old_uuids = cls.extract_media_uuids(old_body)
         new_uuids = cls.extract_media_uuids(new_body) if new_body else set()
         removed_uuids = old_uuids - new_uuids
-        if removed_uuids:
-            cls.objects_including_soft_deleted.filter(id__in=removed_uuids, team_id=team_id, deleted=False).update(
+        if not removed_uuids:
+            return
+        still_referenced = cls._uuids_referenced_by_other_texts(team_id, exclude_text_ids)
+        to_delete = removed_uuids - still_referenced
+        if to_delete:
+            cls.objects_including_soft_deleted.filter(id__in=to_delete, team_id=team_id, deleted=False).update(
+                deleted=True
+            )
+
+    @classmethod
+    def soft_delete_for_text_bodies(
+        cls, bodies: list[str], team_id: int, exclude_text_ids: Optional[list[int]] = None
+    ) -> None:
+        all_uuids: set[str] = set()
+        for body in bodies:
+            all_uuids.update(cls.extract_media_uuids(body))
+        if not all_uuids:
+            return
+        still_referenced = cls._uuids_referenced_by_other_texts(team_id, exclude_text_ids)
+        to_delete = all_uuids - still_referenced
+        if to_delete:
+            cls.objects_including_soft_deleted.filter(id__in=to_delete, team_id=team_id, deleted=False).update(
                 deleted=True
             )
 

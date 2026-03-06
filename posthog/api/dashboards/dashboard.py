@@ -586,13 +586,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
             if tile_data.get("deleted") and tile_data.get("id"):
-                body = (
+                tile_info = (
                     DashboardTile.objects.filter(id=tile_data["id"], dashboard=instance, text__isnull=False)
-                    .values_list("text__body", flat=True)
+                    .values_list("text__body", "text_id")
                     .first()
                 )
-                if body:
-                    UploadedMedia.soft_delete_for_removed_images(body, None, instance.team_id)
+                if tile_info and tile_info[0]:
+                    UploadedMedia.soft_delete_for_removed_images(
+                        tile_info[0], None, instance.team_id, exclude_text_ids=[tile_info[1]]
+                    )
 
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
@@ -622,13 +624,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 # nosemgrep: idor-lookup-without-team
                 Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
 
-        text_bodies = list(
+        text_tiles = list(
             instance.tiles.filter(text__isnull=False, text__body__isnull=False)
             .exclude(text__body="")
-            .values_list("text__body", flat=True)
+            .values_list("text__body", "text_id")
         )
-        for body in text_bodies:
-            UploadedMedia.soft_delete_for_removed_images(body, None, instance.team_id)
+        if text_tiles:
+            bodies = [t[0] for t in text_tiles]
+            text_ids = [t[1] for t in text_tiles]
+            UploadedMedia.soft_delete_for_text_bodies(bodies, instance.team_id, exclude_text_ids=text_ids)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
