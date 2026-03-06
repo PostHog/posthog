@@ -12,7 +12,13 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { DataWarehouseViewLink, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    DataWarehouseViewLink,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
@@ -197,7 +203,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 JSON.stringify(values.dataWarehouseSources?.results ?? [])
             ) as ExternalDataSource[]
             const sourceIndex = clonedSources.findIndex((n) => n.id === source.id)
-            clonedSources[sourceIndex].status = 'Running'
+            clonedSources[sourceIndex].status = ExternalDataJobStatus.Running
             clonedSources[sourceIndex].schemas = clonedSources[sourceIndex].schemas.map((n) => {
                 if (n.should_sync) {
                     return {
