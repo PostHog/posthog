@@ -1,9 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 import React from 'react'
 
 import {
-    IconLlmPromptManagement,
     IconChevronRight,
     IconGear,
     IconPencil,
@@ -17,7 +15,6 @@ import {
 import {
     LemonBanner,
     LemonButton,
-    LemonDivider,
     LemonDropdown,
     LemonInput,
     LemonModal,
@@ -31,11 +28,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -59,6 +52,7 @@ import {
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
+import { getLinkedSourceLabel, PlaygroundSaveMenu } from './PlaygroundSaveMenu'
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -758,242 +752,6 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     )
 }
 
-function SaveAsDropdown({ promptId, prompt }: { promptId: string; prompt: PromptConfig }): JSX.Element | null {
-    const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
-    const { linkedSource } = useValues(llmPlaygroundPromptsLogic)
-    const { clearLinkedSource, saveToLinkedPrompt, saveToLinkedEvaluation, saveAsNewPrompt, saveAsNewEvaluation } =
-        useActions(llmPlaygroundPromptsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { searchParams } = useValues(router)
-
-    const selectedModel = effectiveModelOptions.find((model) => model.id === prompt.model)
-    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
-    const isEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
-
-    const {
-        promptId: linkedPromptId,
-        promptName: linkedPromptName,
-        evaluationId: linkedEvaluationId,
-        evaluationName: linkedEvaluationName,
-    } = linkedSource
-    const hasLinkedSource = !!linkedPromptId || !!linkedEvaluationId
-
-    const linkedPromptLabel = linkedPromptName ?? 'linked prompt'
-    const linkedEvaluationLabel = linkedEvaluationName
-        ? `evaluation "${linkedEvaluationName}"`
-        : linkedEvaluationId
-          ? `evaluation ${linkedEvaluationId.slice(0, 8)}`
-          : 'linked evaluation'
-
-    const { source_prompt_id: _, source_evaluation_id: __, ...cleanSearchParams } = searchParams
-
-    const modelConfig = selectedModel
-        ? {
-              model: prompt.model,
-              provider: selectedModel.provider?.toLowerCase() ?? '',
-              provider_key_id: prompt.selectedProviderKeyId ?? null,
-          }
-        : null
-
-    const openSaveAsNewPromptDialog = (): void => {
-        LemonDialog.openForm({
-            title: 'Save as new prompt',
-            initialValues: { name: '' },
-            content: (
-                <LemonField name="name" label="Name">
-                    <LemonInput placeholder="Enter a name for this prompt" autoFocus />
-                </LemonField>
-            ),
-            errors: { name: (name) => (!name ? 'A name is required' : undefined) },
-            onSubmit: ({ name }) => saveAsNewPrompt(name),
-        })
-    }
-
-    const openSaveAsNewEvaluationDialog = (): void => {
-        LemonDialog.openForm({
-            title: 'Save as new evaluation',
-            initialValues: { name: '' },
-            content: (
-                <LemonField name="name" label="Name">
-                    <LemonInput placeholder="Enter a name for this evaluation" autoFocus />
-                </LemonField>
-            ),
-            errors: { name: (name) => (!name ? 'A name is required' : undefined) },
-            onSubmit: ({ name }) => saveAsNewEvaluation(name, modelConfig),
-        })
-    }
-
-    const confirmSaveToLinkedPrompt = (): void => {
-        if (!linkedPromptId) {
-            return
-        }
-        LemonDialog.open({
-            title: `Save to prompt "${linkedPromptLabel}"?`,
-            description: 'This will overwrite the current prompt with the system prompt from the playground.',
-            primaryButton: { children: 'Save', type: 'primary', onClick: () => saveToLinkedPrompt() },
-            secondaryButton: { children: 'Cancel', type: 'secondary' },
-        })
-    }
-
-    const confirmSaveToLinkedEvaluation = (): void => {
-        if (!linkedEvaluationId) {
-            return
-        }
-        LemonDialog.open({
-            title: `Save to ${linkedEvaluationLabel}?`,
-            description:
-                'This will overwrite the evaluation prompt and model configuration with the current playground state.',
-            primaryButton: {
-                children: 'Save',
-                type: 'primary',
-                onClick: () => saveToLinkedEvaluation(modelConfig),
-            },
-            secondaryButton: { children: 'Cancel', type: 'secondary' },
-        })
-    }
-
-    const clearLinkedSourceState = (): void => {
-        clearLinkedSource(promptId)
-        router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanSearchParams).url)
-    }
-
-    const linkedActions: JSX.Element[] = []
-    const saveAsNewActions: JSX.Element[] = []
-    const loadActions: JSX.Element[] = []
-
-    if (linkedPromptId && linkedPromptName && isPromptManagementEnabled) {
-        linkedActions.push(
-            <LemonButton
-                key="save-linked-prompt"
-                type="tertiary"
-                size="small"
-                fullWidth
-                className="justify-start"
-                onClick={confirmSaveToLinkedPrompt}
-            >
-                <span
-                    className="block w-full whitespace-normal break-all text-left"
-                    title={`Save to prompt "${linkedPromptLabel}"`}
-                >
-                    Save to prompt "{linkedPromptLabel}"
-                </span>
-            </LemonButton>
-        )
-    }
-
-    if (linkedEvaluationId && isEvaluationsEnabled) {
-        linkedActions.push(
-            <LemonButton
-                key="save-linked-evaluation"
-                type="tertiary"
-                size="small"
-                fullWidth
-                className="justify-start"
-                onClick={confirmSaveToLinkedEvaluation}
-            >
-                <span
-                    className="block w-full whitespace-normal break-all text-left"
-                    title={`Save to ${linkedEvaluationLabel}`}
-                >
-                    Save to {linkedEvaluationLabel}
-                </span>
-            </LemonButton>
-        )
-    }
-
-    if (hasLinkedSource) {
-        linkedActions.push(
-            <LemonButton key="unlink-source" type="tertiary" size="small" fullWidth onClick={clearLinkedSourceState}>
-                Unlink from source
-            </LemonButton>
-        )
-    }
-
-    if (isPromptManagementEnabled) {
-        saveAsNewActions.push(
-            <LemonButton
-                key="save-new-prompt"
-                type="tertiary"
-                size="small"
-                fullWidth
-                onClick={openSaveAsNewPromptDialog}
-            >
-                Save as new prompt
-            </LemonButton>
-        )
-        loadActions.push(
-            <LemonButton
-                key="load-prompt"
-                type="tertiary"
-                size="small"
-                fullWidth
-                onClick={() => router.actions.push(urls.llmAnalyticsPrompts())}
-            >
-                Load prompt
-            </LemonButton>
-        )
-    }
-
-    if (isEvaluationsEnabled) {
-        saveAsNewActions.push(
-            <LemonButton
-                key="save-new-evaluation"
-                type="tertiary"
-                size="small"
-                fullWidth
-                onClick={openSaveAsNewEvaluationDialog}
-            >
-                Save as new evaluation
-            </LemonButton>
-        )
-        loadActions.push(
-            <LemonButton
-                key="load-evaluation"
-                type="tertiary"
-                size="small"
-                fullWidth
-                onClick={() => router.actions.push(urls.llmAnalyticsEvaluations())}
-            >
-                Load evaluation
-            </LemonButton>
-        )
-    }
-
-    const menuGroups = [linkedActions, saveAsNewActions, loadActions].filter((group) => group.length > 0)
-    if (menuGroups.length === 0) {
-        return null
-    }
-
-    return (
-        <LemonDropdown
-            overlay={
-                <div className={`${hasLinkedSource ? 'w-72' : 'w-56'} p-1`}>
-                    {menuGroups.map((group, groupIndex) => (
-                        <React.Fragment key={`group-${groupIndex}`}>
-                            {groupIndex > 0 ? <LemonDivider className="my-1" /> : null}
-                            {group}
-                        </React.Fragment>
-                    ))}
-                </div>
-            }
-            placement="bottom-end"
-        >
-            <LemonButton
-                size="small"
-                icon={<IconLlmPromptManagement className="text-warning" />}
-                tooltip={
-                    hasLinkedSource
-                        ? 'Save changes back to the linked item or create a new one'
-                        : 'Save this system prompt as a prompt or evaluation'
-                }
-                noPadding
-                data-attr="llma-playground-save-system-prompt"
-            />
-        </LemonDropdown>
-    )
-}
-
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
     const { promptConfigs, editModal, collapsedSections, linkedSource } = useValues(llmPlaygroundPromptsLogic)
@@ -1008,16 +766,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const collapsed = !!collapsedSections[`system:${promptId}`]
     const hasOtherPrompts = promptConfigs.length > 1
 
-    const linkedContextLabel =
-        linkedSource.promptId && linkedSource.promptName
-            ? `Editing prompt: ${linkedSource.promptName}`
-            : linkedSource.promptId
-              ? `Editing prompt: ${linkedSource.promptId}`
-              : linkedSource.evaluationId && linkedSource.evaluationName
-                ? `Editing evaluation: ${linkedSource.evaluationName}`
-                : linkedSource.evaluationId
-                  ? `Editing evaluation: ${linkedSource.evaluationId.slice(0, 8)}`
-                  : null
+    const linkedContextLabel = getLinkedSourceLabel(linkedSource)
 
     const copySystemPromptToOtherPrompts = (): void => {
         if (!hasOtherPrompts) {
@@ -1035,7 +784,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
         <>
             <div className="border rounded p-4 py-2 relative group border-l-4 border-l-[var(--color-purple-500)]">
                 <div className="absolute top-2 right-2 flex items-center gap-1">
-                    <SaveAsDropdown promptId={promptId} prompt={prompt} />
+                    <PlaygroundSaveMenu promptId={promptId} prompt={prompt} />
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}
