@@ -1110,11 +1110,6 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000017
             },
-            "modelrun-fp4": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 7.5e-7,
-                "cache_read_token": 1.3e-7
-            },
             "novita-fp8": {
                 "prompt_token": 2.7e-7,
                 "completion_token": 0.000001,
@@ -2201,6 +2196,21 @@
     },
     {
         "model": "inception/mercury",
+        "cost": {
+            "default": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 7.5e-7,
+                "cache_read_token": 2.5e-8
+            },
+            "inception": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 7.5e-7,
+                "cache_read_token": 2.5e-8
+            }
+        }
+    },
+    {
+        "model": "inception/mercury-2",
         "cost": {
             "default": {
                 "prompt_token": 2.5e-7,
@@ -3559,9 +3569,9 @@
         "model": "moonshotai/kimi-k2.5",
         "cost": {
             "default": {
-                "prompt_token": 4.5e-7,
-                "completion_token": 0.0000022,
-                "cache_read_token": 2.25e-7
+                "prompt_token": 4.1e-7,
+                "completion_token": 0.00000206,
+                "cache_read_token": 7e-8
             },
             "atlas-cloud-int4": {
                 "prompt_token": 5e-7,
@@ -3583,9 +3593,9 @@
                 "cache_read_token": 7.0000002e-8
             },
             "fireworks": {
-                "prompt_token": 6e-7,
-                "completion_token": 0.000003,
-                "cache_read_token": 1.0000000000000001e-7
+                "prompt_token": 4.1e-7,
+                "completion_token": 0.00000206,
+                "cache_read_token": 7e-8
             },
             "inceptron-int4": {
                 "prompt_token": 5e-7,
@@ -4616,6 +4626,38 @@
         }
     },
     {
+        "model": "openai/gpt-5.4",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.4-pro",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00003,
+                "completion_token": 0.00018,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.00003,
+                "completion_token": 0.00018,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-audio",
         "cost": {
             "default": {
@@ -4693,9 +4735,9 @@
                 "completion_token": 6e-7
             },
             "fireworks": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 6e-7,
-                "cache_read_token": 7.5e-8
+                "prompt_token": 1.1e-7,
+                "completion_token": 4.3e-7,
+                "cache_read_token": 1e-8
             },
             "google-vertex": {
                 "prompt_token": 9e-8,
@@ -7061,9 +7103,9 @@
         "model": "z-ai/glm-5",
         "cost": {
             "default": {
-                "prompt_token": 8e-7,
-                "completion_token": 0.00000256,
-                "cache_read_token": 1.6e-7
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000018999999999999998,
+                "cache_read_token": 1.19e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 9.5e-7,
@@ -7076,9 +7118,9 @@
                 "cache_read_token": 1.6e-7
             },
             "fireworks": {
-                "prompt_token": 0.000001,
-                "completion_token": 0.0000032000000000000003,
-                "cache_read_token": 2.0000000000000002e-7
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000018999999999999998,
+                "cache_read_token": 1.19e-7
             },
             "friendli": {
                 "prompt_token": 0.000001,

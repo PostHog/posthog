@@ -221,7 +221,7 @@ class TestPrinter(BaseTest):
                 "    1 AS a,\n"
                 "    2 AS b\n"
                 "LIMIT 50000\n"
-                "UNION BY NAME\n"
+                "UNION DISTINCT BY NAME\n"
                 "SELECT\n"
                 "    3 AS b,\n"
                 "    4 AS a\n"

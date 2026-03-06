@@ -18,8 +18,22 @@ export function ExperimentsSettings(): JSX.Element {
                 </p>
                 <DefaultExperimentStatsMethod />
             </div>
-            <DefaultExperimentConfidenceLevel />
-            <ExperimentRecalculationTime />
+            <div>
+                <LemonLabel className="text-base">Default confidence level</LemonLabel>
+                <p className="text-secondary mt-2">
+                    Higher confidence level reduces false positives but requires more data. Can be overridden per
+                    experiment.
+                </p>
+                <DefaultExperimentConfidenceLevel />
+            </div>
+            <div>
+                <LemonLabel className="text-base">Daily recalculation time</LemonLabel>
+                <p className="text-secondary mt-2">
+                    Select the time of day when experiment metrics should be recalculated. This time is in your
+                    project's timezone.
+                </p>
+                <ExperimentRecalculationTime />
+            </div>
         </div>
     )
 }

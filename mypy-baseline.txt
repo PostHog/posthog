@@ -543,8 +543,6 @@ posthog/tasks/alerts/checks.py:0: error: Item "None" of "Any | None" has no attr
 posthog/tasks/alerts/test/test_alert_checks.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/tasks/alerts/test/test_alert_checks.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/tasks/alerts/test/test_alert_checks.py:0: error: Value of type "Any | None" is not indexable  [index]
-posthog/tasks/alerts/trends.py:0: error: Unsupported right operand type for in ("Any | None")  [operator]
-posthog/tasks/alerts/trends.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/tasks/email.py:0: error: Argument "email" to "add_recipient" of "EmailMessage" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/tasks/email.py:0: error: Incompatible types in assignment (expression has type "Team | None", variable has type "Team")  [assignment]
 posthog/tasks/email.py:0: error: Item "None" of "User | None" has no attribute "first_name"  [union-attr]
