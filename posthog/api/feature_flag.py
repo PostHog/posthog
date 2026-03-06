@@ -3129,14 +3129,12 @@ class FeatureFlagViewSet(
         limit = request.validated_query_data["limit"]
         page = request.validated_query_data["page"]
 
-        item_id = kwargs["pk"]
-        if not FeatureFlag.objects_including_soft_deleted.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        item = self.get_object()
 
         activity_page = load_activity(
             scope="FeatureFlag",
             team_id=self.team_id,
-            item_ids=[str(item_id)],
+            item_ids=[str(item.id)],
             limit=limit,
             page=page,
         )
