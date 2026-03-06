@@ -49,7 +49,7 @@ def _make_input(mock_team, generation_id=None):
         generation_id=generation_id,
         event_count=3,
         text_repr_length=100,
-        job_id=123,
+        job_id="123",
         job_name="OpenAI only",
     )
 

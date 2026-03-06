@@ -8,8 +8,8 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProxyRecord, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 
 import { OnboardingStepKey } from '~/types'
@@ -200,7 +200,8 @@ function ProxyVerified({ record }: { record: ProxyRecord }): JSX.Element {
 }
 
 function ProxySnippet({ domain }: { domain: string }): JSX.Element {
-    const uiHost = apiHostOrigin()
+    const { preflight } = useValues(preflightLogic)
+    const uiHost = preflight?.site_url || window.location.origin
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`posthog.init('<your-project-api-key>', {\n    api_host: 'https://${domain}',\n    ui_host: '${uiHost}',\n})`}

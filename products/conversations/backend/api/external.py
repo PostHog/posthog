@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
@@ -130,52 +131,80 @@ class ExternalTicketView(APIView):
             return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
 
         update_fields: list[str] = []
+        changes: list[Change] = []
 
         new_status = serializer.validated_data.get("status")
+        old_status = ticket.status
         if new_status is not None:
-            old_status = ticket.status
             ticket.status = new_status
             update_fields.append("status")
 
             if old_status == "resolved" or new_status == "resolved":
                 invalidate_unread_count_cache(team.id)
 
+            if old_status != new_status:
+                changes.append(
+                    Change(
+                        type="Ticket",
+                        field="status",
+                        before=old_status,
+                        after=new_status,
+                        action="changed",
+                    )
+                )
+
         new_priority = serializer.validated_data.get("priority")
+        old_priority = ticket.priority
         if new_priority is not None:
             ticket.priority = new_priority
             update_fields.append("priority")
 
+            if old_priority != new_priority:
+                changes.append(
+                    Change(
+                        type="Ticket",
+                        field="priority",
+                        before=old_priority,
+                        after=new_priority,
+                        action="changed",
+                    )
+                )
+
         old_sla_due_at = ticket.sla_due_at
-        sla_changed = False
         if "sla_due_at" in serializer.validated_data:
             ticket.sla_due_at = serializer.validated_data["sla_due_at"]
             update_fields.append("sla_due_at")
-            sla_changed = old_sla_due_at != ticket.sla_due_at
+
+            if old_sla_due_at != ticket.sla_due_at:
+                changes.append(
+                    Change(
+                        type="Ticket",
+                        field="sla_due_at",
+                        before=old_sla_due_at.isoformat() if old_sla_due_at else None,
+                        after=ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+                        action="changed",
+                    )
+                )
 
         if update_fields:
             ticket.save(update_fields=[*update_fields, "updated_at"])
 
-        if sla_changed:
-            log_activity(
-                organization_id=team.organization_id,
-                team_id=team.id,
-                user=None,
-                was_impersonated=False,
-                item_id=str(ticket.id),
-                scope="Ticket",
-                activity="updated",
-                detail=Detail(
-                    name=f"Ticket #{ticket.ticket_number}",
-                    changes=[
-                        Change(
-                            type="Ticket",
-                            field="sla_due_at",
-                            before=old_sla_due_at.isoformat() if old_sla_due_at else None,
-                            after=ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
-                            action="changed",
-                        )
-                    ],
-                ),
-            )
+        if changes:
+            try:
+                log_activity(
+                    organization_id=team.organization_id,
+                    team_id=team.id,
+                    user=None,
+                    was_impersonated=False,
+                    item_id=str(ticket.id),
+                    scope="Ticket",
+                    activity="updated",
+                    detail=Detail(
+                        name=f"Ticket #{ticket.ticket_number}",
+                        changes=changes,
+                    ),
+                )
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
 
         return Response({"ok": True})

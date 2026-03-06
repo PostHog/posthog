@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
+import { IconCheck, IconX } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -22,7 +23,7 @@ import {
     formatMedianConversionTime,
 } from '../funnelUtils'
 import { ValueInspectorButton } from '../ValueInspectorButton'
-import { FunnelFlowNodeData, NODE_HEIGHT, NODE_WIDTH } from './funnelFlowGraphLogic'
+import { FunnelFlowNodeData, NODE_HEIGHT, NODE_WIDTH, PROFILE_NODE_WIDTH } from './funnelFlowGraphLogic'
 
 function OptionalChip(): JSX.Element {
     return (
@@ -32,7 +33,50 @@ function OptionalChip(): JSX.Element {
     )
 }
 
-export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
+export const ProfileFlowNode = React.memo(function ProfileFlowNode({
+    data,
+}: {
+    data: FunnelFlowNodeData
+}): JSX.Element {
+    const { step, stepIndex, isOptional } = data
+    const isCompleted = step.count > 0
+
+    return (
+        <div className="flex flex-col items-center gap-2">
+            <div
+                className={clsx(
+                    'relative flex rounded-full border-2 p-1 items-center justify-center w-10 h-10',
+                    isCompleted ? 'border-success bg-success/5' : 'border-secondary bg-fill-tertiary',
+                    isOptional && 'border-dashed'
+                )}
+            >
+                <Handle type="target" position={Position.Left} id={`step-${stepIndex}-target`} className="opacity-0" />
+                <Handle type="source" position={Position.Right} id={`step-${stepIndex}-source`} className="opacity-0" />
+                <span className={clsx('text-xs font-semibold', isCompleted ? 'text-success' : 'text-primary')}>
+                    {isCompleted ? <IconCheck /> : <IconX />}
+                </span>
+            </div>
+            <div style={{ maxWidth: PROFILE_NODE_WIDTH }}>
+                <div className="flex items-start gap-1">
+                    <Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />
+                    <EntityFilterInfo
+                        filter={getActionFilterFromFunnelStep(step)}
+                        isOptional={isOptional}
+                        layout="column"
+                        allowWrap
+                        showIcon
+                    />
+                </div>
+            </div>
+        </div>
+    )
+})
+
+export const JourneyFlowNode = React.memo(function JourneyFlowNode({
+    data,
+}: {
+    data: FunnelFlowNodeData
+}): JSX.Element {
     const { step, stepIndex, isOptional } = data
     const isFirstStep = stepIndex === 0
     const { insightProps } = useValues(insightLogic)
@@ -60,7 +104,6 @@ export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { dat
             <Handle type="source" position={Position.Right} id={`step-${stepIndex}-source`} className="opacity-0" />
 
             <div className="flex flex-col justify-between px-2.5 py-2 h-full">
-                {/* Header */}
                 <div>
                     <div className="flex justify-between min-h-10">
                         <div className="flex flex-col items-start">
@@ -81,7 +124,6 @@ export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { dat
                     )}
                 </div>
 
-                {/* Stats */}
                 <div className="flex flex-col gap-0.5">
                     <span className="text-xs text-muted">
                         <ValueInspectorButton

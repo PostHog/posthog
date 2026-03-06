@@ -162,6 +162,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
                 limit_context=limit_context,
+                request=request,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)

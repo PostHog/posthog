@@ -141,6 +141,15 @@ async def flush_kafka_batch(
     return batch_size
 
 
+@database_sync_to_async
+def _update_cohort_duration(cohort_id: int, duration_ms: int) -> None:
+    """Update cohort duration and last calculation timestamp."""
+    Cohort.objects.filter(id=cohort_id).update(
+        last_calculation_duration_ms=duration_ms,
+        last_calculation=dt.datetime.now(dt.UTC),
+    )
+
+
 @temporalio.activity.defn
 async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCalculationWorkflowInputs) -> None:
     """Process a batch of realtime cohorts using HogQLRealtimeCohortQuery."""
@@ -154,10 +163,10 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
     else:
         num_cohorts_desc = "0 cohorts"
 
-    logger.info(f"Starting realtime cohort calculation workflow for {num_cohorts_desc}")
+    logger.info("Starting realtime cohort calculation workflow", num_cohorts_desc=num_cohorts_desc)
 
     async with Heartbeater(details=(f"Starting to process {num_cohorts_desc}",)) as heartbeater:
-        start_time = time.time()
+        start_time = time.monotonic()
 
         @database_sync_to_async
         def get_cohorts():
@@ -203,15 +212,18 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             return current_members_sql, hogql_context.values
 
         for idx, cohort in enumerate(cohorts, 1):
-            heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)} (cohort_id={cohort.id})",)
-            logger.info(f"Processing cohort {idx}/{len(cohorts)}", cohort_id=cohort.id)
+            heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)} (cohort_id={cohort.pk})",)
+            logger.info("Processing cohort", cohort_index=idx, total_cohorts=len(cohorts), cohort_id=cohort.pk)
+
+            # Start timing the entire cohort processing (query + Kafka production + flushing)
+            cohort_start_time = time.monotonic()
 
             try:
                 current_members_sql, query_params = await build_query(cohort)
                 query_params = {
                     **query_params,
                     "team_id": cohort.team_id,
-                    "cohort_id": cohort.id,
+                    "cohort_id": cohort.pk,
                 }
 
                 final_query = f"""
@@ -241,11 +253,11 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     FORMAT JSONEachRow
                 """
 
-                heartbeater.details = (f"Executing query for cohort {idx}/{len(cohorts)} (cohort_id={cohort.id})",)
+                heartbeater.details = (f"Executing query for cohort {idx}/{len(cohorts)} (cohort_id={cohort.pk})",)
 
                 with tags_context(
                     team_id=cohort.team_id,
-                    cohort_id=cohort.id,
+                    cohort_id=cohort.pk,
                     feature=Feature.BEHAVIORAL_COHORTS,
                     product=Product.MESSAGING,
                     query_type="realtime_cohort_calculation",
@@ -257,7 +269,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     total_messages = 0
                     total_flushed = 0
 
-                    logger.info(f"Executing query for cohort {cohort.id}", cohort_id=cohort.id)
+                    logger.info("Executing query for cohort", cohort_id=cohort.pk)
 
                     async with get_client(team_id=cohort.team_id) as client:
                         async for row in client.stream_query_as_jsonl(
@@ -269,7 +281,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                             status_counts[status] += 1
                             payload = {
                                 "team_id": cohort.team_id,
-                                "cohort_id": cohort.id,
+                                "cohort_id": cohort.pk,
                                 "person_id": str(person_id),
                                 # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
                                 "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
@@ -290,7 +302,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                     flushed = await flush_kafka_batch(
                                         kafka_producer,
                                         pending_kafka_messages,
-                                        cohort.id,
+                                        cohort.pk,
                                         idx,
                                         len(cohorts),
                                         heartbeater,
@@ -301,8 +313,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
                             except Exception as e:
                                 logger.warning(
-                                    f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.id}: {e}",
-                                    cohort_id=cohort.id,
+                                    f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.pk}: {e}",
+                                    cohort_id=cohort.pk,
                                     person_id=payload["person_id"],
                                     error=str(e),
                                 )
@@ -313,7 +325,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         flushed = await flush_kafka_batch(
                             kafka_producer,
                             pending_kafka_messages,
-                            cohort.id,
+                            cohort.pk,
                             idx,
                             len(cohorts),
                             heartbeater,
@@ -323,8 +335,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         total_flushed += flushed
 
                     logger.info(
-                        f"Successfully flushed {total_flushed} total messages for cohort {cohort.id}",
-                        cohort_id=cohort.id,
+                        f"Successfully flushed {total_flushed} total messages for cohort {cohort.pk}",
+                        cohort_id=cohort.pk,
                         total_messages=total_messages,
                         total_flushed=total_flushed,
                     )
@@ -334,18 +346,31 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     if status_counts["left"] > 0:
                         get_membership_changed_metric("left").add(status_counts["left"])
 
+                # Calculate full cohort processing duration (not just query time)
+                # Includes: query execution + Kafka message production + message flushing
+                cohort_end_time = time.monotonic()
+                duration_ms = int((cohort_end_time - cohort_start_time) * 1000)
+
+                await _update_cohort_duration(cohort.pk, duration_ms)
+
+                logger.info(
+                    f"Cohort {cohort.pk} processing completed",
+                    cohort_id=cohort.pk,
+                    duration_ms=duration_ms,
+                )
+
                 get_cohort_calculation_success_metric().add(1)
                 cohorts_count += 1
             except Exception as e:
                 get_cohort_calculation_failure_metric().add(1)
                 logger.exception(
-                    f"Error calculating cohort {cohort.id}: {type(e).__name__}: {str(e)}",
-                    cohort_id=cohort.id,
+                    f"Error calculating cohort {cohort.pk}: {type(e).__name__}: {str(e)}",
+                    cohort_id=cohort.pk,
                     error_type=type(e).__name__,
                     error_message=str(e),
                 )
 
-        end_time = time.time()
+        end_time = time.monotonic()
         duration_seconds = end_time - start_time
         duration_minutes = duration_seconds / 60
 

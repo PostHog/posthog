@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from structlog import get_logger
@@ -9,10 +10,13 @@ logger = get_logger(__name__)
 # We don't want to analyze tickets that were already solved
 ZENDESK_IGNORED_STATUSES = ("closed", "solved")
 
-ZENDESK_SUMMARIZATION_PROMPT = """Summarize this support ticket into a concise description for semantic search.
-Capture the core problem or request, the product area affected, and any relevant context like error messages or what the customer already tried.
+ZENDESK_SUMMARIZATION_PROMPT = """Summarize this support ticket for semantic search.
+Output exactly two parts separated by a newline:
+1. A short title (under 100 characters) that captures the core issue
+2. A concise summary capturing the problem or request, the product area affected, and any relevant context like error messages or what the customer already tried
+
 Strip email signatures, legal disclaimers, and system-generated footers — but keep quoted replies or conversation fragments if they add context about the issue.
-Keep the summary under {max_length} characters. Respond with only the summary text.
+Keep the total output under {max_length} characters. Respond with only the title and summary, nothing else.
 
 <ticket>
 {description}
@@ -87,11 +91,33 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
         source_type="ticket",
         source_id=str(ticket_id),
         description=signal_description,
-        # Sticking to 1 by default for user-generated issues
         weight=1.0,
-        # Attach only the fields that would make sense for a signal, without duplicating already included data
-        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
+        extra=_build_extra(record),
     )
+
+
+def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
+    extra = {k: v for k, v in record.items() if k in EXTRA_FIELDS}
+    raw_tags = extra.get("tags")
+    if raw_tags is None:
+        extra["tags"] = []
+    elif isinstance(raw_tags, str):
+        try:
+            parsed = json.loads(raw_tags)
+        except (json.JSONDecodeError, TypeError) as e:
+            msg = f"Zendesk ticket tags field is not valid JSON: {raw_tags!r}"
+            logger.exception(msg, record=record, signals_type="data-import-signals")
+            raise ValueError(msg) from e
+        if not isinstance(parsed, list):
+            msg = f"Zendesk ticket tags field is not a JSON array: {raw_tags!r}"
+            logger.exception(msg, record=record, signals_type="data-import-signals")
+            raise ValueError(msg)
+        extra["tags"] = parsed
+    else:
+        msg = f"Zendesk ticket tags field has unexpected type {type(raw_tags).__name__}: {raw_tags!r}"
+        logger.exception(msg, record=record, signals_type="data-import-signals")
+        raise ValueError(msg)
+    return extra
 
 
 ZENDESK_TICKETS_CONFIG = SignalSourceTableConfig(

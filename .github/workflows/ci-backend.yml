@@ -62,7 +62,6 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
-            products: ${{ steps.filter.outputs.products || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -92,7 +91,13 @@ jobs:
                         # including the negated rule appears to work
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
-                        - 'common/**/*'
+                        - 'common/hogli/**/*'
+                        - 'common/hogvm/python/**/*'
+                        - 'common/hogvm/stl/**/*'
+                        - 'common/hogql_parser/**/*'
+                        - 'common/migration_utils/**/*'
+                        - 'common/ingestion/**/*'
+                        - 'common/__init__.py'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
                         - 'bin/*.py'
@@ -143,6 +148,26 @@ jobs:
                         - 'products/*/mcp/**/*.yaml'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
+                      legacy:
+                        # Non-product backend code — when only products/ change,
+                        # turbo-discover decides whether Django tests are needed
+                        - 'ee/**/*'
+                        - 'common/**/*'
+                        - 'posthog/**/*'
+                        - 'bin/*.py'
+                        - pyproject.toml
+                        - uv.lock
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        - .test_durations
+                        - frontend/src/queries/schema.json
+                        - .github/workflows/ci-backend.yml
+                        - .github/clickhouse-versions.json
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
+                        - docker-compose.base.yml
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -294,8 +319,8 @@ jobs:
                   export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  docker compose -f docker-compose.dev.yml --profile batch-exports down
-                  docker compose -f docker-compose.dev.yml --profile batch-exports up -d &
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d &
 
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
@@ -468,8 +493,9 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d &
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d &
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -1368,10 +1394,10 @@ jobs:
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             # Oldest supported version as plain string (for comparisons)
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
-            # All unique versions for compat tests
-            all: ${{ steps.read-versions.outputs.all }}
-            # Whether to skip compat tests (all versions identical = no extra coverage)
-            skip_compat: ${{ steps.check-compat.outputs.skip }}
+            # Compat versions (all unique versions except oldest_supported, already tested by Django)
+            compat_versions: ${{ steps.read-versions.outputs.compat_versions }}
+            # Whether to skip compat tests (no additional versions to test)
+            skip_compat: ${{ steps.read-versions.outputs.skip_compat }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1390,25 +1416,16 @@ jobs:
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "Oldest supported version for Django tests: $oldest_supported"
 
-                  # All unique versions for compat tests
-                  all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
-                  if [ "$all" = "[]" ] || [ -z "$all" ]; then
-                    echo "::error::No versions found in .github/clickhouse-versions.json"
-                    exit 1
-                  fi
-                  echo "all=$all" >> $GITHUB_OUTPUT
-                  echo "All versions for compat tests: $all"
-
-            - name: Check if compat tests are needed
-              id: check-compat
-              run: |
-                  UNIQUE=$(jq -r '[.[]] | unique | length' .github/clickhouse-versions.json)
-                  if [ "$UNIQUE" -eq 1 ]; then
-                    echo "skip=true" >> $GITHUB_OUTPUT
-                    echo "All CH versions identical — compat tests provide no additional coverage, skipping"
+                  # Compat versions: all unique versions except oldest_supported (already tested by Django shards)
+                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
+                  if [ "$compat_versions" = "[]" ] || [ -z "$compat_versions" ]; then
+                    echo "skip_compat=true" >> $GITHUB_OUTPUT
+                    echo "compat_versions=[]" >> $GITHUB_OUTPUT
+                    echo "No additional CH versions to test — oldest_supported already covered by Django tests"
                   else
-                    echo "skip=false" >> $GITHUB_OUTPUT
-                    echo "Multiple CH versions found — compat tests needed"
+                    echo "skip_compat=false" >> $GITHUB_OUTPUT
+                    echo "compat_versions=$compat_versions" >> $GITHUB_OUTPUT
+                    echo "Compat versions (excluding oldest_supported $oldest_supported): $compat_versions"
                   fi
 
     clickhouse-compat:
@@ -1426,7 +1443,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.all) }}
+                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.compat_versions) }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1631,8 +1648,9 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d &
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d &
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0

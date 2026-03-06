@@ -27,6 +27,9 @@ class CloudflareAPIError(Exception):
         super().__init__(message)
         self.errors = errors or []
 
+    def is_rate_limited(self) -> bool:
+        return any(err.get("code") == 10000 for err in self.errors) or "rate limit" in str(self).lower()
+
 
 class CustomHostnameSSLStatus(str, Enum):
     """SSL certificate status for a Custom Hostname."""

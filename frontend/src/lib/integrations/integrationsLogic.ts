@@ -10,6 +10,8 @@ import { fromParamsGivenUrl } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { integrationsGithubReposRetrieve } from '~/generated/core/api'
+import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
@@ -117,10 +119,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
         githubRepositories: [
-            {} as Record<number, string[]>,
+            {} as Record<number, GitHubRepoApi[]>,
             {
                 loadGitHubRepositories: async ({ integrationId }) => {
-                    const response = await api.integrations.githubRepositories(integrationId)
+                    const response = await integrationsGithubReposRetrieve('@current', integrationId)
                     return {
                         ...values.githubRepositories,
                         [integrationId]: response.repositories || [],
@@ -274,7 +276,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
         getGitHubRepositories: [
             (s) => [s.githubRepositories],
             (githubRepositories) => {
-                return (integrationId: number) => githubRepositories[integrationId] || []
+                return (integrationId: number) => (githubRepositories[integrationId] || []).map((r) => r.name)
+            },
+        ],
+        getGitHubRepositoriesFull: [
+            (s) => [s.githubRepositories],
+            (githubRepositories) => {
+                return (integrationId: number): GitHubRepoApi[] => githubRepositories[integrationId] || []
             },
         ],
 

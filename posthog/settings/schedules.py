@@ -75,5 +75,59 @@ REALTIME_COHORT_CALCULATION_TEAMS: set[int] = {
 # Global percentage for teams not in REALTIME_COHORT_CALCULATION_TEAMS (0.0 to 1.0)
 # Example: 0.5 means 50% of cohorts for all other teams
 REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: float = get_from_env(
-    "REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.0, type_cast=float
+    "REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE",
+    0.0,
+    type_cast=float,
+)
+
+# Realtime cohort calculation schedule intervals (in minutes) based on duration percentiles
+# Faster cohorts run more frequently, slower cohorts run less frequently
+REALTIME_COHORT_CALCULATION_P0_P50_INTERVAL_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P0_P50_INTERVAL_MINUTES",
+    5,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P50_P80_INTERVAL_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P50_P80_INTERVAL_MINUTES",
+    10,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P80_P90_INTERVAL_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P80_P90_INTERVAL_MINUTES",
+    15,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P90_P95_INTERVAL_MINUTES",
+    20,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P95_P100_INTERVAL_MINUTES",
+    30,
+    type_cast=int,
+)
+
+# Batch delay settings for different percentile ranges
+REALTIME_COHORT_CALCULATION_P0_P50_BATCH_DELAY_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P0_P50_BATCH_DELAY_MINUTES",
+    1,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P50_P80_BATCH_DELAY_MINUTES: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P50_P80_BATCH_DELAY_MINUTES",
+    2,
+    type_cast=int,
+)
+
+# Parallelism settings for different percentile ranges
+REALTIME_COHORT_CALCULATION_P0_P50_PARALLELISM: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P0_P50_PARALLELISM",
+    15,
+    type_cast=int,
+)
+REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM: int = get_from_env(
+    "REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM",
+    10,
+    type_cast=int,
 )

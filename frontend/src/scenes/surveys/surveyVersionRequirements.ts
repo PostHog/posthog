@@ -109,9 +109,9 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: {
             'posthog-js': '1.234.11',
             'posthog-react-native': '4.27.0',
+            'posthog-ios': '3.43.0',
         },
         unsupportedSdks: [
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/446' },
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/389' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/260' },
         ],

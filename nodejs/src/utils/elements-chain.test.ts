@@ -155,6 +155,22 @@ describe('extractElements()', () => {
         ])
     })
 
+    it('truncates $el_text to 400 chars and attr__href to 2048 chars', () => {
+        const result = extractElements([
+            {
+                tag_name: 'a',
+                $el_text: 'a'.repeat(2050),
+                attr__href: 'a'.repeat(2050),
+                nth_child: 1,
+                nth_of_type: 2,
+                attr__class: 'btn btn-sm',
+            },
+        ])
+
+        expect(result[0].text?.length).toBe(400)
+        expect(result[0].href?.length).toBe(2048)
+    })
+
     it('handles arrays for attr__class', () => {
         const result = extractElements([{ attr__class: ['btn', 'btn-sm'] }])
 
