@@ -347,8 +347,7 @@ Scheduled tasks only maintain existing caches. For initial population or schema 
 python manage.py warm_flags_cache [--invalidate-first] [--team-ids ID1 ID2 ...]
 ```
 
-By default, the command warms caches only for teams that have feature flags (using `config.get_teams_queryset()`). Teams without flags are skipped to avoid unnecessary database queries and Redis writes.
-
+By default, the command warms caches only for teams that have ever had a feature flag (using `config.get_teams_queryset()`). This includes teams whose flags have all been soft-deleted (so the cache correctly contains an empty flags list). Teams that have never had any feature flags are skipped to avoid unnecessary database queries and Redis writes.
 When `--team-ids` is provided, those specific teams are warmed regardless of the config scoping.
 
 ## Signal handlers
