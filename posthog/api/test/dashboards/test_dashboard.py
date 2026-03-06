@@ -1527,6 +1527,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         other_tile.refresh_from_db()
         assert other_tile.dashboard_id == other_dashboard.id
 
+    def test_update_tile_with_nonexistent_id_returns_400(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+        insight = Insight.objects.create(team=self.team, last_refresh=now())
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        self.dashboard_api.update_dashboard(
+            dashboard.id,
+            {"tiles": [{"id": 99999, "layouts": {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}}]},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_update_tile_without_id_returns_400(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+        insight = Insight.objects.create(team=self.team, last_refresh=now())
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        self.dashboard_api.update_dashboard(
+            dashboard.id,
+            {"tiles": [{"layouts": {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}}]},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
     def test_relations_on_insights_when_dashboards_were_deleted(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
