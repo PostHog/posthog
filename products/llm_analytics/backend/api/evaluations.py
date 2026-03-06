@@ -1,5 +1,5 @@
 import json
-from typing import Any, cast
+from typing import Any
 
 from django.db.models import Q, QuerySet
 
@@ -17,7 +17,6 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
@@ -221,7 +220,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         # Track evaluation created
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma evaluation created",
             {
                 "evaluation_id": str(instance.id),
@@ -291,7 +290,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma evaluation deleted",
                 {
                     "evaluation_id": str(instance.id),
@@ -317,7 +316,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 event_properties["config_content_changed"] = True
 
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma evaluation updated",
                 event_properties,
                 team=self.team,

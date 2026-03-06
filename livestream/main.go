@@ -62,11 +62,7 @@ func main() {
 	if err != nil || statsRedis == nil {
 		log.Printf("WARNING: Redis connection failed, continuing without Redis: %v", err)
 	} else {
-		defer func() {
-			if err := statsRedis.Close(); err != nil {
-				log.Printf("ERROR: Failed to close Redis store: %v", err)
-			}
-		}()
+		defer statsRedis.Close()
 		stats.RedisStore = statsRedis
 		sessionStats.RedisStore = statsRedis
 		log.Printf("Redis stats store enabled (address: %s:%s)", config.Redis.Address, config.Redis.Port)

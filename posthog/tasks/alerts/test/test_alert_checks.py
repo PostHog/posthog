@@ -921,6 +921,70 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
         assert alert.is_calculating is False
 
+    @parameterized.expand(
+        [
+            ("invalid_condition", {"condition": {}}, "invalid condition"),
+            ("missing_config_type", {"config": {"series_index": 0}}, "Unsupported alert config type"),
+            ("relative_on_non_time_series", {"condition": {"type": "relative_increase"}}, "not compatible"),
+        ]
+    )
+    @patch("posthog.tasks.alerts.checks.send_notifications_for_disabled")
+    def test_invalid_config_auto_disables_alert(
+        self,
+        _name: str,
+        field_overrides: dict,
+        expected_error_fragment: str,
+        mock_send_disabled: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        assert alert.enabled is True
+        assert alert.state != AlertState.ERRORED
+
+        for field, value in field_overrides.items():
+            setattr(alert, field, value)
+        alert.save()
+
+        check_alert(self.alert["id"])
+
+        alert.refresh_from_db()
+        assert alert.enabled is False
+        assert alert.state == AlertState.ERRORED  # type: ignore[unreachable]
+        assert mock_send_disabled.call_count == 1
+        assert mock_send_notifications_for_breaches.call_count == 0
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert alert_check.state == AlertState.ERRORED
+        assert alert_check.calculated_value is None
+        assert alert_check.condition == alert.condition
+        assert alert_check.targets_notified == {"users": ["user1@posthog.com"]}
+        assert expected_error_fragment in alert_check.error["message"]
+
+    @patch("posthog.tasks.alerts.checks.send_notifications_for_disabled")
+    def test_auto_disable_with_no_subscribers_sets_targets_notified_to_none(
+        self,
+        mock_send_disabled: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+    ) -> None:
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        alert.condition = {}
+        alert.save()
+        AlertSubscription.objects.filter(alert_configuration=alert).delete()
+
+        check_alert(self.alert["id"])
+
+        alert.refresh_from_db()
+        assert alert.enabled is False
+        assert alert.state == AlertState.ERRORED
+        assert mock_send_disabled.call_count == 0
+        assert mock_send_notifications_for_breaches.call_count == 0
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert alert_check.state == AlertState.ERRORED
+        assert alert_check.targets_notified == {}
+
 
 @freeze_time("2024-06-02T08:55:00.000Z")
 class TestAlertSubscriptionOrgMembership(APIBaseTest):

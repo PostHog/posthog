@@ -42,9 +42,14 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         response = self.client.get("/toolbar_oauth/authorize/")
         assert response.status_code == 400
 
-    def test_rejects_disallowed_domain(self):
+    def test_disallowed_domain_returns_error_page_with_hostname(self):
         response = self._get_authorize(redirect_url="https://evil.com/page")
         assert response.status_code == 403
+        content = response.content.decode()
+        assert "Domain not authorized" in content
+        assert "evil.com" in content
+        assert "authorized URLs" in content
+        assert "/settings/project-toolbar#authorized-urls" in content
 
     def test_requires_authentication(self):
         self.client.logout()

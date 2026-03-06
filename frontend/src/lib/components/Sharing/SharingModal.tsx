@@ -263,7 +263,7 @@ export function SharingModalContent({
                                     )}
                                     <LemonButton
                                         data-attr="sharing-link-button"
-                                        type="secondary"
+                                        type="primary"
                                         onClick={() => {
                                             // TRICKY: there's a chance this was sending useless errors to error tracking
                                             // even when it succeeded, so we're explicitly ignoring the promise success
@@ -275,8 +275,7 @@ export function SharingModalContent({
                                             )
                                         }}
                                         icon={<IconLink />}
-                                        fullWidth
-                                        className="mb-4"
+                                        className="ml-auto mb-4"
                                     >
                                         Copy public link
                                     </LemonButton>

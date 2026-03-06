@@ -216,6 +216,16 @@ describe('createXAxisTickCallback', () => {
             expect(callback('some-label', 5)).toBe('some-label')
         })
 
+        it('returns raw value when days are numbers (stickiness insights)', () => {
+            const callback = createXAxisTickCallback({
+                interval: 'day',
+                allDays: [1, 2, 3, 4, 5],
+                timezone: 'UTC',
+            })
+            expect(callback(1, 0)).toBe('1')
+            expect(callback(3, 2)).toBe('3')
+        })
+
         it('returns raw value for unparseable dates', () => {
             const callback = createXAxisTickCallback({
                 interval: 'day',

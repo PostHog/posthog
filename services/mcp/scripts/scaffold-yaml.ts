@@ -370,7 +370,8 @@ function main(): void {
         console.error('       scaffold-yaml --path <prefix> [--output <file>]')
         console.error('       scaffold-yaml --sync-all')
         console.error('')
-        console.error('Products are matched by URL path containing /<name>/.')
+        console.error('--product is a substring match: selects endpoints whose path contains /<name>/')
+        console.error('(hyphens normalized to underscores). Can be a product name or any path segment.')
         process.exit(1)
     }
 

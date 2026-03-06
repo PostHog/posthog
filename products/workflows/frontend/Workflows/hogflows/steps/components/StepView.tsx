@@ -1,7 +1,8 @@
+import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCopy, IconDrag, IconEllipsis, IconRevert, IconTrash } from '@posthog/icons'
+import { IconCopy, IconDrag, IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
@@ -26,9 +27,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         animatingEdgePair,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
-    const { actionValidationErrorsById, logicProps, edgesByActionId, draftChangedActionIds, draftDeletedActionIds } =
-        useValues(workflowLogic)
-    const { restoreAction, softDeleteAction } = useActions(workflowLogic)
+    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { deleteElements } = useReactFlow()
 
     const isSelected = selectedNode?.id === action.id
     const node = nodesById[action.id]
@@ -67,8 +67,6 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     }, [action, isSelected, Step])
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
-    const isSoftDeleted = draftDeletedActionIds.has(action.id)
-    const hasDraftChanges = !isSoftDeleted && draftChangedActionIds.has(action.id)
     const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
 
     return (
@@ -78,16 +76,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                 width: NODE_WIDTH,
                 height,
                 borderWidth: 1,
-                borderStyle: isSoftDeleted || hasDraftChanges ? 'dashed' : 'solid',
-                borderColor: isAnimationTarget
-                    ? 'var(--success)'
-                    : isSoftDeleted
-                      ? 'var(--danger)'
-                      : hasDraftChanges
-                        ? 'var(--warning)'
-                        : selectedColor,
+                borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
                 boxShadow: `0px 2px 0px 0px ${colorLight}`,
-                opacity: isSoftDeleted ? 0.4 : hasDraftChanges ? 0.5 : 1,
                 zIndex: 0,
             }}
         >
@@ -132,10 +122,9 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         ) : (
                             <Tooltip title={action.name}>
                                 <div
-                                    className={`text-[0.45rem] font-sans font-medium rounded-sm px-0.5 -mx-0.5 transition-colors pl-1 truncate min-w-0 flex-1 ${isSelected && !isSoftDeleted ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
-                                    style={isSoftDeleted ? { textDecoration: 'line-through' } : undefined}
+                                    className={`text-[0.45rem] font-sans font-medium rounded-sm px-0.5 -mx-0.5 transition-colors pl-1 truncate min-w-0 flex-1 ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
                                     onClick={(e) => {
-                                        if (isSelected && !isSoftDeleted) {
+                                        if (isSelected) {
                                             e.stopPropagation()
                                             startEditingName()
                                         }
@@ -192,7 +181,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         </Tooltip>
                     )}
                 </div>
-                {isSelected && node?.deletable && !isSoftDeleted && (
+                {isSelected && node?.deletable && (
                     <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
                         <LemonMenu
                             items={[
@@ -217,7 +206,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                     status: 'danger',
                                     icon: <IconTrash />,
                                     onClick: () => {
-                                        softDeleteAction(action.id)
+                                        void deleteElements({ nodes: [node] })
                                         setSelectedNodeId(null)
                                     },
                                     disabledReason: !selectedNodeCanBeDeleted
@@ -230,21 +219,6 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         </LemonMenu>
                     </div>
                 )}
-                {isSoftDeleted &&
-                    !(edgesByActionId[action.id] ?? []).some(
-                        (e) => e.to === action.id && draftDeletedActionIds.has(e.from)
-                    ) && (
-                        <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
-                            <Tooltip title="Restore this action">
-                                <LemonButton
-                                    icon={<IconRevert />}
-                                    size="xsmall"
-                                    noPadding
-                                    onClick={() => restoreAction(action.id)}
-                                />
-                            </Tooltip>
-                        </div>
-                    )}
             </div>
             {hasValidationError ? (
                 <div className="absolute top-0 right-0 scale-75">

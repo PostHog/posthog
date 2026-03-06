@@ -6,9 +6,9 @@ import type { Context } from '@/tools/types'
 
 // Import bundled HTML at build time (wrangler Text rule)
 // Each UI app has its own HTML file in ui-apps-dist/src/ui-apps/apps/<name>/
-import demoHtml from '../../ui-apps-dist/src/ui-apps/apps/demo/index.html'
+import debugHtml from '../../ui-apps-dist/src/ui-apps/apps/debug/index.html'
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
-import { DEMO_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constants'
+import { DEBUG_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constants'
 
 /**
  * Registers UI app resources with the MCP server.
@@ -25,9 +25,9 @@ export async function registerUiAppResources(server: McpServer, context: Context
 function registerDemoApp(server: McpServer, context: Context): void {
     registerApp(server, context, {
         name: 'MCP Apps Demo',
-        uri: DEMO_RESOURCE_URI,
+        uri: DEBUG_RESOURCE_URI,
         description: 'Demo app for testing MCP Apps SDK integration - displays SDK events and tool data',
-        html: demoHtml,
+        html: debugHtml,
     })
 }
 
@@ -72,4 +72,4 @@ function registerApp(server: McpServer, context: Context, { name, uri, descripti
 }
 
 // Re-export for tools to import
-export { QUERY_RESULTS_RESOURCE_URI, DEMO_RESOURCE_URI }
+export { QUERY_RESULTS_RESOURCE_URI, DEBUG_RESOURCE_URI }
