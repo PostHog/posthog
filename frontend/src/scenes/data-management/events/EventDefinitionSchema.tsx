@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useMemo, useState } from 'react'
 
 import { IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
@@ -177,9 +178,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                             }
                             disabled={!hasPropertyGroups || schemaEnforcementModeUpdating}
                             disabledReason={
-                                !hasPropertyGroups
-                                    ? 'Define a schema before enabling schema enforcement'
-                                    : undefined
+                                !hasPropertyGroups ? 'Define a schema before enabling schema enforcement' : undefined
                             }
                         />
                     )}
