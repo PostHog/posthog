@@ -390,7 +390,8 @@ def sync_old_schemas_with_new_schemas(
         if deleted_obj is not None:
             deleted_obj.deleted = False
             deleted_obj.deleted_at = None
-            deleted_obj.save(update_fields=["deleted", "deleted_at", "updated_at"])
+            deleted_obj.should_sync = default_should_sync
+            deleted_obj.save(update_fields=["deleted", "deleted_at", "should_sync", "updated_at"])
             actually_created.append(schema)
             continue
 
@@ -403,6 +404,11 @@ def sync_old_schemas_with_new_schemas(
         )
         if created:
             actually_created.append(schema)
+        elif obj.deleted:
+            obj.deleted = False
+            obj.deleted_at = None
+            obj.should_sync = default_should_sync
+            obj.save(update_fields=["deleted", "deleted_at", "should_sync", "updated_at"])
 
     for schema in schemas_to_possibly_delete:
         # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible

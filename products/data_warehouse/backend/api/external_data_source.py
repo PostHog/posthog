@@ -790,7 +790,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
-                default_should_sync=False,
+                default_should_sync=instance.access_method == ExternalDataSource.AccessMethod.DIRECT,
             )
 
             if (
