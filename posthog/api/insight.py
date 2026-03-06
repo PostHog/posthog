@@ -1090,7 +1090,7 @@ class InsightViewSet(
         recently_viewed = []
         for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
             insight = rv.insight
-            insight.last_viewed_at = rv.last_viewed_at
+            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
             recently_viewed.append(insight)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
