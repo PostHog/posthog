@@ -2,6 +2,7 @@ from parameterized import parameterized
 
 from ee.api.scim.utils import (
     mask_email,
+    mask_headers,
     mask_pii_value,
     mask_scim_filter,
     mask_scim_payload,
@@ -200,3 +201,27 @@ class TestNormalizeScimOperations:
         original: list[dict] = [{"op": "replace", "value": {"active": "True"}}]
         normalize_scim_operations(original)
         assert original[0]["value"]["active"] == "True"
+
+
+class TestMaskHeaders:
+    @parameterized.expand(
+        [
+            ("bearer_token", {"Authorization": "Bearer phx_abc123def456"}, {"Authorization": "Bearer ...f456"}),
+            ("basic_auth", {"Authorization": "Basic dXNlcjpwYXNz"}, {"Authorization": "Basic ...YXNz"}),
+            ("short_token", {"Authorization": "Bearer ab"}, {"Authorization": "Bearer ..."}),
+            ("cookie_stripped", {"Cookie": "session=abc123"}, {}),
+            (
+                "safe_header_passthrough",
+                {"Content-Type": "application/json", "User-Agent": "Okta"},
+                {"Content-Type": "application/json", "User-Agent": "Okta"},
+            ),
+            (
+                "mixed",
+                {"Authorization": "Bearer tok123", "Cookie": "x=1", "Accept": "application/json"},
+                {"Authorization": "Bearer ...k123", "Accept": "application/json"},
+            ),
+            ("empty", {}, {}),
+        ]
+    )
+    def test_mask_headers(self, _name, input_headers, expected):
+        assert mask_headers(input_headers) == expected
