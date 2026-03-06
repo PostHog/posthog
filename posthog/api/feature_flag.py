@@ -141,6 +141,11 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
     labelnames=["result"],  # "hit" (304), "miss" (200), "none" (no client etag)
 )
 
+LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
+    "posthog_local_evaluation_secret_api_key_in_body_total",
+    "Local evaluation requests where secret_api_key was passed in request body instead of Authorization header",
+)
+
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
@@ -2530,6 +2535,17 @@ class FeatureFlagViewSet(
         # **kwargs is required because DRF passes parent_lookup_project_id from nested router
         start_time = time.time()
         logger = logging.getLogger(__name__)
+
+        # Track if secret_api_key was passed in request body AND was the actual auth mechanism.
+        # If the header also has a phs_ token, the header wins and the body value is ignored,
+        # so Rust (header-only) would still authenticate fine — no need to count those.
+        auth_header = request.headers.get("authorization", "")
+        if (
+            request.data.get("secret_api_key")
+            and isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
+            and not re.match(r"^Bearer\s+phs_[a-zA-Z0-9]+$", auth_header)
+        ):
+            LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER.inc()
 
         # Use validated boolean value from serializer
         include_cohorts = request.validated_query_data.get("send_cohorts", False)
