@@ -1,5 +1,6 @@
-import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, defaults, events, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -33,8 +34,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
 
     actions({
         loadIssue: true,
-        split: (exclusive: boolean) => ({ exclusive }),
-        setSelectedFingerprints: (fingerprints: string[]) => ({ fingerprints }),
+        unmerge: (fingerprint: string) => ({ fingerprint }),
         loadFingerprintSamples: (issue: ErrorTrackingRelationalIssue, fingerprints: ErrorTrackingFingerprint[]) => ({
             issue,
             fingerprints,
@@ -42,7 +42,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
     }),
 
     connect(() => ({
-        actions: [issueActionsLogic, ['splitIssue']],
+        actions: [issueActionsLogic, ['splitIssue', 'splitIssueSuccess']],
     })),
 
     defaults({
@@ -51,25 +51,14 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         fingerprintSamples: [] as ErrorTrackingFingerprintSamples[],
     }),
 
-    reducers({
-        selectedFingerprints: [
-            [] as string[],
-            {
-                setSelectedFingerprints: (_, { fingerprints }) => fingerprints,
-            },
-        ],
-    }),
-
     loaders(({ values, props }) => ({
         issue: {
             loadIssue: async () => await api.errorTracking.getIssue(props.id),
         },
         issueFingerprints: {
             loadIssueFingerprints: async () => (await api.errorTracking.fingerprints.list(props.id)).results,
-            split: () =>
-                (values.issueFingerprints || []).filter(
-                    (f: ErrorTrackingFingerprint) => !values.selectedFingerprints.includes(f.fingerprint)
-                ),
+            unmerge: ({ fingerprint }: { fingerprint: string }) =>
+                (values.issueFingerprints || []).filter((f: ErrorTrackingFingerprint) => f.fingerprint !== fingerprint),
         },
         fingerprintSamples: {
             loadFingerprintSamples: async ({ issue, fingerprints }) => {
@@ -151,10 +140,27 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
     }),
 
     listeners(({ actions, props, values }) => ({
-        split: ({ exclusive }) => {
-            actions.splitIssue(props.id, values.selectedFingerprints, exclusive)
-            lemonToast.success('Issue split successfully!')
-            actions.setSelectedFingerprints([])
+        unmerge: ({ fingerprint }) => {
+            const sample = values.fingerprintSamples.find((s) => s.fingerprint === fingerprint)
+            const firstSample = sample?.samples?.[0]
+            actions.splitIssue(props.id, [
+                {
+                    fingerprint,
+                    ...(firstSample ? { name: firstSample.type, description: firstSample.value } : {}),
+                },
+            ])
+        },
+        splitIssueSuccess: ({ newIssueIds }) => {
+            if (newIssueIds.length === 1) {
+                lemonToast.success('Fingerprint unmerged successfully', {
+                    button: {
+                        label: 'View issue',
+                        action: () => router.actions.push(urls.errorTrackingIssue(newIssueIds[0])),
+                    },
+                })
+            } else {
+                lemonToast.success(`${newIssueIds.length} fingerprints unmerged successfully`)
+            }
         },
     })),
     events(({ actions }) => ({

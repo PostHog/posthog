@@ -1,12 +1,18 @@
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconGitBranch } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
+import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
+import { ErrorEventProperties } from 'lib/components/Errors/types'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { errorTrackingIssueFingerprintsSceneLogic } from './errorTrackingIssueFingerprintsSceneLogic'
@@ -28,12 +34,10 @@ export const scene: SceneExport<ErrorTrackingIssueFingerprintsSceneProps> = {
 }
 
 export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
-    const { issue, issueFingerprints, selectedFingerprints, fingerprintSamples, isLoading } = useValues(
+    const { issue, issueFingerprints, fingerprintSamples, isLoading } = useValues(
         errorTrackingIssueFingerprintsSceneLogic
     )
-    const { loadFingerprintSamples, setSelectedFingerprints, split } = useActions(
-        errorTrackingIssueFingerprintsSceneLogic
-    )
+    const { loadFingerprintSamples, unmerge } = useActions(errorTrackingIssueFingerprintsSceneLogic)
 
     useEffect(() => {
         if (issue && issueFingerprints) {
@@ -42,41 +46,6 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
     }, [issue, issueFingerprints, loadFingerprintSamples])
 
     const columns = [
-        {
-            key: 'actions',
-            dataIndex: 'fingerprint',
-            render: (fingerprint: string) => (
-                <LemonCheckbox
-                    checked={selectedFingerprints.includes(fingerprint)}
-                    onChange={(checked) => {
-                        const newSelectedFingerprints = checked
-                            ? [...selectedFingerprints, fingerprint]
-                            : selectedFingerprints.filter((f) => f !== fingerprint)
-                        setSelectedFingerprints(newSelectedFingerprints)
-                    }}
-                    disabledReason={
-                        fingerprintSamples.length === 1
-                            ? 'This issue only has one fingerprint and cannot be split'
-                            : undefined
-                    }
-                />
-            ),
-            width: '30px',
-            title: (
-                <LemonCheckbox
-                    checked={fingerprintSamples.length > 0 && selectedFingerprints.length === fingerprintSamples.length}
-                    disabledReason={
-                        fingerprintSamples.length === 1
-                            ? 'This issue only has one fingerprint and cannot be split'
-                            : undefined
-                    }
-                    onChange={(checked) => {
-                        const newSelectedFingerprints = checked ? fingerprintSamples.map((f) => f.fingerprint) : []
-                        setSelectedFingerprints(newSelectedFingerprints)
-                    }}
-                />
-            ),
-        },
         {
             title: 'Exception type',
             key: 'type',
@@ -93,20 +62,29 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                 messages.length > 0 ? messages[0].value : <span className="text-muted italic">No message</span>,
         },
         { title: 'Occurrences', dataIndex: 'count' },
+        {
+            key: 'unmerge',
+            width: '30px',
+            render: (_, record) => (
+                <LemonButton
+                    size="xsmall"
+                    type="primary"
+                    icon={<IconGitBranch />}
+                    tooltip="Unmerge"
+                    disabledReason={
+                        fingerprintSamples.length === 1
+                            ? 'This issue only has one fingerprint and cannot be unmerged'
+                            : undefined
+                    }
+                    onClick={() => unmerge(record.fingerprint)}
+                />
+            ),
+        },
     ] as LemonTableColumns<ErrorTrackingFingerprintSamples>
-
-    const disabledReason =
-        selectedFingerprints.length === fingerprintSamples.length
-            ? 'At least one fingerprint must remain with the original issue'
-            : selectedFingerprints.length === 0
-              ? 'Select at least one fingerprint to split'
-              : fingerprintSamples.length === 1
-                ? 'This issue only has one fingerprint and cannot be split'
-                : undefined
 
     return (
         <ErrorTrackingSetupPrompt>
-            <SceneContent>
+            <SceneContent className="pt-4">
                 <SceneTitleSection
                     name="Fingerprints"
                     description={null}
@@ -124,57 +102,108 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                 />
                 <div className="space-y-2">
                     <div className="text-secondary">
-                        Select fingerprints to split into separate issues. Each selected fingerprint becomes its own
-                        issue, or you can group them into one.
+                        Unmerge fingerprints into separate issues. Each unmerged fingerprint becomes its own issue.
                     </div>
-
-                    {selectedFingerprints.length <= 1 ? (
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            disabledReason={disabledReason}
-                            onClick={() => split(true)}
-                        >
-                            Split
-                        </LemonButton>
-                    ) : (
-                        <LemonSelect
-                            size="small"
-                            type="primary"
-                            placeholder="Split"
-                            options={[
-                                { value: false, label: 'Merge selected into one new issue' },
-                                { value: true, label: 'Split each into its own issue' },
-                            ]}
-                            onSelect={(value) => split(value)}
-                            disabledReason={disabledReason}
-                        />
-                    )}
                     <LemonTable<ErrorTrackingFingerprintSamples>
-                        className="w-full"
+                        className="w-full mt-4"
                         loading={isLoading}
                         dataSource={fingerprintSamples}
                         columns={columns}
+                        rowKey="fingerprint"
                         expandable={{
                             noIndent: true,
-                            rowExpandable: (record) => record.samples.length > 1,
-                            expandedRowRender: (record) => (
-                                <LemonTable
-                                    className="w-full"
-                                    loading={false}
-                                    embedded={true}
-                                    showHeader={true}
-                                    dataSource={record.samples}
-                                    columns={[
-                                        { title: 'Type', width: '200px', dataIndex: 'type' },
-                                        { title: 'Message', dataIndex: 'value' },
-                                    ]}
-                                />
-                            ),
+                            expandedRowRender: (record) => <FingerprintStackTrace fingerprint={record.fingerprint} />,
                         }}
                     />
                 </div>
             </SceneContent>
         </ErrorTrackingSetupPrompt>
+    )
+}
+
+function FingerprintStackTrace({ fingerprint }: { fingerprint: string }): JSX.Element {
+    const [properties, setProperties] = useState<ErrorEventProperties | null>(null)
+    const [eventId, setEventId] = useState<string | null>(null)
+    const [loading, setLoading] = useState(true)
+
+    const fetchEvent = useCallback(async () => {
+        setLoading(true)
+        const query: EventsQuery = {
+            kind: NodeKind.EventsQuery,
+            event: '$exception',
+            select: ['uuid', 'properties'],
+            where: [`properties.$exception_fingerprint = '${fingerprint}'`],
+            limit: 1,
+        }
+        const response = await api.query(query)
+        if (response.results.length > 0) {
+            const [uuid, props] = response.results[0]
+            setEventId(uuid)
+            setProperties(typeof props === 'string' ? JSON.parse(props) : props)
+        }
+        setLoading(false)
+    }, [fingerprint])
+
+    useEffect(() => {
+        void fetchEvent()
+    }, [fetchEvent])
+
+    const eventProps = useMemo(
+        () => ({ properties: properties ?? undefined, id: eventId ?? fingerprint }) as ErrorPropertiesLogicProps,
+        [properties, eventId, fingerprint]
+    )
+
+    if (loading) {
+        return (
+            <div className="p-4 space-y-2">
+                <LemonSkeleton className="h-4 w-1/3" />
+                <LemonSkeleton className="h-4 w-full" />
+                <LemonSkeleton className="h-4 w-2/3" />
+            </div>
+        )
+    }
+
+    if (!properties) {
+        return <div className="p-4 text-muted italic">No stack trace available</div>
+    }
+
+    return (
+        <BindLogic logic={errorPropertiesLogic} props={eventProps}>
+            <StackTraceDisplay />
+        </BindLogic>
+    )
+}
+
+function StackTraceDisplay(): JSX.Element {
+    const [showAllFrames, setShowAllFrames] = useState(false)
+    const [expandedFrameRawIds, setExpandedFrameRawIds] = useState<Set<string>>(new Set())
+    const { hasInAppFrames } = useValues(errorPropertiesLogic)
+
+    useEffect(() => {
+        if (!hasInAppFrames) {
+            setShowAllFrames(true)
+        }
+    }, [hasInAppFrames])
+
+    const handleFrameExpandedChange = useCallback((rawId: string, expanded: boolean) => {
+        setExpandedFrameRawIds((prev) => {
+            const next = new Set(prev)
+            if (expanded) {
+                next.add(rawId)
+            } else {
+                next.delete(rawId)
+            }
+            return next
+        })
+    }, [])
+
+    return (
+        <CollapsibleExceptionList
+            showAllFrames={showAllFrames}
+            setShowAllFrames={setShowAllFrames}
+            expandedFrameRawIds={expandedFrameRawIds}
+            onFrameExpandedChange={handleFrameExpandedChange}
+            className="p-2"
+        />
     )
 }

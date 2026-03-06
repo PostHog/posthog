@@ -3609,12 +3609,9 @@ const api = {
 
         async split(
             issueId: ErrorTrackingIssue['id'],
-            fingerprints: string[],
-            exclusive: boolean
-        ): Promise<{ content: string }> {
-            return await new ApiRequest()
-                .errorTrackingIssueSplit(issueId)
-                .create({ data: { fingerprints: fingerprints, exclusive } })
+            fingerprints: { fingerprint: string; name?: string; description?: string }[]
+        ): Promise<{ success: boolean; new_issue_ids: string[] }> {
+            return await new ApiRequest().errorTrackingIssueSplit(issueId).create({ data: { fingerprints } })
         },
 
         fingerprints: {
