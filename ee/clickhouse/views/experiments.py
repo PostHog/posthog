@@ -99,6 +99,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "exposure_preaggregation_enabled",
+            "status",
             "user_access_level",
         ]
         read_only_fields = [
@@ -110,6 +111,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "exposure_cohort",
             "holdout",
             "saved_metrics",
+            "status",
             "user_access_level",
         ]
 
