@@ -3092,6 +3092,102 @@
           "row_count": null,
           "type": "system"
       },
+      "system.error_tracking_issue_assignments": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id",
+                  "id": null,
+                  "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "role_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "role_id",
+                  "id": null,
+                  "name": "role_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.error_tracking_issue_assignments",
+          "name": "system.error_tracking_issue_assignments",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_issue_fingerprints": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id",
+                  "id": null,
+                  "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "fingerprint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "fingerprint",
+                  "id": null,
+                  "name": "fingerprint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "first_seen": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "first_seen",
+                  "id": null,
+                  "name": "first_seen",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_issue_fingerprints",
+          "name": "system.error_tracking_issue_fingerprints",
+          "row_count": null,
+          "type": "system"
+      },
       "system.error_tracking_issues": {
           "fields": {
               "id": {
@@ -6321,6 +6417,102 @@
           },
           "id": "system.data_warehouse_tables",
           "name": "system.data_warehouse_tables",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_issue_assignments": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id",
+                  "id": null,
+                  "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "role_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "role_id",
+                  "id": null,
+                  "name": "role_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.error_tracking_issue_assignments",
+          "name": "system.error_tracking_issue_assignments",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_issue_fingerprints": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "issue_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "issue_id",
+                  "id": null,
+                  "name": "issue_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "fingerprint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "fingerprint",
+                  "id": null,
+                  "name": "fingerprint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "first_seen": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "first_seen",
+                  "id": null,
+                  "name": "first_seen",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.error_tracking_issue_fingerprints",
+          "name": "system.error_tracking_issue_fingerprints",
           "row_count": null,
           "type": "system"
       },
