@@ -146,6 +146,9 @@ class SESProvider:
             }
         )
 
+        # DMARC is recommended but not verified — the AWS SDK has no method to check
+        # its presence, so the status always stays "pending" and it is excluded from
+        # the overall status computation below.
         dns_records.append(
             {
                 "type": "dmarc",
