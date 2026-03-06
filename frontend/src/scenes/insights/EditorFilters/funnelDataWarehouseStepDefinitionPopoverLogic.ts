@@ -84,10 +84,6 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
             (s) => [s.localDefinition, s.activeFieldKey],
             (localDefinition, activeFieldKey) => localDefinition[activeFieldKey],
         ],
-        tableFieldNames: [
-            (_, props) => [props.table],
-            (table) => new Set(Object.values(table.fields).map((field) => field.name)),
-        ],
         previewTable: [
             (_, p) => [p.table],
             (table) => ({
@@ -98,10 +94,10 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
             }),
         ],
         previewExpressionColumns: [
-            (s) => [s.dataWarehousePopoverFields, s.localDefinition, s.tableFieldNames],
-            (dataWarehousePopoverFields, localDefinition, tableFieldNames): TablePreviewExpressionColumn[] => {
+            (s, p) => [p.table, s.dataWarehousePopoverFields, s.localDefinition],
+            (table, dataWarehousePopoverFields, localDefinition): TablePreviewExpressionColumn[] => {
+                const tableFieldNames = new Set(Object.values(table.fields).map((field) => field.name))
                 const usedKeys = new Set(tableFieldNames)
-
                 return EDITABLE_FIELD_ORDER.flatMap((fieldKey) => {
                     const configuredValue = localDefinition[fieldKey]
                     if (typeof configuredValue !== 'string') {
