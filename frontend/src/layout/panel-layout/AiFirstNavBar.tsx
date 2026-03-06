@@ -88,7 +88,7 @@ function SectionTrigger({
 }
 
 const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
-    { id: 'home', label: 'Home', icon: <IconHome /> },
+    { id: 'home', label: 'Browse', icon: <IconApps /> },
     { id: 'chat', label: 'Chat', icon: <IconSparkles className="text-ai" /> },
 ]
 
