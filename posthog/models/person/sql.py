@@ -445,7 +445,7 @@ DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WH
 
 COPY_PERSONS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=PERSONS_TABLE,
-    columns_except_team_id="""id, created_at, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at, group_0_key, group_1_key, group_2_key, group_3_key, group_4_key""",
+    columns_except_team_id="""id, created_at, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at""",
 )
 
 COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
@@ -454,7 +454,7 @@ COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.forma
 )
 
 SELECT_PERSONS_OF_TEAM = """
-SELECT id, created_at, properties, is_identified, version, last_seen_at, group_0_key, group_1_key, group_2_key, group_3_key, group_4_key
+SELECT id, created_at, properties, is_identified, version, last_seen_at
 FROM {table_name}
 WHERE team_id = %(source_team_id)s
 """.format(table_name=PERSONS_TABLE)
@@ -494,11 +494,11 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at, group_0_key, group_1_key, group_2_key, group_3_key, group_4_key) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, %(is_deleted)s, %(version)s, %(last_seen_at)s, %(group_0_key)s, %(group_1_key)s, %(group_2_key)s, %(group_3_key)s, %(group_4_key)s
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, %(is_deleted)s, %(version)s, %(last_seen_at)s
 """
 
 INSERT_PERSON_BULK_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at, group_0_key, group_1_key, group_2_key, group_3_key, group_4_key) VALUES
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version, last_seen_at) VALUES
 """
 
 INSERT_PERSON_DISTINCT_ID2 = """
