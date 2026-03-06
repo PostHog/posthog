@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import datetime as dt
+import dataclasses
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -30,11 +31,19 @@ from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
     BackfillScheduleInputs,
+    HeartbeatDetailsParseError,
     _get_backfill_info_for_events,
+    _get_backfill_info_for_persons,
     backfill_range,
     backfill_schedule,
 )
-from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events, truncate_persons
+from products.batch_exports.backend.tests.temporal.utils.persons import (
+    generate_test_person_distinct_id2,
+    generate_test_persons_in_clickhouse,
+    insert_person_distinct_id2_values_in_clickhouse,
+    insert_person_values_in_clickhouse,
+)
 from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
 
 
@@ -1417,3 +1426,394 @@ class TestGetBackfillInfoForEvents:
         # Event is before 1am PST, so it falls in previous day's interval
         # 1am PST on Jan 14 = 9am UTC on Jan 14
         assert earliest_start == dt.datetime(2021, 1, 14, 9, 0, 0, tzinfo=dt.UTC)
+
+
+class TestGetBackfillInfoForPersons:
+    """Tests for the _get_backfill_info_for_persons function."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_persons_tables(self, clickhouse_client):
+        await truncate_persons(clickhouse_client)
+
+    @pytest.fixture
+    def make_batch_export(self, ateam):
+        def _make(
+            interval: str = "hour",
+            interval_offset: int | None = None,
+            timezone: str = "UTC",
+        ) -> BatchExport:
+            destination = BatchExportDestination(type="S3", config={})
+            return BatchExport(
+                team_id=ateam.pk,
+                name="Test Batch Export",
+                destination=destination,
+                interval=interval,
+                interval_offset=interval_offset,
+                timezone=timezone,
+                model="persons",
+            )
+
+        return _make
+
+    @pytest.fixture
+    def generate_persons(self, clickhouse_client, ateam):
+        async def _generate(
+            start_time: dt.datetime,
+            end_time: dt.datetime | None = None,
+            count: int = 10,
+            count_other_team: int = 0,
+        ):
+            persons, _ = await generate_test_persons_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                start_time=start_time,
+                end_time=end_time or start_time + dt.timedelta(hours=1),
+                count=count,
+                count_other_team=count_other_team,
+            )
+            return persons
+
+        return _generate
+
+    @pytest.fixture
+    def generate_person_distinct_ids(self, clickhouse_client, ateam):
+        async def _generate(
+            timestamp: dt.datetime,
+            count: int = 10,
+            person_ids: list[str] | None = None,
+        ):
+            pdi_values = []
+            for i in range(count):
+                person_id = uuid.UUID(person_ids[i]) if person_ids and i < len(person_ids) else None
+                pdi = generate_test_person_distinct_id2(
+                    count=1,
+                    team_id=ateam.pk,
+                    timestamp=timestamp + dt.timedelta(seconds=i),
+                    distinct_id=f"distinct-id-{uuid.uuid4()}",
+                    person_id=person_id,
+                )
+                pdi_values.append(pdi)
+            await insert_person_distinct_id2_values_in_clickhouse(client=clickhouse_client, persons=pdi_values)
+            return pdi_values
+
+        return _generate
+
+    async def test_returns_earliest_start_and_count_when_data_exists(
+        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+    ):
+        person_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
+        persons = await generate_persons(start_time=person_time, count=5, count_other_team=3)
+        person_ids = [p["id"] for p in persons]
+        await generate_person_distinct_ids(timestamp=person_time, count=5, person_ids=person_ids)
+
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=None,
+        )
+
+        assert earliest_start == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
+        assert record_count == 5
+
+    async def test_returns_none_and_zero_when_no_data_exists(self, ateam, make_batch_export):
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=None,
+        )
+
+        assert earliest_start is None
+        assert record_count == 0
+
+    async def test_takes_minimum_timestamp_across_both_tables(
+        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+    ):
+        earlier_time = dt.datetime(2021, 1, 10, 5, 0, 0, tzinfo=dt.UTC)
+        later_time = dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
+
+        # Persons at later time, distinct_ids at earlier time
+        persons = await generate_persons(start_time=later_time, count=3)
+        person_ids = [p["id"] for p in persons]
+        await generate_person_distinct_ids(timestamp=earlier_time, count=3, person_ids=person_ids)
+
+        batch_export = make_batch_export()
+        earliest_start, _ = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=None,
+        )
+
+        # Should use the earlier timestamp from person_distinct_id2
+        assert earliest_start == dt.datetime(2021, 1, 10, 5, 0, 0, tzinfo=dt.UTC)
+
+    async def test_count_includes_distinct_ids_from_changed_persons(
+        self, ateam, clickhouse_client, generate_person_distinct_ids, make_batch_export
+    ):
+        """When a person changes, all their existing distinct_ids should be counted."""
+        # Create a person with 3 distinct_ids at an old timestamp
+        old_time = dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+        new_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
+
+        person_id = uuid.uuid4()
+
+        # Insert person at old time (version 1) and new time (version 2)
+        await insert_person_values_in_clickhouse(
+            client=clickhouse_client,
+            persons=[
+                {
+                    "id": str(person_id),
+                    "created_at": old_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "team_id": ateam.pk,
+                    "properties": None,
+                    "is_identified": True,
+                    "is_deleted": False,
+                    "version": 1,
+                    "_timestamp": old_time.strftime("%Y-%m-%d %H:%M:%S"),
+                },
+                {
+                    "id": str(person_id),
+                    "created_at": old_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "team_id": ateam.pk,
+                    "properties": None,
+                    "is_identified": True,
+                    "is_deleted": False,
+                    "version": 2,
+                    "_timestamp": new_time.strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            ],
+        )
+
+        # Create 3 distinct_ids for this person at old time (not in the query range)
+        await generate_person_distinct_ids(timestamp=old_time, count=3, person_ids=[str(person_id)] * 3)
+
+        batch_export = make_batch_export()
+        # Query range only covers new_time — person changed but distinct_ids didn't
+        _, record_count = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 16, 0, 0, 0, tzinfo=dt.UTC),
+        )
+
+        # All 3 distinct_ids should be counted via the UNION DISTINCT branch
+        assert record_count == 3
+
+    async def test_count_deduplicates_by_latest_version(self, ateam, clickhouse_client, make_batch_export):
+        """Only count distinct_ids/persons whose latest version is in range."""
+
+        old_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
+        new_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
+
+        distinct_id = f"distinct-id-{uuid.uuid4()}"
+        person_id = uuid.uuid4()
+
+        # Insert person with v1 in range and v2 outside range
+        # argMax(_timestamp, version) will return new_time (v2), which is outside the query range
+        await insert_person_values_in_clickhouse(
+            client=clickhouse_client,
+            persons=[
+                {
+                    "id": str(person_id),
+                    "created_at": old_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "team_id": ateam.pk,
+                    "properties": None,
+                    "is_identified": True,
+                    "is_deleted": False,
+                    "version": 1,
+                    "_timestamp": old_time.strftime("%Y-%m-%d %H:%M:%S"),
+                },
+                {
+                    "id": str(person_id),
+                    "created_at": old_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "team_id": ateam.pk,
+                    "properties": None,
+                    "is_identified": True,
+                    "is_deleted": False,
+                    "version": 2,
+                    "_timestamp": new_time.strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            ],
+        )
+
+        # Insert distinct_id with v1 in range and v2 outside range
+        await insert_person_distinct_id2_values_in_clickhouse(
+            client=clickhouse_client,
+            persons=[
+                {
+                    "team_id": ateam.pk,
+                    "distinct_id": distinct_id,
+                    "person_id": str(person_id),
+                    "is_deleted": False,
+                    "version": 1,
+                    "_timestamp": old_time.strftime("%Y-%m-%d %H:%M:%S"),
+                },
+                {
+                    "team_id": ateam.pk,
+                    "distinct_id": distinct_id,
+                    "person_id": str(person_id),
+                    "is_deleted": False,
+                    "version": 2,
+                    "_timestamp": new_time.strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            ],
+        )
+
+        batch_export = make_batch_export()
+
+        # Query range covers only old_time — but latest versions are at new_time for both
+        _, record_count = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=dt.datetime(2021, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
+        )
+
+        # Neither person nor distinct_id has latest version in range, so count should be 0
+        assert record_count == 0
+
+    async def test_counts_only_records_after_start_at(
+        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+    ):
+        early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
+        late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
+
+        early_persons = await generate_persons(start_time=early_time, count=5)
+        await generate_person_distinct_ids(timestamp=early_time, count=5, person_ids=[p["id"] for p in early_persons])
+
+        late_persons = await generate_persons(start_time=late_time, count=8)
+        await generate_person_distinct_ids(timestamp=late_time, count=8, person_ids=[p["id"] for p in late_persons])
+
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
+            end_at=None,
+        )
+
+        assert earliest_start == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
+        assert record_count == 8
+
+    async def test_counts_only_records_before_end_at(
+        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+    ):
+        early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
+        late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
+
+        early_persons = await generate_persons(start_time=early_time, count=5)
+        await generate_person_distinct_ids(timestamp=early_time, count=5, person_ids=[p["id"] for p in early_persons])
+
+        late_persons = await generate_persons(start_time=late_time, count=8)
+        await generate_person_distinct_ids(timestamp=late_time, count=8, person_ids=[p["id"] for p in late_persons])
+
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
+        )
+
+        assert earliest_start == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
+        assert record_count == 5
+
+    async def test_counts_only_records_in_range(
+        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+    ):
+        times = [
+            dt.datetime(2021, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 25, 0, 0, 0, tzinfo=dt.UTC),
+        ]
+        counts = [3, 7, 4]
+
+        for t, c in zip(times, counts):
+            persons = await generate_persons(start_time=t, count=c)
+            await generate_person_distinct_ids(timestamp=t, count=c, person_ids=[p["id"] for p in persons])
+
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC),
+        )
+
+        assert earliest_start == dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC)
+        assert record_count == 7
+
+    async def test_earliest_start_aligned_to_interval(
+        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+    ):
+        person_time = dt.datetime(2021, 1, 15, 10, 37, 45, tzinfo=dt.UTC)
+        persons = await generate_persons(
+            start_time=person_time, count=3, end_time=person_time + dt.timedelta(minutes=1)
+        )
+        await generate_person_distinct_ids(timestamp=person_time, count=3, person_ids=[p["id"] for p in persons])
+
+        # Hourly interval — should align to 10:00
+        batch_export = make_batch_export(interval="hour")
+        earliest_start, _ = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=None,
+        )
+        assert earliest_start == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
+
+        # 5-minute interval — should align to 10:35
+        batch_export = make_batch_export(interval="every 5 minutes")
+        earliest_start, _ = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=None,
+        )
+        assert earliest_start == dt.datetime(2021, 1, 15, 10, 35, 0, tzinfo=dt.UTC)
+
+    async def test_ignores_data_from_other_teams(
+        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+    ):
+        person_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
+        # Generate persons for this team AND other team — only other team data
+        await generate_persons(start_time=person_time, count=0, count_other_team=10)
+
+        batch_export = make_batch_export()
+        earliest_start, record_count = await _get_backfill_info_for_persons(
+            batch_export=batch_export,
+            start_at=None,
+            end_at=None,
+        )
+
+        assert earliest_start is None
+        assert record_count == 0
+
+
+@pytest.mark.parametrize(
+    "corrupted_details",
+    [
+        ("", "", "", ""),  # one extra item should fail parsing
+        ("", ""),  # one less item should fail parsing
+    ],
+)
+async def test_backfill_schedule_activity_fails_with_corrupted_details(
+    activity_environment,
+    temporal_worker,
+    temporal_client,
+    temporal_schedule_hourly,
+    corrupted_details,
+):
+    """Test backfill_schedule activity fails when details are corrupted."""
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 5, 0, 0, tzinfo=dt.UTC)
+    backfill_id = str(uuid.uuid4())
+
+    desc = await temporal_schedule_hourly.describe()
+    inputs = BackfillScheduleInputs(
+        schedule_id=desc.id,
+        start_at=start_at.isoformat(),
+        end_at=end_at.isoformat(),
+        start_delay=0.1,
+        frequency_seconds=desc.schedule.spec.intervals[0].every.total_seconds(),
+        backfill_id=backfill_id,
+    )
+
+    activity_environment.info = dataclasses.replace(activity_environment.info, heartbeat_details=corrupted_details)
+
+    with pytest.raises(HeartbeatDetailsParseError):
+        await activity_environment.run(backfill_schedule, inputs)
