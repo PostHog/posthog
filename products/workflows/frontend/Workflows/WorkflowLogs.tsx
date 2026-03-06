@@ -124,18 +124,6 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
         )
     }
 
-    const futureJobsSection = futureJobs.length ? (
-        <LemonCollapse
-            panels={futureJobs.map((job) => ({
-                key: job.id,
-                header: <BatchRunHeader job={job} />,
-                content: <BatchRunInfo job={job} />,
-            }))}
-        />
-    ) : (
-        <div className="border rounded bg-surface-primary p-2 text-muted">No scheduled jobs.</div>
-    )
-
     const pastJobsSection = pastJobs.length ? (
         <LemonCollapse
             panels={pastJobs.map((job) => ({
@@ -148,14 +136,7 @@ function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
         <div className="border rounded bg-surface-primary p-2 text-muted">No past jobs.</div>
     )
 
-    return (
-        <div className="flex flex-col gap-2">
-            <h2 className="text-lg font-semibold">Scheduled jobs</h2>
-            {futureJobsSection}
-            <h2 className="text-lg font-semibold mt-4">Past jobs</h2>
-            {pastJobsSection}
-        </div>
-    )
+    return <div className="flex flex-col gap-2">{pastJobsSection}</div>
 }
 
 export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {

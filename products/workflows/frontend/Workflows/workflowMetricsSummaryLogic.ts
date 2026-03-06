@@ -136,6 +136,7 @@ const EMAIL_METRICS: EmailMetric[] = [
 export interface WorkflowMetricsSummaryLogicProps {
     logicKey: string
     id: string
+    appSourceId?: string
 }
 
 export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>([
@@ -156,12 +157,12 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 'getDateRangeAbsolute',
             ],
             appMetricsLogic({
-                logicKey: `workflow-exit-node-completed-${props.id}`,
+                logicKey: `workflow-exit-node-completed-${props.appSourceId ?? props.id}`,
                 loadOnMount: true,
                 loadOnChanges: true,
                 forceParams: {
                     appSource: 'hog_flow',
-                    appSourceId: props.id,
+                    appSourceId: props.appSourceId ?? props.id,
                     instanceId: EXIT_NODE_ID,
                     metricName: 'succeeded',
                     breakdownBy: 'metric_name' as const,
@@ -336,7 +337,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         setParams: () => {
             // Sync date/interval params to the exit node logic
             const exitNodeLogic = appMetricsLogic({
-                logicKey: `workflow-exit-node-completed-${props.id}`,
+                logicKey: `workflow-exit-node-completed-${props.appSourceId ?? props.id}`,
             })
             exitNodeLogic.actions.setParams({
                 interval: values.params.interval,
