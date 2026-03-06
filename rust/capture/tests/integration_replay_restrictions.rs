@@ -115,7 +115,8 @@ async fn setup_recordings_router_with_restriction(
         None, // no blob storage for recordings
         Some(10),
         None,
-        256, // body_read_chunk_size_kb
+        256,  // body_read_chunk_size_kb
+        None, // lifecycle_handle
     );
 
     (router, sink_clone)

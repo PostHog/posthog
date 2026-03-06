@@ -184,6 +184,7 @@ fn setup_ai_test_router() -> Router {
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
+        None,                             // lifecycle_handle
     )
 }
 
@@ -1636,6 +1637,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
+        None,                             // lifecycle_handle
     );
 
     (router, sink_clone)
@@ -2540,6 +2542,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
+        None,                             // lifecycle_handle
     );
 
     (router, sink_clone)
@@ -2739,6 +2742,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
+        None,                             // lifecycle_handle
     );
 
     (router, sink_clone)

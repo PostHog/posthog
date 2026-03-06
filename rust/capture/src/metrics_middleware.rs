@@ -1,5 +1,5 @@
 use std::{
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -11,34 +11,27 @@ use axum::{
     response::IntoResponse,
     routing::Router,
 };
+use lifecycle::Handle as LifecycleHandle;
 use metrics::gauge;
-
-static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
-
-pub fn mark_shutting_down() {
-    SHUTTING_DOWN.store(true, Ordering::Relaxed);
-}
-
-fn shutdown_status_tag() -> &'static str {
-    if SHUTTING_DOWN.load(Ordering::Relaxed) {
-        "shutting_down"
-    } else {
-        "running"
-    }
-}
 
 static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 
-struct ConnectionGuard;
+struct ConnectionGuard {
+    handle: Option<LifecycleHandle>,
+}
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
         let connections = ACTIVE_CONNECTIONS
             .fetch_sub(1, Ordering::Relaxed)
             .saturating_sub(1);
+        let tag = match &self.handle {
+            Some(h) if h.is_shutting_down() => "shutting_down",
+            _ => "running",
+        };
         gauge!(
             METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-            "shutdown_status" => shutdown_status_tag()
+            "shutdown_status" => tag
         )
         .set(connections as f64);
     }
@@ -52,7 +45,11 @@ const METRIC_CAPTURE_TIMEOUT_MIDDLEWARE_PASS: &str = "middleware_pass_total";
 /// Middleware to record some common HTTP metrics
 /// Generic over B to allow for arbitrary body types (eg Vec<u8>, Streams, a deserialized thing, etc)
 /// Someday tower-http might provide a metrics middleware: https://github.com/tower-rs/tower-http/issues/57
-pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse {
+pub async fn track_metrics(
+    axum::extract::State(state): axum::extract::State<crate::router::State>,
+    req: Request<Body>,
+    next: Next,
+) -> impl IntoResponse {
     let start = Instant::now();
 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
@@ -63,13 +60,19 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
 
     let method = req.method().clone();
 
+    let tag = match &state.lifecycle_handle {
+        Some(h) if h.is_shutting_down() => "shutting_down",
+        _ => "running",
+    };
     let connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     gauge!(
         METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-        "shutdown_status" => shutdown_status_tag()
+        "shutdown_status" => tag
     )
     .set(connections as f64);
-    let _guard = ConnectionGuard;
+    let _guard = ConnectionGuard {
+        handle: state.lifecycle_handle,
+    };
 
     // Run the rest of the request handling first, so we can measure it and get response
     // codes.

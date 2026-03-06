@@ -114,7 +114,8 @@ async fn setup_analytics_router_with_restriction(
         None, // no blob storage for analytics
         Some(10),
         None,
-        256, // body_read_chunk_size_kb
+        256,  // body_read_chunk_size_kb
+        None, // lifecycle_handle
     );
 
     (router, sink_clone)
