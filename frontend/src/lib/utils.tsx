@@ -15,6 +15,7 @@ import {
     IntervalType,
     PropertyOperator,
     PropertyType,
+    SessionActorType,
     TimeUnitType,
 } from '~/types'
 
@@ -2156,6 +2157,10 @@ export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: n
 
 export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
+}
+
+export function isSessionType(actor: ActorType): actor is SessionActorType {
+    return actor.type === 'session'
 }
 
 export function getEventNamesForAction(actionId: string | number, allActions: ActionType[]): string[] {

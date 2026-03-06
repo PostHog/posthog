@@ -178,8 +178,8 @@ describe('Tool Filtering - API Scopes', () => {
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
-        // Only demo tool should be available since it has no required scopes
-        expect(toolNames).toContain('demo-mcp-ui-apps')
+        // Only debug tool should be available since it has no required scopes
+        expect(toolNames).toContain('debug-mcp-ui-apps')
         expect(tools).toHaveLength(1)
     })
 
@@ -188,8 +188,8 @@ describe('Tool Filtering - API Scopes', () => {
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
-        // Only demo tool should be available since it has no required scopes
-        expect(toolNames).toContain('demo-mcp-ui-apps')
+        // Only debug tool should be available since it has no required scopes
+        expect(toolNames).toContain('debug-mcp-ui-apps')
         expect(tools).toHaveLength(1)
     })
 })

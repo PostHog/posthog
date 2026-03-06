@@ -285,8 +285,14 @@ export type IngestionConsumerConfig = {
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
 
+    // AI event splitting config
+    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
+
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
 
     // Cookieless server hash mode config
@@ -381,9 +387,6 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
-    /** Rate (0.0–1.0) at which to verify encrypt→decrypt round-trip integrity during ingestion */
-    SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
-
     // Kafka consumer config (overrides hardcoded defaults when set)
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
     INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
