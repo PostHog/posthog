@@ -179,18 +179,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
 
                     try {
-                        // Load all tickets for any of this person's distinct_ids (in parallel)
-                        const responses = await Promise.all(
-                            person.distinct_ids.map((distinctId: string) =>
-                                api.conversationsTickets.list({ distinct_id: distinctId })
-                            )
-                        )
-                        const allTickets = responses.flatMap((r) => r.results || [])
+                        const response = await api.conversationsTickets.list({
+                            distinct_ids: person.distinct_ids.join(','),
+                        })
+                        const allTickets = response.results || []
 
-                        // Deduplicate by ID and exclude current ticket
-                        const uniqueTickets = Array.from(
-                            new Map(allTickets.map((ticket) => [ticket.id, ticket])).values()
-                        ).filter((ticket) => ticket.id !== currentTicketId)
+                        // Exclude current ticket
+                        const uniqueTickets = allTickets.filter(
+                            (ticket) => ticket.ticket_number !== parseInt(currentTicketId.toString())
+                        )
 
                         // Sort by created_at descending (most recent first)
                         return uniqueTickets.sort(

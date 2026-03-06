@@ -96,8 +96,6 @@ export const HogFlowsListResponse = zod.object({
             abort_action: zod.string().nullable(),
             variables: zod.unknown().nullable(),
             billable_action_types: zod.unknown().nullable(),
-            draft: zod.unknown().nullable(),
-            draft_updated_at: zod.string().datetime({}).nullable(),
         })
     ),
 })
@@ -231,6 +229,4 @@ export const HogFlowsRetrieveResponse = zod.object({
     abort_action: zod.string().nullable(),
     variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
     billable_action_types: zod.unknown().nullable(),
-    draft: zod.unknown().nullable(),
-    draft_updated_at: zod.string().datetime({}).nullable(),
 })

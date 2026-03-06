@@ -51,6 +51,16 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
 
+class GitHubRepoSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    full_name = serializers.CharField()
+
+
+class GitHubReposResponseSerializer(serializers.Serializer):
+    repositories = GitHubRepoSerializer(many=True)
+
+
 class IntegrationSerializer(serializers.ModelSerializer):
     """Standard Integration serializer."""
 
@@ -474,7 +484,7 @@ class IntegrationViewSet(
         linear = LinearIntegration(self.get_object())
         return Response({"teams": linear.list_teams()})
 
-    @action(methods=["GET"], detail=True, url_path="github_repos")
+    @action(methods=["GET"], detail=True, url_path="github_repos", responses=GitHubReposResponseSerializer)
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         github = GitHubIntegration(self.get_object())
         return Response({"repositories": github.list_repositories()})

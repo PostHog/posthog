@@ -279,6 +279,9 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
             # Custom hostname already exists
             logger.info("Cloudflare Custom Hostname already exists for domain %s", inputs.domain)
             return
+        if e.is_rate_limited():
+            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
+            raise
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
 
 
@@ -306,6 +309,9 @@ async def create_cloudflare_worker_route(inputs: CreateCloudflareProxyInputs):
             # Route already exists
             logger.info("Cloudflare Worker Route already exists for domain %s", inputs.domain)
             return
+        if e.is_rate_limited():
+            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
+            raise
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
 
 
@@ -341,6 +347,9 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise ApplicationError(f"Certificate not yet ready, status: {hostname_info.ssl.status.value}")
 
     except CloudflareAPIError as e:
+        if e.is_rate_limited():
+            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
+            raise
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
     except ApplicationError:
         raise
@@ -613,6 +622,19 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 and hasattr(e.cause, "type")
                 and e.cause.type != "RecordDeletedException"
             ):
+                await temporalio.workflow.execute_activity(
+                    activity_update_proxy_record,
+                    UpdateProxyRecordInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        status=ProxyRecord.Status.ERRORING.value,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=60),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=10,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
                 raise
 
             logger.info(

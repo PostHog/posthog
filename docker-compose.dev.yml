@@ -89,6 +89,59 @@ services:
                     }
                 }
 
+    capture:
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+        restart: on-failure
+        ports:
+            - '3307:3000'
+        depends_on:
+            kafka:
+                condition: service_healthy
+            redis7:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:3000/_liveness']
+            interval: 5s
+            timeout: 5s
+            retries: 24
+            start_period: 10s
+        profiles:
+            - capture
+
+    plugins:
+        extends:
+            file: docker-compose.base.yml
+            service: plugins
+        image: ghcr.io/posthog/posthog-node:master
+        ports:
+            - '6738:6738'
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
+            PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+            CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
+            PLUGIN_SERVER_MODE: ${PLUGIN_SERVER_MODE:-}
+            # CDP Redis defaults to 127.0.0.1 — must point to the Docker service
+            CDP_REDIS_HOST: redis7
+            # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+        depends_on:
+            kafka:
+                condition: service_started
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 15s
+        profiles:
+            - ingestion
+
     db:
         extends:
             file: docker-compose.base.yml
