@@ -56,12 +56,11 @@ class ExperimentContext:
 
     def _get_experiment_status(self, experiment: Experiment) -> str:
         """Determine the experiment status."""
-        if experiment.is_draft:
-            return "Draft"
-        elif not experiment.end_date:
+        if experiment.status == Experiment.Status.RUNNING:
             return "Running"
-        else:
+        elif experiment.status == Experiment.Status.STOPPED:
             return "Completed"
+        return "Draft"
 
     @database_sync_to_async
     def format_experiment(self, experiment: Experiment) -> str:

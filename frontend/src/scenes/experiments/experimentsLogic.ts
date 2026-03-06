@@ -81,11 +81,24 @@ export function hasEnded(experiment: Experiment): boolean {
 }
 
 export function getExperimentStatus(experiment: Experiment): ExperimentProgressStatus {
+    if (experiment.status) {
+        if (experiment.status === 'running') {
+            // "Paused" is a frontend-only virtual status derived from flag.active
+            if (experiment.feature_flag && !experiment.feature_flag.active) {
+                return ExperimentProgressStatus.Paused
+            }
+            return ExperimentProgressStatus.Running
+        }
+        if (experiment.status === 'stopped') {
+            return ExperimentProgressStatus.Complete
+        }
+        return ExperimentProgressStatus.Draft
+    }
+
+    // Fallback for backwards compatibility during rollout
     if (!isLaunched(experiment)) {
         return ExperimentProgressStatus.Draft
     } else if (!hasEnded(experiment)) {
-        // When the feature flag is disabled, we show "Paused" to the user for better UX.
-        // This is just a virtual status, the backend still considers the experiment "running".
         if (experiment.feature_flag && !experiment.feature_flag.active) {
             return ExperimentProgressStatus.Paused
         }

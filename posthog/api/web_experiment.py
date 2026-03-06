@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
 from posthog.models import Team, WebExperiment
+from posthog.models.experiment import Experiment
 from posthog.utils_cors import cors_response
 
 
@@ -302,7 +303,7 @@ def web_experiments(request: Request):
             WebExperiment.objects.filter(team_id=team.id)
             .exclude(archived=True)
             .exclude(deleted=True)
-            .exclude(end_date__isnull=False)
+            .exclude(status=Experiment.Status.STOPPED)
             .select_related("feature_flag", "created_by")
             .order_by("-created_at"),
             many=True,

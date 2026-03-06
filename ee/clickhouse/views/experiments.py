@@ -742,17 +742,11 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 )
 
 
-class ExperimentStatus(str, Enum):
-    """
-    Note: The frontend also uses a "ProgressStatus.Paused" status, but this is purely a
-    virtual status to have better UX for the user. Technically, paused experiments have
-    feature flags disabled while the experiment is still "running" in the backend, i.e.
-    they have start_date but no end_date).
-    """
-
+class ExperimentStatusFilter(str, Enum):
     DRAFT = "draft"
     RUNNING = "running"
     COMPLETE = "complete"
+    STOPPED = "stopped"
     ALL = "all"
 
 
@@ -781,20 +775,20 @@ class EnterpriseExperimentsViewSet(
         # Only apply filters for list view, not detail view
         if self.action == "list":
             # filtering by status
-            status = self.request.query_params.get("status")
-            if status:
+            status_param = self.request.query_params.get("status")
+            if status_param:
                 try:
-                    status_enum = ExperimentStatus(status.lower())
+                    status_enum = ExperimentStatusFilter(status_param.lower())
                 except ValueError:
                     status_enum = None
 
-                if status_enum and status_enum != ExperimentStatus.ALL:
-                    if status_enum == ExperimentStatus.DRAFT:
-                        queryset = queryset.filter(start_date__isnull=True)
-                    elif status_enum == ExperimentStatus.RUNNING:
-                        queryset = queryset.filter(start_date__isnull=False, end_date__isnull=True)
-                    elif status_enum == ExperimentStatus.COMPLETE:
-                        queryset = queryset.filter(end_date__isnull=False)
+                if status_enum and status_enum != ExperimentStatusFilter.ALL:
+                    if status_enum == ExperimentStatusFilter.DRAFT:
+                        queryset = queryset.filter(status=Experiment.Status.DRAFT)
+                    elif status_enum == ExperimentStatusFilter.RUNNING:
+                        queryset = queryset.filter(status=Experiment.Status.RUNNING)
+                    elif status_enum in (ExperimentStatusFilter.COMPLETE, ExperimentStatusFilter.STOPPED):
+                        queryset = queryset.filter(status=Experiment.Status.STOPPED)
 
             # filtering by creator id
             created_by_id = self.request.query_params.get("created_by_id")
@@ -838,20 +832,16 @@ class EnterpriseExperimentsViewSet(
                 )
                 queryset = queryset.order_by(f"{'-' if order.startswith('-') else ''}computed_duration")
             elif order in ["status", "-status"]:
-                # Status ordering: Draft (no start) -> Running (no end) -> Complete (has end)
-                # Annotate with numeric status values for clear ordering
                 queryset = queryset.annotate(
                     computed_status=Case(
-                        When(start_date__isnull=True, then=Value(0)),  # Draft
-                        When(end_date__isnull=True, then=Value(1)),  # Running
-                        default=Value(2),  # Complete
+                        When(status=Experiment.Status.DRAFT, then=Value(0)),
+                        When(status=Experiment.Status.RUNNING, then=Value(1)),
+                        default=Value(2),  # Stopped
                     )
                 )
                 if order.startswith("-"):
-                    # Descending: Complete -> Running -> Draft
                     queryset = queryset.order_by(F("computed_status").desc())
                 else:
-                    # Ascending: Draft -> Running -> Complete
                     queryset = queryset.order_by(F("computed_status").asc())
             else:
                 queryset = queryset.order_by(order)
@@ -1374,7 +1364,7 @@ class EnterpriseExperimentsViewSet(
         else:
             percent_change = ((launched_last_30d - launched_previous_30d) / launched_previous_30d) * 100
 
-        active_experiments = base_queryset.filter(start_date__isnull=False, end_date__isnull=True).count()
+        active_experiments = base_queryset.filter(status=Experiment.Status.RUNNING).count()
 
         completed_last_30d = base_queryset.filter(
             end_date__gte=last_30d_start, end_date__lt=today + timedelta(days=1)
