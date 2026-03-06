@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import React from 'react'
 
+import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -17,6 +20,7 @@ import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic 
 
 export function PromptViewDetails(): JSX.Element {
     const { prompt } = useValues(llmPromptLogic)
+    const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(false)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -54,8 +58,21 @@ export function PromptViewDetails(): JSX.Element {
             </div>
 
             <div>
-                <label className="text-xs font-semibold uppercase text-secondary">Prompt</label>
-                <pre className="mt-1 rounded border bg-bg-light p-3 whitespace-pre-wrap">{prompt.prompt}</pre>
+                <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold uppercase text-secondary">Prompt</label>
+                    <LemonButton
+                        size="xsmall"
+                        noPadding
+                        icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                        tooltip="Toggle markdown rendering"
+                        onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
+                    />
+                </div>
+                {isRenderingMarkdown ? (
+                    <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3">{prompt.prompt}</LemonMarkdown>
+                ) : (
+                    <pre className="mt-1 rounded border bg-bg-light p-3 whitespace-pre-wrap">{prompt.prompt}</pre>
+                )}
             </div>
 
             <div className="grid gap-3 text-sm text-secondary sm:grid-cols-2">
