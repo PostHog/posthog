@@ -65,6 +65,20 @@ Source implementation:
 - Set `sort_mode="desc"` only if the endpoint truly returns descending order and cannot return ascending.
 - For descending sources, make sure behavior with `db_incremental_field_earliest_value` is considered.
 - Default unknown endpoints to full refresh first; only enable incremental after confirming a stable filter field and API semantics.
+- Prefer immutable partition keys (`created_at`, `dateCreated`, `firstSeen`) over mutable fields (`updated_at`, `lastSeen`) when both exist.
+- Confirm partition keys against response schemas, not assumptions from endpoint names.
+
+## API behavior verification checklist
+
+Before finalizing endpoint logic, verify these from docs (or reliable API examples):
+
+- Response shape: list vs object vs wrapped data (`{"data": [...]}`).
+- Pagination contract: Link header vs body cursor vs offset/page; next-page termination signal.
+- Ordering guarantees: ascending/descending/undefined for key time fields.
+- Rate limit headers and semantics (window reset timestamp, concurrent limits).
+- Field stability: whether candidate incremental/partition fields can change over time.
+
+If behavior is not documented, keep parsing/merge logic conservative and add a code comment documenting the uncertainty.
 
 ## Endpoint inventory workflow
 
@@ -84,6 +98,18 @@ Source implementation:
 
 - Some APIs use cursor pagination in `Link` headers — check both `rel="next"` and any results flag the API may use.
 - When following a full cursor URL from response headers, clear request params in paginator `update_request` to avoid duplicate query params.
+- For parent/child fan-out, keep hard page caps per parent resource to avoid unbounded scans.
+- Emit structured logs when page caps are reached (include resource name and parent identifiers) so operators can tune limits safely.
+
+## Retry and throttling strategy
+
+- Use a retry framework (for example tenacity) instead of manual retry loops where possible.
+- Retry transport failures and retryable status codes (`429`, transient `5xx`).
+- Prefer server-provided rate-limit reset headers for wait calculation on `429`; fall back to exponential backoff when unavailable.
+- Keep retries bounded and deterministic (`stop_after_attempt`), and preserve clear terminal behavior:
+  - return final response for retried status responses when useful for downstream handling, or
+  - raise final exception for transport failures.
+- Keep timeout and retry settings near the top of the module for easy operator tuning.
 
 ## Fan-out endpoints
 
@@ -128,3 +154,6 @@ After changing source fields, run the generation commands from the checklist and
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
+- Silent truncation risk: page caps hit without logs/metrics.
+- Drift from refactors: unused function params/helpers left behind after endpoint behavior changes.
+- Type drift in endpoint config dicts: use source typing aliases (`Endpoint`, `ClientConfig`, `IncrementalConfig`) to keep static checks precise.
