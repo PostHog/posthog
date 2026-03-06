@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.generated_configs import SentrySourceConfig
 from posthog.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
     _extract_rows,
@@ -15,6 +16,7 @@ from posthog.temporal.data_imports.sources.sentry.sentry import (
     sentry_source,
     validate_credentials,
 )
+from posthog.temporal.data_imports.sources.sentry.source import SentrySource
 
 
 def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
@@ -188,6 +190,43 @@ class TestSentryTransport:
         )
 
         assert result == expected
+
+
+class TestSentrySourceValidation:
+    @patch("posthog.temporal.data_imports.sources.sentry.source.validate_sentry_credentials")
+    def test_validate_credentials_rejects_unknown_api_base_url(self, mock_validate) -> None:
+        source = SentrySource()
+        config = SentrySourceConfig(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://example.sentry.invalid",
+        )
+
+        result = source.validate_credentials(config, team_id=1)
+
+        assert result == (
+            False,
+            "API base URL must be one of https://sentry.io, https://us.sentry.io, or https://de.sentry.io.",
+        )
+        mock_validate.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.sentry.source.validate_sentry_credentials")
+    def test_validate_credentials_defaults_missing_api_base_url(self, mock_validate) -> None:
+        source = SentrySource()
+        config = SentrySourceConfig(
+            auth_token="token",
+            organization_slug="acme",
+        )
+        mock_validate.return_value = (True, None)
+
+        result = source.validate_credentials(config, team_id=1)
+
+        assert result == (True, None)
+        mock_validate.assert_called_once_with(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+        )
 
     @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
     def test_sentry_source_builds_response(self, mock_rest_api_resources) -> None:
