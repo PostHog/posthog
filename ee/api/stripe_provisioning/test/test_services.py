@@ -13,7 +13,7 @@ class TestProvisioningServices(StripeProvisioningTestBase):
         service = data["data"][0]
         assert service["id"] == "posthog_analytics"
         assert "analytics" in service["categories"]
-        assert data["next_cursor"] is None
+        assert data["next_cursor"] == ""
 
     def test_missing_signature_returns_401(self):
         res = self.client.get("/api/agentic/provisioning/services", HTTP_API_VERSION="0.1d")

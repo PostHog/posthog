@@ -43,6 +43,6 @@ def provisioning_services(request: Request) -> Response:
                     "pricing": {"type": "free"},
                 }
             ],
-            "next_cursor": None,
+            "next_cursor": "",
         }
     )
