@@ -52,7 +52,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <ActionsLineGraph
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -62,7 +62,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <BoldNumber
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -84,7 +84,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <ActionsPie
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -94,7 +94,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <ActionsHorizontalBar
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -112,7 +112,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                     <RegionMap
                         showPersonsModal={showPersonsModal}
                         context={context}
-                        inCardView={embedded}
+                        inCardView={embedded && !inSharedMode}
                         inSharedMode={inSharedMode}
                     />
                 )
@@ -122,7 +122,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <WorldMap
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -132,7 +132,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <TrendsCalendarHeatMap
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
