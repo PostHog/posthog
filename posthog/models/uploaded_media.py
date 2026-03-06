@@ -9,7 +9,7 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDTModel
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
@@ -25,13 +25,13 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
-class UploadedMediaManager(models.Manager):
+class UploadedMediaManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)
 
 
 class UploadedMedia(UUIDTModel, RootTeamMixin):
-    objects = UploadedMediaManager()
+    objects = UploadedMediaManager()  # type: ignore[misc]
     objects_including_soft_deleted: models.Manager["UploadedMedia"] = models.Manager()
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -62,7 +62,8 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
             qs = qs.exclude(id__in=exclude_text_ids)
         referenced: set[str] = set()
         for body in qs.values_list("body", flat=True):
-            referenced.update(cls.extract_media_uuids(body))
+            if body:
+                referenced.update(cls.extract_media_uuids(body))
         return referenced
 
     @classmethod

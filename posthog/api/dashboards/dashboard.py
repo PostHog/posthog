@@ -630,7 +630,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             .values_list("text__body", "text_id")
         )
         if text_tiles:
-            bodies = [t[0] for t in text_tiles]
+            bodies: list[str] = [t[0] for t in text_tiles if t[0]]
             text_ids = [t[1] for t in text_tiles]
             UploadedMedia.soft_delete_for_text_bodies(bodies, instance.team_id, exclude_text_ids=text_ids)
 
@@ -646,13 +646,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 insights_to_undelete.append(tile.insight)
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
 
-        text_bodies = list(
-            DashboardTile.objects_including_soft_deleted.filter(
+        text_bodies: list[str] = [
+            body
+            for body in DashboardTile.objects_including_soft_deleted.filter(
                 dashboard=instance, text__isnull=False, text__body__isnull=False
             )
             .exclude(text__body="")
             .values_list("text__body", flat=True)
-        )
+            if body
+        ]
         if text_bodies:
             UploadedMedia.restore_for_text_bodies(text_bodies, instance.team_id)
 
