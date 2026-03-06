@@ -441,6 +441,26 @@ SELECT
         )
         assert expected == actual
 
+    def test_handles_select_set_query_in_comparison(self):
+        select_set_query = ast.SelectSetQuery(
+            initial_select_query=ast.SelectQuery(select=[ast.Constant(value="2021-01-01")]),
+            subsequent_select_queries=[
+                ast.SelectSetNode(
+                    select_query=ast.SelectQuery(select=[ast.Constant(value="2021-06-01")]),
+                    set_operator="UNION ALL",
+                )
+            ],
+        )
+        where = ast.CompareOperation(
+            left=ast.Field(chain=["$start_timestamp"]),
+            op=ast.CompareOperationOp.Gt,
+            right=select_set_query,
+        )
+        select = ast.SelectQuery(select=[], where=where)
+        # Should not raise NotImplementedError (regression test for #49867)
+        inner_where = self.inliner.get_inner_where(select)
+        assert inner_where is None
+
 
 class TestSessionsV3QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
     def print_query(self, query: str) -> str:
