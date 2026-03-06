@@ -127,6 +127,7 @@ class ErrorTrackingIssueCohort(UUIDTModel):
 
 class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
+    team = models.ForeignKey("posthog.Team", null=True, on_delete=models.CASCADE)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
     # DEPRECATED: issues can only be assigned to users or roles
     user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
