@@ -126,6 +126,12 @@ pub const RAYON_DISPATCHER_TOTAL_ACQUIRES: &str = "flags_rayon_dispatcher_acquir
 // means the pool is saturated and the semaphore is the bottleneck.
 pub const RAYON_DISPATCHER_INFLIGHT_TASKS: &str = "flags_rayon_dispatcher_inflight_tasks";
 
+// Counter of semaphore acquisitions that timed out (request failed fast with 504).
+// Non-zero means the configured timeout is being hit and requests are being
+// redistributed to other pods via ingress retry.
+pub const RAYON_DISPATCHER_SEMAPHORE_TIMEOUTS: &str =
+    "flags_rayon_dispatcher_semaphore_timeouts_total";
+
 // Flag batch evaluation metrics
 // These track the performance difference between sequential and parallel evaluation strategies.
 // Used for A/B testing and tuning the PARALLEL_EVAL_THRESHOLD.
