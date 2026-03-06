@@ -65,21 +65,16 @@ export type NotebookLogicProps = {
 }
 
 async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
-    // TRICKY: external code doesn't know how to wait for the editor to be ready
-    // so, we have to poll until it is, then run the function
-    // the use-case is that we have opened a notebook, mounted this logic,
-    // and then want to run commands against the editor
-    // but, we are racing against it being ready
-
-    // throw an error after 2 seconds
-    const timeout = setTimeout(() => {
-        throw new Error('Notebook editor not ready')
-    }, 2000)
+    const maxWaitMs = 5000
+    const startTime = Date.now()
 
     while (!waitForEditor()) {
+        if (Date.now() - startTime > maxWaitMs) {
+            console.warn('Notebook editor not ready after timeout')
+            return
+        }
         await new Promise((resolve) => setTimeout(resolve, 10))
     }
-    clearTimeout(timeout)
 
     return fn()
 }
@@ -627,7 +622,7 @@ export const notebookLogic = kea<notebookLogicType>([
     listeners(({ values, actions, cache }) => ({
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor,
+                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
                 () => {
                     let insertionPosition = 0
                     let nextNode = values.editor?.nextNode(insertionPosition)
@@ -642,7 +637,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         pasteAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor,
+                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
                 () => {
                     const endPosition = values.editor?.getEndPosition() || 0
                     values.editor?.pasteContent(endPosition, content)
@@ -651,7 +646,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         insertAfterLastNodeOfType: async ({ content, nodeType, knownStartingPosition }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor,
+                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
                 () => {
                     let insertionPosition = knownStartingPosition
                     let nextNode = values.editor?.nextNode(insertionPosition)
@@ -675,8 +670,13 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
             }
 
-            if (insertionPosition !== null) {
-                values.editor?.insertContentAt(insertionPosition, content)
+            if (insertionPosition !== null && values.editor) {
+                try {
+                    values.editor.insertContentAt(insertionPosition, content)
+                } catch (e) {
+                    console.warn('Failed to insert at position, appending to end instead', e)
+                    actions.insertAfterLastNode(content)
+                }
             } else {
                 actions.insertAfterLastNode(content)
             }

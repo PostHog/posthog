@@ -34,10 +34,8 @@ export const openNotebook = async (
     notebookId: string,
     target: NotebookTarget,
     autofocus: EditorFocusPosition | undefined = undefined,
-    // operations to run against the notebook once it has opened and the editor is ready
-    onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
+    onOpen?: (logic: BuiltLogic<notebookLogicType>) => void
 ): Promise<void> => {
-    // TODO: We want a better solution than assuming it will always be mounted
     const thePanelLogic = notebookPanelLogic.findMounted()
 
     if (thePanelLogic && target === NotebookTarget.Popover) {
@@ -50,13 +48,21 @@ export const openNotebook = async (
         }
     }
 
-    const theNotebookLogic = notebookLogic({ shortId: notebookId })
-    const unmount = theNotebookLogic.mount()
-
-    try {
-        onOpen(theNotebookLogic)
-    } finally {
-        unmount()
+    if (onOpen) {
+        // Wait for the Notebook component to mount its logic instance before
+        // dispatching operations. Previously we mounted a temporary instance
+        // and called onOpen immediately, but async listeners (like
+        // insertAfterLastNode) were killed when we unmounted the temporary
+        // instance before they could complete.
+        const startTime = Date.now()
+        while (Date.now() - startTime < 5000) {
+            const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
+            if (mountedLogic) {
+                onOpen(mountedLogic)
+                break
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50))
+        }
     }
 }
 
