@@ -158,7 +158,9 @@ class Consumer:
             f"Total file MiB: {self.total_file_bytes_count / 1024**2:.2f}"
         )
 
-        return BatchExportResult(self.total_records_count, self.total_file_bytes_count)
+        return BatchExportResult(
+            self.total_records_count, self.total_file_bytes_count, None, self.total_record_batch_bytes_count
+        )
 
     async def generate_record_batches_from_queue(
         self,
@@ -365,6 +367,7 @@ class ConsumerGroup(typing.Protocol[_C]):
     # Tracking results
     accumulated_bytes_exported: int = 0
     accumulated_records_completed: int = 0
+    accumulated_records_bytes_completed: int = 0
 
     # Internal state management
     _consumers: set[_C] | None = None
@@ -434,6 +437,7 @@ class ConsumerGroup(typing.Protocol[_C]):
             records_completed=self.accumulated_records_completed,
             bytes_exported=self.accumulated_bytes_exported,
             error=self.errors or None,
+            records_bytes_completed=self.accumulated_records_bytes_completed,
         )
 
     @property
@@ -612,6 +616,9 @@ class ConsumerGroup(typing.Protocol[_C]):
 
         if result.bytes_exported is not None:
             self.accumulated_bytes_exported += result.bytes_exported
+
+        if result.records_bytes_completed is not None:
+            self.accumulated_records_bytes_completed += result.records_bytes_completed
 
         if result.error is not None:
             # TODO: Consolidate errors of the same type into one

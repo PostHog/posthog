@@ -197,7 +197,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 inputs.batch_export.data_interval_end or "END",
             )
 
-            return BatchExportResult(records_completed=0, bytes_exported=0)
+            return BatchExportResult(records_completed=0, bytes_exported=0, records_bytes_completed=0)
 
         transformer = JSONLStreamTransformer(max_workers=1)
 

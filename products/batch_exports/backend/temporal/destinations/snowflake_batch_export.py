@@ -1323,7 +1323,7 @@ async def insert_into_snowflake_activity_from_stage(
                 inputs.data_interval_end or "END",
             )
 
-            return BatchExportResult(records_completed=0, bytes_exported=0)
+            return BatchExportResult(records_completed=0, bytes_exported=0, records_bytes_completed=0)
 
         record_batch_schema = pa.schema(
             [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
