@@ -1,0 +1,30606 @@
+/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * MCP service uses these TypeScript types for tool handler return type annotations.
+ * To regenerate: hogli build:openapi
+ *
+ * PostHog API
+ * OpenAPI spec version: 1.0.0
+ */
+export type AIEventType = (typeof AIEventType)[keyof typeof AIEventType]
+
+export const AIEventType = {
+    AiGeneration: '$ai_generation',
+    AiEmbedding: '$ai_embedding',
+    AiSpan: '$ai_span',
+    AiTrace: '$ai_trace',
+    AiMetric: '$ai_metric',
+    AiFeedback: '$ai_feedback',
+    AiEvaluation: '$ai_evaluation',
+    AiTraceSummary: '$ai_trace_summary',
+    AiGenerationSummary: '$ai_generation_summary',
+    AiTraceClusters: '$ai_trace_clusters',
+    AiGenerationClusters: '$ai_generation_clusters',
+} as const
+
+/**
+ * * `contains` - contains
+ * `regex` - regex
+ * `exact` - exact
+ */
+export type UrlMatchingEnum = (typeof UrlMatchingEnum)[keyof typeof UrlMatchingEnum]
+
+export const UrlMatchingEnum = {
+    Contains: 'contains',
+    Regex: 'regex',
+    Exact: 'exact',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+
+export const NullEnum = {} as const
+
+export type ActionStepJSONPropertiesItem = { [key: string]: unknown }
+
+export interface ActionStepJSON {
+    /** @nullable */
+    event?: string | null
+    /** @nullable */
+    properties?: ActionStepJSONPropertiesItem[] | null
+    /** @nullable */
+    selector?: string | null
+    /** @nullable */
+    readonly selector_regex: string | null
+    /** @nullable */
+    tag_name?: string | null
+    /** @nullable */
+    text?: string | null
+    text_matching?: UrlMatchingEnum | NullEnum | null
+    /** @nullable */
+    href?: string | null
+    href_matching?: UrlMatchingEnum | NullEnum | null
+    /** @nullable */
+    url?: string | null
+    url_matching?: UrlMatchingEnum | NullEnum | null
+}
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+
+export const RoleAtOrganizationEnum = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+
+export const BlankEnum = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicHedgehogConfig = { [key: string]: unknown } | null | null
+
+export interface UserBasic {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnum | BlankEnum | NullEnum | null
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface Action {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    tags?: unknown[]
+    post_to_slack?: boolean
+    /** @maxLength 1200 */
+    slack_message_format?: string
+    steps?: ActionStepJSON[]
+    readonly created_at: string
+    readonly created_by: UserBasic
+    deleted?: boolean
+    readonly is_calculating: boolean
+    last_calculated_at?: string
+    readonly team_id: number
+    readonly is_action: boolean
+    /** @nullable */
+    readonly bytecode_error: string | null
+    /** @nullable */
+    pinned_at?: string | null
+    readonly creation_context: string
+    _create_in_folder?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface ActionConversionGoal {
+    actionId: number
+}
+
+export type ActionsNodeKind = (typeof ActionsNodeKind)[keyof typeof ActionsNodeKind]
+
+export const ActionsNodeKind = {
+    ActionsNode: 'ActionsNode',
+} as const
+
+export type BaseMathType = (typeof BaseMathType)[keyof typeof BaseMathType]
+
+export const BaseMathType = {
+    Total: 'total',
+    Dau: 'dau',
+    WeeklyActive: 'weekly_active',
+    MonthlyActive: 'monthly_active',
+    UniqueSession: 'unique_session',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstMatchingEventForUser: 'first_matching_event_for_user',
+} as const
+
+export type FunnelMathType = (typeof FunnelMathType)[keyof typeof FunnelMathType]
+
+export const FunnelMathType = {
+    Total: 'total',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstTimeForUserWithFilters: 'first_time_for_user_with_filters',
+} as const
+
+export type PropertyMathType = (typeof PropertyMathType)[keyof typeof PropertyMathType]
+
+export const PropertyMathType = {
+    Avg: 'avg',
+    Sum: 'sum',
+    Min: 'min',
+    Max: 'max',
+    Median: 'median',
+    P75: 'p75',
+    P90: 'p90',
+    P95: 'p95',
+    P99: 'p99',
+} as const
+
+export type CountPerActorMathType = (typeof CountPerActorMathType)[keyof typeof CountPerActorMathType]
+
+export const CountPerActorMathType = {
+    AvgCountPerActor: 'avg_count_per_actor',
+    MinCountPerActor: 'min_count_per_actor',
+    MaxCountPerActor: 'max_count_per_actor',
+    MedianCountPerActor: 'median_count_per_actor',
+    P75CountPerActor: 'p75_count_per_actor',
+    P90CountPerActor: 'p90_count_per_actor',
+    P95CountPerActor: 'p95_count_per_actor',
+    P99CountPerActor: 'p99_count_per_actor',
+} as const
+
+export type ExperimentMetricMathType = (typeof ExperimentMetricMathType)[keyof typeof ExperimentMetricMathType]
+
+export const ExperimentMetricMathType = {
+    Total: 'total',
+    Sum: 'sum',
+    UniqueSession: 'unique_session',
+    Min: 'min',
+    Max: 'max',
+    Avg: 'avg',
+    Dau: 'dau',
+    UniqueGroup: 'unique_group',
+    Hogql: 'hogql',
+} as const
+
+export type CalendarHeatmapMathType = (typeof CalendarHeatmapMathType)[keyof typeof CalendarHeatmapMathType]
+
+export const CalendarHeatmapMathType = {
+    Total: 'total',
+    Dau: 'dau',
+} as const
+
+export const ActionsNodeMath = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type ActionsNodeResponse = { [key: string]: unknown } | null | null
+
+export type PropertyOperator = (typeof PropertyOperator)[keyof typeof PropertyOperator]
+
+export const PropertyOperator = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+    Between: 'between',
+    NotBetween: 'not_between',
+    Min: 'min',
+    Max: 'max',
+    In: 'in',
+    NotIn: 'not_in',
+    IsCleanedPathExact: 'is_cleaned_path_exact',
+    FlagEvaluatesTo: 'flag_evaluates_to',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+/**
+ * Event properties
+ */
+export type EventPropertyFilterType = (typeof EventPropertyFilterType)[keyof typeof EventPropertyFilterType]
+
+export const EventPropertyFilterType = {
+    Event: 'event',
+} as const
+
+export interface EventPropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator?: PropertyOperator | null
+    /** Event properties */
+    type?: EventPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+/**
+ * Person properties
+ */
+export type PersonPropertyFilterType = (typeof PersonPropertyFilterType)[keyof typeof PersonPropertyFilterType]
+
+export const PersonPropertyFilterType = {
+    Person: 'person',
+} as const
+
+export interface PersonPropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    /** Person properties */
+    type?: PersonPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type Key = (typeof Key)[keyof typeof Key]
+
+export const Key = {
+    TagName: 'tag_name',
+    Text: 'text',
+    Href: 'href',
+    Selector: 'selector',
+} as const
+
+export type ElementPropertyFilterType = (typeof ElementPropertyFilterType)[keyof typeof ElementPropertyFilterType]
+
+export const ElementPropertyFilterType = {
+    Element: 'element',
+} as const
+
+export interface ElementPropertyFilter {
+    key: Key
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: ElementPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type EventMetadataPropertyFilterType =
+    (typeof EventMetadataPropertyFilterType)[keyof typeof EventMetadataPropertyFilterType]
+
+export const EventMetadataPropertyFilterType = {
+    EventMetadata: 'event_metadata',
+} as const
+
+export interface EventMetadataPropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: EventMetadataPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type SessionPropertyFilterType = (typeof SessionPropertyFilterType)[keyof typeof SessionPropertyFilterType]
+
+export const SessionPropertyFilterType = {
+    Session: 'session',
+} as const
+
+export interface SessionPropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: SessionPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type CohortPropertyFilterKey = (typeof CohortPropertyFilterKey)[keyof typeof CohortPropertyFilterKey]
+
+export const CohortPropertyFilterKey = {
+    Id: 'id',
+} as const
+
+export type CohortPropertyFilterType = (typeof CohortPropertyFilterType)[keyof typeof CohortPropertyFilterType]
+
+export const CohortPropertyFilterType = {
+    Cohort: 'cohort',
+} as const
+
+export interface CohortPropertyFilter {
+    /** @nullable */
+    cohort_name?: string | null
+    key?: CohortPropertyFilterKey
+    /** @nullable */
+    label?: string | null
+    operator?: PropertyOperator | null
+    type?: CohortPropertyFilterType
+    value: number
+}
+
+export type DurationType = (typeof DurationType)[keyof typeof DurationType]
+
+export const DurationType = {
+    Duration: 'duration',
+    ActiveSeconds: 'active_seconds',
+    InactiveSeconds: 'inactive_seconds',
+} as const
+
+export type RecordingPropertyFilterType = (typeof RecordingPropertyFilterType)[keyof typeof RecordingPropertyFilterType]
+
+export const RecordingPropertyFilterType = {
+    Recording: 'recording',
+} as const
+
+export interface RecordingPropertyFilter {
+    key: DurationType | string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: RecordingPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type LogEntryPropertyFilterType = (typeof LogEntryPropertyFilterType)[keyof typeof LogEntryPropertyFilterType]
+
+export const LogEntryPropertyFilterType = {
+    LogEntry: 'log_entry',
+} as const
+
+export interface LogEntryPropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: LogEntryPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type GroupPropertyFilterType = (typeof GroupPropertyFilterType)[keyof typeof GroupPropertyFilterType]
+
+export const GroupPropertyFilterType = {
+    Group: 'group',
+} as const
+
+export interface GroupPropertyFilter {
+    /** @nullable */
+    group_type_index?: number | null
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: GroupPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+/**
+ * Event property with "$feature/" prepended
+ */
+export type FeaturePropertyFilterType = (typeof FeaturePropertyFilterType)[keyof typeof FeaturePropertyFilterType]
+
+export const FeaturePropertyFilterType = {
+    Feature: 'feature',
+} as const
+
+export interface FeaturePropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    /** Event property with "$feature/" prepended */
+    type?: FeaturePropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+/**
+ * Only flag_evaluates_to operator is allowed for flag dependencies
+ */
+export type FlagPropertyFilterOperator = (typeof FlagPropertyFilterOperator)[keyof typeof FlagPropertyFilterOperator]
+
+export const FlagPropertyFilterOperator = {
+    FlagEvaluatesTo: 'flag_evaluates_to',
+} as const
+
+/**
+ * Feature flag dependency
+ */
+export type FlagPropertyFilterType = (typeof FlagPropertyFilterType)[keyof typeof FlagPropertyFilterType]
+
+export const FlagPropertyFilterType = {
+    Flag: 'flag',
+} as const
+
+export interface FlagPropertyFilter {
+    /** The key should be the flag ID */
+    key: string
+    /** @nullable */
+    label?: string | null
+    /** Only flag_evaluates_to operator is allowed for flag dependencies */
+    operator?: FlagPropertyFilterOperator
+    /** Feature flag dependency */
+    type?: FlagPropertyFilterType
+    /** The value can be true, false, or a variant name */
+    value: boolean | string
+}
+
+export type HogQLPropertyFilterType = (typeof HogQLPropertyFilterType)[keyof typeof HogQLPropertyFilterType]
+
+export const HogQLPropertyFilterType = {
+    Hogql: 'hogql',
+} as const
+
+export interface HogQLPropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    type?: HogQLPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type EmptyPropertyFilterType = (typeof EmptyPropertyFilterType)[keyof typeof EmptyPropertyFilterType]
+
+export const EmptyPropertyFilterType = {
+    Empty: 'empty',
+} as const
+
+export interface EmptyPropertyFilter {
+    type?: EmptyPropertyFilterType
+}
+
+export type DataWarehousePropertyFilterType =
+    (typeof DataWarehousePropertyFilterType)[keyof typeof DataWarehousePropertyFilterType]
+
+export const DataWarehousePropertyFilterType = {
+    DataWarehouse: 'data_warehouse',
+} as const
+
+export interface DataWarehousePropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: DataWarehousePropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type DataWarehousePersonPropertyFilterType =
+    (typeof DataWarehousePersonPropertyFilterType)[keyof typeof DataWarehousePersonPropertyFilterType]
+
+export const DataWarehousePersonPropertyFilterType = {
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+} as const
+
+export interface DataWarehousePersonPropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: DataWarehousePersonPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type ErrorTrackingIssueFilterType =
+    (typeof ErrorTrackingIssueFilterType)[keyof typeof ErrorTrackingIssueFilterType]
+
+export const ErrorTrackingIssueFilterType = {
+    ErrorTrackingIssue: 'error_tracking_issue',
+} as const
+
+export interface ErrorTrackingIssueFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: ErrorTrackingIssueFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type LogPropertyFilterType = (typeof LogPropertyFilterType)[keyof typeof LogPropertyFilterType]
+
+export const LogPropertyFilterType = {
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+} as const
+
+export interface LogPropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type: LogPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type RevenueAnalyticsPropertyFilterType =
+    (typeof RevenueAnalyticsPropertyFilterType)[keyof typeof RevenueAnalyticsPropertyFilterType]
+
+export const RevenueAnalyticsPropertyFilterType = {
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export interface RevenueAnalyticsPropertyFilter {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperator
+    type?: RevenueAnalyticsPropertyFilterType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type MathGroupTypeIndex = (typeof MathGroupTypeIndex)[keyof typeof MathGroupTypeIndex]
+
+export const MathGroupTypeIndex = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
+export type CurrencyCode = (typeof CurrencyCode)[keyof typeof CurrencyCode]
+
+export const CurrencyCode = {
+    Aed: 'AED',
+    Afn: 'AFN',
+    All: 'ALL',
+    Amd: 'AMD',
+    Ang: 'ANG',
+    Aoa: 'AOA',
+    Ars: 'ARS',
+    Aud: 'AUD',
+    Awg: 'AWG',
+    Azn: 'AZN',
+    Bam: 'BAM',
+    Bbd: 'BBD',
+    Bdt: 'BDT',
+    Bgn: 'BGN',
+    Bhd: 'BHD',
+    Bif: 'BIF',
+    Bmd: 'BMD',
+    Bnd: 'BND',
+    Bob: 'BOB',
+    Brl: 'BRL',
+    Bsd: 'BSD',
+    Btc: 'BTC',
+    Btn: 'BTN',
+    Bwp: 'BWP',
+    Byn: 'BYN',
+    Bzd: 'BZD',
+    Cad: 'CAD',
+    Cdf: 'CDF',
+    Chf: 'CHF',
+    Clp: 'CLP',
+    Cny: 'CNY',
+    Cop: 'COP',
+    Crc: 'CRC',
+    Cve: 'CVE',
+    Czk: 'CZK',
+    Djf: 'DJF',
+    Dkk: 'DKK',
+    Dop: 'DOP',
+    Dzd: 'DZD',
+    Egp: 'EGP',
+    Ern: 'ERN',
+    Etb: 'ETB',
+    Eur: 'EUR',
+    Fjd: 'FJD',
+    Gbp: 'GBP',
+    Gel: 'GEL',
+    Ghs: 'GHS',
+    Gip: 'GIP',
+    Gmd: 'GMD',
+    Gnf: 'GNF',
+    Gtq: 'GTQ',
+    Gyd: 'GYD',
+    Hkd: 'HKD',
+    Hnl: 'HNL',
+    Hrk: 'HRK',
+    Htg: 'HTG',
+    Huf: 'HUF',
+    Idr: 'IDR',
+    Ils: 'ILS',
+    Inr: 'INR',
+    Iqd: 'IQD',
+    Irr: 'IRR',
+    Isk: 'ISK',
+    Jmd: 'JMD',
+    Jod: 'JOD',
+    Jpy: 'JPY',
+    Kes: 'KES',
+    Kgs: 'KGS',
+    Khr: 'KHR',
+    Kmf: 'KMF',
+    Krw: 'KRW',
+    Kwd: 'KWD',
+    Kyd: 'KYD',
+    Kzt: 'KZT',
+    Lak: 'LAK',
+    Lbp: 'LBP',
+    Lkr: 'LKR',
+    Lrd: 'LRD',
+    Ltl: 'LTL',
+    Lvl: 'LVL',
+    Lsl: 'LSL',
+    Lyd: 'LYD',
+    Mad: 'MAD',
+    Mdl: 'MDL',
+    Mga: 'MGA',
+    Mkd: 'MKD',
+    Mmk: 'MMK',
+    Mnt: 'MNT',
+    Mop: 'MOP',
+    Mru: 'MRU',
+    Mtl: 'MTL',
+    Mur: 'MUR',
+    Mvr: 'MVR',
+    Mwk: 'MWK',
+    Mxn: 'MXN',
+    Myr: 'MYR',
+    Mzn: 'MZN',
+    Nad: 'NAD',
+    Ngn: 'NGN',
+    Nio: 'NIO',
+    Nok: 'NOK',
+    Npr: 'NPR',
+    Nzd: 'NZD',
+    Omr: 'OMR',
+    Pab: 'PAB',
+    Pen: 'PEN',
+    Pgk: 'PGK',
+    Php: 'PHP',
+    Pkr: 'PKR',
+    Pln: 'PLN',
+    Pyg: 'PYG',
+    Qar: 'QAR',
+    Ron: 'RON',
+    Rsd: 'RSD',
+    Rub: 'RUB',
+    Rwf: 'RWF',
+    Sar: 'SAR',
+    Sbd: 'SBD',
+    Scr: 'SCR',
+    Sdg: 'SDG',
+    Sek: 'SEK',
+    Sgd: 'SGD',
+    Srd: 'SRD',
+    Ssp: 'SSP',
+    Stn: 'STN',
+    Syp: 'SYP',
+    Szl: 'SZL',
+    Thb: 'THB',
+    Tjs: 'TJS',
+    Tmt: 'TMT',
+    Tnd: 'TND',
+    Top: 'TOP',
+    Try: 'TRY',
+    Ttd: 'TTD',
+    Twd: 'TWD',
+    Tzs: 'TZS',
+    Uah: 'UAH',
+    Ugx: 'UGX',
+    Usd: 'USD',
+    Uyu: 'UYU',
+    Uzs: 'UZS',
+    Ves: 'VES',
+    Vnd: 'VND',
+    Vuv: 'VUV',
+    Wst: 'WST',
+    Xaf: 'XAF',
+    Xcd: 'XCD',
+    Xof: 'XOF',
+    Xpf: 'XPF',
+    Yer: 'YER',
+    Zar: 'ZAR',
+    Zmw: 'ZMW',
+} as const
+
+export interface RevenueCurrencyPropertyConfig {
+    /** @nullable */
+    property?: string | null
+    static?: CurrencyCode | null
+}
+
+export interface ActionsNode {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    id: number
+    kind?: ActionsNodeKind
+    math?: (typeof ActionsNodeMath)[keyof typeof ActionsNodeMath] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: ActionsNodeResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface ActionsPie {
+    /** @nullable */
+    disableHoverOffset?: boolean | null
+    /** @nullable */
+    hideAggregation?: boolean | null
+}
+
+/**
+ * Schema for a single active breakpoint
+ */
+export interface ActiveBreakpoint {
+    /** Unique identifier for the breakpoint */
+    id: string
+    /**
+     * Repository identifier (e.g., 'PostHog/posthog')
+     * @nullable
+     */
+    repository?: string | null
+    /** File path where the breakpoint is set */
+    filename: string
+    /** Line number of the breakpoint */
+    line_number: number
+    /** Whether the breakpoint is enabled */
+    enabled: boolean
+    /**
+     * Optional condition for the breakpoint
+     * @nullable
+     */
+    condition?: string | null
+}
+
+/**
+ * Response schema for active breakpoints endpoint
+ */
+export interface ActiveBreakpointsResponse {
+    /** List of active breakpoints */
+    breakpoints: ActiveBreakpoint[]
+}
+
+export interface ActivityLog {
+    readonly id: string
+    user: UserBasic
+    /** is the date of this log item newer than the user's bookmark */
+    readonly unread: boolean
+    /** @nullable */
+    organization_id?: string | null
+    /** @nullable */
+    was_impersonated?: boolean | null
+    /** @nullable */
+    is_system?: boolean | null
+    /** @maxLength 79 */
+    activity: string
+    /**
+     * @maxLength 72
+     * @nullable
+     */
+    item_id?: string | null
+    /** @maxLength 79 */
+    scope: string
+    detail?: unknown | null
+    created_at?: string
+}
+
+export interface Change {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface Merge {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface Trigger {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface Detail {
+    readonly id: string
+    changes?: Change[]
+    merge?: Merge
+    trigger?: Trigger
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+export interface ActivityLogEntry {
+    readonly user: string
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: Detail
+    readonly created_at: string
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponse {
+    results: ActivityLogEntry[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
+}
+
+export type ActorsPropertyTaxonomyQueryKind =
+    (typeof ActorsPropertyTaxonomyQueryKind)[keyof typeof ActorsPropertyTaxonomyQueryKind]
+
+export const ActorsPropertyTaxonomyQueryKind = {
+    ActorsPropertyTaxonomyQuery: 'ActorsPropertyTaxonomyQuery',
+} as const
+
+export type BounceRatePageViewMode = (typeof BounceRatePageViewMode)[keyof typeof BounceRatePageViewMode]
+
+export const BounceRatePageViewMode = {
+    CountPageviews: 'count_pageviews',
+    UniqUrls: 'uniq_urls',
+    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
+} as const
+
+export type FilterLogicalOperator = (typeof FilterLogicalOperator)[keyof typeof FilterLogicalOperator]
+
+export const FilterLogicalOperator = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type CustomChannelField = (typeof CustomChannelField)[keyof typeof CustomChannelField]
+
+export const CustomChannelField = {
+    UtmSource: 'utm_source',
+    UtmMedium: 'utm_medium',
+    UtmCampaign: 'utm_campaign',
+    ReferringDomain: 'referring_domain',
+    Url: 'url',
+    Pathname: 'pathname',
+    Hostname: 'hostname',
+} as const
+
+export type CustomChannelOperator = (typeof CustomChannelOperator)[keyof typeof CustomChannelOperator]
+
+export const CustomChannelOperator = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export interface CustomChannelCondition {
+    id: string
+    key: CustomChannelField
+    op: CustomChannelOperator
+    value?: string | string[] | null
+}
+
+export interface CustomChannelRule {
+    channel_type: string
+    combiner: FilterLogicalOperator
+    id: string
+    items: CustomChannelCondition[]
+}
+
+export interface DataWarehouseEventsModifier {
+    distinct_id_field: string
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
+
+export type InCohortVia = (typeof InCohortVia)[keyof typeof InCohortVia]
+
+export const InCohortVia = {
+    Auto: 'auto',
+    Leftjoin: 'leftjoin',
+    Subquery: 'subquery',
+    LeftjoinConjoined: 'leftjoin_conjoined',
+} as const
+
+export type InlineCohortCalculation = (typeof InlineCohortCalculation)[keyof typeof InlineCohortCalculation]
+
+export const InlineCohortCalculation = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
+export type MaterializationMode = (typeof MaterializationMode)[keyof typeof MaterializationMode]
+
+export const MaterializationMode = {
+    Auto: 'auto',
+    LegacyNullAsString: 'legacy_null_as_string',
+    LegacyNullAsNull: 'legacy_null_as_null',
+    Disabled: 'disabled',
+} as const
+
+export type MaterializedColumnsOptimizationMode =
+    (typeof MaterializedColumnsOptimizationMode)[keyof typeof MaterializedColumnsOptimizationMode]
+
+export const MaterializedColumnsOptimizationMode = {
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type PersonsArgMaxVersion = (typeof PersonsArgMaxVersion)[keyof typeof PersonsArgMaxVersion]
+
+export const PersonsArgMaxVersion = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+} as const
+
+export type PersonsJoinMode = (typeof PersonsJoinMode)[keyof typeof PersonsJoinMode]
+
+export const PersonsJoinMode = {
+    Inner: 'inner',
+    Left: 'left',
+} as const
+
+export type PersonsOnEventsMode = (typeof PersonsOnEventsMode)[keyof typeof PersonsOnEventsMode]
+
+export const PersonsOnEventsMode = {
+    Disabled: 'disabled',
+    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
+    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
+    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
+} as const
+
+export type PropertyGroupsMode = (typeof PropertyGroupsMode)[keyof typeof PropertyGroupsMode]
+
+export const PropertyGroupsMode = {
+    Enabled: 'enabled',
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type SessionTableVersion = (typeof SessionTableVersion)[keyof typeof SessionTableVersion]
+
+export const SessionTableVersion = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+    V3: 'v3',
+} as const
+
+export type SessionsV2JoinMode = (typeof SessionsV2JoinMode)[keyof typeof SessionsV2JoinMode]
+
+export const SessionsV2JoinMode = {
+    String: 'string',
+    Uuid: 'uuid',
+} as const
+
+export interface HogQLQueryModifiers {
+    /** @nullable */
+    bounceRateDurationSeconds?: number | null
+    bounceRatePageViewMode?: BounceRatePageViewMode | null
+    /** @nullable */
+    convertToProjectTimezone?: boolean | null
+    /** @nullable */
+    customChannelTypeRules?: CustomChannelRule[] | null
+    /** @nullable */
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null
+    /** @nullable */
+    debug?: boolean | null
+    /**
+     * If these are provided, the query will fail if these skip indexes are not used
+     * @nullable
+     */
+    forceClickhouseDataSkippingIndexes?: string[] | null
+    /** @nullable */
+    formatCsvAllowDoubleQuotes?: boolean | null
+    inCohortVia?: InCohortVia | null
+    inlineCohortCalculation?: InlineCohortCalculation | null
+    materializationMode?: MaterializationMode | null
+    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null
+    /** @nullable */
+    optimizeJoinedFilters?: boolean | null
+    /** @nullable */
+    optimizeProjections?: boolean | null
+    personsArgMaxVersion?: PersonsArgMaxVersion | null
+    personsJoinMode?: PersonsJoinMode | null
+    personsOnEventsMode?: PersonsOnEventsMode | null
+    propertyGroupsMode?: PropertyGroupsMode | null
+    /** @nullable */
+    s3TableUseInvalidColumns?: boolean | null
+    sessionTableVersion?: SessionTableVersion | null
+    sessionsV2JoinMode?: SessionsV2JoinMode | null
+    /** @nullable */
+    timings?: boolean | null
+    /** @nullable */
+    useMaterializedViews?: boolean | null
+    /** @nullable */
+    usePreaggregatedIntermediateResults?: boolean | null
+    /**
+     * Try to automatically convert HogQL queries to use preaggregated tables at the AST level *
+     * @nullable
+     */
+    usePreaggregatedTableTransforms?: boolean | null
+    /** @nullable */
+    useWebAnalyticsPreAggregatedTables?: boolean | null
+}
+
+export interface ClickhouseQueryProgress {
+    active_cpu_time: number
+    bytes_read: number
+    estimated_rows_total: number
+    rows_read: number
+    time_elapsed: number
+}
+
+export interface QueryStatus {
+    /**
+     * Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.
+     * @nullable
+     */
+    complete?: boolean | null
+    /** @nullable */
+    dashboard_id?: number | null
+    /**
+     * When did the query execution task finish (whether successfully or not).
+     * @nullable
+     */
+    end_time?: string | null
+    /**
+     * If the query failed, this will be set to true. More information can be found in the error_message field.
+     * @nullable
+     */
+    error?: boolean | null
+    /** @nullable */
+    error_message?: string | null
+    /** @nullable */
+    expiration_time?: string | null
+    id: string
+    /** @nullable */
+    insight_id?: number | null
+    /** @nullable */
+    labels?: string[] | null
+    /**
+     * When was the query execution task picked up by a worker.
+     * @nullable
+     */
+    pickup_time?: string | null
+    /** ONLY async queries use QueryStatus. */
+    query_async?: boolean
+    query_progress?: ClickhouseQueryProgress | null
+    results?: unknown | null
+    /**
+     * When was query execution task enqueued.
+     * @nullable
+     */
+    start_time?: string | null
+    /** @nullable */
+    task_id?: string | null
+    team_id: number
+}
+
+export interface ResolvedDateRangeResponse {
+    date_from: string
+    date_to: string
+}
+
+export interface ActorsPropertyTaxonomyResponse {
+    sample_count: number
+    sample_values: (string | number | boolean | number)[]
+}
+
+export interface QueryTiming {
+    /** Key. Shortened to 'k' to save on data. */
+    k: string
+    /** Time in seconds. Shortened to 't' to save on data. */
+    t: number
+}
+
+export interface ActorsPropertyTaxonomyQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryLogTags {
+    /**
+     * Name of the query, preferably unique. For example web_analytics_vitals
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *
+     * @nullable
+     */
+    productKey?: string | null
+    /**
+     * Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *
+     * @nullable
+     */
+    scene?: string | null
+}
+
+export interface ActorsPropertyTaxonomyQuery {
+    /** @nullable */
+    groupTypeIndex?: number | null
+    kind?: ActorsPropertyTaxonomyQueryKind
+    /** @nullable */
+    maxPropertyValues?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    properties: string[]
+    response?: ActorsPropertyTaxonomyQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ActorsQueryKind = (typeof ActorsQueryKind)[keyof typeof ActorsQueryKind]
+
+export const ActorsQueryKind = {
+    ActorsQuery: 'ActorsQuery',
+} as const
+
+export interface PropertyGroupFilterValue {
+    type: FilterLogicalOperator
+    values: (
+        | PropertyGroupFilterValue
+        | EventPropertyFilter
+        | PersonPropertyFilter
+        | ElementPropertyFilter
+        | EventMetadataPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | RecordingPropertyFilter
+        | LogEntryPropertyFilter
+        | GroupPropertyFilter
+        | FeaturePropertyFilter
+        | FlagPropertyFilter
+        | HogQLPropertyFilter
+        | EmptyPropertyFilter
+        | DataWarehousePropertyFilter
+        | DataWarehousePersonPropertyFilter
+        | ErrorTrackingIssueFilter
+        | LogPropertyFilter
+        | RevenueAnalyticsPropertyFilter
+    )[]
+}
+
+export interface ActorsQueryResponse {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    limit: number
+    /** @nullable */
+    missing_actors_count?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: string[] | null
+}
+
+export type Compare = (typeof Compare)[keyof typeof Compare]
+
+export const Compare = {
+    Current: 'current',
+    Previous: 'previous',
+} as const
+
+export type InsightActorsQueryKind = (typeof InsightActorsQueryKind)[keyof typeof InsightActorsQueryKind]
+
+export const InsightActorsQueryKind = {
+    InsightActorsQuery: 'InsightActorsQuery',
+} as const
+
+export type BreakdownType = (typeof BreakdownType)[keyof typeof BreakdownType]
+
+export const BreakdownType = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export type MultipleBreakdownType = (typeof MultipleBreakdownType)[keyof typeof MultipleBreakdownType]
+
+export const MultipleBreakdownType = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export interface Breakdown {
+    /** @nullable */
+    group_type_index?: number | null
+    /** @nullable */
+    histogram_bin_count?: number | null
+    /** @nullable */
+    normalize_url?: boolean | null
+    property: string | number
+    type?: MultipleBreakdownType | null
+}
+
+export interface BreakdownFilter {
+    breakdown?: string | (string | number)[] | number | null
+    /** @nullable */
+    breakdown_group_type_index?: number | null
+    /** @nullable */
+    breakdown_hide_other_aggregation?: boolean | null
+    /** @nullable */
+    breakdown_histogram_bin_count?: number | null
+    /** @nullable */
+    breakdown_limit?: number | null
+    /** @nullable */
+    breakdown_normalize_url?: boolean | null
+    /** @nullable */
+    breakdown_path_cleaning?: boolean | null
+    breakdown_type?: BreakdownType | null
+    /**
+     * @maxItems 3
+     * @nullable
+     */
+    breakdowns?: Breakdown[] | null
+}
+
+export interface CompareFilter {
+    /**
+     * Whether to compare the current date range to a previous date range.
+     * @nullable
+     */
+    compare?: boolean | null
+    /**
+     * The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
+     * @nullable
+     */
+    compare_to?: string | null
+}
+
+export interface CustomEventConversionGoal {
+    customEventName: string
+}
+
+export interface DateRange {
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+    /**
+     * Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.
+     * @nullable
+     */
+    explicitDate?: boolean | null
+}
+
+export type IntervalType = (typeof IntervalType)[keyof typeof IntervalType]
+
+export const IntervalType = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
+export type TrendsQueryKind = (typeof TrendsQueryKind)[keyof typeof TrendsQueryKind]
+
+export const TrendsQueryKind = {
+    TrendsQuery: 'TrendsQuery',
+} as const
+
+export interface PropertyGroupFilter {
+    type: FilterLogicalOperator
+    values: PropertyGroupFilterValue[]
+}
+
+export type TrendsQueryResponseResultsItem = { [key: string]: unknown }
+
+export interface TrendsQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Wether more breakdown values are available.
+     * @nullable
+     */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: TrendsQueryResponseResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type GroupNodeKind = (typeof GroupNodeKind)[keyof typeof GroupNodeKind]
+
+export const GroupNodeKind = {
+    GroupNode: 'GroupNode',
+} as const
+
+export type EventsNodeKind = (typeof EventsNodeKind)[keyof typeof EventsNodeKind]
+
+export const EventsNodeKind = {
+    EventsNode: 'EventsNode',
+} as const
+
+export const EventsNodeMath = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type EventsNodeResponse = { [key: string]: unknown } | null | null
+
+export interface EventsNode {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * The event or `null` for all events.
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    kind?: EventsNodeKind
+    /** @nullable */
+    limit?: number | null
+    math?: (typeof EventsNodeMath)[keyof typeof EventsNodeMath] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: EventsNodeResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type DataWarehouseNodeKind = (typeof DataWarehouseNodeKind)[keyof typeof DataWarehouseNodeKind]
+
+export const DataWarehouseNodeKind = {
+    DataWarehouseNode: 'DataWarehouseNode',
+} as const
+
+export const DataWarehouseNodeMath = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type DataWarehouseNodeResponse = { [key: string]: unknown } | null | null
+
+export interface DataWarehouseNode {
+    /** @nullable */
+    custom_name?: string | null
+    distinct_id_field: string
+    /** @nullable */
+    dw_source_type?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    id: string
+    id_field: string
+    kind?: DataWarehouseNodeKind
+    math?: (typeof DataWarehouseNodeMath)[keyof typeof DataWarehouseNodeMath] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: DataWarehouseNodeResponse
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export const GroupNodeMath = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type GroupNodeResponse = { [key: string]: unknown } | null | null
+
+export interface GroupNode {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    kind?: GroupNodeKind
+    /** @nullable */
+    limit?: number | null
+    math?: (typeof GroupNodeMath)[keyof typeof GroupNodeMath] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** Entities to combine in this group */
+    nodes: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    /** Group of entities combined with AND/OR operator */
+    operator: FilterLogicalOperator
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: GroupNodeResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type AggregationAxisFormat = (typeof AggregationAxisFormat)[keyof typeof AggregationAxisFormat]
+
+export const AggregationAxisFormat = {
+    Numeric: 'numeric',
+    Duration: 'duration',
+    DurationMs: 'duration_ms',
+    Percentage: 'percentage',
+    PercentageScaled: 'percentage_scaled',
+    Currency: 'currency',
+} as const
+
+export type DetailedResultsAggregationType =
+    (typeof DetailedResultsAggregationType)[keyof typeof DetailedResultsAggregationType]
+
+export const DetailedResultsAggregationType = {
+    Total: 'total',
+    Average: 'average',
+    Median: 'median',
+} as const
+
+export type ChartDisplayType = (typeof ChartDisplayType)[keyof typeof ChartDisplayType]
+
+export const ChartDisplayType = {
+    Auto: 'Auto',
+    ActionsLineGraph: 'ActionsLineGraph',
+    ActionsBar: 'ActionsBar',
+    ActionsUnstackedBar: 'ActionsUnstackedBar',
+    ActionsStackedBar: 'ActionsStackedBar',
+    ActionsAreaGraph: 'ActionsAreaGraph',
+    ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
+    BoldNumber: 'BoldNumber',
+    ActionsPie: 'ActionsPie',
+    ActionsBarValue: 'ActionsBarValue',
+    ActionsTable: 'ActionsTable',
+    WorldMap: 'WorldMap',
+    CalendarHeatmap: 'CalendarHeatmap',
+    TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
+} as const
+
+export interface TrendsFormulaNode {
+    /**
+     * Optional user-defined name for the formula
+     * @nullable
+     */
+    custom_name?: string | null
+    formula: string
+}
+
+export type Position = (typeof Position)[keyof typeof Position]
+
+export const Position = {
+    Start: 'start',
+    End: 'end',
+} as const
+
+export interface GoalLine {
+    /** @nullable */
+    borderColor?: string | null
+    /** @nullable */
+    displayIfCrossed?: boolean | null
+    /** @nullable */
+    displayLabel?: boolean | null
+    label: string
+    position?: Position | null
+    value: number
+}
+
+export type ResultCustomizationBy = (typeof ResultCustomizationBy)[keyof typeof ResultCustomizationBy]
+
+export const ResultCustomizationBy = {
+    Value: 'value',
+    Position: 'position',
+} as const
+
+export type ResultCustomizationByValueAssignmentBy =
+    (typeof ResultCustomizationByValueAssignmentBy)[keyof typeof ResultCustomizationByValueAssignmentBy]
+
+export const ResultCustomizationByValueAssignmentBy = {
+    Value: 'value',
+} as const
+
+export type DataColorToken = (typeof DataColorToken)[keyof typeof DataColorToken]
+
+export const DataColorToken = {
+    Preset1: 'preset-1',
+    Preset2: 'preset-2',
+    Preset3: 'preset-3',
+    Preset4: 'preset-4',
+    Preset5: 'preset-5',
+    Preset6: 'preset-6',
+    Preset7: 'preset-7',
+    Preset8: 'preset-8',
+    Preset9: 'preset-9',
+    Preset10: 'preset-10',
+    Preset11: 'preset-11',
+    Preset12: 'preset-12',
+    Preset13: 'preset-13',
+    Preset14: 'preset-14',
+    Preset15: 'preset-15',
+} as const
+
+export interface ResultCustomizationByValue {
+    assignmentBy?: ResultCustomizationByValueAssignmentBy
+    color?: DataColorToken | null
+    /** @nullable */
+    hidden?: boolean | null
+}
+
+export type ResultCustomizationByPositionAssignmentBy =
+    (typeof ResultCustomizationByPositionAssignmentBy)[keyof typeof ResultCustomizationByPositionAssignmentBy]
+
+export const ResultCustomizationByPositionAssignmentBy = {
+    Position: 'position',
+} as const
+
+export interface ResultCustomizationByPosition {
+    assignmentBy?: ResultCustomizationByPositionAssignmentBy
+    color?: DataColorToken | null
+    /** @nullable */
+    hidden?: boolean | null
+}
+
+export type YAxisScaleType = (typeof YAxisScaleType)[keyof typeof YAxisScaleType]
+
+export const YAxisScaleType = {
+    Log10: 'log10',
+    Linear: 'linear',
+} as const
+
+/**
+ * Customizations for the appearance of result datasets.
+ */
+export type TrendsFilterResultCustomizations =
+    | { [key: string]: ResultCustomizationByValue }
+    | { [key: string]: ResultCustomizationByPosition }
+    | null
+
+export interface TrendsFilter {
+    aggregationAxisFormat?: AggregationAxisFormat | null
+    /** @nullable */
+    aggregationAxisPostfix?: string | null
+    /** @nullable */
+    aggregationAxisPrefix?: string | null
+    /** @nullable */
+    breakdown_histogram_bin_count?: number | null
+    /** @nullable */
+    confidenceLevel?: number | null
+    /** @nullable */
+    decimalPlaces?: number | null
+    /** detailed results table */
+    detailedResultsAggregationType?: DetailedResultsAggregationType | null
+    display?: ChartDisplayType | null
+    /** @nullable */
+    formula?: string | null
+    /**
+     * List of formulas with optional custom names. Takes precedence over formula/formulas if set.
+     * @nullable
+     */
+    formulaNodes?: TrendsFormulaNode[] | null
+    /** @nullable */
+    formulas?: string[] | null
+    /**
+     * Goal Lines
+     * @nullable
+     */
+    goalLines?: GoalLine[] | null
+    /** @nullable */
+    hiddenLegendIndexes?: number[] | null
+    /** @nullable */
+    hideWeekends?: boolean | null
+    /** @nullable */
+    minDecimalPlaces?: number | null
+    /** @nullable */
+    movingAverageIntervals?: number | null
+    /** Wether result datasets are associated by their values or by their order. */
+    resultCustomizationBy?: ResultCustomizationBy | null
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?: TrendsFilterResultCustomizations
+    /** @nullable */
+    showAlertThresholdLines?: boolean | null
+    /** @nullable */
+    showConfidenceIntervals?: boolean | null
+    /** @nullable */
+    showLabelsOnSeries?: boolean | null
+    /** @nullable */
+    showLegend?: boolean | null
+    /** @nullable */
+    showMovingAverage?: boolean | null
+    /** @nullable */
+    showMultipleYAxes?: boolean | null
+    /** @nullable */
+    showPercentStackView?: boolean | null
+    /** @nullable */
+    showTrendLines?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
+    /** @nullable */
+    smoothingIntervals?: number | null
+    yAxisScaleType?: YAxisScaleType | null
+}
+
+export interface TrendsQuery {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** Breakdown of the events and actions */
+    breakdownFilter?: BreakdownFilter | null
+    /** Compare to date range */
+    compareFilter?: CompareFilter | null
+    /** Whether we should be comparing against a specific conversion goal */
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** Date range for the query */
+    dateRange?: DateRange | null
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType | null
+    kind?: TrendsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Property filters for all series */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | PropertyGroupFilter
+        | null
+    response?: TrendsQueryResponse | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: (GroupNode | EventsNode | ActionsNode | DataWarehouseNode)[]
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags | null
+    /** Properties specific to the trends insight */
+    trendsFilter?: TrendsFilter | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type BreakdownAttributionType = (typeof BreakdownAttributionType)[keyof typeof BreakdownAttributionType]
+
+export const BreakdownAttributionType = {
+    FirstTouch: 'first_touch',
+    LastTouch: 'last_touch',
+    AllEvents: 'all_events',
+    Step: 'step',
+} as const
+
+export type FunnelExclusionEventsNodeKind =
+    (typeof FunnelExclusionEventsNodeKind)[keyof typeof FunnelExclusionEventsNodeKind]
+
+export const FunnelExclusionEventsNodeKind = {
+    EventsNode: 'EventsNode',
+} as const
+
+export const FunnelExclusionEventsNodeMath = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type FunnelExclusionEventsNodeResponse = { [key: string]: unknown } | null | null
+
+export interface FunnelExclusionEventsNode {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * The event or `null` for all events.
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    funnelFromStep: number
+    funnelToStep: number
+    kind?: FunnelExclusionEventsNodeKind
+    /** @nullable */
+    limit?: number | null
+    math?: (typeof FunnelExclusionEventsNodeMath)[keyof typeof FunnelExclusionEventsNodeMath] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: FunnelExclusionEventsNodeResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FunnelExclusionActionsNodeKind =
+    (typeof FunnelExclusionActionsNodeKind)[keyof typeof FunnelExclusionActionsNodeKind]
+
+export const FunnelExclusionActionsNodeKind = {
+    ActionsNode: 'ActionsNode',
+} as const
+
+export const FunnelExclusionActionsNodeMath = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type FunnelExclusionActionsNodeResponse = { [key: string]: unknown } | null | null
+
+export interface FunnelExclusionActionsNode {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    funnelFromStep: number
+    funnelToStep: number
+    id: number
+    kind?: FunnelExclusionActionsNodeKind
+    math?: (typeof FunnelExclusionActionsNodeMath)[keyof typeof FunnelExclusionActionsNodeMath] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: FunnelExclusionActionsNodeResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type StepOrderValue = (typeof StepOrderValue)[keyof typeof StepOrderValue]
+
+export const StepOrderValue = {
+    Strict: 'strict',
+    Unordered: 'unordered',
+    Ordered: 'ordered',
+} as const
+
+export type FunnelStepReference = (typeof FunnelStepReference)[keyof typeof FunnelStepReference]
+
+export const FunnelStepReference = {
+    Total: 'total',
+    Previous: 'previous',
+} as const
+
+export type FunnelVizType = (typeof FunnelVizType)[keyof typeof FunnelVizType]
+
+export const FunnelVizType = {
+    Steps: 'steps',
+    TimeToConvert: 'time_to_convert',
+    Trends: 'trends',
+    Flow: 'flow',
+} as const
+
+export type FunnelConversionWindowTimeUnit =
+    (typeof FunnelConversionWindowTimeUnit)[keyof typeof FunnelConversionWindowTimeUnit]
+
+export const FunnelConversionWindowTimeUnit = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
+export type FunnelLayout = (typeof FunnelLayout)[keyof typeof FunnelLayout]
+
+export const FunnelLayout = {
+    Horizontal: 'horizontal',
+    Vertical: 'vertical',
+} as const
+
+/**
+ * Customizations for the appearance of result datasets.
+ * @nullable
+ */
+export type FunnelsFilterResultCustomizations = { [key: string]: ResultCustomizationByValue } | null | null
+
+export interface FunnelsFilter {
+    /** @nullable */
+    binCount?: number | null
+    breakdownAttributionType?: BreakdownAttributionType | null
+    /** @nullable */
+    breakdownAttributionValue?: number | null
+    /**
+     * Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)
+     * @nullable
+     */
+    breakdownSorting?: string | null
+    /** @nullable */
+    exclusions?: (FunnelExclusionEventsNode | FunnelExclusionActionsNode)[] | null
+    /** @nullable */
+    funnelAggregateByHogQL?: string | null
+    /** @nullable */
+    funnelFromStep?: number | null
+    funnelOrderType?: StepOrderValue | null
+    funnelStepReference?: FunnelStepReference | null
+    /**
+     * To select the range of steps for trends & time to convert funnels, 0-indexed
+     * @nullable
+     */
+    funnelToStep?: number | null
+    funnelVizType?: FunnelVizType | null
+    /** @nullable */
+    funnelWindowInterval?: number | null
+    funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnit | null
+    /**
+     * Goal Lines
+     * @nullable
+     */
+    goalLines?: GoalLine[] | null
+    /** @nullable */
+    hiddenLegendBreakdowns?: string[] | null
+    layout?: FunnelLayout | null
+    /**
+     * Customizations for the appearance of result datasets.
+     * @nullable
+     */
+    resultCustomizations?: FunnelsFilterResultCustomizations
+    /**
+     * Display linear regression trend lines on the chart (only for historical trends viz)
+     * @nullable
+     */
+    showTrendLines?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
+    /** @nullable */
+    useUdf?: boolean | null
+}
+
+export type FunnelsQueryKind = (typeof FunnelsQueryKind)[keyof typeof FunnelsQueryKind]
+
+export const FunnelsQueryKind = {
+    FunnelsQuery: 'FunnelsQuery',
+} as const
+
+export interface FunnelsQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface FunnelsQuery {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** Breakdown of the events and actions */
+    breakdownFilter?: BreakdownFilter | null
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** Date range for the query */
+    dateRange?: DateRange | null
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /** Properties specific to the funnels insight */
+    funnelsFilter?: FunnelsFilter | null
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType | null
+    kind?: FunnelsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Property filters for all series */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | PropertyGroupFilter
+        | null
+    response?: FunnelsQueryResponse | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: (GroupNode | EventsNode | ActionsNode | DataWarehouseNode)[]
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RetentionQueryKind = (typeof RetentionQueryKind)[keyof typeof RetentionQueryKind]
+
+export const RetentionQueryKind = {
+    RetentionQuery: 'RetentionQuery',
+} as const
+
+export interface RetentionValue {
+    /** @nullable */
+    aggregation_value?: number | null
+    count: number
+    /** @nullable */
+    label?: string | null
+}
+
+export interface RetentionResult {
+    /** Optional breakdown value for retention cohorts */
+    breakdown_value?: string | number | null
+    date: string
+    label: string
+    values: RetentionValue[]
+}
+
+export interface RetentionQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RetentionResult[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type AggregationPropertyType = (typeof AggregationPropertyType)[keyof typeof AggregationPropertyType]
+
+export const AggregationPropertyType = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
+export type AggregationType = (typeof AggregationType)[keyof typeof AggregationType]
+
+export const AggregationType = {
+    Count: 'count',
+    Sum: 'sum',
+    Avg: 'avg',
+} as const
+
+export type RetentionDashboardDisplayType =
+    (typeof RetentionDashboardDisplayType)[keyof typeof RetentionDashboardDisplayType]
+
+export const RetentionDashboardDisplayType = {
+    TableOnly: 'table_only',
+    GraphOnly: 'graph_only',
+    All: 'all',
+} as const
+
+export type MeanRetentionCalculation = (typeof MeanRetentionCalculation)[keyof typeof MeanRetentionCalculation]
+
+export const MeanRetentionCalculation = {
+    Simple: 'simple',
+    Weighted: 'weighted',
+    None: 'none',
+} as const
+
+export type RetentionPeriod = (typeof RetentionPeriod)[keyof typeof RetentionPeriod]
+
+export const RetentionPeriod = {
+    Hour: 'Hour',
+    Day: 'Day',
+    Week: 'Week',
+    Month: 'Month',
+} as const
+
+export type RetentionReference = (typeof RetentionReference)[keyof typeof RetentionReference]
+
+export const RetentionReference = {
+    Total: 'total',
+    Previous: 'previous',
+} as const
+
+export type RetentionType = (typeof RetentionType)[keyof typeof RetentionType]
+
+export const RetentionType = {
+    RetentionRecurring: 'retention_recurring',
+    RetentionFirstTime: 'retention_first_time',
+    RetentionFirstEverOccurrence: 'retention_first_ever_occurrence',
+} as const
+
+export type RetentionEntityKind = (typeof RetentionEntityKind)[keyof typeof RetentionEntityKind]
+
+export const RetentionEntityKind = {
+    ActionsNode: 'ActionsNode',
+    EventsNode: 'EventsNode',
+} as const
+
+export type EntityType = (typeof EntityType)[keyof typeof EntityType]
+
+export const EntityType = {
+    Actions: 'actions',
+    Events: 'events',
+    DataWarehouse: 'data_warehouse',
+    NewEntity: 'new_entity',
+    Groups: 'groups',
+} as const
+
+export interface RetentionEntity {
+    /** @nullable */
+    custom_name?: string | null
+    id?: string | number | null
+    kind?: RetentionEntityKind | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    order?: number | null
+    /**
+     * filters on the event
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    type?: EntityType | null
+    /** @nullable */
+    uuid?: string | null
+}
+
+export type TimeWindowMode = (typeof TimeWindowMode)[keyof typeof TimeWindowMode]
+
+export const TimeWindowMode = {
+    StrictCalendarDates: 'strict_calendar_dates',
+    '24HourWindows': '24_hour_windows',
+} as const
+
+export interface RetentionFilter {
+    /**
+     * The property to aggregate when aggregationType is sum or avg
+     * @nullable
+     */
+    aggregationProperty?: string | null
+    /** The type of property to aggregate on (event or person). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyType | null
+    /** The aggregation type to use for retention */
+    aggregationType?: AggregationType | null
+    /** @nullable */
+    cumulative?: boolean | null
+    dashboardDisplay?: RetentionDashboardDisplayType | null
+    /** controls the display of the retention graph */
+    display?: ChartDisplayType | null
+    /** @nullable */
+    goalLines?: GoalLine[] | null
+    meanRetentionCalculation?: MeanRetentionCalculation | null
+    /** @nullable */
+    minimumOccurrences?: number | null
+    period?: RetentionPeriod | null
+    /**
+     * Custom brackets for retention calculations
+     * @nullable
+     */
+    retentionCustomBrackets?: number[] | null
+    /** Whether retention is with regard to initial cohort size, or that of the previous period. */
+    retentionReference?: RetentionReference | null
+    retentionType?: RetentionType | null
+    returningEntity?: RetentionEntity | null
+    /**
+     * The selected interval to display across all cohorts (null = show all intervals for each cohort)
+     * @nullable
+     */
+    selectedInterval?: number | null
+    /** @nullable */
+    showTrendLines?: boolean | null
+    targetEntity?: RetentionEntity | null
+    /** The time window mode to use for retention calculations */
+    timeWindowMode?: TimeWindowMode | null
+    /** @nullable */
+    totalIntervals?: number | null
+}
+
+export interface RetentionQuery {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** Breakdown of the events and actions */
+    breakdownFilter?: BreakdownFilter | null
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** Date range for the query */
+    dateRange?: DateRange | null
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    kind?: RetentionQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Property filters for all series */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | PropertyGroupFilter
+        | null
+    response?: RetentionQueryResponse | null
+    /** Properties specific to the retention insight */
+    retentionFilter: RetentionFilter
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FunnelPathType = (typeof FunnelPathType)[keyof typeof FunnelPathType]
+
+export const FunnelPathType = {
+    FunnelPathBeforeStep: 'funnel_path_before_step',
+    FunnelPathBetweenSteps: 'funnel_path_between_steps',
+    FunnelPathAfterStep: 'funnel_path_after_step',
+} as const
+
+export interface FunnelPathsFilter {
+    funnelPathType?: FunnelPathType | null
+    funnelSource: FunnelsQuery
+    /** @nullable */
+    funnelStep?: number | null
+}
+
+export type PathsQueryKind = (typeof PathsQueryKind)[keyof typeof PathsQueryKind]
+
+export const PathsQueryKind = {
+    PathsQuery: 'PathsQuery',
+} as const
+
+export type PathType = (typeof PathType)[keyof typeof PathType]
+
+export const PathType = {
+    Pageview: '$pageview',
+    Screen: '$screen',
+    CustomEvent: 'custom_event',
+    Hogql: 'hogql',
+} as const
+
+export interface PathCleaningFilter {
+    /** @nullable */
+    alias?: string | null
+    /** @nullable */
+    order?: number | null
+    /** @nullable */
+    regex?: string | null
+}
+
+export interface PathsFilter {
+    /** @nullable */
+    edgeLimit?: number | null
+    /** @nullable */
+    endPoint?: string | null
+    /** @nullable */
+    excludeEvents?: string[] | null
+    /** @nullable */
+    includeEventTypes?: PathType[] | null
+    /** @nullable */
+    localPathCleaningFilters?: PathCleaningFilter[] | null
+    /** @nullable */
+    maxEdgeWeight?: number | null
+    /** @nullable */
+    minEdgeWeight?: number | null
+    /**
+     * Relevant only within actors query
+     * @nullable
+     */
+    pathDropoffKey?: string | null
+    /**
+     * Relevant only within actors query
+     * @nullable
+     */
+    pathEndKey?: string | null
+    /** @nullable */
+    pathGroupings?: string[] | null
+    /** @nullable */
+    pathReplacements?: boolean | null
+    /**
+     * Relevant only within actors query
+     * @nullable
+     */
+    pathStartKey?: string | null
+    /** @nullable */
+    pathsHogQLExpression?: string | null
+    /** @nullable */
+    showFullUrls?: boolean | null
+    /** @nullable */
+    startPoint?: string | null
+    /** @nullable */
+    stepLimit?: number | null
+}
+
+export interface PathsLink {
+    average_conversion_time: number
+    source: string
+    target: string
+    value: number
+}
+
+export interface PathsQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: PathsLink[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface PathsQuery {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** Date range for the query */
+    dateRange?: DateRange | null
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /** Used for displaying paths in relation to funnel steps. */
+    funnelPathsFilter?: FunnelPathsFilter | null
+    kind?: PathsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Properties specific to the paths insight */
+    pathsFilter: PathsFilter
+    /** Property filters for all series */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | PropertyGroupFilter
+        | null
+    response?: PathsQueryResponse | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type StickinessQueryKind = (typeof StickinessQueryKind)[keyof typeof StickinessQueryKind]
+
+export const StickinessQueryKind = {
+    StickinessQuery: 'StickinessQuery',
+} as const
+
+export type StickinessQueryResponseResultsItem = { [key: string]: unknown }
+
+export interface StickinessQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: StickinessQueryResponseResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type StickinessComputationMode = (typeof StickinessComputationMode)[keyof typeof StickinessComputationMode]
+
+export const StickinessComputationMode = {
+    NonCumulative: 'non_cumulative',
+    Cumulative: 'cumulative',
+} as const
+
+export type StickinessOperator = (typeof StickinessOperator)[keyof typeof StickinessOperator]
+
+export const StickinessOperator = {
+    Gte: 'gte',
+    Lte: 'lte',
+    Exact: 'exact',
+} as const
+
+export interface StickinessCriteria {
+    operator: StickinessOperator
+    value: number
+}
+
+/**
+ * Customizations for the appearance of result datasets.
+ */
+export type StickinessFilterResultCustomizations =
+    | { [key: string]: ResultCustomizationByValue }
+    | { [key: string]: ResultCustomizationByPosition }
+    | null
+
+export interface StickinessFilter {
+    computedAs?: StickinessComputationMode | null
+    display?: ChartDisplayType | null
+    /** @nullable */
+    hiddenLegendIndexes?: number[] | null
+    /** Whether result datasets are associated by their values or by their order. */
+    resultCustomizationBy?: ResultCustomizationBy | null
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?: StickinessFilterResultCustomizations
+    /** @nullable */
+    showLegend?: boolean | null
+    /** @nullable */
+    showMultipleYAxes?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
+    stickinessCriteria?: StickinessCriteria | null
+}
+
+export interface StickinessQuery {
+    /** Compare to date range */
+    compareFilter?: CompareFilter | null
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** Date range for the query */
+    dateRange?: DateRange | null
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType | null
+    /**
+     * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     * @nullable
+     */
+    intervalCount?: number | null
+    kind?: StickinessQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Property filters for all series */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | PropertyGroupFilter
+        | null
+    response?: StickinessQueryResponse | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    /** Properties specific to the stickiness insight */
+    stickinessFilter?: StickinessFilter | null
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type LifecycleQueryKind = (typeof LifecycleQueryKind)[keyof typeof LifecycleQueryKind]
+
+export const LifecycleQueryKind = {
+    LifecycleQuery: 'LifecycleQuery',
+} as const
+
+export type LifecycleToggle = (typeof LifecycleToggle)[keyof typeof LifecycleToggle]
+
+export const LifecycleToggle = {
+    New: 'new',
+    Resurrecting: 'resurrecting',
+    Returning: 'returning',
+    Dormant: 'dormant',
+} as const
+
+export interface LifecycleFilter {
+    /** @nullable */
+    showLegend?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
+    /** @nullable */
+    stacked?: boolean | null
+    /** @nullable */
+    toggledLifecycles?: LifecycleToggle[] | null
+}
+
+export type LifecycleQueryResponseResultsItem = { [key: string]: unknown }
+
+export interface LifecycleQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: LifecycleQueryResponseResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface LifecycleQuery {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** Date range for the query */
+    dateRange?: DateRange | null
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType | null
+    kind?: LifecycleQueryKind
+    /** Properties specific to the lifecycle insight */
+    lifecycleFilter?: LifecycleFilter | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Property filters for all series */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | PropertyGroupFilter
+        | null
+    response?: LifecycleQueryResponse | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type WebStatsBreakdown = (typeof WebStatsBreakdown)[keyof typeof WebStatsBreakdown]
+
+export const WebStatsBreakdown = {
+    Page: 'Page',
+    InitialPage: 'InitialPage',
+    ExitPage: 'ExitPage',
+    ExitClick: 'ExitClick',
+    PreviousPage: 'PreviousPage',
+    ScreenName: 'ScreenName',
+    InitialChannelType: 'InitialChannelType',
+    InitialReferringDomain: 'InitialReferringDomain',
+    InitialUTMSource: 'InitialUTMSource',
+    InitialUTMCampaign: 'InitialUTMCampaign',
+    InitialUTMMedium: 'InitialUTMMedium',
+    InitialUTMTerm: 'InitialUTMTerm',
+    InitialUTMContent: 'InitialUTMContent',
+    InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
+    Browser: 'Browser',
+    Os: 'OS',
+    Viewport: 'Viewport',
+    DeviceType: 'DeviceType',
+    Country: 'Country',
+    Region: 'Region',
+    City: 'City',
+    Timezone: 'Timezone',
+    Language: 'Language',
+    FrustrationMetrics: 'FrustrationMetrics',
+} as const
+
+export type WebStatsTableQueryKind = (typeof WebStatsTableQueryKind)[keyof typeof WebStatsTableQueryKind]
+
+export const WebStatsTableQueryKind = {
+    WebStatsTableQuery: 'WebStatsTableQuery',
+} as const
+
+export type WebAnalyticsOrderByFields = (typeof WebAnalyticsOrderByFields)[keyof typeof WebAnalyticsOrderByFields]
+
+export const WebAnalyticsOrderByFields = {
+    Visitors: 'Visitors',
+    Views: 'Views',
+    AvgTimeOnPage: 'AvgTimeOnPage',
+    Clicks: 'Clicks',
+    BounceRate: 'BounceRate',
+    AverageScrollPercentage: 'AverageScrollPercentage',
+    ScrollGt80Percentage: 'ScrollGt80Percentage',
+    TotalConversions: 'TotalConversions',
+    UniqueConversions: 'UniqueConversions',
+    ConversionRate: 'ConversionRate',
+    ConvertingUsers: 'ConvertingUsers',
+    RageClicks: 'RageClicks',
+    DeadClicks: 'DeadClicks',
+    Errors: 'Errors',
+} as const
+
+export type WebAnalyticsOrderByDirection =
+    (typeof WebAnalyticsOrderByDirection)[keyof typeof WebAnalyticsOrderByDirection]
+
+export const WebAnalyticsOrderByDirection = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+export interface SamplingRate {
+    /** @nullable */
+    denominator?: number | null
+    numerator: number
+}
+
+export interface WebStatsTableQueryResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export interface WebAnalyticsSampling {
+    /** @nullable */
+    enabled?: boolean | null
+    forceSamplingRate?: SamplingRate | null
+}
+
+export const WebStatsTableQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
+export interface WebStatsTableQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    breakdownBy: WebStatsBreakdown
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeAvgTimeOnPage?: boolean | null
+    /** @nullable */
+    includeBounceRate?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** @nullable */
+    includeScrollDepth?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: WebStatsTableQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: (typeof WebStatsTableQueryOrderByItem)[keyof typeof WebStatsTableQueryOrderByItem][] | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: WebStatsTableQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type WebOverviewQueryKind = (typeof WebOverviewQueryKind)[keyof typeof WebOverviewQueryKind]
+
+export const WebOverviewQueryKind = {
+    WebOverviewQuery: 'WebOverviewQuery',
+} as const
+
+export type WebAnalyticsItemKind = (typeof WebAnalyticsItemKind)[keyof typeof WebAnalyticsItemKind]
+
+export const WebAnalyticsItemKind = {
+    Unit: 'unit',
+    DurationS: 'duration_s',
+    Percentage: 'percentage',
+    Currency: 'currency',
+} as const
+
+export interface WebOverviewItem {
+    /** @nullable */
+    changeFromPreviousPct?: number | null
+    /** @nullable */
+    isIncreaseBad?: boolean | null
+    key: string
+    kind: WebAnalyticsItemKind
+    /** @nullable */
+    previous?: number | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+    /** @nullable */
+    value?: number | null
+}
+
+export interface WebOverviewQueryResponse {
+    /** @nullable */
+    dateFrom?: string | null
+    /** @nullable */
+    dateTo?: string | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: WebOverviewItem[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export const WebOverviewQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
+export interface WebOverviewQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: WebOverviewQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    orderBy?: (typeof WebOverviewQueryOrderByItem)[keyof typeof WebOverviewQueryOrderByItem][] | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: WebOverviewQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface InsightActorsQuery {
+    breakdown?: string | string[] | number | null
+    compare?: Compare | null
+    day?: string | number | null
+    /** @nullable */
+    includeRecordings?: boolean | null
+    /**
+     * An interval selected out of available intervals in source query.
+     * @nullable
+     */
+    interval?: number | null
+    kind?: InsightActorsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: ActorsQueryResponse | null
+    /** @nullable */
+    series?: number | null
+    source:
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | WebStatsTableQuery
+        | WebOverviewQuery
+    /** @nullable */
+    status?: string | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FunnelsActorsQueryKind = (typeof FunnelsActorsQueryKind)[keyof typeof FunnelsActorsQueryKind]
+
+export const FunnelsActorsQueryKind = {
+    FunnelsActorsQuery: 'FunnelsActorsQuery',
+} as const
+
+export interface FunnelsActorsQuery {
+    /**
+     * Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.
+     * @nullable
+     */
+    funnelStep?: number | null
+    /** The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts. */
+    funnelStepBreakdown?: number | string | number | (number | string | number)[] | null
+    /** @nullable */
+    funnelTrendsDropOff?: boolean | null
+    /**
+     * Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.
+     * @nullable
+     */
+    funnelTrendsEntrancePeriodStart?: string | null
+    /** @nullable */
+    includeRecordings?: boolean | null
+    kind?: FunnelsActorsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: ActorsQueryResponse | null
+    source: FunnelsQuery
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FunnelCorrelationActorsQueryKind =
+    (typeof FunnelCorrelationActorsQueryKind)[keyof typeof FunnelCorrelationActorsQueryKind]
+
+export const FunnelCorrelationActorsQueryKind = {
+    FunnelCorrelationActorsQuery: 'FunnelCorrelationActorsQuery',
+} as const
+
+export type FunnelCorrelationResultsType =
+    (typeof FunnelCorrelationResultsType)[keyof typeof FunnelCorrelationResultsType]
+
+export const FunnelCorrelationResultsType = {
+    Events: 'events',
+    Properties: 'properties',
+    EventWithProperties: 'event_with_properties',
+} as const
+
+export type FunnelCorrelationQueryKind = (typeof FunnelCorrelationQueryKind)[keyof typeof FunnelCorrelationQueryKind]
+
+export const FunnelCorrelationQueryKind = {
+    FunnelCorrelationQuery: 'FunnelCorrelationQuery',
+} as const
+
+export type CorrelationType = (typeof CorrelationType)[keyof typeof CorrelationType]
+
+export const CorrelationType = {
+    Success: 'success',
+    Failure: 'failure',
+} as const
+
+export type EventDefinitionProperties = { [key: string]: unknown }
+
+export interface EventDefinition {
+    elements: unknown[]
+    event: string
+    properties: EventDefinitionProperties
+}
+
+export interface EventOddsRatioSerialized {
+    correlation_type: CorrelationType
+    event: EventDefinition
+    failure_count: number
+    odds_ratio: number
+    success_count: number
+}
+
+export interface FunnelCorrelationResult {
+    events: EventOddsRatioSerialized[]
+    skewed: boolean
+}
+
+export interface FunnelCorrelationResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: FunnelCorrelationResult
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface FunnelCorrelationQuery {
+    /** @nullable */
+    funnelCorrelationEventExcludePropertyNames?: string[] | null
+    /** @nullable */
+    funnelCorrelationEventNames?: string[] | null
+    /** @nullable */
+    funnelCorrelationExcludeEventNames?: string[] | null
+    /** @nullable */
+    funnelCorrelationExcludeNames?: string[] | null
+    /** @nullable */
+    funnelCorrelationNames?: string[] | null
+    funnelCorrelationType: FunnelCorrelationResultsType
+    kind?: FunnelCorrelationQueryKind
+    response?: FunnelCorrelationResponse | null
+    source: FunnelsActorsQuery
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface FunnelCorrelationActorsQuery {
+    /** @nullable */
+    funnelCorrelationPersonConverted?: boolean | null
+    funnelCorrelationPersonEntity?: EventsNode | ActionsNode | DataWarehouseNode | null
+    /** @nullable */
+    funnelCorrelationPropertyValues?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    includeRecordings?: boolean | null
+    kind?: FunnelCorrelationActorsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: ActorsQueryResponse | null
+    source: FunnelCorrelationQuery
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type StickinessActorsQueryKind = (typeof StickinessActorsQueryKind)[keyof typeof StickinessActorsQueryKind]
+
+export const StickinessActorsQueryKind = {
+    StickinessActorsQuery: 'StickinessActorsQuery',
+} as const
+
+export interface StickinessActorsQuery {
+    compare?: Compare | null
+    day?: string | number | null
+    /** @nullable */
+    includeRecordings?: boolean | null
+    kind?: StickinessActorsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    operator?: StickinessOperator | null
+    response?: ActorsQueryResponse | null
+    /** @nullable */
+    series?: number | null
+    source: StickinessQuery
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface HogQLFilters {
+    dateRange?: DateRange | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+}
+
+export type HogQLQueryKind = (typeof HogQLQueryKind)[keyof typeof HogQLQueryKind]
+
+export const HogQLQueryKind = {
+    HogQLQuery: 'HogQLQuery',
+} as const
+
+export interface HogQLNotice {
+    /** @nullable */
+    end?: number | null
+    /** @nullable */
+    fix?: string | null
+    message: string
+    /** @nullable */
+    start?: number | null
+}
+
+export type QueryIndexUsage = (typeof QueryIndexUsage)[keyof typeof QueryIndexUsage]
+
+export const QueryIndexUsage = {
+    Undecisive: 'undecisive',
+    No: 'no',
+    Partial: 'partial',
+    Yes: 'yes',
+} as const
+
+export interface HogQLMetadataResponse {
+    /** @nullable */
+    ch_table_names?: string[] | null
+    errors: HogQLNotice[]
+    isUsingIndices?: QueryIndexUsage | null
+    /** @nullable */
+    isValid?: boolean | null
+    notices: HogQLNotice[]
+    /** @nullable */
+    query?: string | null
+    /** @nullable */
+    table_names?: string[] | null
+    warnings: HogQLNotice[]
+}
+
+export interface HogQLQueryResponse {
+    /**
+     * Executed ClickHouse query
+     * @nullable
+     */
+    clickhouse?: string | null
+    /**
+     * Returned columns
+     * @nullable
+     */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Query explanation output
+     * @nullable
+     */
+    explain?: string[] | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Input query string
+     * @nullable
+     */
+    query?: string | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /**
+     * Types of returned columns
+     * @nullable
+     */
+    types?: unknown[] | null
+}
+
+export interface HogQLVariable {
+    code_name: string
+    /** @nullable */
+    isNull?: boolean | null
+    value?: unknown | null
+    variableId: string
+}
+
+/**
+ * Constant values that can be referenced with the {placeholder} syntax in the query
+ * @nullable
+ */
+export type HogQLQueryValues = { [key: string]: unknown } | null | null
+
+/**
+ * Variables to be substituted into the query
+ * @nullable
+ */
+export type HogQLQueryVariables = { [key: string]: HogQLVariable } | null | null
+
+export interface HogQLQuery {
+    /** @nullable */
+    explain?: boolean | null
+    filters?: HogQLFilters | null
+    kind?: HogQLQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Client provided name of the query
+     * @nullable
+     */
+    name?: string | null
+    query: string
+    response?: HogQLQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * Constant values that can be referenced with the {placeholder} syntax in the query
+     * @nullable
+     */
+    values?: HogQLQueryValues
+    /**
+     * Variables to be substituted into the query
+     * @nullable
+     */
+    variables?: HogQLQueryVariables
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface ActorsQuery {
+    /**
+     * Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.
+     * @nullable
+     */
+    fixedProperties?: (PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null
+    kind?: ActorsQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: string[] | null
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    properties?:
+        | (PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[]
+        | PropertyGroupFilterValue
+        | null
+    response?: ActorsQueryResponse | null
+    /** @nullable */
+    search?: string | null
+    /** @nullable */
+    select?: string[] | null
+    source?:
+        | InsightActorsQuery
+        | FunnelsActorsQuery
+        | FunnelCorrelationActorsQuery
+        | StickinessActorsQuery
+        | HogQLQuery
+        | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * * `product_analytics` - product_analytics
+ * `sql` - sql
+ * `session_replay` - session_replay
+ * `error_tracking` - error_tracking
+ * `plan` - plan
+ * `execution` - execution
+ * `survey` - survey
+ * `onboarding` - onboarding
+ * `research` - research
+ * `flags` - flags
+ * `llm_analytics` - llm_analytics
+ */
+export type AgentModeEnum = (typeof AgentModeEnum)[keyof typeof AgentModeEnum]
+
+export const AgentModeEnum = {
+    ProductAnalytics: 'product_analytics',
+    Sql: 'sql',
+    SessionReplay: 'session_replay',
+    ErrorTracking: 'error_tracking',
+    Plan: 'plan',
+    Execution: 'execution',
+    Survey: 'survey',
+    Onboarding: 'onboarding',
+    Research: 'research',
+    Flags: 'flags',
+    LlmAnalytics: 'llm_analytics',
+} as const
+
+export interface InsightsThresholdBounds {
+    /** @nullable */
+    lower?: number | null
+    /** @nullable */
+    upper?: number | null
+}
+
+export type InsightThresholdType = (typeof InsightThresholdType)[keyof typeof InsightThresholdType]
+
+export const InsightThresholdType = {
+    Absolute: 'absolute',
+    Percentage: 'percentage',
+} as const
+
+export interface InsightThreshold {
+    bounds?: InsightsThresholdBounds | null
+    type: InsightThresholdType
+}
+
+export interface Threshold {
+    readonly id: string
+    readonly created_at: string
+    /** @maxLength 255 */
+    name?: string
+    configuration: InsightThreshold
+}
+
+export type AlertConditionType = (typeof AlertConditionType)[keyof typeof AlertConditionType]
+
+export const AlertConditionType = {
+    AbsoluteValue: 'absolute_value',
+    RelativeIncrease: 'relative_increase',
+    RelativeDecrease: 'relative_decrease',
+} as const
+
+export interface AlertCondition {
+    type: AlertConditionType
+}
+
+/**
+ * * `Firing` - Firing
+ * `Not firing` - Not firing
+ * `Errored` - Errored
+ * `Snoozed` - Snoozed
+ */
+export type State66aEnum = (typeof State66aEnum)[keyof typeof State66aEnum]
+
+export const State66aEnum = {
+    Firing: 'Firing',
+    NotFiring: 'Not firing',
+    Errored: 'Errored',
+    Snoozed: 'Snoozed',
+} as const
+
+export interface AlertCheck {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly calculated_value: number | null
+    readonly state: State66aEnum
+    readonly targets_notified: boolean
+}
+
+export type TrendsAlertConfigType = (typeof TrendsAlertConfigType)[keyof typeof TrendsAlertConfigType]
+
+export const TrendsAlertConfigType = {
+    TrendsAlertConfig: 'TrendsAlertConfig',
+} as const
+
+export interface TrendsAlertConfig {
+    /** @nullable */
+    check_ongoing_interval?: boolean | null
+    series_index: number
+    type?: TrendsAlertConfigType
+}
+
+/**
+ * * `hourly` - hourly
+ * `daily` - daily
+ * `weekly` - weekly
+ * `monthly` - monthly
+ */
+export type CalculationIntervalEnum = (typeof CalculationIntervalEnum)[keyof typeof CalculationIntervalEnum]
+
+export const CalculationIntervalEnum = {
+    Hourly: 'hourly',
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+} as const
+
+export interface Alert {
+    readonly id: string
+    readonly created_by: UserBasic
+    readonly created_at: string
+    /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
+    insight: number
+    /** @maxLength 255 */
+    name?: string
+    /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
+    subscribed_users: number[]
+    threshold: Threshold
+    condition?: AlertCondition | null
+    readonly state: State66aEnum
+    enabled?: boolean
+    /** @nullable */
+    readonly last_notified_at: string | null
+    /** @nullable */
+    readonly last_checked_at: string | null
+    /** @nullable */
+    readonly next_check_at: string | null
+    readonly checks: readonly AlertCheck[]
+    config?: TrendsAlertConfig | null
+    calculation_interval?: CalculationIntervalEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    snoozed_until?: string | null
+    /** @nullable */
+    skip_weekend?: boolean | null
+    /** @nullable */
+    readonly last_value: number | null
+}
+
+/**
+ * * `trace` - trace
+ * `generation` - generation
+ */
+export type AnalysisLevelEnum = (typeof AnalysisLevelEnum)[keyof typeof AnalysisLevelEnum]
+
+export const AnalysisLevelEnum = {
+    Trace: 'trace',
+    Generation: 'generation',
+} as const
+
+/**
+ * * `USR` - user
+ * `GIT` - GitHub
+ */
+export type CreationTypeEnum = (typeof CreationTypeEnum)[keyof typeof CreationTypeEnum]
+
+export const CreationTypeEnum = {
+    Usr: 'USR',
+    Git: 'GIT',
+} as const
+
+/**
+ * * `dashboard_item` - insight
+ * `dashboard` - dashboard
+ * `project` - project
+ * `organization` - organization
+ * `recording` - recording
+ */
+export type AnnotationScopeEnum = (typeof AnnotationScopeEnum)[keyof typeof AnnotationScopeEnum]
+
+export const AnnotationScopeEnum = {
+    DashboardItem: 'dashboard_item',
+    Dashboard: 'dashboard',
+    Project: 'project',
+    Organization: 'organization',
+    Recording: 'recording',
+} as const
+
+export interface Annotation {
+    readonly id: number
+    /**
+     * @maxLength 8192
+     * @nullable
+     */
+    content?: string | null
+    /** @nullable */
+    date_marker?: string | null
+    creation_type?: CreationTypeEnum
+    /** @nullable */
+    dashboard_item?: number | null
+    /** @nullable */
+    dashboard_id?: number | null
+    /** @nullable */
+    readonly dashboard_name: string | null
+    /** @nullable */
+    readonly insight_short_id: string | null
+    /** @nullable */
+    readonly insight_name: string | null
+    /** @nullable */
+    readonly insight_derived_name: string | null
+    readonly created_by: UserBasic
+    /** @nullable */
+    readonly created_at: string | null
+    readonly updated_at: string
+    deleted?: boolean
+    scope?: AnnotationScopeEnum
+}
+
+/**
+ * Serializer for individual transcript segments from AssemblyAI
+ */
+export interface TranscriptSegment {
+    /**
+     * Milliseconds from recording start
+     * @nullable
+     */
+    timestamp?: number | null
+    /** @nullable */
+    speaker?: string | null
+    text: string
+    /**
+     * Transcription confidence score
+     * @nullable
+     */
+    confidence?: number | null
+    /**
+     * Whether this is the final version
+     * @nullable
+     */
+    is_final?: boolean | null
+}
+
+/**
+ * Serializer for appending transcript segments (supports batched real-time uploads)
+ */
+export interface AppendSegments {
+    /** @minItems 1 */
+    segments: TranscriptSegment[]
+}
+
+export interface ApprovalPolicy {
+    readonly id: string
+    /** @maxLength 128 */
+    action_key: string
+    conditions?: unknown
+    approver_config: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by: UserBasic
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+/**
+ * * `first_touch` - First Touch
+ * `last_touch` - Last Touch
+ */
+export type AttributionModeEnum = (typeof AttributionModeEnum)[keyof typeof AttributionModeEnum]
+
+export const AttributionModeEnum = {
+    FirstTouch: 'first_touch',
+    LastTouch: 'last_touch',
+} as const
+
+export type AutocompleteCompletionItemKind =
+    (typeof AutocompleteCompletionItemKind)[keyof typeof AutocompleteCompletionItemKind]
+
+export const AutocompleteCompletionItemKind = {
+    Method: 'Method',
+    Function: 'Function',
+    Constructor: 'Constructor',
+    Field: 'Field',
+    Variable: 'Variable',
+    Class: 'Class',
+    Struct: 'Struct',
+    Interface: 'Interface',
+    Module: 'Module',
+    Property: 'Property',
+    Event: 'Event',
+    Operator: 'Operator',
+    Unit: 'Unit',
+    Value: 'Value',
+    Constant: 'Constant',
+    Enum: 'Enum',
+    EnumMember: 'EnumMember',
+    Keyword: 'Keyword',
+    Text: 'Text',
+    Color: 'Color',
+    File: 'File',
+    Reference: 'Reference',
+    Customcolor: 'Customcolor',
+    Folder: 'Folder',
+    TypeParameter: 'TypeParameter',
+    User: 'User',
+    Issue: 'Issue',
+    Snippet: 'Snippet',
+} as const
+
+export interface AutocompleteCompletionItem {
+    /**
+     * A human-readable string with additional information about this item, like type or symbol information.
+     * @nullable
+     */
+    detail?: string | null
+    /**
+     * A human-readable string that represents a doc-comment.
+     * @nullable
+     */
+    documentation?: string | null
+    /** A string or snippet that should be inserted in a document when selecting this completion. */
+    insertText: string
+    /** The kind of this completion item. Based on the kind an icon is chosen by the editor. */
+    kind: AutocompleteCompletionItemKind
+    /** The label of this completion item. By default this is also the text that is inserted when selecting this completion. */
+    label: string
+}
+
+/**
+ * * `ingest_first_event` - ingest_first_event
+ * `set_up_reverse_proxy` - set_up_reverse_proxy
+ * `create_first_insight` - create_first_insight
+ * `create_first_dashboard` - create_first_dashboard
+ * `track_custom_events` - track_custom_events
+ * `define_actions` - define_actions
+ * `set_up_cohorts` - set_up_cohorts
+ * `explore_trends_insight` - explore_trends_insight
+ * `create_funnel` - create_funnel
+ * `explore_retention_insight` - explore_retention_insight
+ * `explore_paths_insight` - explore_paths_insight
+ * `explore_stickiness_insight` - explore_stickiness_insight
+ * `explore_lifecycle_insight` - explore_lifecycle_insight
+ * `add_authorized_domain` - add_authorized_domain
+ * `set_up_web_vitals` - set_up_web_vitals
+ * `review_web_analytics_dashboard` - review_web_analytics_dashboard
+ * `filter_web_analytics` - filter_web_analytics
+ * `set_up_web_analytics_conversion_goals` - set_up_web_analytics_conversion_goals
+ * `visit_web_vitals_dashboard` - visit_web_vitals_dashboard
+ * `setup_session_recordings` - setup_session_recordings
+ * `watch_session_recording` - watch_session_recording
+ * `configure_recording_settings` - configure_recording_settings
+ * `create_recording_playlist` - create_recording_playlist
+ * `enable_console_logs` - enable_console_logs
+ * `create_feature_flag` - create_feature_flag
+ * `implement_flag_in_code` - implement_flag_in_code
+ * `update_feature_flag_release_conditions` - update_feature_flag_release_conditions
+ * `create_multivariate_flag` - create_multivariate_flag
+ * `set_up_flag_payloads` - set_up_flag_payloads
+ * `set_up_flag_evaluation_runtimes` - set_up_flag_evaluation_runtimes
+ * `create_experiment` - create_experiment
+ * `implement_experiment_variants` - implement_experiment_variants
+ * `launch_experiment` - launch_experiment
+ * `review_experiment_results` - review_experiment_results
+ * `create_survey` - create_survey
+ * `launch_survey` - launch_survey
+ * `collect_survey_responses` - collect_survey_responses
+ * `connect_source` - connect_source
+ * `run_first_query` - run_first_query
+ * `join_external_data` - join_external_data
+ * `create_saved_view` - create_saved_view
+ * `enable_error_tracking` - enable_error_tracking
+ * `upload_source_maps` - upload_source_maps
+ * `view_first_error` - view_first_error
+ * `resolve_first_error` - resolve_first_error
+ * `ingest_first_llm_event` - ingest_first_llm_event
+ * `view_first_trace` - view_first_trace
+ * `track_costs` - track_costs
+ * `set_up_llm_evaluation` - set_up_llm_evaluation
+ * `run_ai_playground` - run_ai_playground
+ * `enable_revenue_analytics_viewset` - enable_revenue_analytics_viewset
+ * `connect_revenue_source` - connect_revenue_source
+ * `set_up_revenue_goal` - set_up_revenue_goal
+ * `enable_log_capture` - enable_log_capture
+ * `view_first_logs` - view_first_logs
+ * `create_first_workflow` - create_first_workflow
+ * `set_up_first_workflow_channel` - set_up_first_workflow_channel
+ * `configure_workflow_trigger` - configure_workflow_trigger
+ * `add_workflow_action` - add_workflow_action
+ * `launch_workflow` - launch_workflow
+ * `create_first_endpoint` - create_first_endpoint
+ * `configure_endpoint` - configure_endpoint
+ * `test_endpoint` - test_endpoint
+ * `create_early_access_feature` - create_early_access_feature
+ * `update_feature_stage` - update_feature_stage
+ */
+export type AvailableSetupTaskIdsEnum = (typeof AvailableSetupTaskIdsEnum)[keyof typeof AvailableSetupTaskIdsEnum]
+
+export const AvailableSetupTaskIdsEnum = {
+    IngestFirstEvent: 'ingest_first_event',
+    SetUpReverseProxy: 'set_up_reverse_proxy',
+    CreateFirstInsight: 'create_first_insight',
+    CreateFirstDashboard: 'create_first_dashboard',
+    TrackCustomEvents: 'track_custom_events',
+    DefineActions: 'define_actions',
+    SetUpCohorts: 'set_up_cohorts',
+    ExploreTrendsInsight: 'explore_trends_insight',
+    CreateFunnel: 'create_funnel',
+    ExploreRetentionInsight: 'explore_retention_insight',
+    ExplorePathsInsight: 'explore_paths_insight',
+    ExploreStickinessInsight: 'explore_stickiness_insight',
+    ExploreLifecycleInsight: 'explore_lifecycle_insight',
+    AddAuthorizedDomain: 'add_authorized_domain',
+    SetUpWebVitals: 'set_up_web_vitals',
+    ReviewWebAnalyticsDashboard: 'review_web_analytics_dashboard',
+    FilterWebAnalytics: 'filter_web_analytics',
+    SetUpWebAnalyticsConversionGoals: 'set_up_web_analytics_conversion_goals',
+    VisitWebVitalsDashboard: 'visit_web_vitals_dashboard',
+    SetupSessionRecordings: 'setup_session_recordings',
+    WatchSessionRecording: 'watch_session_recording',
+    ConfigureRecordingSettings: 'configure_recording_settings',
+    CreateRecordingPlaylist: 'create_recording_playlist',
+    EnableConsoleLogs: 'enable_console_logs',
+    CreateFeatureFlag: 'create_feature_flag',
+    ImplementFlagInCode: 'implement_flag_in_code',
+    UpdateFeatureFlagReleaseConditions: 'update_feature_flag_release_conditions',
+    CreateMultivariateFlag: 'create_multivariate_flag',
+    SetUpFlagPayloads: 'set_up_flag_payloads',
+    SetUpFlagEvaluationRuntimes: 'set_up_flag_evaluation_runtimes',
+    CreateExperiment: 'create_experiment',
+    ImplementExperimentVariants: 'implement_experiment_variants',
+    LaunchExperiment: 'launch_experiment',
+    ReviewExperimentResults: 'review_experiment_results',
+    CreateSurvey: 'create_survey',
+    LaunchSurvey: 'launch_survey',
+    CollectSurveyResponses: 'collect_survey_responses',
+    ConnectSource: 'connect_source',
+    RunFirstQuery: 'run_first_query',
+    JoinExternalData: 'join_external_data',
+    CreateSavedView: 'create_saved_view',
+    EnableErrorTracking: 'enable_error_tracking',
+    UploadSourceMaps: 'upload_source_maps',
+    ViewFirstError: 'view_first_error',
+    ResolveFirstError: 'resolve_first_error',
+    IngestFirstLlmEvent: 'ingest_first_llm_event',
+    ViewFirstTrace: 'view_first_trace',
+    TrackCosts: 'track_costs',
+    SetUpLlmEvaluation: 'set_up_llm_evaluation',
+    RunAiPlayground: 'run_ai_playground',
+    EnableRevenueAnalyticsViewset: 'enable_revenue_analytics_viewset',
+    ConnectRevenueSource: 'connect_revenue_source',
+    SetUpRevenueGoal: 'set_up_revenue_goal',
+    EnableLogCapture: 'enable_log_capture',
+    ViewFirstLogs: 'view_first_logs',
+    CreateFirstWorkflow: 'create_first_workflow',
+    SetUpFirstWorkflowChannel: 'set_up_first_workflow_channel',
+    ConfigureWorkflowTrigger: 'configure_workflow_trigger',
+    AddWorkflowAction: 'add_workflow_action',
+    LaunchWorkflow: 'launch_workflow',
+    CreateFirstEndpoint: 'create_first_endpoint',
+    ConfigureEndpoint: 'configure_endpoint',
+    TestEndpoint: 'test_endpoint',
+    CreateEarlyAccessFeature: 'create_early_access_feature',
+    UpdateFeatureStage: 'update_feature_stage',
+} as const
+
+/**
+ * * `AED` - AED
+ * `AFN` - AFN
+ * `ALL` - ALL
+ * `AMD` - AMD
+ * `ANG` - ANG
+ * `AOA` - AOA
+ * `ARS` - ARS
+ * `AUD` - AUD
+ * `AWG` - AWG
+ * `AZN` - AZN
+ * `BAM` - BAM
+ * `BBD` - BBD
+ * `BDT` - BDT
+ * `BGN` - BGN
+ * `BHD` - BHD
+ * `BIF` - BIF
+ * `BMD` - BMD
+ * `BND` - BND
+ * `BOB` - BOB
+ * `BRL` - BRL
+ * `BSD` - BSD
+ * `BTC` - BTC
+ * `BTN` - BTN
+ * `BWP` - BWP
+ * `BYN` - BYN
+ * `BZD` - BZD
+ * `CAD` - CAD
+ * `CDF` - CDF
+ * `CHF` - CHF
+ * `CLP` - CLP
+ * `CNY` - CNY
+ * `COP` - COP
+ * `CRC` - CRC
+ * `CVE` - CVE
+ * `CZK` - CZK
+ * `DJF` - DJF
+ * `DKK` - DKK
+ * `DOP` - DOP
+ * `DZD` - DZD
+ * `EGP` - EGP
+ * `ERN` - ERN
+ * `ETB` - ETB
+ * `EUR` - EUR
+ * `FJD` - FJD
+ * `GBP` - GBP
+ * `GEL` - GEL
+ * `GHS` - GHS
+ * `GIP` - GIP
+ * `GMD` - GMD
+ * `GNF` - GNF
+ * `GTQ` - GTQ
+ * `GYD` - GYD
+ * `HKD` - HKD
+ * `HNL` - HNL
+ * `HRK` - HRK
+ * `HTG` - HTG
+ * `HUF` - HUF
+ * `IDR` - IDR
+ * `ILS` - ILS
+ * `INR` - INR
+ * `IQD` - IQD
+ * `IRR` - IRR
+ * `ISK` - ISK
+ * `JMD` - JMD
+ * `JOD` - JOD
+ * `JPY` - JPY
+ * `KES` - KES
+ * `KGS` - KGS
+ * `KHR` - KHR
+ * `KMF` - KMF
+ * `KRW` - KRW
+ * `KWD` - KWD
+ * `KYD` - KYD
+ * `KZT` - KZT
+ * `LAK` - LAK
+ * `LBP` - LBP
+ * `LKR` - LKR
+ * `LRD` - LRD
+ * `LTL` - LTL
+ * `LVL` - LVL
+ * `LSL` - LSL
+ * `LYD` - LYD
+ * `MAD` - MAD
+ * `MDL` - MDL
+ * `MGA` - MGA
+ * `MKD` - MKD
+ * `MMK` - MMK
+ * `MNT` - MNT
+ * `MOP` - MOP
+ * `MRU` - MRU
+ * `MTL` - MTL
+ * `MUR` - MUR
+ * `MVR` - MVR
+ * `MWK` - MWK
+ * `MXN` - MXN
+ * `MYR` - MYR
+ * `MZN` - MZN
+ * `NAD` - NAD
+ * `NGN` - NGN
+ * `NIO` - NIO
+ * `NOK` - NOK
+ * `NPR` - NPR
+ * `NZD` - NZD
+ * `OMR` - OMR
+ * `PAB` - PAB
+ * `PEN` - PEN
+ * `PGK` - PGK
+ * `PHP` - PHP
+ * `PKR` - PKR
+ * `PLN` - PLN
+ * `PYG` - PYG
+ * `QAR` - QAR
+ * `RON` - RON
+ * `RSD` - RSD
+ * `RUB` - RUB
+ * `RWF` - RWF
+ * `SAR` - SAR
+ * `SBD` - SBD
+ * `SCR` - SCR
+ * `SDG` - SDG
+ * `SEK` - SEK
+ * `SGD` - SGD
+ * `SRD` - SRD
+ * `SSP` - SSP
+ * `STN` - STN
+ * `SYP` - SYP
+ * `SZL` - SZL
+ * `THB` - THB
+ * `TJS` - TJS
+ * `TMT` - TMT
+ * `TND` - TND
+ * `TOP` - TOP
+ * `TRY` - TRY
+ * `TTD` - TTD
+ * `TWD` - TWD
+ * `TZS` - TZS
+ * `UAH` - UAH
+ * `UGX` - UGX
+ * `USD` - USD
+ * `UYU` - UYU
+ * `UZS` - UZS
+ * `VES` - VES
+ * `VND` - VND
+ * `VUV` - VUV
+ * `WST` - WST
+ * `XAF` - XAF
+ * `XCD` - XCD
+ * `XOF` - XOF
+ * `XPF` - XPF
+ * `YER` - YER
+ * `ZAR` - ZAR
+ * `ZMW` - ZMW
+ */
+export type BaseCurrencyEnum = (typeof BaseCurrencyEnum)[keyof typeof BaseCurrencyEnum]
+
+export const BaseCurrencyEnum = {
+    Aed: 'AED',
+    Afn: 'AFN',
+    All: 'ALL',
+    Amd: 'AMD',
+    Ang: 'ANG',
+    Aoa: 'AOA',
+    Ars: 'ARS',
+    Aud: 'AUD',
+    Awg: 'AWG',
+    Azn: 'AZN',
+    Bam: 'BAM',
+    Bbd: 'BBD',
+    Bdt: 'BDT',
+    Bgn: 'BGN',
+    Bhd: 'BHD',
+    Bif: 'BIF',
+    Bmd: 'BMD',
+    Bnd: 'BND',
+    Bob: 'BOB',
+    Brl: 'BRL',
+    Bsd: 'BSD',
+    Btc: 'BTC',
+    Btn: 'BTN',
+    Bwp: 'BWP',
+    Byn: 'BYN',
+    Bzd: 'BZD',
+    Cad: 'CAD',
+    Cdf: 'CDF',
+    Chf: 'CHF',
+    Clp: 'CLP',
+    Cny: 'CNY',
+    Cop: 'COP',
+    Crc: 'CRC',
+    Cve: 'CVE',
+    Czk: 'CZK',
+    Djf: 'DJF',
+    Dkk: 'DKK',
+    Dop: 'DOP',
+    Dzd: 'DZD',
+    Egp: 'EGP',
+    Ern: 'ERN',
+    Etb: 'ETB',
+    Eur: 'EUR',
+    Fjd: 'FJD',
+    Gbp: 'GBP',
+    Gel: 'GEL',
+    Ghs: 'GHS',
+    Gip: 'GIP',
+    Gmd: 'GMD',
+    Gnf: 'GNF',
+    Gtq: 'GTQ',
+    Gyd: 'GYD',
+    Hkd: 'HKD',
+    Hnl: 'HNL',
+    Hrk: 'HRK',
+    Htg: 'HTG',
+    Huf: 'HUF',
+    Idr: 'IDR',
+    Ils: 'ILS',
+    Inr: 'INR',
+    Iqd: 'IQD',
+    Irr: 'IRR',
+    Isk: 'ISK',
+    Jmd: 'JMD',
+    Jod: 'JOD',
+    Jpy: 'JPY',
+    Kes: 'KES',
+    Kgs: 'KGS',
+    Khr: 'KHR',
+    Kmf: 'KMF',
+    Krw: 'KRW',
+    Kwd: 'KWD',
+    Kyd: 'KYD',
+    Kzt: 'KZT',
+    Lak: 'LAK',
+    Lbp: 'LBP',
+    Lkr: 'LKR',
+    Lrd: 'LRD',
+    Ltl: 'LTL',
+    Lvl: 'LVL',
+    Lsl: 'LSL',
+    Lyd: 'LYD',
+    Mad: 'MAD',
+    Mdl: 'MDL',
+    Mga: 'MGA',
+    Mkd: 'MKD',
+    Mmk: 'MMK',
+    Mnt: 'MNT',
+    Mop: 'MOP',
+    Mru: 'MRU',
+    Mtl: 'MTL',
+    Mur: 'MUR',
+    Mvr: 'MVR',
+    Mwk: 'MWK',
+    Mxn: 'MXN',
+    Myr: 'MYR',
+    Mzn: 'MZN',
+    Nad: 'NAD',
+    Ngn: 'NGN',
+    Nio: 'NIO',
+    Nok: 'NOK',
+    Npr: 'NPR',
+    Nzd: 'NZD',
+    Omr: 'OMR',
+    Pab: 'PAB',
+    Pen: 'PEN',
+    Pgk: 'PGK',
+    Php: 'PHP',
+    Pkr: 'PKR',
+    Pln: 'PLN',
+    Pyg: 'PYG',
+    Qar: 'QAR',
+    Ron: 'RON',
+    Rsd: 'RSD',
+    Rub: 'RUB',
+    Rwf: 'RWF',
+    Sar: 'SAR',
+    Sbd: 'SBD',
+    Scr: 'SCR',
+    Sdg: 'SDG',
+    Sek: 'SEK',
+    Sgd: 'SGD',
+    Srd: 'SRD',
+    Ssp: 'SSP',
+    Stn: 'STN',
+    Syp: 'SYP',
+    Szl: 'SZL',
+    Thb: 'THB',
+    Tjs: 'TJS',
+    Tmt: 'TMT',
+    Tnd: 'TND',
+    Top: 'TOP',
+    Try: 'TRY',
+    Ttd: 'TTD',
+    Twd: 'TWD',
+    Tzs: 'TZS',
+    Uah: 'UAH',
+    Ugx: 'UGX',
+    Usd: 'USD',
+    Uyu: 'UYU',
+    Uzs: 'UZS',
+    Ves: 'VES',
+    Vnd: 'VND',
+    Vuv: 'VUV',
+    Wst: 'WST',
+    Xaf: 'XAF',
+    Xcd: 'XCD',
+    Xof: 'XOF',
+    Xpf: 'XPF',
+    Yer: 'YER',
+    Zar: 'ZAR',
+    Zmw: 'ZMW',
+} as const
+
+/**
+ * * `minimal` - minimal
+ * `detailed` - detailed
+ */
+export type Mode02aEnum = (typeof Mode02aEnum)[keyof typeof Mode02aEnum]
+
+export const Mode02aEnum = {
+    Minimal: 'minimal',
+    Detailed: 'detailed',
+} as const
+
+export interface BatchCheckRequest {
+    /**
+     * List of trace IDs to check for cached summaries
+     * @maxItems 100
+     */
+    trace_ids: string[]
+    /** Summary detail level to check for
+
+* `minimal` - minimal
+* `detailed` - detailed */
+    mode?: Mode02aEnum
+    /**
+     * LLM model used for cached summaries
+     * @nullable
+     */
+    model?: string | null
+}
+
+export interface CachedSummary {
+    trace_id: string
+    title: string
+    cached?: boolean
+}
+
+export interface BatchCheckResponse {
+    summaries: CachedSummary[]
+}
+
+/**
+ * * `events` - Events
+ * `persons` - Persons
+ * `sessions` - Sessions
+ */
+export type ModelEnum = (typeof ModelEnum)[keyof typeof ModelEnum]
+
+export const ModelEnum = {
+    Events: 'events',
+    Persons: 'persons',
+    Sessions: 'sessions',
+} as const
+
+/**
+ * * `S3` - S3
+ * `Snowflake` - Snowflake
+ * `Postgres` - Postgres
+ * `Redshift` - Redshift
+ * `BigQuery` - Bigquery
+ * `Databricks` - Databricks
+ * `AzureBlob` - Azure Blob
+ * `Workflows` - Workflows
+ * `HTTP` - Http
+ * `NoOp` - Noop
+ */
+export type BatchExportDestinationTypeEnum =
+    (typeof BatchExportDestinationTypeEnum)[keyof typeof BatchExportDestinationTypeEnum]
+
+export const BatchExportDestinationTypeEnum = {
+    S3: 'S3',
+    Snowflake: 'Snowflake',
+    Postgres: 'Postgres',
+    Redshift: 'Redshift',
+    BigQuery: 'BigQuery',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    Workflows: 'Workflows',
+    Http: 'HTTP',
+    NoOp: 'NoOp',
+} as const
+
+/**
+ * Serializer for an BatchExportDestination model.
+ */
+export interface BatchExportDestination {
+    /** A choice of supported BatchExportDestination types.
+
+* `S3` - S3
+* `Snowflake` - Snowflake
+* `Postgres` - Postgres
+* `Redshift` - Redshift
+* `BigQuery` - Bigquery
+* `Databricks` - Databricks
+* `AzureBlob` - Azure Blob
+* `Workflows` - Workflows
+* `HTTP` - Http
+* `NoOp` - Noop */
+    type: BatchExportDestinationTypeEnum
+    /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
+    config?: unknown
+    /**
+     * The integration for this destination.
+     * @nullable
+     */
+    integration?: number | null
+    /** @nullable */
+    integration_id?: number | null
+}
+
+/**
+ * * `hour` - hour
+ * `day` - day
+ * `week` - week
+ * `every 5 minutes` - every 5 minutes
+ */
+export type IntervalEnum = (typeof IntervalEnum)[keyof typeof IntervalEnum]
+
+export const IntervalEnum = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Every5Minutes: 'every 5 minutes',
+} as const
+
+/**
+ * * `Cancelled` - Cancelled
+ * `Completed` - Completed
+ * `ContinuedAsNew` - Continued As New
+ * `Failed` - Failed
+ * `FailedRetryable` - Failed Retryable
+ * `FailedBilling` - Failed Billing
+ * `Terminated` - Terminated
+ * `TimedOut` - Timedout
+ * `Running` - Running
+ * `Starting` - Starting
+ */
+export type BatchExportRunStatusEnum = (typeof BatchExportRunStatusEnum)[keyof typeof BatchExportRunStatusEnum]
+
+export const BatchExportRunStatusEnum = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
+
+/**
+ * Serializer for a BatchExportRun model.
+ */
+export interface BatchExportRun {
+    readonly id: string
+    /** The status of this run.
+
+* `Cancelled` - Cancelled
+* `Completed` - Completed
+* `ContinuedAsNew` - Continued As New
+* `Failed` - Failed
+* `FailedRetryable` - Failed Retryable
+* `FailedBilling` - Failed Billing
+* `Terminated` - Terminated
+* `TimedOut` - Timedout
+* `Running` - Running
+* `Starting` - Starting */
+    status: BatchExportRunStatusEnum
+    /**
+     * The number of records that have been exported.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    records_completed?: number | null
+    /**
+     * The latest error that occurred during this run.
+     * @nullable
+     */
+    latest_error?: string | null
+    /**
+     * The start of the data interval.
+     * @nullable
+     */
+    data_interval_start?: string | null
+    /** The end of the data interval. */
+    data_interval_end: string
+    /**
+     * An opaque cursor that may be used to resume.
+     * @nullable
+     */
+    cursor?: string | null
+    /** The timestamp at which this BatchExportRun was created. */
+    readonly created_at: string
+    /**
+     * The timestamp at which this BatchExportRun finished, successfully or not.
+     * @nullable
+     */
+    finished_at?: string | null
+    /** The timestamp at which this BatchExportRun was last updated. */
+    readonly last_updated_at: string
+    /**
+     * The total count of records that should be exported in this BatchExportRun.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    records_total_count?: number | null
+    /**
+     * The number of bytes that have been exported in this BatchExportRun.
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     * @nullable
+     */
+    bytes_exported?: number | null
+    /** The BatchExport this run belongs to. */
+    readonly batch_export: string
+    /**
+     * The backfill this run belongs to.
+     * @nullable
+     */
+    backfill?: string | null
+}
+
+/**
+ * Serializer for a BatchExport model.
+ */
+export interface BatchExport {
+    readonly id: string
+    /** The team this belongs to. */
+    readonly team_id: number
+    /** A human-readable name for this BatchExport. */
+    name: string
+    /** Which model this BatchExport is exporting.
+
+* `events` - Events
+* `persons` - Persons
+* `sessions` - Sessions */
+    model?: ModelEnum | BlankEnum | NullEnum | null
+    destination: BatchExportDestination
+    interval: IntervalEnum
+    /** Whether this BatchExport is paused or not. */
+    paused?: boolean
+    /** The timestamp at which this BatchExport was created. */
+    readonly created_at: string
+    /** The timestamp at which this BatchExport was last updated. */
+    readonly last_updated_at: string
+    /**
+     * The timestamp at which this BatchExport was last paused.
+     * @nullable
+     */
+    last_paused_at?: string | null
+    /**
+     * Time before which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * Time after which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    end_at?: string | null
+    readonly latest_runs: readonly BatchExportRun[]
+    hogql_query?: string
+    /** A schema of custom fields to select when exporting data. */
+    readonly schema: unknown | null
+    filters?: unknown | null
+    timezone?: string | NullEnum | null
+    /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+    offset_day?: number | null
+    /**
+     * @minimum 0
+     * @maximum 23
+     * @nullable
+     */
+    offset_hour?: number | null
+}
+
+/**
+ * * `Cancelled` - Cancelled
+ * `Completed` - Completed
+ * `ContinuedAsNew` - Continued As New
+ * `Failed` - Failed
+ * `FailedRetryable` - Failed Retryable
+ * `Terminated` - Terminated
+ * `TimedOut` - Timedout
+ * `Running` - Running
+ * `Starting` - Starting
+ */
+export type BatchExportBackfillStatusEnum =
+    (typeof BatchExportBackfillStatusEnum)[keyof typeof BatchExportBackfillStatusEnum]
+
+export const BatchExportBackfillStatusEnum = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
+
+export interface BatchExportBackfill {
+    readonly id: string
+    readonly progress: string
+    /**
+     * The start of the data interval.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * The end of the data interval.
+     * @nullable
+     */
+    end_at?: string | null
+    /** The status of this backfill.
+
+* `Cancelled` - Cancelled
+* `Completed` - Completed
+* `ContinuedAsNew` - Continued As New
+* `Failed` - Failed
+* `FailedRetryable` - Failed Retryable
+* `Terminated` - Terminated
+* `TimedOut` - Timedout
+* `Running` - Running
+* `Starting` - Starting */
+    status: BatchExportBackfillStatusEnum
+    /** The timestamp at which this BatchExportBackfill was created. */
+    readonly created_at: string
+    /**
+     * The timestamp at which this BatchExportBackfill finished, successfully or not.
+     * @nullable
+     */
+    finished_at?: string | null
+    /** The timestamp at which this BatchExportBackfill was last updated. */
+    readonly last_updated_at: string
+    /**
+     * The total number of records to export. Initially estimated, updated with actual count after completion.
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     * @nullable
+     */
+    total_records_count?: number | null
+    /**
+     * The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.
+     * @nullable
+     */
+    adjusted_start_at?: string | null
+    /** The team this belongs to. */
+    team: number
+    /** The BatchExport this backfill belongs to. */
+    batch_export: string
+}
+
+/**
+ * * `completed` - Completed
+ * `failed` - Failed
+ * `paused` - Paused
+ * `running` - Running
+ */
+export type BatchImportStatusEnum = (typeof BatchImportStatusEnum)[keyof typeof BatchImportStatusEnum]
+
+export const BatchImportStatusEnum = {
+    Completed: 'completed',
+    Failed: 'failed',
+    Paused: 'paused',
+    Running: 'running',
+} as const
+
+/**
+ * Serializer for BatchImport model
+ */
+export interface BatchImport {
+    readonly id: string
+    readonly team_id: number
+    readonly created_at: string
+    readonly updated_at: string
+    readonly state: unknown | null
+    readonly created_by: string
+    status?: BatchImportStatusEnum
+    /** @nullable */
+    readonly display_status_message: string | null
+    import_config: unknown
+}
+
+export type BehavioralFilterType = (typeof BehavioralFilterType)[keyof typeof BehavioralFilterType]
+
+export const BehavioralFilterType = {
+    Behavioral: 'behavioral',
+} as const
+
+export type EventPropFilterTypeEnum = (typeof EventPropFilterTypeEnum)[keyof typeof EventPropFilterTypeEnum]
+
+export const EventPropFilterTypeEnum = {
+    Event: 'event',
+    Element: 'element',
+} as const
+
+export interface EventPropFilter {
+    type: EventPropFilterTypeEnum
+    key: string
+    value: unknown
+    /** @nullable */
+    operator?: string | null
+}
+
+export type HogQLFilterType = (typeof HogQLFilterType)[keyof typeof HogQLFilterType]
+
+export const HogQLFilterType = {
+    Hogql: 'hogql',
+} as const
+
+export interface HogQLFilter {
+    type: HogQLFilterType
+    key: string
+    value?: unknown | null
+}
+
+export interface BehavioralFilter {
+    /** @nullable */
+    bytecode?: unknown[] | null
+    /** @nullable */
+    bytecode_error?: string | null
+    /** @nullable */
+    conditionHash?: string | null
+    type: BehavioralFilterType
+    key: string | number
+    value: string
+    event_type: string
+    /** @nullable */
+    time_value?: number | null
+    /** @nullable */
+    time_interval?: string | null
+    negation?: boolean
+    /** @nullable */
+    operator?: string | null
+    /** @nullable */
+    operator_value?: number | null
+    /** @nullable */
+    seq_time_interval?: string | null
+    /** @nullable */
+    seq_time_value?: number | null
+    seq_event?: string | number | null
+    /** @nullable */
+    seq_event_type?: string | null
+    /** @nullable */
+    total_periods?: number | null
+    /** @nullable */
+    min_periods?: number | null
+    /** @nullable */
+    event_filters?: (EventPropFilter | HogQLFilter)[] | null
+    /** @nullable */
+    explicit_datetime?: string | null
+}
+
+export interface BreakdownItem {
+    label: string
+    value: string | number
+}
+
+export interface BreakdownValue {
+    count: number
+    value: string
+}
+
+/**
+ * Local variables at the time of the hit
+ */
+export type BreakpointHitVariables = { [key: string]: unknown }
+
+/**
+ * Schema for a single breakpoint hit event
+ */
+export interface BreakpointHit {
+    /** Unique identifier for the hit event */
+    id: string
+    /** Line number where the breakpoint was hit */
+    lineNumber: number
+    /** Name of the function where breakpoint was hit */
+    functionName: string
+    /** When the breakpoint was hit */
+    timestamp: string
+    /** Local variables at the time of the hit */
+    variables: BreakpointHitVariables
+    /** Stack trace at the time of the hit */
+    stackTrace: unknown[]
+    /** ID of the breakpoint that was hit */
+    breakpoint_id: string
+    /** Filename where the breakpoint was hit */
+    filename: string
+}
+
+/**
+ * Response schema for breakpoint hits endpoint
+ */
+export interface BreakpointHitsResponse {
+    /** List of breakpoint hit events */
+    results: BreakpointHit[]
+    /** Number of results returned */
+    count: number
+    /** Whether there are more results available */
+    has_more: boolean
+}
+
+/**
+ * * `distinct_id` - User ID (default)
+ * `device_id` - Device ID
+ */
+export type BucketingIdentifierEnum = (typeof BucketingIdentifierEnum)[keyof typeof BucketingIdentifierEnum]
+
+export const BucketingIdentifierEnum = {
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
+} as const
+
+/**
+ * * `b2b` - B2B
+ * `b2c` - B2C
+ * `other` - Other
+ */
+export type BusinessModelEnum = (typeof BusinessModelEnum)[keyof typeof BusinessModelEnum]
+
+export const BusinessModelEnum = {
+    B2b: 'b2b',
+    B2c: 'b2c',
+    Other: 'other',
+} as const
+
+/**
+ * * `monday` - Monday
+ * `tuesday` - Tuesday
+ * `wednesday` - Wednesday
+ * `thursday` - Thursday
+ * `friday` - Friday
+ * `saturday` - Saturday
+ * `sunday` - Sunday
+ */
+export type ByweekdayEnum = (typeof ByweekdayEnum)[keyof typeof ByweekdayEnum]
+
+export const ByweekdayEnum = {
+    Monday: 'monday',
+    Tuesday: 'tuesday',
+    Wednesday: 'wednesday',
+    Thursday: 'thursday',
+    Friday: 'friday',
+    Saturday: 'saturday',
+    Sunday: 'sunday',
+} as const
+
+export interface CalendarHeatmapFilter {
+    /** @nullable */
+    dummy?: string | null
+}
+
+export type CalendarHeatmapQueryKind = (typeof CalendarHeatmapQueryKind)[keyof typeof CalendarHeatmapQueryKind]
+
+export const CalendarHeatmapQueryKind = {
+    CalendarHeatmapQuery: 'CalendarHeatmapQuery',
+} as const
+
+export interface EventsHeatMapColumnAggregationResult {
+    column: number
+    value: number
+}
+
+export interface EventsHeatMapDataResult {
+    column: number
+    row: number
+    value: number
+}
+
+export interface EventsHeatMapRowAggregationResult {
+    row: number
+    value: number
+}
+
+export interface EventsHeatMapStructuredResult {
+    allAggregations: number
+    columnAggregations: EventsHeatMapColumnAggregationResult[]
+    data: EventsHeatMapDataResult[]
+    rowAggregations: EventsHeatMapRowAggregationResult[]
+}
+
+export interface CalendarHeatmapResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Wether more breakdown values are available.
+     * @nullable
+     */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: EventsHeatMapStructuredResult
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface CalendarHeatmapQuery {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** Properties specific to the trends insight */
+    calendarHeatmapFilter?: CalendarHeatmapFilter | null
+    /** Whether we should be comparing against a specific conversion goal */
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** Date range for the query */
+    dateRange?: DateRange | null
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType | null
+    kind?: CalendarHeatmapQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Property filters for all series */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | PropertyGroupFilter
+        | null
+    response?: CalendarHeatmapResponse | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * Supporting evidence
+ */
+export type CapabilityStateEvidence = { [key: string]: unknown }
+
+/**
+ * * `needs_setup` - needs_setup
+ * `detected` - detected
+ * `waiting_for_data` - waiting_for_data
+ * `ready` - ready
+ * `not_applicable` - not_applicable
+ * `unknown` - unknown
+ */
+export type CapabilityStateStateEnum = (typeof CapabilityStateStateEnum)[keyof typeof CapabilityStateStateEnum]
+
+export const CapabilityStateStateEnum = {
+    NeedsSetup: 'needs_setup',
+    Detected: 'detected',
+    WaitingForData: 'waiting_for_data',
+    Ready: 'ready',
+    NotApplicable: 'not_applicable',
+    Unknown: 'unknown',
+} as const
+
+export interface CapabilityState {
+    /** Current state of the capability
+
+* `needs_setup` - needs_setup
+* `detected` - detected
+* `waiting_for_data` - waiting_for_data
+* `ready` - ready
+* `not_applicable` - not_applicable
+* `unknown` - unknown */
+    state: CapabilityStateStateEnum
+    /** Whether the state is estimated from static analysis */
+    estimated: boolean
+    /** Human-readable explanation */
+    reason: string
+    /** Supporting evidence */
+    evidence?: CapabilityStateEvidence
+}
+
+/**
+ * * `acquisition` - Acquisition
+ * `activation` - Activation
+ * `monetization` - Monetization
+ * `expansion` - Expansion
+ * `referral` - Referral
+ * `retention` - Retention
+ * `churn` - Churn
+ * `reactivation` - Reactivation
+ */
+export type CategoryEnum = (typeof CategoryEnum)[keyof typeof CategoryEnum]
+
+export const CategoryEnum = {
+    Acquisition: 'acquisition',
+    Activation: 'activation',
+    Monetization: 'monetization',
+    Expansion: 'expansion',
+    Referral: 'referral',
+    Retention: 'retention',
+    Churn: 'churn',
+    Reactivation: 'reactivation',
+} as const
+
+/**
+ * * `marketing` - Marketing
+ * `transactional` - Transactional
+ */
+export type CategoryTypeEnum = (typeof CategoryTypeEnum)[keyof typeof CategoryTypeEnum]
+
+export const CategoryTypeEnum = {
+    Marketing: 'marketing',
+    Transactional: 'transactional',
+} as const
+
+/**
+ * * `valid` - Valid
+ * `invalid` - Invalid
+ * `expired` - Expired
+ * `stale` - Stale (resource changed)
+ */
+export type ValidationStatusEnum = (typeof ValidationStatusEnum)[keyof typeof ValidationStatusEnum]
+
+export const ValidationStatusEnum = {
+    Valid: 'valid',
+    Invalid: 'invalid',
+    Expired: 'expired',
+    Stale: 'stale',
+} as const
+
+/**
+ * * `pending` - Pending
+ * `approved` - Approved (awaiting application)
+ * `applied` - Applied
+ * `rejected` - Rejected
+ * `expired` - Expired
+ * `failed` - Failed to apply
+ */
+export type ChangeRequestStateEnum = (typeof ChangeRequestStateEnum)[keyof typeof ChangeRequestStateEnum]
+
+export const ChangeRequestStateEnum = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Applied: 'applied',
+    Rejected: 'rejected',
+    Expired: 'expired',
+    Failed: 'failed',
+} as const
+
+export interface ChangeRequest {
+    readonly id: string
+    readonly action_key: string
+    readonly action_version: number
+    readonly resource_type: string
+    /** @nullable */
+    readonly resource_id: string | null
+    readonly intent: unknown
+    readonly intent_display: unknown
+    readonly policy_snapshot: unknown
+    readonly validation_status: ValidationStatusEnum
+    readonly validation_errors: unknown | null
+    /** @nullable */
+    readonly validated_at: string | null
+    readonly state: ChangeRequestStateEnum
+    readonly created_by: UserBasic
+    readonly applied_by: UserBasic
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly expires_at: string
+    /** @nullable */
+    readonly applied_at: string | null
+    readonly apply_error: string
+    readonly result_data: unknown | null
+    readonly approvals: string
+    /** Check if current user can approve this change request. */
+    readonly can_approve: boolean
+    readonly can_cancel: boolean
+    /** Check if current user is the requester. */
+    readonly is_requester: boolean
+    /**
+     * Get the current user's approval decision if they have voted.
+     * @nullable
+     */
+    readonly user_decision: string | null
+}
+
+/**
+ * * `widget` - Widget
+ * `email` - Email
+ * `slack` - Slack
+ */
+export type ChannelSourceEnum = (typeof ChannelSourceEnum)[keyof typeof ChannelSourceEnum]
+
+export const ChannelSourceEnum = {
+    Widget: 'widget',
+    Email: 'email',
+    Slack: 'slack',
+} as const
+
+export type DisplayType = (typeof DisplayType)[keyof typeof DisplayType]
+
+export const DisplayType = {
+    Auto: 'auto',
+    Line: 'line',
+    Bar: 'bar',
+} as const
+
+export type YAxisPosition = (typeof YAxisPosition)[keyof typeof YAxisPosition]
+
+export const YAxisPosition = {
+    Left: 'left',
+    Right: 'right',
+} as const
+
+export interface ChartSettingsDisplay {
+    /** @nullable */
+    color?: string | null
+    displayType?: DisplayType | null
+    /** @nullable */
+    label?: string | null
+    /** @nullable */
+    trendLine?: boolean | null
+    yAxisPosition?: YAxisPosition | null
+}
+
+export type Style = (typeof Style)[keyof typeof Style]
+
+export const Style = {
+    None: 'none',
+    Number: 'number',
+    Percent: 'percent',
+} as const
+
+export interface ChartSettingsFormatting {
+    /** @nullable */
+    decimalPlaces?: number | null
+    /** @nullable */
+    prefix?: string | null
+    style?: Style | null
+    /** @nullable */
+    suffix?: string | null
+}
+
+export interface Settings {
+    display?: ChartSettingsDisplay | null
+    formatting?: ChartSettingsFormatting | null
+}
+
+export interface ChartAxis {
+    column: string
+    settings?: Settings | null
+}
+
+export interface HeatmapGradientStop {
+    color: string
+    value: number
+}
+
+export type GradientScaleMode = (typeof GradientScaleMode)[keyof typeof GradientScaleMode]
+
+export const GradientScaleMode = {
+    Absolute: 'absolute',
+    Relative: 'relative',
+} as const
+
+export interface HeatmapSettings {
+    /** @nullable */
+    gradient?: HeatmapGradientStop[] | null
+    /** @nullable */
+    gradientPreset?: string | null
+    gradientScaleMode?: GradientScaleMode | null
+    /** @nullable */
+    valueColumn?: string | null
+    /** @nullable */
+    xAxisColumn?: string | null
+    /** @nullable */
+    xAxisLabel?: string | null
+    /** @nullable */
+    yAxisColumn?: string | null
+    /** @nullable */
+    yAxisLabel?: string | null
+}
+
+export type Scale = (typeof Scale)[keyof typeof Scale]
+
+export const Scale = {
+    Linear: 'linear',
+    Logarithmic: 'logarithmic',
+} as const
+
+export interface YAxisSettings {
+    scale?: Scale | null
+    /** @nullable */
+    showGridLines?: boolean | null
+    /** @nullable */
+    showTicks?: boolean | null
+    /**
+     * Whether the Y axis should start at zero
+     * @nullable
+     */
+    startAtZero?: boolean | null
+}
+
+export interface ChartSettings {
+    /** @nullable */
+    goalLines?: GoalLine[] | null
+    heatmap?: HeatmapSettings | null
+    leftYAxisSettings?: YAxisSettings | null
+    rightYAxisSettings?: YAxisSettings | null
+    /** @nullable */
+    seriesBreakdownColumn?: string | null
+    /** @nullable */
+    showLegend?: boolean | null
+    /** @nullable */
+    showTotalRow?: boolean | null
+    /** @nullable */
+    showXAxisBorder?: boolean | null
+    /** @nullable */
+    showXAxisTicks?: boolean | null
+    /** @nullable */
+    showYAxisBorder?: boolean | null
+    /**
+     * Whether we fill the bars to 100% in stacked mode
+     * @nullable
+     */
+    stackBars100?: boolean | null
+    xAxis?: ChartAxis | null
+    /** @nullable */
+    yAxis?: ChartAxis[] | null
+    /**
+     * Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero
+     * @nullable
+     */
+    yAxisAtZero?: boolean | null
+}
+
+export interface ClickhouseEvent {
+    readonly id: string
+    readonly distinct_id: string
+    readonly properties: string
+    readonly event: string
+    readonly timestamp: string
+    readonly person: string
+    readonly elements: string
+    readonly elements_chain: string
+}
+
+export interface ClusteringJob {
+    readonly id: string
+    /** @maxLength 100 */
+    name: string
+    analysis_level: AnalysisLevelEnum
+    event_filters?: unknown
+    enabled?: boolean
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+/**
+ * * `hdbscan` - hdbscan
+ * `kmeans` - kmeans
+ */
+export type ClusteringMethodEnum = (typeof ClusteringMethodEnum)[keyof typeof ClusteringMethodEnum]
+
+export const ClusteringMethodEnum = {
+    Hdbscan: 'hdbscan',
+    Kmeans: 'kmeans',
+} as const
+
+export type ClusteringRunRequestEventFiltersItem = { [key: string]: unknown }
+
+/**
+ * * `none` - none
+ * `l2` - l2
+ */
+export type EmbeddingNormalizationEnum = (typeof EmbeddingNormalizationEnum)[keyof typeof EmbeddingNormalizationEnum]
+
+export const EmbeddingNormalizationEnum = {
+    None: 'none',
+    L2: 'l2',
+} as const
+
+/**
+ * * `none` - none
+ * `umap` - umap
+ * `pca` - pca
+ */
+export type DimensionalityReductionMethodEnum =
+    (typeof DimensionalityReductionMethodEnum)[keyof typeof DimensionalityReductionMethodEnum]
+
+export const DimensionalityReductionMethodEnum = {
+    None: 'none',
+    Umap: 'umap',
+    Pca: 'pca',
+} as const
+
+/**
+ * * `umap` - umap
+ * `pca` - pca
+ * `tsne` - tsne
+ */
+export type VisualizationMethodEnum = (typeof VisualizationMethodEnum)[keyof typeof VisualizationMethodEnum]
+
+export const VisualizationMethodEnum = {
+    Umap: 'umap',
+    Pca: 'pca',
+    Tsne: 'tsne',
+} as const
+
+/**
+ * Serializer for clustering workflow request parameters.
+ */
+export interface ClusteringRunRequest {
+    /**
+     * Number of days to look back for traces
+     * @minimum 1
+     * @maximum 90
+     */
+    lookback_days?: number
+    /**
+     * Maximum number of traces to sample for clustering
+     * @minimum 20
+     * @maximum 10000
+     */
+    max_samples?: number
+    /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
+
+* `none` - none
+* `l2` - l2 */
+    embedding_normalization?: EmbeddingNormalizationEnum
+    /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
+
+* `none` - none
+* `umap` - umap
+* `pca` - pca */
+    dimensionality_reduction_method?: DimensionalityReductionMethodEnum
+    /**
+     * Target dimensions for dimensionality reduction (ignored if method is 'none')
+     * @minimum 2
+     * @maximum 500
+     */
+    dimensionality_reduction_ndims?: number
+    /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
+
+* `hdbscan` - hdbscan
+* `kmeans` - kmeans */
+    clustering_method?: ClusteringMethodEnum
+    /**
+     * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
+     * @minimum 0.02
+     * @maximum 0.5
+     */
+    min_cluster_size_fraction?: number
+    /**
+     * HDBSCAN min_samples parameter (higher = more conservative clustering)
+     * @minimum 1
+     * @maximum 100
+     */
+    hdbscan_min_samples?: number
+    /**
+     * Minimum number of clusters to try for k-means
+     * @minimum 2
+     * @maximum 50
+     */
+    kmeans_min_k?: number
+    /**
+     * Maximum number of clusters to try for k-means
+     * @minimum 2
+     * @maximum 100
+     */
+    kmeans_max_k?: number
+    /**
+     * Optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
+     * @maxLength 50
+     */
+    run_label?: string
+    /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
+
+* `umap` - umap
+* `pca` - pca
+* `tsne` - tsne */
+    visualization_method?: VisualizationMethodEnum
+    /** Property filters to scope which traces are included in clustering (PostHog standard format) */
+    event_filters?: ClusteringRunRequestEventFiltersItem[]
+    /**
+     * If provided, use this clustering job's analysis_level and event_filters instead of request params
+     * @nullable
+     */
+    clustering_job_id?: string | null
+}
+
+export interface CodeInviteRedeemRequest {
+    /** @maxLength 50 */
+    code: string
+}
+
+export type PropertyGroupOperator = (typeof PropertyGroupOperator)[keyof typeof PropertyGroupOperator]
+
+export const PropertyGroupOperator = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type CohortFilterType = (typeof CohortFilterType)[keyof typeof CohortFilterType]
+
+export const CohortFilterType = {
+    Cohort: 'cohort',
+} as const
+
+export type CohortFilterKey = (typeof CohortFilterKey)[keyof typeof CohortFilterKey]
+
+export const CohortFilterKey = {
+    Id: 'id',
+} as const
+
+export interface CohortFilter {
+    /** @nullable */
+    bytecode?: unknown[] | null
+    /** @nullable */
+    bytecode_error?: string | null
+    /** @nullable */
+    conditionHash?: string | null
+    type: CohortFilterType
+    key: CohortFilterKey
+    value: number
+    negation?: boolean
+}
+
+export type PersonFilterType = (typeof PersonFilterType)[keyof typeof PersonFilterType]
+
+export const PersonFilterType = {
+    Person: 'person',
+} as const
+
+export interface PersonFilter {
+    /** @nullable */
+    bytecode?: unknown[] | null
+    /** @nullable */
+    bytecode_error?: string | null
+    /** @nullable */
+    conditionHash?: string | null
+    type: PersonFilterType
+    key: string
+    /** @nullable */
+    operator?: string | null
+    value?: unknown | null
+    negation?: boolean
+}
+
+/**
+ * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
+ */
+export interface CohortFilterGroup {
+    type: PropertyGroupOperator
+    values: (BehavioralFilter | CohortFilter | PersonFilter | CohortFilterGroup)[]
+}
+
+export interface CohortFilters {
+    properties: CohortFilterGroup
+}
+
+/**
+ * * `static` - static
+ * `person_property` - person_property
+ * `behavioral` - behavioral
+ * `realtime` - realtime
+ * `analytical` - analytical
+ */
+export type CohortTypeEnum = (typeof CohortTypeEnum)[keyof typeof CohortTypeEnum]
+
+export const CohortTypeEnum = {
+    Static: 'static',
+    PersonProperty: 'person_property',
+    Behavioral: 'behavioral',
+    Realtime: 'realtime',
+    Analytical: 'analytical',
+} as const
+
+export interface Cohort {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 1000 */
+    description?: string
+    groups?: unknown
+    deleted?: boolean
+    filters?: CohortFilters | null
+    query?: unknown | null
+    /** @nullable */
+    readonly version: number | null
+    /** @nullable */
+    readonly pending_version: number | null
+    readonly is_calculating: boolean
+    readonly created_by: UserBasic
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    readonly last_calculation: string | null
+    readonly errors_calculating: number
+    /** @nullable */
+    readonly last_error_message: string | null
+    /** @nullable */
+    readonly count: number | null
+    is_static?: boolean
+    /** Type of cohort based on filter complexity
+
+* `static` - static
+* `person_property` - person_property
+* `behavioral` - behavioral
+* `realtime` - realtime
+* `analytical` - analytical */
+    cohort_type?: CohortTypeEnum | BlankEnum | NullEnum | null
+    readonly experiment_set: readonly number[]
+    _create_in_folder?: string
+    _create_static_person_ids?: string[]
+}
+
+export type ColorMode = (typeof ColorMode)[keyof typeof ColorMode]
+
+export const ColorMode = {
+    Light: 'light',
+    Dark: 'dark',
+} as const
+
+/**
+ * * `private` - Private (only visible to creator)
+ * `shared` - Shared with team
+ */
+export type VisibilityEnum = (typeof VisibilityEnum)[keyof typeof VisibilityEnum]
+
+export const VisibilityEnum = {
+    Private: 'private',
+    Shared: 'shared',
+} as const
+
+export interface ColumnConfiguration {
+    readonly id: string
+    /** @maxLength 255 */
+    context_key: string
+    columns?: string[]
+    /** @maxLength 255 */
+    name?: string
+    filters?: unknown
+    visibility?: VisibilityEnum
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface Comment {
+    readonly id: string
+    readonly created_by: UserBasic
+    /** @nullable */
+    deleted?: boolean | null
+    mentions?: number[]
+    slug?: string
+    /** @nullable */
+    content?: string | null
+    rich_content?: unknown | null
+    readonly version: number
+    readonly created_at: string
+    /**
+     * @maxLength 72
+     * @nullable
+     */
+    item_id?: string | null
+    item_context?: unknown | null
+    /** @maxLength 79 */
+    scope: string
+    /** @nullable */
+    source_comment?: string | null
+}
+
+export interface CompareItem {
+    label: string
+    value: string
+}
+
+/**
+ * * `won` - Won
+ * `lost` - Lost
+ * `inconclusive` - Inconclusive
+ * `stopped_early` - Stopped Early
+ * `invalid` - Invalid
+ */
+export type ConclusionEnum = (typeof ConclusionEnum)[keyof typeof ConclusionEnum]
+
+export const ConclusionEnum = {
+    Won: 'won',
+    Lost: 'lost',
+    Inconclusive: 'inconclusive',
+    StoppedEarly: 'stopped_early',
+    Invalid: 'invalid',
+} as const
+
+export interface ConditionalFormattingRule {
+    bytecode: unknown[]
+    color: string
+    colorMode?: ColorMode | null
+    columnName: string
+    id: string
+    input: string
+    templateId: string
+}
+
+/**
+ * Response containing a JWT token for direct sandbox connection
+ */
+export interface ConnectionTokenResponse {
+    /** JWT token for authenticating with the sandbox */
+    token: string
+}
+
+export type ConversationMessagesItem = { [key: string]: unknown }
+
+export type ConversationPendingApprovalsItem = { [key: string]: unknown }
+
+/**
+ * * `idle` - Idle
+ * `in_progress` - In progress
+ * `canceling` - Canceling
+ */
+export type ConversationStatusEnum = (typeof ConversationStatusEnum)[keyof typeof ConversationStatusEnum]
+
+export const ConversationStatusEnum = {
+    Idle: 'idle',
+    InProgress: 'in_progress',
+    Canceling: 'canceling',
+} as const
+
+/**
+ * * `assistant` - Assistant
+ * `tool_call` - Tool call
+ * `deep_research` - Deep research
+ * `slack` - Slack
+ */
+export type ConversationTypeEnum = (typeof ConversationTypeEnum)[keyof typeof ConversationTypeEnum]
+
+export const ConversationTypeEnum = {
+    Assistant: 'assistant',
+    ToolCall: 'tool_call',
+    DeepResearch: 'deep_research',
+    Slack: 'slack',
+} as const
+
+export interface Conversation {
+    readonly id: string
+    readonly status: ConversationStatusEnum
+    /**
+     * Title of the conversation.
+     * @nullable
+     */
+    readonly title: string | null
+    readonly user: UserBasic
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly type: ConversationTypeEnum
+    /**
+     * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+     * @nullable
+     */
+    readonly is_internal: boolean | null
+    /**
+     * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+     * @nullable
+     */
+    readonly slack_thread_key: string | null
+    /**
+     * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+     * @nullable
+     */
+    readonly slack_workspace_domain: string | null
+    readonly messages: readonly ConversationMessagesItem[]
+    readonly has_unsupported_content: boolean
+    /** @nullable */
+    readonly agent_mode: string | null
+    /** Return pending approval cards as structured data.
+
+Combines metadata from conversation.approval_decisions with payload from checkpoint
+interrupts (single source of truth for payload data). */
+    readonly pending_approvals: readonly ConversationPendingApprovalsItem[]
+}
+
+export type ConversionGoalFilter1Kind = (typeof ConversionGoalFilter1Kind)[keyof typeof ConversionGoalFilter1Kind]
+
+export const ConversionGoalFilter1Kind = {
+    EventsNode: 'EventsNode',
+} as const
+
+export const ConversionGoalFilter1Math = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type ConversionGoalFilter1Response = { [key: string]: unknown } | null | null
+
+export type ConversionGoalFilter1SchemaMap = { [key: string]: string | unknown }
+
+export interface ConversionGoalFilter1 {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * The event or `null` for all events.
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    kind?: ConversionGoalFilter1Kind
+    /** @nullable */
+    limit?: number | null
+    math?: (typeof ConversionGoalFilter1Math)[keyof typeof ConversionGoalFilter1Math] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: ConversionGoalFilter1Response
+    schema_map: ConversionGoalFilter1SchemaMap
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ConversionGoalFilter2Kind = (typeof ConversionGoalFilter2Kind)[keyof typeof ConversionGoalFilter2Kind]
+
+export const ConversionGoalFilter2Kind = {
+    ActionsNode: 'ActionsNode',
+} as const
+
+export const ConversionGoalFilter2Math = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type ConversionGoalFilter2Response = { [key: string]: unknown } | null | null
+
+export type ConversionGoalFilter2SchemaMap = { [key: string]: string | unknown }
+
+export interface ConversionGoalFilter2 {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    id: number
+    kind?: ConversionGoalFilter2Kind
+    math?: (typeof ConversionGoalFilter2Math)[keyof typeof ConversionGoalFilter2Math] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: ConversionGoalFilter2Response
+    schema_map: ConversionGoalFilter2SchemaMap
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ConversionGoalFilter3Kind = (typeof ConversionGoalFilter3Kind)[keyof typeof ConversionGoalFilter3Kind]
+
+export const ConversionGoalFilter3Kind = {
+    DataWarehouseNode: 'DataWarehouseNode',
+} as const
+
+export const ConversionGoalFilter3Math = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type ConversionGoalFilter3Response = { [key: string]: unknown } | null | null
+
+export type ConversionGoalFilter3SchemaMap = { [key: string]: string | unknown }
+
+export interface ConversionGoalFilter3 {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** @nullable */
+    custom_name?: string | null
+    distinct_id_field: string
+    /** @nullable */
+    dw_source_type?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    id: string
+    id_field: string
+    kind?: ConversionGoalFilter3Kind
+    math?: (typeof ConversionGoalFilter3Math)[keyof typeof ConversionGoalFilter3Math] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: ConversionGoalFilter3Response
+    schema_map: ConversionGoalFilter3SchemaMap
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * * `0` - Disabled
+ * `1` - Stateless
+ * `2` - Stateful
+ */
+export type CookielessServerHashModeEnum =
+    (typeof CookielessServerHashModeEnum)[keyof typeof CookielessServerHashModeEnum]
+
+export const CookielessServerHashModeEnum = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+} as const
+
+export interface CoreEvent {
+    readonly id: string
+    /**
+     * Display name for this core event
+     * @maxLength 255
+     */
+    name: string
+    /** Optional description */
+    description?: string
+    /** Lifecycle category for this core event
+
+* `acquisition` - Acquisition
+* `activation` - Activation
+* `monetization` - Monetization
+* `expansion` - Expansion
+* `referral` - Referral
+* `retention` - Retention
+* `churn` - Churn
+* `reactivation` - Reactivation */
+    category: CategoryEnum
+    /** Filter configuration - event, action, or data warehouse node */
+    filter: unknown
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface CreateGroup {
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    group_type_index: number
+    /** @maxLength 400 */
+    group_key: string
+    group_properties?: unknown | null
+}
+
+/**
+ * * `zoom` - zoom
+ * `teams` - teams
+ * `meet` - meet
+ * `desktop_audio` - desktop_audio
+ * `slack` - slack
+ */
+export type CreateRecordingRequestPlatformEnum =
+    (typeof CreateRecordingRequestPlatformEnum)[keyof typeof CreateRecordingRequestPlatformEnum]
+
+export const CreateRecordingRequestPlatformEnum = {
+    Zoom: 'zoom',
+    Teams: 'teams',
+    Meet: 'meet',
+    DesktopAudio: 'desktop_audio',
+    Slack: 'slack',
+} as const
+
+/**
+ * Request body for creating a new recording
+ */
+export interface CreateRecordingRequest {
+    /** Meeting platform being recorded
+
+* `zoom` - zoom
+* `teams` - teams
+* `meet` - meet
+* `desktop_audio` - desktop_audio
+* `slack` - slack */
+    platform?: CreateRecordingRequestPlatformEnum
+}
+
+/**
+ * * `zoom` - Zoom
+ * `teams` - Microsoft Teams
+ * `meet` - Google Meet
+ * `desktop_audio` - Desktop audio
+ * `slack` - Slack huddle
+ */
+export type Platform9aaEnum = (typeof Platform9aaEnum)[keyof typeof Platform9aaEnum]
+
+export const Platform9aaEnum = {
+    Zoom: 'zoom',
+    Teams: 'teams',
+    Meet: 'meet',
+    DesktopAudio: 'desktop_audio',
+    Slack: 'slack',
+} as const
+
+/**
+ * * `recording` - Recording
+ * `uploading` - Uploading
+ * `processing` - Processing
+ * `ready` - Ready
+ * `error` - Error
+ */
+export type Status292Enum = (typeof Status292Enum)[keyof typeof Status292Enum]
+
+export const Status292Enum = {
+    Recording: 'recording',
+    Uploading: 'uploading',
+    Processing: 'processing',
+    Ready: 'ready',
+    Error: 'error',
+} as const
+
+/**
+ * Serializer for extracted tasks
+ */
+export interface Task {
+    title: string
+    description?: string
+    /** @nullable */
+    assignee?: string | null
+}
+
+/**
+ * Response for creating a new recording (includes upload_token)
+ */
+export interface CreateRecordingResponse {
+    readonly id: string
+    readonly team: number
+    /** @nullable */
+    readonly created_by: number | null
+    readonly sdk_upload_id: string
+    /** @nullable */
+    recall_recording_id?: string | null
+    platform: Platform9aaEnum
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    meeting_title?: string | null
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    meeting_url?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    duration_seconds?: number | null
+    status?: Status292Enum
+    /** @nullable */
+    notes?: string | null
+    /** @nullable */
+    error_message?: string | null
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    video_url?: string | null
+    /**
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     * @nullable
+     */
+    video_size_bytes?: number | null
+    /** List of participant names */
+    participants?: string[]
+    readonly transcript_text: string
+    /** Transcript segments with timestamps */
+    transcript_segments?: TranscriptSegment[]
+    /** @nullable */
+    summary?: string | null
+    /** AI-extracted tasks from transcript */
+    extracted_tasks?: Task[]
+    /** @nullable */
+    tasks_generated_at?: string | null
+    /** @nullable */
+    summary_generated_at?: string | null
+    started_at?: string
+    /** @nullable */
+    completed_at?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    /** Recall.ai upload token for the desktop SDK */
+    upload_token: string
+}
+
+/**
+ * * `default` - Default
+ * `template` - Template
+ * `duplicate` - Duplicate
+ * `unlisted` - Unlisted (product-embedded)
+ */
+export type CreationModeEnum = (typeof CreationModeEnum)[keyof typeof CreationModeEnum]
+
+export const CreationModeEnum = {
+    Default: 'default',
+    Template: 'template',
+    Duplicate: 'duplicate',
+    Unlisted: 'unlisted',
+} as const
+
+export interface Credential {
+    readonly id: string
+    readonly created_by: UserBasic
+    readonly created_at: string
+    /** @maxLength 500 */
+    access_key: string
+    /** @maxLength 500 */
+    access_secret: string
+}
+
+export interface CustomerJourney {
+    readonly id: string
+    insight: number
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    description?: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+/**
+ * * `person` - Person
+ * `group_0` - Group 0
+ * `group_1` - Group 1
+ * `group_2` - Group 2
+ * `group_3` - Group 3
+ * `group_4` - Group 4
+ */
+export type CustomerProfileConfigScopeEnum =
+    (typeof CustomerProfileConfigScopeEnum)[keyof typeof CustomerProfileConfigScopeEnum]
+
+export const CustomerProfileConfigScopeEnum = {
+    Person: 'person',
+    Group0: 'group_0',
+    Group1: 'group_1',
+    Group2: 'group_2',
+    Group3: 'group_3',
+    Group4: 'group_4',
+} as const
+
+export interface CustomerProfileConfig {
+    readonly id: string
+    scope: CustomerProfileConfigScopeEnum
+    content?: unknown | null
+    sidebar?: unknown | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export type DashboardFilters = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type DashboardVariables = { [key: string]: unknown } | null | null
+
+/**
+ * @nullable
+ */
+export type DashboardPersistedFilters = { [key: string]: unknown } | null | null
+
+/**
+ * @nullable
+ */
+export type DashboardPersistedVariables = { [key: string]: unknown } | null | null
+
+export type DashboardTilesItem = { [key: string]: unknown }
+
+/**
+ * * `21` - Everyone in the project can edit
+ * `37` - Only those invited to this dashboard can edit
+ */
+export type DashboardRestrictionLevel = (typeof DashboardRestrictionLevel)[keyof typeof DashboardRestrictionLevel]
+
+export const DashboardRestrictionLevel = {
+    Number21: 21,
+    Number37: 37,
+} as const
+
+export type EffectiveRestrictionLevelEnum =
+    (typeof EffectiveRestrictionLevelEnum)[keyof typeof EffectiveRestrictionLevelEnum]
+
+export const EffectiveRestrictionLevelEnum = {
+    Number21: 21,
+    Number37: 37,
+} as const
+
+export type EffectivePrivilegeLevelEnum = (typeof EffectivePrivilegeLevelEnum)[keyof typeof EffectivePrivilegeLevelEnum]
+
+export const EffectivePrivilegeLevelEnum = {
+    Number21: 21,
+    Number37: 37,
+} as const
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface Dashboard {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasic
+    /** @nullable */
+    last_accessed_at?: string | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    readonly is_shared: boolean
+    deleted?: boolean
+    readonly creation_mode: CreationModeEnum
+    readonly filters: DashboardFilters
+    /** @nullable */
+    readonly variables: DashboardVariables
+    breakdown_colors?: unknown
+    /** @nullable */
+    data_color_theme_id?: number | null
+    tags?: unknown[]
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    restriction_level?: DashboardRestrictionLevel
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnum
+    readonly effective_privilege_level: EffectivePrivilegeLevelEnum
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    readonly access_control_version: string
+    /** @nullable */
+    last_refresh?: string | null
+    /** @nullable */
+    readonly persisted_filters: DashboardPersistedFilters
+    /** @nullable */
+    readonly persisted_variables: DashboardPersistedVariables
+    readonly team_id: number
+    /** @nullable */
+    readonly tiles: readonly DashboardTilesItem[] | null
+    use_template?: string
+    /** @nullable */
+    use_dashboard?: number | null
+    delete_insights?: boolean
+    _create_in_folder?: string
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface DashboardBasic {
+    readonly id: number
+    /** @nullable */
+    readonly name: string | null
+    readonly description: string
+    readonly pinned: boolean
+    readonly created_at: string
+    readonly created_by: UserBasic
+    /** @nullable */
+    readonly last_accessed_at: string | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    readonly is_shared: boolean
+    readonly deleted: boolean
+    readonly creation_mode: CreationModeEnum
+    tags?: unknown[]
+    readonly restriction_level: DashboardRestrictionLevel
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnum
+    readonly effective_privilege_level: EffectivePrivilegeLevelEnum
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    readonly access_control_version: string
+    /** @nullable */
+    readonly last_refresh: string | null
+    readonly team_id: number
+}
+
+export interface DashboardCollaborator {
+    readonly id: string
+    readonly dashboard_id: number
+    readonly user: UserBasic
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level: DashboardRestrictionLevel
+    readonly added_at: string
+    readonly updated_at: string
+    user_uuid: string
+}
+
+export interface DashboardFilter {
+    breakdown_filter?: BreakdownFilter | null
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+    /** @nullable */
+    explicitDate?: boolean | null
+    /** @nullable */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+}
+
+/**
+ * * `team` - Only team
+ * `global` - Global
+ * `feature_flag` - Feature Flag
+ */
+export type DashboardTemplateScopeEnum = (typeof DashboardTemplateScopeEnum)[keyof typeof DashboardTemplateScopeEnum]
+
+export const DashboardTemplateScopeEnum = {
+    Team: 'team',
+    Global: 'global',
+    FeatureFlag: 'feature_flag',
+} as const
+
+export interface DashboardTemplate {
+    readonly id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown | null
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown | null
+    variables?: unknown | null
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    created_by?: number | null
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id: number | null
+    scope?: DashboardTemplateScopeEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+}
+
+export interface DashboardTileBasic {
+    readonly id: number
+    readonly dashboard_id: number
+    /** @nullable */
+    deleted?: boolean | null
+}
+
+export interface DataColorTheme {
+    readonly id: number
+    /** @maxLength 100 */
+    name: string
+    colors?: unknown
+    readonly is_global: string
+    /** @nullable */
+    readonly created_at: string | null
+    readonly created_by: UserBasic
+}
+
+/**
+ * * `Cancelled` - Cancelled
+ * `Completed` - Completed
+ * `Failed` - Failed
+ * `Running` - Running
+ */
+export type DataModelingJobStatusEnum = (typeof DataModelingJobStatusEnum)[keyof typeof DataModelingJobStatusEnum]
+
+export const DataModelingJobStatusEnum = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    Failed: 'Failed',
+    Running: 'Running',
+} as const
+
+export interface DataModelingJob {
+    readonly id: string
+    /** @nullable */
+    readonly saved_query_id: string | null
+    readonly status: DataModelingJobStatusEnum
+    readonly rows_materialized: number
+    /** @nullable */
+    readonly error: string | null
+    readonly created_at: string
+    readonly last_run_at: string
+    /** @nullable */
+    readonly workflow_id: string | null
+    /** @nullable */
+    readonly workflow_run_id: string | null
+    /**
+     * Total rows expected to be materialized
+     * @nullable
+     */
+    readonly rows_expected: number | null
+}
+
+export type DataTableNodeKind = (typeof DataTableNodeKind)[keyof typeof DataTableNodeKind]
+
+export const DataTableNodeKind = {
+    DataTableNode: 'DataTableNode',
+} as const
+
+export interface Response {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface Response1 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    limit: number
+    /** @nullable */
+    missing_actors_count?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: string[] | null
+}
+
+export type Response2Kind = (typeof Response2Kind)[keyof typeof Response2Kind]
+
+export const Response2Kind = {
+    GroupsQuery: 'GroupsQuery',
+} as const
+
+export interface Response2 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: Response2Kind
+    limit: number
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface Response3 {
+    /**
+     * Executed ClickHouse query
+     * @nullable
+     */
+    clickhouse?: string | null
+    /**
+     * Returned columns
+     * @nullable
+     */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Query explanation output
+     * @nullable
+     */
+    explain?: string[] | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Input query string
+     * @nullable
+     */
+    query?: string | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /**
+     * Types of returned columns
+     * @nullable
+     */
+    types?: unknown[] | null
+}
+
+export interface Response4 {
+    /** @nullable */
+    dateFrom?: string | null
+    /** @nullable */
+    dateTo?: string | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: WebOverviewItem[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export interface Response5 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export interface Response6 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface WebVitalsPathBreakdownResultItem {
+    path: string
+    value: number
+}
+
+export interface WebVitalsPathBreakdownResult {
+    good: WebVitalsPathBreakdownResultItem[]
+    needs_improvements: WebVitalsPathBreakdownResultItem[]
+    poor: WebVitalsPathBreakdownResultItem[]
+}
+
+export interface Response8 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    /**
+     * @minItems 1
+     * @maxItems 1
+     */
+    results: WebVitalsPathBreakdownResult[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface Response9 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface Response10 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface Response11 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface Response12 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface RevenueAnalyticsMRRQueryResultItem {
+    churn: unknown
+    contraction: unknown
+    expansion: unknown
+    new: unknown
+    total: unknown
+}
+
+export interface Response13 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RevenueAnalyticsMRRQueryResultItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type RevenueAnalyticsOverviewItemKey =
+    (typeof RevenueAnalyticsOverviewItemKey)[keyof typeof RevenueAnalyticsOverviewItemKey]
+
+export const RevenueAnalyticsOverviewItemKey = {
+    Revenue: 'revenue',
+    PayingCustomerCount: 'paying_customer_count',
+    AvgRevenuePerCustomer: 'avg_revenue_per_customer',
+} as const
+
+export interface RevenueAnalyticsOverviewItem {
+    key: RevenueAnalyticsOverviewItemKey
+    value: number
+}
+
+export interface Response14 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RevenueAnalyticsOverviewItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface Response15 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface Response16 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface MarketingAnalyticsItem {
+    /** @nullable */
+    changeFromPreviousPct?: number | null
+    /** @nullable */
+    hasComparison?: boolean | null
+    /** @nullable */
+    isIncreaseBad?: boolean | null
+    key: string
+    kind: WebAnalyticsItemKind
+    previous?: number | string | null
+    value?: number | string | null
+}
+
+export interface Response18 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: MarketingAnalyticsItem[][]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type Response19Results = { [key: string]: MarketingAnalyticsItem }
+
+export interface Response19 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: Response19Results
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface Response20 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: MarketingAnalyticsItem[][]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface VolumeBucket {
+    label: string
+    value: number
+}
+
+export interface ErrorTrackingIssueAggregations {
+    occurrences: number
+    sessions: number
+    users: number
+    /** @nullable */
+    volumeRange?: number[] | null
+    volume_buckets: VolumeBucket[]
+}
+
+export type ErrorTrackingIssueAssigneeType =
+    (typeof ErrorTrackingIssueAssigneeType)[keyof typeof ErrorTrackingIssueAssigneeType]
+
+export const ErrorTrackingIssueAssigneeType = {
+    User: 'user',
+    Role: 'role',
+} as const
+
+export interface ErrorTrackingIssueAssignee {
+    id: string | number
+    type: ErrorTrackingIssueAssigneeType
+}
+
+export interface ErrorTrackingIssueCohort {
+    id: number
+    name: string
+}
+
+export type IntegrationKind = (typeof IntegrationKind)[keyof typeof IntegrationKind]
+
+export const IntegrationKind = {
+    Slack: 'slack',
+    SlackTwig: 'slack-twig',
+    Salesforce: 'salesforce',
+    Hubspot: 'hubspot',
+    GooglePubsub: 'google-pubsub',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GoogleAds: 'google-ads',
+    GoogleSheets: 'google-sheets',
+    LinkedinAds: 'linkedin-ads',
+    Snapchat: 'snapchat',
+    Intercom: 'intercom',
+    Email: 'email',
+    Twilio: 'twilio',
+    Linear: 'linear',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    MetaAds: 'meta-ads',
+    Clickup: 'clickup',
+    RedditAds: 'reddit-ads',
+    Databricks: 'databricks',
+    TiktokAds: 'tiktok-ads',
+    BingAds: 'bing-ads',
+    Vercel: 'vercel',
+    AzureBlob: 'azure-blob',
+    Firebase: 'firebase',
+    Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
+} as const
+
+export interface ErrorTrackingExternalReferenceIntegration {
+    display_name: string
+    id: number
+    kind: IntegrationKind
+}
+
+export interface ErrorTrackingExternalReference {
+    external_url: string
+    id: string
+    integration: ErrorTrackingExternalReferenceIntegration
+}
+
+export interface FirstEvent {
+    distinct_id: string
+    properties: string
+    timestamp: string
+    uuid: string
+}
+
+export interface LastEvent {
+    distinct_id: string
+    properties: string
+    timestamp: string
+    uuid: string
+}
+
+export type ErrorTrackingIssueStatus = (typeof ErrorTrackingIssueStatus)[keyof typeof ErrorTrackingIssueStatus]
+
+export const ErrorTrackingIssueStatus = {
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
+} as const
+
+export interface ErrorTrackingIssue {
+    aggregations?: ErrorTrackingIssueAggregations | null
+    assignee?: ErrorTrackingIssueAssignee | null
+    cohort?: ErrorTrackingIssueCohort | null
+    /** @nullable */
+    description?: string | null
+    /** @nullable */
+    external_issues?: ErrorTrackingExternalReference[] | null
+    first_event?: FirstEvent | null
+    first_seen: string
+    /** @nullable */
+    function?: string | null
+    id: string
+    last_event?: LastEvent | null
+    last_seen: string
+    /** @nullable */
+    library?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    revenue?: number | null
+    /** @nullable */
+    source?: string | null
+    status: ErrorTrackingIssueStatus
+}
+
+export interface Response21 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ErrorTrackingIssue[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface Population {
+    both: number
+    exception_only: number
+    neither: number
+    success_only: number
+}
+
+export interface ErrorTrackingCorrelatedIssue {
+    assignee?: ErrorTrackingIssueAssignee | null
+    cohort?: ErrorTrackingIssueCohort | null
+    /** @nullable */
+    description?: string | null
+    event: string
+    /** @nullable */
+    external_issues?: ErrorTrackingExternalReference[] | null
+    first_seen: string
+    id: string
+    last_seen: string
+    /** @nullable */
+    library?: string | null
+    /** @nullable */
+    name?: string | null
+    odds_ratio: number
+    population: Population
+    status: ErrorTrackingIssueStatus
+}
+
+export interface Response22 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ErrorTrackingCorrelatedIssue[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type Response23Kind = (typeof Response23Kind)[keyof typeof Response23Kind]
+
+export const Response23Kind = {
+    ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
+} as const
+
+export type ExperimentSignificanceCode = (typeof ExperimentSignificanceCode)[keyof typeof ExperimentSignificanceCode]
+
+export const ExperimentSignificanceCode = {
+    Significant: 'significant',
+    NotEnoughExposure: 'not_enough_exposure',
+    LowWinProbability: 'low_win_probability',
+    HighLoss: 'high_loss',
+    HighPValue: 'high_p_value',
+} as const
+
+export interface ExperimentVariantFunnelsBaseStats {
+    failure_count: number
+    key: string
+    success_count: number
+}
+
+export type Response23CredibleIntervals = { [key: string]: number[] }
+
+export type Response23InsightItemItem = { [key: string]: unknown }
+
+export type Response23Probability = { [key: string]: number }
+
+export interface Response23 {
+    credible_intervals: Response23CredibleIntervals
+    expected_loss: number
+    funnels_query?: FunnelsQuery | null
+    insight: Response23InsightItemItem[][]
+    kind?: Response23Kind
+    probability: Response23Probability
+    significance_code: ExperimentSignificanceCode
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantFunnelsBaseStats[]
+}
+
+export type Response24Kind = (typeof Response24Kind)[keyof typeof Response24Kind]
+
+export const Response24Kind = {
+    ExperimentTrendsQuery: 'ExperimentTrendsQuery',
+} as const
+
+export interface ExperimentVariantTrendsBaseStats {
+    absolute_exposure: number
+    count: number
+    exposure: number
+    key: string
+}
+
+export type Response24CredibleIntervals = { [key: string]: number[] }
+
+export type Response24InsightItem = { [key: string]: unknown }
+
+export type Response24Probability = { [key: string]: number }
+
+export interface Response24 {
+    count_query?: TrendsQuery | null
+    credible_intervals: Response24CredibleIntervals
+    exposure_query?: TrendsQuery | null
+    insight: Response24InsightItem[]
+    kind?: Response24Kind
+    p_value: number
+    probability: Response24Probability
+    significance_code: ExperimentSignificanceCode
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantTrendsBaseStats[]
+}
+
+export type LLMTraceEventProperties = { [key: string]: unknown }
+
+export interface LLMTraceEvent {
+    createdAt: string
+    event: AIEventType | string
+    id: string
+    properties: LLMTraceEventProperties
+}
+
+export type LLMTracePersonProperties = { [key: string]: unknown }
+
+export interface LLMTracePerson {
+    created_at: string
+    distinct_id: string
+    properties: LLMTracePersonProperties
+    uuid: string
+}
+
+export interface LLMTrace {
+    /** @nullable */
+    aiSessionId?: string | null
+    createdAt: string
+    distinctId: string
+    /** @nullable */
+    errorCount?: number | null
+    events: LLMTraceEvent[]
+    id: string
+    /** @nullable */
+    inputCost?: number | null
+    inputState?: unknown | null
+    /** @nullable */
+    inputTokens?: number | null
+    /** @nullable */
+    isSupportTrace?: boolean | null
+    /** @nullable */
+    outputCost?: number | null
+    outputState?: unknown | null
+    /** @nullable */
+    outputTokens?: number | null
+    person?: LLMTracePerson | null
+    /** @nullable */
+    tools?: string[] | null
+    /** @nullable */
+    totalCost?: number | null
+    /** @nullable */
+    totalLatency?: number | null
+    /** @nullable */
+    traceName?: string | null
+}
+
+export interface Response25 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: LLMTrace[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface Response26 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type DataTableNodeResponse =
+    | { [key: string]: unknown }
+    | Response
+    | Response1
+    | Response2
+    | Response3
+    | Response4
+    | Response5
+    | Response6
+    | Response8
+    | Response9
+    | Response10
+    | Response11
+    | Response12
+    | Response13
+    | Response14
+    | Response15
+    | Response16
+    | Response18
+    | Response19
+    | Response20
+    | Response21
+    | Response22
+    | Response23
+    | Response24
+    | Response25
+    | Response26
+    | null
+
+export type DataTableNodeViewPropsContextType =
+    (typeof DataTableNodeViewPropsContextType)[keyof typeof DataTableNodeViewPropsContextType]
+
+export const DataTableNodeViewPropsContextType = {
+    EventDefinition: 'event_definition',
+    TeamColumns: 'team_columns',
+} as const
+
+export interface DataTableNodeViewPropsContext {
+    /** @nullable */
+    eventDefinitionId?: string | null
+    type: DataTableNodeViewPropsContextType
+}
+
+export type TaxonomicFilterGroupType = (typeof TaxonomicFilterGroupType)[keyof typeof TaxonomicFilterGroupType]
+
+export const TaxonomicFilterGroupType = {
+    Metadata: 'metadata',
+    Actions: 'actions',
+    Cohorts: 'cohorts',
+    CohortsWithAll: 'cohorts_with_all',
+    DataWarehouse: 'data_warehouse',
+    DataWarehouseProperties: 'data_warehouse_properties',
+    DataWarehousePersonProperties: 'data_warehouse_person_properties',
+    Elements: 'elements',
+    Events: 'events',
+    InternalEvents: 'internal_events',
+    InternalEventProperties: 'internal_event_properties',
+    EventProperties: 'event_properties',
+    EventFeatureFlags: 'event_feature_flags',
+    EventMetadata: 'event_metadata',
+    NumericalEventProperties: 'numerical_event_properties',
+    PersonProperties: 'person_properties',
+    PageviewUrls: 'pageview_urls',
+    PageviewEvents: 'pageview_events',
+    Screens: 'screens',
+    ScreenEvents: 'screen_events',
+    EmailAddresses: 'email_addresses',
+    AutocaptureEvents: 'autocapture_events',
+    CustomEvents: 'custom_events',
+    Wildcard: 'wildcard',
+    Groups: 'groups',
+    Persons: 'persons',
+    FeatureFlags: 'feature_flags',
+    Insights: 'insights',
+    Experiments: 'experiments',
+    Plugins: 'plugins',
+    Dashboards: 'dashboards',
+    NameGroups: 'name_groups',
+    SessionProperties: 'session_properties',
+    HogqlExpression: 'hogql_expression',
+    Notebooks: 'notebooks',
+    LogEntries: 'log_entries',
+    ErrorTrackingIssues: 'error_tracking_issues',
+    Logs: 'logs',
+    LogAttributes: 'log_attributes',
+    LogResourceAttributes: 'log_resource_attributes',
+    Replay: 'replay',
+    ReplaySavedFilters: 'replay_saved_filters',
+    RevenueAnalyticsProperties: 'revenue_analytics_properties',
+    Resources: 'resources',
+    ErrorTrackingProperties: 'error_tracking_properties',
+    ActivityLogProperties: 'activity_log_properties',
+    MaxAiContext: 'max_ai_context',
+    WorkflowVariables: 'workflow_variables',
+    SuggestedFilters: 'suggested_filters',
+    Empty: 'empty',
+} as const
+
+export type EventsQueryKind = (typeof EventsQueryKind)[keyof typeof EventsQueryKind]
+
+export const EventsQueryKind = {
+    EventsQuery: 'EventsQuery',
+} as const
+
+export interface EventsQueryResponse {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface EventsQuery {
+    /**
+     * Show events matching a given action
+     * @nullable
+     */
+    actionId?: number | null
+    /**
+     * Only fetch events that happened after this timestamp
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * Only fetch events that happened before this timestamp
+     * @nullable
+     */
+    before?: string | null
+    /**
+     * Limit to events matching this string
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Filter to events matching any of these event names
+     * @nullable
+     */
+    events?: string[] | null
+    /**
+     * Filter test accounts
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | PropertyGroupFilter
+              | PropertyGroupFilterValue
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    kind?: EventsQueryKind
+    /**
+     * Number of rows to return
+     * @nullable
+     */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Number of rows to skip before returning rows
+     * @nullable
+     */
+    offset?: number | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Show events for a given person
+     * @nullable
+     */
+    personId?: string | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    response?: EventsQueryResponse | null
+    /** Return a limited set of data. Required. */
+    select: string[]
+    /** source for querying events for insights */
+    source?: InsightActorsQuery | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * HogQL filters to apply on returned data
+     * @nullable
+     */
+    where?: string[] | null
+}
+
+export type PersonsNodeKind = (typeof PersonsNodeKind)[keyof typeof PersonsNodeKind]
+
+export const PersonsNodeKind = {
+    PersonsNode: 'PersonsNode',
+} as const
+
+/**
+ * @nullable
+ */
+export type PersonsNodeResponse = { [key: string]: unknown } | null | null
+
+export interface PersonsNode {
+    /** @nullable */
+    cohort?: number | null
+    /** @nullable */
+    distinctId?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    kind?: PersonsNodeKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: PersonsNodeResponse
+    /** @nullable */
+    search?: string | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type GroupsQueryKind = (typeof GroupsQueryKind)[keyof typeof GroupsQueryKind]
+
+export const GroupsQueryKind = {
+    GroupsQuery: 'GroupsQuery',
+} as const
+
+export type GroupsQueryResponseKind = (typeof GroupsQueryResponseKind)[keyof typeof GroupsQueryResponseKind]
+
+export const GroupsQueryResponseKind = {
+    GroupsQuery: 'GroupsQuery',
+} as const
+
+export interface GroupsQueryResponse {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: GroupsQueryResponseKind
+    limit: number
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface GroupsQuery {
+    group_type_index: number
+    kind?: GroupsQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: string[] | null
+    /** @nullable */
+    properties?: (GroupPropertyFilter | HogQLPropertyFilter)[] | null
+    response?: GroupsQueryResponse | null
+    /** @nullable */
+    search?: string | null
+    /** @nullable */
+    select?: string[] | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type WebExternalClicksTableQueryKind =
+    (typeof WebExternalClicksTableQueryKind)[keyof typeof WebExternalClicksTableQueryKind]
+
+export const WebExternalClicksTableQueryKind = {
+    WebExternalClicksTableQuery: 'WebExternalClicksTableQuery',
+} as const
+
+export interface WebExternalClicksTableQueryResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export const WebExternalClicksTableQueryOrderByItem = {
+    ...WebAnalyticsOrderByFields,
+    ...WebAnalyticsOrderByDirection,
+} as const
+export interface WebExternalClicksTableQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: WebExternalClicksTableQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    orderBy?:
+        | (typeof WebExternalClicksTableQueryOrderByItem)[keyof typeof WebExternalClicksTableQueryOrderByItem][]
+        | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: WebExternalClicksTableQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** @nullable */
+    stripQueryParams?: boolean | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type WebGoalsQueryKind = (typeof WebGoalsQueryKind)[keyof typeof WebGoalsQueryKind]
+
+export const WebGoalsQueryKind = {
+    WebGoalsQuery: 'WebGoalsQuery',
+} as const
+
+export interface WebGoalsQueryResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export const WebGoalsQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
+export interface WebGoalsQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: WebGoalsQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    orderBy?: (typeof WebGoalsQueryOrderByItem)[keyof typeof WebGoalsQueryOrderByItem][] | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: WebGoalsQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type WebVitalsQueryKind = (typeof WebVitalsQueryKind)[keyof typeof WebVitalsQueryKind]
+
+export const WebVitalsQueryKind = {
+    WebVitalsQuery: 'WebVitalsQuery',
+} as const
+
+export const WebVitalsQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
+export interface WebVitalsQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: WebVitalsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    orderBy?: (typeof WebVitalsQueryOrderByItem)[keyof typeof WebVitalsQueryOrderByItem][] | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: WebGoalsQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    source:
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | WebStatsTableQuery
+        | WebOverviewQuery
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type WebVitalsPathBreakdownQueryKind =
+    (typeof WebVitalsPathBreakdownQueryKind)[keyof typeof WebVitalsPathBreakdownQueryKind]
+
+export const WebVitalsPathBreakdownQueryKind = {
+    WebVitalsPathBreakdownQuery: 'WebVitalsPathBreakdownQuery',
+} as const
+
+export type WebVitalsMetric = (typeof WebVitalsMetric)[keyof typeof WebVitalsMetric]
+
+export const WebVitalsMetric = {
+    Inp: 'INP',
+    Lcp: 'LCP',
+    Cls: 'CLS',
+    Fcp: 'FCP',
+} as const
+
+export type WebVitalsPercentile = (typeof WebVitalsPercentile)[keyof typeof WebVitalsPercentile]
+
+export const WebVitalsPercentile = {
+    P75: 'p75',
+    P90: 'p90',
+    P99: 'p99',
+} as const
+
+export interface WebVitalsPathBreakdownQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    /**
+     * @minItems 1
+     * @maxItems 1
+     */
+    results: WebVitalsPathBreakdownResult[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export const WebVitalsPathBreakdownQueryOrderByItem = {
+    ...WebAnalyticsOrderByFields,
+    ...WebAnalyticsOrderByDirection,
+} as const
+export interface WebVitalsPathBreakdownQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: WebVitalsPathBreakdownQueryKind
+    metric: WebVitalsMetric
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    orderBy?:
+        | (typeof WebVitalsPathBreakdownQueryOrderByItem)[keyof typeof WebVitalsPathBreakdownQueryOrderByItem][]
+        | null
+    percentile: WebVitalsPercentile
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: WebVitalsPathBreakdownQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    tags?: QueryLogTags | null
+    /**
+     * @minItems 2
+     * @maxItems 2
+     */
+    thresholds: number[]
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface Filters {
+    dateRange?: DateRange | null
+    /** @nullable */
+    properties?: SessionPropertyFilter[] | null
+}
+
+export type SessionAttributionGroupBy = (typeof SessionAttributionGroupBy)[keyof typeof SessionAttributionGroupBy]
+
+export const SessionAttributionGroupBy = {
+    ChannelType: 'ChannelType',
+    Medium: 'Medium',
+    Source: 'Source',
+    Campaign: 'Campaign',
+    AdIds: 'AdIds',
+    ReferringDomain: 'ReferringDomain',
+    InitialURL: 'InitialURL',
+} as const
+
+export type SessionAttributionExplorerQueryKind =
+    (typeof SessionAttributionExplorerQueryKind)[keyof typeof SessionAttributionExplorerQueryKind]
+
+export const SessionAttributionExplorerQueryKind = {
+    SessionAttributionExplorerQuery: 'SessionAttributionExplorerQuery',
+} as const
+
+export interface SessionAttributionExplorerQueryResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface SessionAttributionExplorerQuery {
+    filters?: Filters | null
+    groupBy: SessionAttributionGroupBy[]
+    kind?: SessionAttributionExplorerQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    response?: SessionAttributionExplorerQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type SessionsQueryKind = (typeof SessionsQueryKind)[keyof typeof SessionsQueryKind]
+
+export const SessionsQueryKind = {
+    SessionsQuery: 'SessionsQuery',
+} as const
+
+export interface SessionsQueryResponse {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface SessionsQuery {
+    /**
+     * Filter sessions by action - sessions that contain events matching this action
+     * @nullable
+     */
+    actionId?: number | null
+    /**
+     * Only fetch sessions that started after this timestamp
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * Only fetch sessions that started before this timestamp
+     * @nullable
+     */
+    before?: string | null
+    /**
+     * Filter sessions by event name - sessions that contain this event
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Event property filters - only applies when event or actionId is set
+     * @nullable
+     */
+    eventProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /**
+     * Filter test accounts
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | PropertyGroupFilter
+              | PropertyGroupFilterValue
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    kind?: SessionsQueryKind
+    /**
+     * Number of rows to return
+     * @nullable
+     */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Number of rows to skip before returning rows
+     * @nullable
+     */
+    offset?: number | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Show sessions for a given person
+     * @nullable
+     */
+    personId?: string | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    response?: SessionsQueryResponse | null
+    /** Return a limited set of data. Required. */
+    select: string[]
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * HogQL filters to apply on returned data
+     * @nullable
+     */
+    where?: string[] | null
+}
+
+export type RevenueAnalyticsBreakdownType =
+    (typeof RevenueAnalyticsBreakdownType)[keyof typeof RevenueAnalyticsBreakdownType]
+
+export const RevenueAnalyticsBreakdownType = {
+    RevenueAnalytics: 'revenue_analytics',
+} as const
+
+export interface RevenueAnalyticsBreakdown {
+    property: string
+    type?: RevenueAnalyticsBreakdownType
+}
+
+export type SimpleIntervalType = (typeof SimpleIntervalType)[keyof typeof SimpleIntervalType]
+
+export const SimpleIntervalType = {
+    Day: 'day',
+    Month: 'month',
+} as const
+
+export type RevenueAnalyticsGrossRevenueQueryKind =
+    (typeof RevenueAnalyticsGrossRevenueQueryKind)[keyof typeof RevenueAnalyticsGrossRevenueQueryKind]
+
+export const RevenueAnalyticsGrossRevenueQueryKind = {
+    RevenueAnalyticsGrossRevenueQuery: 'RevenueAnalyticsGrossRevenueQuery',
+} as const
+
+export interface RevenueAnalyticsGrossRevenueQueryResponse {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface RevenueAnalyticsGrossRevenueQuery {
+    breakdown: RevenueAnalyticsBreakdown[]
+    dateRange?: DateRange | null
+    interval: SimpleIntervalType
+    kind?: RevenueAnalyticsGrossRevenueQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    properties: RevenueAnalyticsPropertyFilter[]
+    response?: RevenueAnalyticsGrossRevenueQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueAnalyticsMetricsQueryKind =
+    (typeof RevenueAnalyticsMetricsQueryKind)[keyof typeof RevenueAnalyticsMetricsQueryKind]
+
+export const RevenueAnalyticsMetricsQueryKind = {
+    RevenueAnalyticsMetricsQuery: 'RevenueAnalyticsMetricsQuery',
+} as const
+
+export interface RevenueAnalyticsMetricsQueryResponse {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface RevenueAnalyticsMetricsQuery {
+    breakdown: RevenueAnalyticsBreakdown[]
+    dateRange?: DateRange | null
+    interval: SimpleIntervalType
+    kind?: RevenueAnalyticsMetricsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    properties: RevenueAnalyticsPropertyFilter[]
+    response?: RevenueAnalyticsMetricsQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueAnalyticsMRRQueryKind =
+    (typeof RevenueAnalyticsMRRQueryKind)[keyof typeof RevenueAnalyticsMRRQueryKind]
+
+export const RevenueAnalyticsMRRQueryKind = {
+    RevenueAnalyticsMRRQuery: 'RevenueAnalyticsMRRQuery',
+} as const
+
+export interface RevenueAnalyticsMRRQueryResponse {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RevenueAnalyticsMRRQueryResultItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface RevenueAnalyticsMRRQuery {
+    breakdown: RevenueAnalyticsBreakdown[]
+    dateRange?: DateRange | null
+    interval: SimpleIntervalType
+    kind?: RevenueAnalyticsMRRQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    properties: RevenueAnalyticsPropertyFilter[]
+    response?: RevenueAnalyticsMRRQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueAnalyticsOverviewQueryKind =
+    (typeof RevenueAnalyticsOverviewQueryKind)[keyof typeof RevenueAnalyticsOverviewQueryKind]
+
+export const RevenueAnalyticsOverviewQueryKind = {
+    RevenueAnalyticsOverviewQuery: 'RevenueAnalyticsOverviewQuery',
+} as const
+
+export interface RevenueAnalyticsOverviewQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RevenueAnalyticsOverviewItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface RevenueAnalyticsOverviewQuery {
+    dateRange?: DateRange | null
+    kind?: RevenueAnalyticsOverviewQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    properties: RevenueAnalyticsPropertyFilter[]
+    response?: RevenueAnalyticsOverviewQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueAnalyticsTopCustomersGroupBy =
+    (typeof RevenueAnalyticsTopCustomersGroupBy)[keyof typeof RevenueAnalyticsTopCustomersGroupBy]
+
+export const RevenueAnalyticsTopCustomersGroupBy = {
+    Month: 'month',
+    All: 'all',
+} as const
+
+export type RevenueAnalyticsTopCustomersQueryKind =
+    (typeof RevenueAnalyticsTopCustomersQueryKind)[keyof typeof RevenueAnalyticsTopCustomersQueryKind]
+
+export const RevenueAnalyticsTopCustomersQueryKind = {
+    RevenueAnalyticsTopCustomersQuery: 'RevenueAnalyticsTopCustomersQuery',
+} as const
+
+export interface RevenueAnalyticsTopCustomersQueryResponse {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface RevenueAnalyticsTopCustomersQuery {
+    dateRange?: DateRange | null
+    groupBy: RevenueAnalyticsTopCustomersGroupBy
+    kind?: RevenueAnalyticsTopCustomersQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    properties: RevenueAnalyticsPropertyFilter[]
+    response?: RevenueAnalyticsTopCustomersQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueExampleEventsQueryKind =
+    (typeof RevenueExampleEventsQueryKind)[keyof typeof RevenueExampleEventsQueryKind]
+
+export const RevenueExampleEventsQueryKind = {
+    RevenueExampleEventsQuery: 'RevenueExampleEventsQuery',
+} as const
+
+export interface RevenueExampleEventsQueryResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface RevenueExampleEventsQuery {
+    kind?: RevenueExampleEventsQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    response?: RevenueExampleEventsQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueExampleDataWarehouseTablesQueryKind =
+    (typeof RevenueExampleDataWarehouseTablesQueryKind)[keyof typeof RevenueExampleDataWarehouseTablesQueryKind]
+
+export const RevenueExampleDataWarehouseTablesQueryKind = {
+    RevenueExampleDataWarehouseTablesQuery: 'RevenueExampleDataWarehouseTablesQuery',
+} as const
+
+export interface RevenueExampleDataWarehouseTablesQueryResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface RevenueExampleDataWarehouseTablesQuery {
+    kind?: RevenueExampleDataWarehouseTablesQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    response?: RevenueExampleDataWarehouseTablesQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface IntegrationFilter {
+    /**
+     * Selected integration source IDs to filter by (e.g., table IDs or source map IDs)
+     * @nullable
+     */
+    integrationSourceIds?: string[] | null
+}
+
+export type MarketingAnalyticsTableQueryKind =
+    (typeof MarketingAnalyticsTableQueryKind)[keyof typeof MarketingAnalyticsTableQueryKind]
+
+export const MarketingAnalyticsTableQueryKind = {
+    MarketingAnalyticsTableQuery: 'MarketingAnalyticsTableQuery',
+} as const
+
+export type MarketingAnalyticsOrderByEnum =
+    (typeof MarketingAnalyticsOrderByEnum)[keyof typeof MarketingAnalyticsOrderByEnum]
+
+export const MarketingAnalyticsOrderByEnum = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+export interface MarketingAnalyticsTableQueryResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: MarketingAnalyticsItem[][]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface MarketingAnalyticsTableQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** Compare to date range */
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null
+    /**
+     * Filter test accounts
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Filter by integration type */
+    integrationFilter?: IntegrationFilter | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: MarketingAnalyticsTableQueryKind
+    /**
+     * Number of rows to return
+     * @nullable
+     */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Number of rows to skip before returning rows
+     * @nullable
+     */
+    offset?: number | null
+    /**
+     * Columns to order by - similar to EventsQuery format
+     * @nullable
+     */
+    orderBy?: (string | MarketingAnalyticsOrderByEnum)[][] | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: MarketingAnalyticsTableQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /**
+     * Return a limited set of data. Will use default columns if empty.
+     * @nullable
+     */
+    select?: string[] | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type MarketingAnalyticsAggregatedQueryKind =
+    (typeof MarketingAnalyticsAggregatedQueryKind)[keyof typeof MarketingAnalyticsAggregatedQueryKind]
+
+export const MarketingAnalyticsAggregatedQueryKind = {
+    MarketingAnalyticsAggregatedQuery: 'MarketingAnalyticsAggregatedQuery',
+} as const
+
+export type MarketingAnalyticsAggregatedQueryResponseResults = { [key: string]: MarketingAnalyticsItem }
+
+export interface MarketingAnalyticsAggregatedQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: MarketingAnalyticsAggregatedQueryResponseResults
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface MarketingAnalyticsAggregatedQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Filter by integration IDs */
+    integrationFilter?: IntegrationFilter | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: MarketingAnalyticsAggregatedQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: MarketingAnalyticsAggregatedQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /**
+     * Return a limited set of data. Will use default columns if empty.
+     * @nullable
+     */
+    select?: string[] | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type NonIntegratedConversionsTableQueryKind =
+    (typeof NonIntegratedConversionsTableQueryKind)[keyof typeof NonIntegratedConversionsTableQueryKind]
+
+export const NonIntegratedConversionsTableQueryKind = {
+    NonIntegratedConversionsTableQuery: 'NonIntegratedConversionsTableQuery',
+} as const
+
+export interface NonIntegratedConversionsTableQueryResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: MarketingAnalyticsItem[][]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface NonIntegratedConversionsTableQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** Compare to date range */
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null
+    /**
+     * Filter test accounts
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: NonIntegratedConversionsTableQueryKind
+    /**
+     * Number of rows to return
+     * @nullable
+     */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Number of rows to skip before returning rows
+     * @nullable
+     */
+    offset?: number | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: (string | MarketingAnalyticsOrderByEnum)[][] | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: NonIntegratedConversionsTableQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /**
+     * Return a limited set of data. Will use default columns if empty.
+     * @nullable
+     */
+    select?: string[] | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ErrorTrackingQueryKind = (typeof ErrorTrackingQueryKind)[keyof typeof ErrorTrackingQueryKind]
+
+export const ErrorTrackingQueryKind = {
+    ErrorTrackingQuery: 'ErrorTrackingQuery',
+} as const
+
+export type OrderBy1 = (typeof OrderBy1)[keyof typeof OrderBy1]
+
+export const OrderBy1 = {
+    LastSeen: 'last_seen',
+    FirstSeen: 'first_seen',
+    Occurrences: 'occurrences',
+    Users: 'users',
+    Sessions: 'sessions',
+    Revenue: 'revenue',
+} as const
+
+export type OrderDirection1 = (typeof OrderDirection1)[keyof typeof OrderDirection1]
+
+export const OrderDirection1 = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+export interface ErrorTrackingQueryResponse {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ErrorTrackingIssue[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type RevenueEntity = (typeof RevenueEntity)[keyof typeof RevenueEntity]
+
+export const RevenueEntity = {
+    Person: 'person',
+    Group0: 'group_0',
+    Group1: 'group_1',
+    Group2: 'group_2',
+    Group3: 'group_3',
+    Group4: 'group_4',
+} as const
+
+export type RevenuePeriod = (typeof RevenuePeriod)[keyof typeof RevenuePeriod]
+
+export const RevenuePeriod = {
+    AllTime: 'all_time',
+    Mrr: 'mrr',
+} as const
+
+export interface ErrorTrackingQuery {
+    assignee?: ErrorTrackingIssueAssignee | null
+    dateRange: DateRange
+    filterGroup?: PropertyGroupFilter | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    groupKey?: string | null
+    /** @nullable */
+    groupTypeIndex?: number | null
+    /** @nullable */
+    issueId?: string | null
+    kind?: ErrorTrackingQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    orderBy: OrderBy1
+    orderDirection?: OrderDirection1 | null
+    /** @nullable */
+    personId?: string | null
+    response?: ErrorTrackingQueryResponse | null
+    revenueEntity?: RevenueEntity | null
+    revenuePeriod?: RevenuePeriod | null
+    /** @nullable */
+    searchQuery?: string | null
+    status?: ErrorTrackingIssueStatus | string | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    volumeResolution: number
+    /** @nullable */
+    withAggregations?: boolean | null
+    /** @nullable */
+    withFirstEvent?: boolean | null
+    /** @nullable */
+    withLastEvent?: boolean | null
+}
+
+export type ErrorTrackingIssueCorrelationQueryKind =
+    (typeof ErrorTrackingIssueCorrelationQueryKind)[keyof typeof ErrorTrackingIssueCorrelationQueryKind]
+
+export const ErrorTrackingIssueCorrelationQueryKind = {
+    ErrorTrackingIssueCorrelationQuery: 'ErrorTrackingIssueCorrelationQuery',
+} as const
+
+export interface ErrorTrackingIssueCorrelationQueryResponse {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ErrorTrackingCorrelatedIssue[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface ErrorTrackingIssueCorrelationQuery {
+    events: string[]
+    kind?: ErrorTrackingIssueCorrelationQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: ErrorTrackingIssueCorrelationQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentFunnelsQueryKind = (typeof ExperimentFunnelsQueryKind)[keyof typeof ExperimentFunnelsQueryKind]
+
+export const ExperimentFunnelsQueryKind = {
+    ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
+} as const
+
+export type ExperimentFunnelsQueryResponseKind =
+    (typeof ExperimentFunnelsQueryResponseKind)[keyof typeof ExperimentFunnelsQueryResponseKind]
+
+export const ExperimentFunnelsQueryResponseKind = {
+    ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
+} as const
+
+export type ExperimentFunnelsQueryResponseCredibleIntervals = { [key: string]: number[] }
+
+export type ExperimentFunnelsQueryResponseInsightItemItem = { [key: string]: unknown }
+
+export type ExperimentFunnelsQueryResponseProbability = { [key: string]: number }
+
+export interface ExperimentFunnelsQueryResponse {
+    credible_intervals: ExperimentFunnelsQueryResponseCredibleIntervals
+    expected_loss: number
+    funnels_query?: FunnelsQuery | null
+    insight: ExperimentFunnelsQueryResponseInsightItemItem[][]
+    kind?: ExperimentFunnelsQueryResponseKind
+    probability: ExperimentFunnelsQueryResponseProbability
+    significance_code: ExperimentSignificanceCode
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantFunnelsBaseStats[]
+}
+
+export interface ExperimentFunnelsQuery {
+    /** @nullable */
+    experiment_id?: number | null
+    /** @nullable */
+    fingerprint?: string | null
+    funnels_query: FunnelsQuery
+    kind?: ExperimentFunnelsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    name?: string | null
+    response?: ExperimentFunnelsQueryResponse | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentTrendsQueryKind = (typeof ExperimentTrendsQueryKind)[keyof typeof ExperimentTrendsQueryKind]
+
+export const ExperimentTrendsQueryKind = {
+    ExperimentTrendsQuery: 'ExperimentTrendsQuery',
+} as const
+
+export type ExperimentTrendsQueryResponseKind =
+    (typeof ExperimentTrendsQueryResponseKind)[keyof typeof ExperimentTrendsQueryResponseKind]
+
+export const ExperimentTrendsQueryResponseKind = {
+    ExperimentTrendsQuery: 'ExperimentTrendsQuery',
+} as const
+
+export type ExperimentTrendsQueryResponseCredibleIntervals = { [key: string]: number[] }
+
+export type ExperimentTrendsQueryResponseInsightItem = { [key: string]: unknown }
+
+export type ExperimentTrendsQueryResponseProbability = { [key: string]: number }
+
+export interface ExperimentTrendsQueryResponse {
+    count_query?: TrendsQuery | null
+    credible_intervals: ExperimentTrendsQueryResponseCredibleIntervals
+    exposure_query?: TrendsQuery | null
+    insight: ExperimentTrendsQueryResponseInsightItem[]
+    kind?: ExperimentTrendsQueryResponseKind
+    p_value: number
+    probability: ExperimentTrendsQueryResponseProbability
+    significance_code: ExperimentSignificanceCode
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantTrendsBaseStats[]
+}
+
+export interface ExperimentTrendsQuery {
+    count_query: TrendsQuery
+    /** @nullable */
+    experiment_id?: number | null
+    exposure_query?: TrendsQuery | null
+    /** @nullable */
+    fingerprint?: string | null
+    kind?: ExperimentTrendsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    name?: string | null
+    response?: ExperimentTrendsQueryResponse | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type TracesQueryKind = (typeof TracesQueryKind)[keyof typeof TracesQueryKind]
+
+export const TracesQueryKind = {
+    TracesQuery: 'TracesQuery',
+} as const
+
+export interface TracesQueryResponse {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: LLMTrace[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface TracesQuery {
+    dateRange?: DateRange | null
+    /** @nullable */
+    filterSupportTraces?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    groupKey?: string | null
+    /** @nullable */
+    groupTypeIndex?: number | null
+    kind?: TracesQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Person who performed the event
+     * @nullable
+     */
+    personId?: string | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /**
+     * Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.
+     * @nullable
+     */
+    randomOrder?: boolean | null
+    response?: TracesQueryResponse | null
+    /** @nullable */
+    showColumnConfigurator?: boolean | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type TraceQueryKind = (typeof TraceQueryKind)[keyof typeof TraceQueryKind]
+
+export const TraceQueryKind = {
+    TraceQuery: 'TraceQuery',
+} as const
+
+export interface TraceQueryResponse {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: LLMTrace[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface TraceQuery {
+    dateRange?: DateRange | null
+    kind?: TraceQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    response?: TraceQueryResponse | null
+    tags?: QueryLogTags | null
+    traceId: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type EndpointsUsageBreakdown = (typeof EndpointsUsageBreakdown)[keyof typeof EndpointsUsageBreakdown]
+
+export const EndpointsUsageBreakdown = {
+    Endpoint: 'Endpoint',
+    MaterializationType: 'MaterializationType',
+    ApiKey: 'ApiKey',
+    Status: 'Status',
+} as const
+
+export type EndpointsUsageTableQueryKind =
+    (typeof EndpointsUsageTableQueryKind)[keyof typeof EndpointsUsageTableQueryKind]
+
+export const EndpointsUsageTableQueryKind = {
+    EndpointsUsageTableQuery: 'EndpointsUsageTableQuery',
+} as const
+
+export type MaterializationType = (typeof MaterializationType)[keyof typeof MaterializationType]
+
+export const MaterializationType = {
+    Materialized: 'materialized',
+    Inline: 'inline',
+} as const
+
+export type EndpointsUsageOrderByField = (typeof EndpointsUsageOrderByField)[keyof typeof EndpointsUsageOrderByField]
+
+export const EndpointsUsageOrderByField = {
+    Requests: 'requests',
+    BytesRead: 'bytes_read',
+    CpuSeconds: 'cpu_seconds',
+    AvgQueryDurationMs: 'avg_query_duration_ms',
+    ErrorRate: 'error_rate',
+} as const
+
+export type EndpointsUsageOrderByDirection =
+    (typeof EndpointsUsageOrderByDirection)[keyof typeof EndpointsUsageOrderByDirection]
+
+export const EndpointsUsageOrderByDirection = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+export interface EndpointsUsageTableQueryResponse {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export const EndpointsUsageTableQueryOrderByItem = {
+    ...EndpointsUsageOrderByField,
+    ...EndpointsUsageOrderByDirection,
+} as const
+export interface EndpointsUsageTableQuery {
+    breakdownBy: EndpointsUsageBreakdown
+    dateRange?: DateRange | null
+    /**
+     * Filter to specific endpoints by name
+     * @nullable
+     */
+    endpointNames?: string[] | null
+    kind?: EndpointsUsageTableQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Filter by materialization type */
+    materializationType?: MaterializationType | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: (typeof EndpointsUsageTableQueryOrderByItem)[keyof typeof EndpointsUsageTableQueryOrderByItem][] | null
+    response?: EndpointsUsageTableQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface DataTableNode {
+    /**
+     * Can the user click on column headers to sort the table? (default: true)
+     * @nullable
+     */
+    allowSorting?: boolean | null
+    /**
+     * Columns shown in the table, unless the `source` provides them.
+     * @nullable
+     */
+    columns?: string[] | null
+    /** Context for the table, used by components like ColumnConfigurator */
+    context?: DataTableNodeViewPropsContext | null
+    /**
+     * Context key for universal column configuration (e.g., "survey:123")
+     * @nullable
+     */
+    contextKey?: string | null
+    /**
+     * Default columns to use when resetting column configuration
+     * @nullable
+     */
+    defaultColumns?: string[] | null
+    /**
+     * Uses the embedded version of LemonTable
+     * @nullable
+     */
+    embedded?: boolean | null
+    /**
+     * Can expand row to show raw event data (default: true)
+     * @nullable
+     */
+    expandable?: boolean | null
+    /**
+     * Show with most visual options enabled. Used in scenes.
+     * @nullable
+     */
+    full?: boolean | null
+    /**
+     * Columns that aren't shown in the table, even if in columns or returned data
+     * @nullable
+     */
+    hiddenColumns?: string[] | null
+    kind: DataTableNodeKind
+    /**
+     * Columns that are sticky when scrolling horizontally
+     * @nullable
+     */
+    pinnedColumns?: string[] | null
+    /**
+     * Link properties via the URL (default: false)
+     * @nullable
+     */
+    propertiesViaUrl?: boolean | null
+    response?: DataTableNodeResponse
+    /**
+     * Show the kebab menu at the end of the row
+     * @nullable
+     */
+    showActions?: boolean | null
+    /**
+     * Show a button to configure the table's columns if possible
+     * @nullable
+     */
+    showColumnConfigurator?: boolean | null
+    /**
+     * Show count of total and filtered results
+     * @nullable
+     */
+    showCount?: boolean | null
+    /**
+     * Show date range selector
+     * @nullable
+     */
+    showDateRange?: boolean | null
+    /**
+     * Show the time it takes to run a query
+     * @nullable
+     */
+    showElapsedTime?: boolean | null
+    /**
+     * Include an event filter above the table (EventsNode only)
+     * @nullable
+     */
+    showEventFilter?: boolean | null
+    /**
+     * Include an events filter above the table to filter by multiple events (EventsQuery only)
+     * @nullable
+     */
+    showEventsFilter?: boolean | null
+    /**
+     * Show the export button
+     * @nullable
+     */
+    showExport?: boolean | null
+    /**
+     * Include a HogQL query editor above HogQL tables
+     * @nullable
+     */
+    showHogQLEditor?: boolean | null
+    /**
+     * Show a button to open the current query as a new insight. (default: true)
+     * @nullable
+     */
+    showOpenEditorButton?: boolean | null
+    /**
+     * Show a button to configure and persist the table's default columns if possible
+     * @nullable
+     */
+    showPersistentColumnConfigurator?: boolean | null
+    /** Include a property filter above the table */
+    showPropertyFilter?: boolean | TaxonomicFilterGroupType[] | null
+    /**
+     * Show a recording column for events with session recordings
+     * @nullable
+     */
+    showRecordingColumn?: boolean | null
+    /**
+     * Show a reload button
+     * @nullable
+     */
+    showReload?: boolean | null
+    /**
+     * Show a results table
+     * @nullable
+     */
+    showResultsTable?: boolean | null
+    /**
+     * Show saved filters feature for this table (requires uniqueKey)
+     * @nullable
+     */
+    showSavedFilters?: boolean | null
+    /**
+     * Shows a list of saved queries
+     * @nullable
+     */
+    showSavedQueries?: boolean | null
+    /**
+     * Include a free text search field (PersonsNode only)
+     * @nullable
+     */
+    showSearch?: boolean | null
+    /**
+     * Show actors query options and back to source
+     * @nullable
+     */
+    showSourceQueryOptions?: boolean | null
+    /**
+     * Show table views feature for this table (requires uniqueKey)
+     * @nullable
+     */
+    showTableViews?: boolean | null
+    /**
+     * Show filter to exclude test accounts
+     * @nullable
+     */
+    showTestAccountFilters?: boolean | null
+    /**
+     * Show a detailed query timing breakdown
+     * @nullable
+     */
+    showTimings?: boolean | null
+    /** Source of the events */
+    source:
+        | EventsNode
+        | EventsQuery
+        | PersonsNode
+        | ActorsQuery
+        | GroupsQuery
+        | HogQLQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | SessionAttributionExplorerQuery
+        | SessionsQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | TracesQuery
+        | TraceQuery
+        | EndpointsUsageTableQuery
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type DataVisualizationNodeKind = (typeof DataVisualizationNodeKind)[keyof typeof DataVisualizationNodeKind]
+
+export const DataVisualizationNodeKind = {
+    DataVisualizationNode: 'DataVisualizationNode',
+} as const
+
+export interface TableSettings {
+    /** @nullable */
+    columns?: ChartAxis[] | null
+    /** @nullable */
+    conditionalFormatting?: ConditionalFormattingRule[] | null
+    /** @nullable */
+    pinnedColumns?: string[] | null
+}
+
+export interface DataVisualizationNode {
+    chartSettings?: ChartSettings | null
+    display?: ChartDisplayType | null
+    kind: DataVisualizationNodeKind
+    source: HogQLQuery
+    tableSettings?: TableSettings | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface DataWarehouseModelPath {
+    readonly id: string
+    path: string
+    team: number
+    /** @nullable */
+    table?: string | null
+    /** @nullable */
+    saved_query?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasic
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+/**
+ * * `Cancelled` - Cancelled
+ * `Modified` - Modified
+ * `Completed` - Completed
+ * `Failed` - Failed
+ * `Running` - Running
+ */
+export type StatusD5cEnum = (typeof StatusD5cEnum)[keyof typeof StatusD5cEnum]
+
+export const StatusD5cEnum = {
+    Cancelled: 'Cancelled',
+    Modified: 'Modified',
+    Completed: 'Completed',
+    Failed: 'Failed',
+    Running: 'Running',
+} as const
+
+/**
+ * * `data_warehouse` - Data Warehouse
+ * `endpoint` - Endpoint
+ * `managed_viewset` - Managed Viewset
+ */
+export type OriginEnum = (typeof OriginEnum)[keyof typeof OriginEnum]
+
+export const OriginEnum = {
+    DataWarehouse: 'data_warehouse',
+    Endpoint: 'endpoint',
+    ManagedViewset: 'managed_viewset',
+} as const
+
+/**
+ * Shared methods for DataWarehouseSavedQuery serializers.
+
+This mixin is intended to be used with serializers.ModelSerializer subclasses.
+ */
+export interface DataWarehouseSavedQuery {
+    readonly id: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name: string
+    /** HogQL query */
+    query?: unknown | null
+    readonly created_by: UserBasic
+    readonly created_at: string
+    readonly sync_frequency: string
+    readonly columns: string
+    /** The status of when this SavedQuery last ran.
+
+* `Cancelled` - Cancelled
+* `Modified` - Modified
+* `Completed` - Completed
+* `Failed` - Failed
+* `Running` - Running */
+    readonly status: StatusD5cEnum | NullEnum | null
+    /** @nullable */
+    readonly last_run_at: string | null
+    readonly managed_viewset_kind: string
+    /** @nullable */
+    readonly latest_error: string | null
+    /** @nullable */
+    edited_history_id?: string | null
+    readonly latest_history_id: string
+    /** @nullable */
+    soft_update?: boolean | null
+    /** @nullable */
+    readonly is_materialized: boolean | null
+    /** Where this SavedQuery is created.
+
+* `data_warehouse` - Data Warehouse
+* `endpoint` - Endpoint
+* `managed_viewset` - Managed Viewset */
+    readonly origin: OriginEnum | NullEnum | null
+}
+
+export interface DataWarehouseSavedQueryDraft {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
+/**
+ * Lightweight serializer for list views - excludes large query field to reduce memory usage.
+ */
+export interface DataWarehouseSavedQueryMinimal {
+    readonly id: string
+    /** @nullable */
+    readonly deleted: boolean | null
+    readonly name: string
+    readonly created_by: UserBasic
+    readonly created_at: string
+    readonly sync_frequency: string
+    readonly columns: string
+    /** The status of when this SavedQuery last ran.
+
+* `Cancelled` - Cancelled
+* `Modified` - Modified
+* `Completed` - Completed
+* `Failed` - Failed
+* `Running` - Running */
+    readonly status: StatusD5cEnum | NullEnum | null
+    /** @nullable */
+    readonly last_run_at: string | null
+    readonly managed_viewset_kind: string
+    /** @nullable */
+    readonly latest_error: string | null
+    /** @nullable */
+    readonly is_materialized: boolean | null
+    /** Where this SavedQuery is created.
+
+* `data_warehouse` - Data Warehouse
+* `endpoint` - Endpoint
+* `managed_viewset` - Managed Viewset */
+    readonly origin: OriginEnum | NullEnum | null
+}
+
+export type DataWarehouseSyncInterval = (typeof DataWarehouseSyncInterval)[keyof typeof DataWarehouseSyncInterval]
+
+export const DataWarehouseSyncInterval = {
+    '5min': '5min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+export type HedgehogActorAccessoryOption =
+    (typeof HedgehogActorAccessoryOption)[keyof typeof HedgehogActorAccessoryOption]
+
+export const HedgehogActorAccessoryOption = {
+    Beret: 'beret',
+    Cap: 'cap',
+    Chef: 'chef',
+    Cowboy: 'cowboy',
+    Eyepatch: 'eyepatch',
+    Flag: 'flag',
+    Glasses: 'glasses',
+    Graduation: 'graduation',
+    Parrot: 'parrot',
+    Party: 'party',
+    Pineapple: 'pineapple',
+    Sunglasses: 'sunglasses',
+    Tophat: 'tophat',
+    XmasHat: 'xmas-hat',
+    XmasAntlers: 'xmas-antlers',
+    XmasScarf: 'xmas-scarf',
+} as const
+
+export type HedgehogActorColorOption = (typeof HedgehogActorColorOption)[keyof typeof HedgehogActorColorOption]
+
+export const HedgehogActorColorOption = {
+    Green: 'green',
+    Red: 'red',
+    Blue: 'blue',
+    Purple: 'purple',
+    Dark: 'dark',
+    Light: 'light',
+    Greyscale: 'greyscale',
+    Sepia: 'sepia',
+    Invert: 'invert',
+    Rainbow: 'rainbow',
+} as const
+
+export type HedgehogActorSkinOption = (typeof HedgehogActorSkinOption)[keyof typeof HedgehogActorSkinOption]
+
+export const HedgehogActorSkinOption = {
+    Default: 'default',
+    Spiderhog: 'spiderhog',
+    Robohog: 'robohog',
+    Hogzilla: 'hogzilla',
+    Ghost: 'ghost',
+} as const
+
+export interface MinimalHedgehogConfig {
+    /** @nullable */
+    accessories?: HedgehogActorAccessoryOption[] | null
+    color?: HedgehogActorColorOption | null
+    skin?: HedgehogActorSkinOption | null
+    use_as_profile: boolean
+}
+
+export interface UserBasicType {
+    distinct_id: string
+    email: string
+    first_name: string
+    hedgehog_config?: MinimalHedgehogConfig | null
+    id: number
+    is_email_verified?: unknown | null
+    /** @nullable */
+    last_name?: string | null
+    /** @nullable */
+    role_at_organization?: string | null
+    uuid: string
+}
+
+export interface DataWarehouseViewLink {
+    /** @nullable */
+    created_at?: string | null
+    created_by?: UserBasicType | null
+    /** @nullable */
+    field_name?: string | null
+    id: string
+    /** @nullable */
+    joining_table_key?: string | null
+    /** @nullable */
+    joining_table_name?: string | null
+    /** @nullable */
+    source_table_key?: string | null
+    /** @nullable */
+    source_table_name?: string | null
+}
+
+export type DatabaseSerializedFieldType = (typeof DatabaseSerializedFieldType)[keyof typeof DatabaseSerializedFieldType]
+
+export const DatabaseSerializedFieldType = {
+    Integer: 'integer',
+    Float: 'float',
+    Decimal: 'decimal',
+    String: 'string',
+    Datetime: 'datetime',
+    Date: 'date',
+    Boolean: 'boolean',
+    Array: 'array',
+    Json: 'json',
+    LazyTable: 'lazy_table',
+    VirtualTable: 'virtual_table',
+    FieldTraverser: 'field_traverser',
+    Expression: 'expression',
+    View: 'view',
+    MaterializedView: 'materialized_view',
+    Unknown: 'unknown',
+} as const
+
+export interface DatabaseSchemaField {
+    /** @nullable */
+    chain?: (string | number)[] | null
+    /** @nullable */
+    fields?: string[] | null
+    hogql_value: string
+    /** @nullable */
+    id?: string | null
+    name: string
+    schema_valid: boolean
+    /** @nullable */
+    table?: string | null
+    type: DatabaseSerializedFieldType
+}
+
+export type DatabaseSchemaBatchExportTableFields = { [key: string]: DatabaseSchemaField }
+
+export type DatabaseSchemaBatchExportTableType =
+    (typeof DatabaseSchemaBatchExportTableType)[keyof typeof DatabaseSchemaBatchExportTableType]
+
+export const DatabaseSchemaBatchExportTableType = {
+    BatchExport: 'batch_export',
+} as const
+
+export interface DatabaseSchemaBatchExportTable {
+    fields: DatabaseSchemaBatchExportTableFields
+    id: string
+    name: string
+    /** @nullable */
+    row_count?: number | null
+    type?: DatabaseSchemaBatchExportTableType
+}
+
+export type DatabaseSchemaDataWarehouseTableFields = { [key: string]: DatabaseSchemaField }
+
+export type DatabaseSchemaDataWarehouseTableType =
+    (typeof DatabaseSchemaDataWarehouseTableType)[keyof typeof DatabaseSchemaDataWarehouseTableType]
+
+export const DatabaseSchemaDataWarehouseTableType = {
+    DataWarehouse: 'data_warehouse',
+} as const
+
+export interface DatabaseSchemaSchema {
+    id: string
+    incremental: boolean
+    /** @nullable */
+    last_synced_at?: string | null
+    name: string
+    should_sync: boolean
+    /** @nullable */
+    status?: string | null
+}
+
+export interface DatabaseSchemaSource {
+    id: string
+    /** @nullable */
+    last_synced_at?: string | null
+    prefix: string
+    source_type: string
+    status: string
+}
+
+export interface DatabaseSchemaDataWarehouseTable {
+    fields: DatabaseSchemaDataWarehouseTableFields
+    format: string
+    id: string
+    name: string
+    /** @nullable */
+    row_count?: number | null
+    schema?: DatabaseSchemaSchema | null
+    source?: DatabaseSchemaSource | null
+    type?: DatabaseSchemaDataWarehouseTableType
+    url_pattern: string
+}
+
+export type DatabaseSchemaEndpointTableFields = { [key: string]: DatabaseSchemaField }
+
+export type DatabaseSchemaEndpointTableType =
+    (typeof DatabaseSchemaEndpointTableType)[keyof typeof DatabaseSchemaEndpointTableType]
+
+export const DatabaseSchemaEndpointTableType = {
+    Endpoint: 'endpoint',
+} as const
+
+export interface DatabaseSchemaEndpointTable {
+    fields: DatabaseSchemaEndpointTableFields
+    id: string
+    name: string
+    query: HogQLQuery
+    /** @nullable */
+    row_count?: number | null
+    /** @nullable */
+    status?: string | null
+    type?: DatabaseSchemaEndpointTableType
+}
+
+export type DatabaseSchemaManagedViewTableFields = { [key: string]: DatabaseSchemaField }
+
+export type DatabaseSchemaManagedViewTableType =
+    (typeof DatabaseSchemaManagedViewTableType)[keyof typeof DatabaseSchemaManagedViewTableType]
+
+export const DatabaseSchemaManagedViewTableType = {
+    ManagedView: 'managed_view',
+} as const
+
+export type DatabaseSchemaManagedViewTableKind =
+    (typeof DatabaseSchemaManagedViewTableKind)[keyof typeof DatabaseSchemaManagedViewTableKind]
+
+export const DatabaseSchemaManagedViewTableKind = {
+    RevenueAnalyticsCharge: 'revenue_analytics_charge',
+    RevenueAnalyticsCustomer: 'revenue_analytics_customer',
+    RevenueAnalyticsMrr: 'revenue_analytics_mrr',
+    RevenueAnalyticsProduct: 'revenue_analytics_product',
+    RevenueAnalyticsRevenueItem: 'revenue_analytics_revenue_item',
+    RevenueAnalyticsSubscription: 'revenue_analytics_subscription',
+} as const
+
+export interface DatabaseSchemaManagedViewTable {
+    fields: DatabaseSchemaManagedViewTableFields
+    id: string
+    kind: DatabaseSchemaManagedViewTableKind
+    name: string
+    query: HogQLQuery
+    /** @nullable */
+    row_count?: number | null
+    /** @nullable */
+    source_id?: string | null
+    type?: DatabaseSchemaManagedViewTableType
+}
+
+export type DatabaseSchemaMaterializedViewTableFields = { [key: string]: DatabaseSchemaField }
+
+export type DatabaseSchemaMaterializedViewTableType =
+    (typeof DatabaseSchemaMaterializedViewTableType)[keyof typeof DatabaseSchemaMaterializedViewTableType]
+
+export const DatabaseSchemaMaterializedViewTableType = {
+    MaterializedView: 'materialized_view',
+} as const
+
+export interface DatabaseSchemaMaterializedViewTable {
+    fields: DatabaseSchemaMaterializedViewTableFields
+    id: string
+    /** @nullable */
+    last_run_at?: string | null
+    name: string
+    query: HogQLQuery
+    /** @nullable */
+    row_count?: number | null
+    /** @nullable */
+    status?: string | null
+    type?: DatabaseSchemaMaterializedViewTableType
+}
+
+export type DatabaseSchemaPostHogTableFields = { [key: string]: DatabaseSchemaField }
+
+export type DatabaseSchemaPostHogTableType =
+    (typeof DatabaseSchemaPostHogTableType)[keyof typeof DatabaseSchemaPostHogTableType]
+
+export const DatabaseSchemaPostHogTableType = {
+    Posthog: 'posthog',
+} as const
+
+export interface DatabaseSchemaPostHogTable {
+    fields: DatabaseSchemaPostHogTableFields
+    id: string
+    name: string
+    /** @nullable */
+    row_count?: number | null
+    type?: DatabaseSchemaPostHogTableType
+}
+
+export type DatabaseSchemaQueryKind = (typeof DatabaseSchemaQueryKind)[keyof typeof DatabaseSchemaQueryKind]
+
+export const DatabaseSchemaQueryKind = {
+    DatabaseSchemaQuery: 'DatabaseSchemaQuery',
+} as const
+
+export type DatabaseSchemaSystemTableType =
+    (typeof DatabaseSchemaSystemTableType)[keyof typeof DatabaseSchemaSystemTableType]
+
+export const DatabaseSchemaSystemTableType = {
+    System: 'system',
+} as const
+
+export type DatabaseSchemaSystemTableFields = { [key: string]: DatabaseSchemaField }
+
+export interface DatabaseSchemaSystemTable {
+    fields: DatabaseSchemaSystemTableFields
+    id: string
+    name: string
+    /** @nullable */
+    row_count?: number | null
+    type?: DatabaseSchemaSystemTableType
+}
+
+export type DatabaseSchemaViewTableType = (typeof DatabaseSchemaViewTableType)[keyof typeof DatabaseSchemaViewTableType]
+
+export const DatabaseSchemaViewTableType = {
+    View: 'view',
+} as const
+
+export type DatabaseSchemaViewTableFields = { [key: string]: DatabaseSchemaField }
+
+export interface DatabaseSchemaViewTable {
+    fields: DatabaseSchemaViewTableFields
+    id: string
+    name: string
+    query: HogQLQuery
+    /** @nullable */
+    row_count?: number | null
+    type?: DatabaseSchemaViewTableType
+}
+
+export type DatabaseSchemaQueryResponseTables = {
+    [key: string]:
+        | DatabaseSchemaPostHogTable
+        | DatabaseSchemaSystemTable
+        | DatabaseSchemaDataWarehouseTable
+        | DatabaseSchemaViewTable
+        | DatabaseSchemaManagedViewTable
+        | DatabaseSchemaBatchExportTable
+        | DatabaseSchemaMaterializedViewTable
+        | DatabaseSchemaEndpointTable
+}
+
+export interface DatabaseSchemaQueryResponse {
+    joins: DataWarehouseViewLink[]
+    tables: DatabaseSchemaQueryResponseTables
+}
+
+export interface DatabaseSchemaQuery {
+    kind?: DatabaseSchemaQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: DatabaseSchemaQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface Dataset {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasic
+    readonly team: number
+}
+
+export interface DatasetItem {
+    readonly id: string
+    dataset: string
+    input?: unknown | null
+    output?: unknown | null
+    metadata?: unknown | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly created_by: UserBasic
+    readonly team: number
+}
+
+export interface DayItem {
+    label: string
+    value: string | string | number
+}
+
+/**
+ * * `bayesian` - Bayesian
+ * `frequentist` - Frequentist
+ */
+export type DefaultExperimentStatsMethodEnum =
+    (typeof DefaultExperimentStatsMethodEnum)[keyof typeof DefaultExperimentStatsMethodEnum]
+
+export const DefaultExperimentStatsMethodEnum = {
+    Bayesian: 'bayesian',
+    Frequentist: 'frequentist',
+} as const
+
+export interface DesktopRecording {
+    readonly id: string
+    readonly team: number
+    /** @nullable */
+    readonly created_by: number | null
+    readonly sdk_upload_id: string
+    /** @nullable */
+    recall_recording_id?: string | null
+    platform: Platform9aaEnum
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    meeting_title?: string | null
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    meeting_url?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    duration_seconds?: number | null
+    status?: Status292Enum
+    /** @nullable */
+    notes?: string | null
+    /** @nullable */
+    error_message?: string | null
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    video_url?: string | null
+    /**
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     * @nullable
+     */
+    video_size_bytes?: number | null
+    /** List of participant names */
+    participants?: string[]
+    readonly transcript_text: string
+    /** Transcript segments with timestamps */
+    transcript_segments?: TranscriptSegment[]
+    /** @nullable */
+    summary?: string | null
+    /** AI-extracted tasks from transcript */
+    extracted_tasks?: Task[]
+    /** @nullable */
+    tasks_generated_at?: string | null
+    /** @nullable */
+    summary_generated_at?: string | null
+    started_at?: string
+    /** @nullable */
+    completed_at?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+/**
+ * * `number` - number
+ * `sparkline` - sparkline
+ */
+export type DisplayEnum = (typeof DisplayEnum)[keyof typeof DisplayEnum]
+
+export const DisplayEnum = {
+    Number: 'number',
+    Sparkline: 'sparkline',
+} as const
+
+export type DistanceFunc = (typeof DistanceFunc)[keyof typeof DistanceFunc]
+
+export const DistanceFunc = {
+    L1Distance: 'L1Distance',
+    L2Distance: 'L2Distance',
+    CosineDistance: 'cosineDistance',
+} as const
+
+export type DocumentSimilarityQueryKind = (typeof DocumentSimilarityQueryKind)[keyof typeof DocumentSimilarityQueryKind]
+
+export const DocumentSimilarityQueryKind = {
+    DocumentSimilarityQuery: 'DocumentSimilarityQuery',
+} as const
+
+export type OrderBy = (typeof OrderBy)[keyof typeof OrderBy]
+
+export const OrderBy = {
+    Distance: 'distance',
+    Timestamp: 'timestamp',
+} as const
+
+export type OrderDirection = (typeof OrderDirection)[keyof typeof OrderDirection]
+
+export const OrderDirection = {
+    Asc: 'asc',
+    Desc: 'desc',
+} as const
+
+export interface EmbeddedDocument {
+    document_id: string
+    document_type: string
+    product: string
+    timestamp: string
+}
+
+export type EmbeddingModelName = (typeof EmbeddingModelName)[keyof typeof EmbeddingModelName]
+
+export const EmbeddingModelName = {
+    TextEmbedding3Small1536: 'text-embedding-3-small-1536',
+    TextEmbedding3Large3072: 'text-embedding-3-large-3072',
+} as const
+
+export interface EmbeddingRecord {
+    document_id: string
+    document_type: string
+    model_name: EmbeddingModelName
+    product: string
+    rendering: string
+    timestamp: string
+}
+
+export interface EmbeddingDistance {
+    distance: number
+    origin?: EmbeddingRecord | null
+    result: EmbeddingRecord
+}
+
+export interface DocumentSimilarityQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: EmbeddingDistance[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface DocumentSimilarityQuery {
+    dateRange: DateRange
+    distance_func: DistanceFunc
+    document_types: string[]
+    kind?: DocumentSimilarityQueryKind
+    /** @nullable */
+    limit?: number | null
+    model: string
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    order_by: OrderBy
+    order_direction: OrderDirection
+    origin: EmbeddedDocument
+    products: string[]
+    renderings: string[]
+    response?: DocumentSimilarityQueryResponse | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    threshold?: number | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface DraftStatusResponse {
+    updated_at: string
+    has_draft: boolean
+}
+
+/**
+ * * `server` - Server
+ * `client` - Client
+ * `all` - All
+ */
+export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
+
+export const EvaluationRuntimeEnum = {
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
+} as const
+
+export type MinimalFeatureFlagFilters = { [key: string]: unknown }
+
+export interface MinimalFeatureFlag {
+    readonly id: number
+    readonly team_id: number
+    name?: string
+    /** @maxLength 400 */
+    key: string
+    filters?: MinimalFeatureFlagFilters
+    deleted?: boolean
+    active?: boolean
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    /** @nullable */
+    has_encrypted_payloads?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    version?: number | null
+    /** Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null
+    /** Identifier used for bucketing users into rollout and variants
+
+* `distinct_id` - User ID (default)
+* `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null
+    readonly evaluation_tags: readonly string[]
+}
+
+/**
+ * * `draft` - draft
+ * `concept` - concept
+ * `alpha` - alpha
+ * `beta` - beta
+ * `general-availability` - general availability
+ * `archived` - archived
+ */
+export type StageEnum = (typeof StageEnum)[keyof typeof StageEnum]
+
+export const StageEnum = {
+    Draft: 'draft',
+    Concept: 'concept',
+    Alpha: 'alpha',
+    Beta: 'beta',
+    GeneralAvailability: 'general-availability',
+    Archived: 'archived',
+} as const
+
+export interface EarlyAccessFeature {
+    readonly id: string
+    readonly feature_flag: MinimalFeatureFlag
+    /** @maxLength 200 */
+    name: string
+    description?: string
+    stage: StageEnum
+    /** @maxLength 800 */
+    documentation_url?: string
+    readonly payload: string
+    readonly created_at: string
+}
+
+export interface EarlyAccessFeatureSerializerCreateOnly {
+    readonly id: string
+    /** @maxLength 200 */
+    name: string
+    description?: string
+    stage: StageEnum
+    /** @maxLength 800 */
+    documentation_url?: string
+    payload?: unknown
+    readonly created_at: string
+    feature_flag_id?: number
+    readonly feature_flag: MinimalFeatureFlag
+    _create_in_folder?: string
+}
+
+export interface Edge {
+    readonly id: string
+    readonly source_id: string
+    readonly target_id: string
+    readonly dag_id_text: string
+    properties?: unknown
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export type EffectiveMembershipLevelEnum =
+    (typeof EffectiveMembershipLevelEnum)[keyof typeof EffectiveMembershipLevelEnum]
+
+export const EffectiveMembershipLevelEnum = {
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
+} as const
+
+export interface Element {
+    /**
+     * @maxLength 10000
+     * @nullable
+     */
+    text?: string | null
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    tag_name?: string | null
+    /** @nullable */
+    attr_class?: string[] | null
+    /**
+     * @maxLength 10000
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * @maxLength 10000
+     * @nullable
+     */
+    attr_id?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    nth_child?: number | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    nth_of_type?: number | null
+    attributes?: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    order?: number | null
+}
+
+export type ElementTypeAttributes = { [key: string]: string }
+
+export interface ElementType {
+    /** @nullable */
+    attr_class?: string[] | null
+    /** @nullable */
+    attr_id?: string | null
+    attributes: ElementTypeAttributes
+    /** @nullable */
+    href?: string | null
+    /** @nullable */
+    nth_child?: number | null
+    /** @nullable */
+    nth_of_type?: number | null
+    /** @nullable */
+    order?: number | null
+    tag_name: string
+    /** @nullable */
+    text?: string | null
+}
+
+export interface EmailTemplate {
+    subject?: string
+    text?: string
+    html?: string
+    design?: unknown
+}
+
+export interface EndpointLastExecutionTimesRequest {
+    names: string[]
+}
+
+export type EndpointRefreshMode = (typeof EndpointRefreshMode)[keyof typeof EndpointRefreshMode]
+
+export const EndpointRefreshMode = {
+    Cache: 'cache',
+    Force: 'force',
+    Direct: 'direct',
+} as const
+
+/**
+ * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+ * @nullable
+ */
+export type EndpointRequestBucketOverrides = { [key: string]: string } | null | null
+
+export interface EndpointRequest {
+    /**
+     * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+     * @nullable
+     */
+    bucket_overrides?: EndpointRequestBucketOverrides
+    /** @nullable */
+    cache_age_seconds?: number | null
+    /** @nullable */
+    derived_from_insight?: string | null
+    /** @nullable */
+    description?: string | null
+    /** @nullable */
+    is_active?: boolean | null
+    /**
+     * Whether this endpoint's query results are materialized to S3
+     * @nullable
+     */
+    is_materialized?: boolean | null
+    /** @nullable */
+    name?: string | null
+    query?:
+        | HogQLQuery
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | WebStatsTableQuery
+        | WebOverviewQuery
+        | null
+    /** How frequently should the underlying materialized view be updated */
+    sync_frequency?: DataWarehouseSyncInterval | null
+    /**
+     * Target a specific version for updates (optional, defaults to current version)
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
+
+For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+
+For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+
+For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+
+Unknown variable names will return a 400 error.
+ * @nullable
+ */
+export type EndpointRunRequestVariables = { [key: string]: unknown } | null | null
+
+export interface EndpointRunRequest {
+    /**
+     * Client provided query ID. Can be used to retrieve the status or cancel the query.
+     * @nullable
+     */
+    client_query_id?: string | null
+    /**
+     * Whether to include debug information (such as the executed HogQL) in the response.
+     * @nullable
+     */
+    debug?: boolean | null
+    filters_override?: DashboardFilter | null
+    /**
+     * Maximum number of results to return. If not provided, returns all results.
+     * @nullable
+     */
+    limit?: number | null
+    /**
+     * Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints.
+     * @nullable
+     */
+    offset?: number | null
+    refresh?: EndpointRefreshMode | null
+    /**
+   * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
+
+For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+
+For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+
+For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+
+Unknown variable names will return a 400 error.
+   * @nullable
+   */
+    variables?: EndpointRunRequestVariables
+    /**
+     * Specific endpoint version to execute. If not provided, the latest version is used.
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type EndpointsUsageOverviewItemKey =
+    (typeof EndpointsUsageOverviewItemKey)[keyof typeof EndpointsUsageOverviewItemKey]
+
+export const EndpointsUsageOverviewItemKey = {
+    TotalRequests: 'total_requests',
+    TotalBytesRead: 'total_bytes_read',
+    TotalCpuSeconds: 'total_cpu_seconds',
+    AvgQueryDurationMs: 'avg_query_duration_ms',
+    P95QueryDurationMs: 'p95_query_duration_ms',
+    ErrorRate: 'error_rate',
+    MaterializedRequests: 'materialized_requests',
+    InlineRequests: 'inline_requests',
+} as const
+
+export interface EndpointsUsageOverviewItem {
+    /** @nullable */
+    changeFromPreviousPct?: number | null
+    key: EndpointsUsageOverviewItemKey
+    /** @nullable */
+    previous?: number | null
+    /** @nullable */
+    value?: number | null
+}
+
+export type EndpointsUsageOverviewQueryKind =
+    (typeof EndpointsUsageOverviewQueryKind)[keyof typeof EndpointsUsageOverviewQueryKind]
+
+export const EndpointsUsageOverviewQueryKind = {
+    EndpointsUsageOverviewQuery: 'EndpointsUsageOverviewQuery',
+} as const
+
+export interface EndpointsUsageOverviewQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: EndpointsUsageOverviewItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface EndpointsUsageOverviewQuery {
+    /** Compare to previous period */
+    compareFilter?: CompareFilter | null
+    dateRange?: DateRange | null
+    /**
+     * Filter to specific endpoints by name
+     * @nullable
+     */
+    endpointNames?: string[] | null
+    kind?: EndpointsUsageOverviewQueryKind
+    /** Filter by materialization type */
+    materializationType?: MaterializationType | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: EndpointsUsageOverviewQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type EndpointsUsageTrendsQueryKind =
+    (typeof EndpointsUsageTrendsQueryKind)[keyof typeof EndpointsUsageTrendsQueryKind]
+
+export const EndpointsUsageTrendsQueryKind = {
+    EndpointsUsageTrendsQuery: 'EndpointsUsageTrendsQuery',
+} as const
+
+export type Metric = (typeof Metric)[keyof typeof Metric]
+
+export const Metric = {
+    BytesRead: 'bytes_read',
+    CpuSeconds: 'cpu_seconds',
+    Requests: 'requests',
+    QueryDuration: 'query_duration',
+    ErrorRate: 'error_rate',
+} as const
+
+export type EndpointsUsageTrendsQueryResponseResultsItem = { [key: string]: unknown }
+
+export interface EndpointsUsageTrendsQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: EndpointsUsageTrendsQueryResponseResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface EndpointsUsageTrendsQuery {
+    /** Optional breakdown for stacked charts */
+    breakdownBy?: EndpointsUsageBreakdown | null
+    /** Compare to previous period */
+    compareFilter?: CompareFilter | null
+    dateRange?: DateRange | null
+    /**
+     * Filter to specific endpoints by name
+     * @nullable
+     */
+    endpointNames?: string[] | null
+    /** Time interval */
+    interval?: IntervalType | null
+    kind?: EndpointsUsageTrendsQueryKind
+    /** Filter by materialization type */
+    materializationType?: MaterializationType | null
+    /** Metric to trend */
+    metric: Metric
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: EndpointsUsageTrendsQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * * `allow` - Allow
+ * `reject` - Reject
+ */
+export type EnforcementModeEnum = (typeof EnforcementModeEnum)[keyof typeof EnforcementModeEnum]
+
+export const EnforcementModeEnum = {
+    Allow: 'allow',
+    Reject: 'reject',
+} as const
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface EnterpriseEventDefinition {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    owner?: number | null
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    /** @nullable */
+    readonly created_at: string | null
+    readonly updated_at: string
+    readonly updated_by: UserBasic
+    /** @nullable */
+    readonly last_seen_at: string | null
+    readonly last_updated_at: string
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verified_by: UserBasic
+    /** @nullable */
+    hidden?: boolean | null
+    enforcement_mode?: EnforcementModeEnum
+    readonly is_action: boolean
+    readonly action_id: number
+    readonly is_calculating: boolean
+    readonly last_calculated_at: string
+    readonly created_by: UserBasic
+    post_to_slack?: boolean
+    default_columns?: string[]
+    readonly media_preview_urls: readonly string[]
+}
+
+/**
+ * * `DateTime` - DateTime
+ * `String` - String
+ * `Numeric` - Numeric
+ * `Boolean` - Boolean
+ * `Duration` - Duration
+ */
+export type PropertyType549Enum = (typeof PropertyType549Enum)[keyof typeof PropertyType549Enum]
+
+export const PropertyType549Enum = {
+    DateTime: 'DateTime',
+    String: 'String',
+    Numeric: 'Numeric',
+    Boolean: 'Boolean',
+    Duration: 'Duration',
+} as const
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface EnterprisePropertyDefinition {
+    readonly id: string
+    readonly name: string
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    readonly is_numerical: boolean
+    readonly updated_at: string
+    readonly updated_by: UserBasic
+    /** @nullable */
+    readonly is_seen_on_filtered_events: boolean | null
+    property_type?: PropertyType549Enum | BlankEnum | NullEnum | null
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verified_by: UserBasic
+    /** @nullable */
+    hidden?: boolean | null
+}
+
+/**
+ * * `local` - Local
+ * `cloud` - Cloud
+ */
+export type EnvironmentEnum = (typeof EnvironmentEnum)[keyof typeof EnvironmentEnum]
+
+export const EnvironmentEnum = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
+
+export interface ErrorResponse {
+    /** Error message */
+    error: string
+}
+
+export interface ErrorTrackingAssignmentRule {
+    readonly id: string
+    filters: unknown
+    readonly assignee: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key: number
+    disabled_data?: unknown | null
+}
+
+/**
+ * * `web` - Web
+ */
+export type LibraryEnum = (typeof LibraryEnum)[keyof typeof LibraryEnum]
+
+export const LibraryEnum = {
+    Web: 'web',
+} as const
+
+/**
+ * * `all` - All
+ * `any` - Any
+ */
+export type MatchTypeEnum = (typeof MatchTypeEnum)[keyof typeof MatchTypeEnum]
+
+export const MatchTypeEnum = {
+    All: 'all',
+    Any: 'any',
+} as const
+
+export interface ErrorTrackingAutoCaptureControls {
+    readonly id: string
+    readonly library: LibraryEnum
+    match_type?: MatchTypeEnum
+    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
+    sample_rate?: string
+    linked_feature_flag?: unknown | null
+    /** @nullable */
+    event_triggers?: (string | null)[] | null
+    /** @nullable */
+    url_triggers?: (unknown | null)[] | null
+    /** @nullable */
+    url_blocklist?: (unknown | null)[] | null
+}
+
+export type ErrorTrackingBreakdownsQueryKind =
+    (typeof ErrorTrackingBreakdownsQueryKind)[keyof typeof ErrorTrackingBreakdownsQueryKind]
+
+export const ErrorTrackingBreakdownsQueryKind = {
+    ErrorTrackingBreakdownsQuery: 'ErrorTrackingBreakdownsQuery',
+} as const
+
+export interface Results {
+    total_count: number
+    values: BreakdownValue[]
+}
+
+export type ErrorTrackingBreakdownsQueryResponseResults = { [key: string]: Results }
+
+export interface ErrorTrackingBreakdownsQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ErrorTrackingBreakdownsQueryResponseResults
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface ErrorTrackingBreakdownsQuery {
+    breakdownProperties: string[]
+    dateRange?: DateRange | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    issueId: string
+    kind?: ErrorTrackingBreakdownsQueryKind
+    /** @nullable */
+    maxValuesPerProperty?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: ErrorTrackingBreakdownsQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface ErrorTrackingFingerprint {
+    fingerprint: string
+    readonly issue_id: string
+    readonly created_at: string
+}
+
+export interface ErrorTrackingGroupingRule {
+    readonly id: string
+    filters: unknown
+    readonly assignee: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key: number
+    disabled_data?: unknown | null
+}
+
+export interface ErrorTrackingIssueAssignment {
+    readonly id: string
+    readonly type: string
+}
+
+/**
+ * * `archived` - Archived
+ * `active` - Active
+ * `resolved` - Resolved
+ * `pending_release` - Pending release
+ * `suppressed` - Suppressed
+ */
+export type ErrorTrackingIssueFullStatusEnum =
+    (typeof ErrorTrackingIssueFullStatusEnum)[keyof typeof ErrorTrackingIssueFullStatusEnum]
+
+export const ErrorTrackingIssueFullStatusEnum = {
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
+} as const
+
+export interface ErrorTrackingIssueFull {
+    readonly id: string
+    status?: ErrorTrackingIssueFullStatusEnum
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    description?: string | null
+    first_seen: string
+    assignee: ErrorTrackingIssueAssignment
+    external_issues: ErrorTrackingExternalReference[]
+    readonly cohort: string
+}
+
+export interface ErrorTrackingRelease {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown | null
+    version: string
+    project: string
+}
+
+export type ErrorTrackingSimilarIssuesQueryKind =
+    (typeof ErrorTrackingSimilarIssuesQueryKind)[keyof typeof ErrorTrackingSimilarIssuesQueryKind]
+
+export const ErrorTrackingSimilarIssuesQueryKind = {
+    ErrorTrackingSimilarIssuesQuery: 'ErrorTrackingSimilarIssuesQuery',
+} as const
+
+export interface SimilarIssue {
+    description: string
+    distance: number
+    first_seen: string
+    id: string
+    /** @nullable */
+    library?: string | null
+    name: string
+    status: string
+}
+
+export interface ErrorTrackingSimilarIssuesQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: SimilarIssue[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface ErrorTrackingSimilarIssuesQuery {
+    dateRange?: DateRange | null
+    issueId: string
+    kind?: ErrorTrackingSimilarIssuesQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** @nullable */
+    maxDistance?: number | null
+    modelName?: EmbeddingModelName | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    rendering?: string | null
+    response?: ErrorTrackingSimilarIssuesQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface ErrorTrackingStackFrame {
+    readonly id: string
+    readonly raw_id: string
+    readonly created_at: string
+    contents: unknown
+    resolved: boolean
+    context?: unknown | null
+    symbol_set_ref?: string
+    readonly release: ErrorTrackingRelease
+}
+
+export interface ErrorTrackingSuppressionRule {
+    readonly id: string
+    filters: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key: number
+}
+
+export interface ErrorTrackingSymbolSet {
+    readonly id: string
+    ref: string
+    readonly team_id: number
+    readonly created_at: string
+    /** @nullable */
+    last_used?: string | null
+    /** @nullable */
+    storage_ptr?: string | null
+    /** @nullable */
+    failure_reason?: string | null
+    readonly release: string
+}
+
+/**
+ * * `llm_judge` - LLM as a judge
+ * `hog` - Hog
+ */
+export type EvaluationTypeEnum = (typeof EvaluationTypeEnum)[keyof typeof EvaluationTypeEnum]
+
+export const EvaluationTypeEnum = {
+    LlmJudge: 'llm_judge',
+    Hog: 'hog',
+} as const
+
+/**
+ * * `boolean` - Boolean (Pass/Fail)
+ */
+export type OutputTypeEnum = (typeof OutputTypeEnum)[keyof typeof OutputTypeEnum]
+
+export const OutputTypeEnum = {
+    Boolean: 'boolean',
+} as const
+
+/**
+ * * `openai` - Openai
+ * `anthropic` - Anthropic
+ * `gemini` - Gemini
+ * `openrouter` - Openrouter
+ * `fireworks` - Fireworks
+ */
+export type ProviderEnum = (typeof ProviderEnum)[keyof typeof ProviderEnum]
+
+export const ProviderEnum = {
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
+} as const
+
+/**
+ * Nested serializer for model configuration.
+ */
+export interface ModelConfiguration {
+    provider: ProviderEnum
+    /** @maxLength 100 */
+    model: string
+    /** @nullable */
+    provider_key_id?: string | null
+    /** @nullable */
+    readonly provider_key_name: string | null
+}
+
+export interface Evaluation {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    evaluation_type: EvaluationTypeEnum
+    evaluation_config?: unknown
+    output_type: OutputTypeEnum
+    output_config?: unknown
+    conditions?: unknown
+    model_configuration?: ModelConfiguration | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasic
+    deleted?: boolean
+}
+
+export interface EvaluationPattern {
+    title: string
+    description: string
+    frequency: string
+    example_generation_ids: string[]
+}
+
+/**
+ * * `all` - all
+ * `pass` - pass
+ * `fail` - fail
+ * `na` - na
+ */
+export type FilterEnum = (typeof FilterEnum)[keyof typeof FilterEnum]
+
+export const FilterEnum = {
+    All: 'all',
+    Pass: 'pass',
+    Fail: 'fail',
+    Na: 'na',
+} as const
+
+/**
+ * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
+ */
+export interface EvaluationSummaryRequest {
+    /** UUID of the evaluation config to summarize */
+    evaluation_id: string
+    /** Filter type to apply ('all', 'pass', 'fail', or 'na')
+
+* `all` - all
+* `pass` - pass
+* `fail` - fail
+* `na` - na */
+    filter?: FilterEnum
+    /**
+     * Optional: specific generation IDs to include in summary (max 250)
+     * @maxItems 250
+     */
+    generation_ids?: string[]
+    /** If true, bypass cache and generate a fresh summary */
+    force_refresh?: boolean
+}
+
+export interface EvaluationSummaryStatistics {
+    total_analyzed: number
+    pass_count: number
+    fail_count: number
+    na_count: number
+}
+
+export interface EvaluationSummaryResponse {
+    overall_assessment: string
+    pass_patterns: EvaluationPattern[]
+    fail_patterns: EvaluationPattern[]
+    na_patterns: EvaluationPattern[]
+    recommendations: string[]
+    statistics: EvaluationSummaryStatistics
+}
+
+/**
+ * * `DateTime` - DateTime
+ * `String` - String
+ * `Numeric` - Numeric
+ * `Boolean` - Boolean
+ * `Object` - Object
+ */
+export type SchemaPropertyGroupPropertyPropertyTypeEnum =
+    (typeof SchemaPropertyGroupPropertyPropertyTypeEnum)[keyof typeof SchemaPropertyGroupPropertyPropertyTypeEnum]
+
+export const SchemaPropertyGroupPropertyPropertyTypeEnum = {
+    DateTime: 'DateTime',
+    String: 'String',
+    Numeric: 'Numeric',
+    Boolean: 'Boolean',
+    Object: 'Object',
+} as const
+
+export interface SchemaPropertyGroupProperty {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    property_type: SchemaPropertyGroupPropertyPropertyTypeEnum
+    is_required?: boolean
+    is_optional_in_types?: boolean
+    description?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface SchemaPropertyGroup {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    properties?: SchemaPropertyGroupProperty[]
+    readonly events: string
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasic
+}
+
+export interface EventSchema {
+    readonly id: string
+    event_definition: string
+    readonly property_group: SchemaPropertyGroup
+    property_group_id: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface EventTaxonomyItem {
+    property: string
+    sample_count: number
+    sample_values: string[]
+}
+
+export type EventTaxonomyQueryKind = (typeof EventTaxonomyQueryKind)[keyof typeof EventTaxonomyQueryKind]
+
+export const EventTaxonomyQueryKind = {
+    EventTaxonomyQuery: 'EventTaxonomyQuery',
+} as const
+
+export interface EventTaxonomyQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: EventTaxonomyItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface EventTaxonomyQuery {
+    /** @nullable */
+    actionId?: number | null
+    /** @nullable */
+    event?: string | null
+    kind?: EventTaxonomyQueryKind
+    /** @nullable */
+    maxPropertyValues?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    properties?: string[] | null
+    response?: EventTaxonomyQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type EventTypeProperties = { [key: string]: unknown }
+
+export interface Person {
+    readonly id: number
+    readonly name: string
+    readonly distinct_ids: readonly string[]
+    properties?: unknown
+    readonly created_at: string
+    readonly uuid: string
+    /** @nullable */
+    readonly last_seen_at: string | null
+}
+
+export interface EventType {
+    distinct_id: string
+    elements: ElementType[]
+    /** @nullable */
+    elements_chain?: string | null
+    event: string
+    id: string
+    person?: Person | null
+    /** @nullable */
+    person_id?: string | null
+    /** @nullable */
+    person_mode?: string | null
+    properties: EventTypeProperties
+    timestamp: string
+    /** @nullable */
+    uuid?: string | null
+}
+
+/**
+ * * `$ai_generation` - $ai_generation
+ * `$ai_span` - $ai_span
+ * `$ai_embedding` - $ai_embedding
+ * `$ai_trace` - $ai_trace
+ */
+export type EventTypeEnum = (typeof EventTypeEnum)[keyof typeof EventTypeEnum]
+
+export const EventTypeEnum = {
+    AiGeneration: '$ai_generation',
+    AiSpan: '$ai_span',
+    AiEmbedding: '$ai_embedding',
+    AiTrace: '$ai_trace',
+} as const
+
+/**
+ * * `exit_on_conversion` - Conversion
+ * `exit_on_trigger_not_matched` - Trigger Not Matched
+ * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+ * `exit_only_at_end` - Only At End
+ */
+export type ExitConditionEnum = (typeof ExitConditionEnum)[keyof typeof ExitConditionEnum]
+
+export const ExitConditionEnum = {
+    ExitOnConversion: 'exit_on_conversion',
+    ExitOnTriggerNotMatched: 'exit_on_trigger_not_matched',
+    ExitOnTriggerNotMatchedOrConversion: 'exit_on_trigger_not_matched_or_conversion',
+    ExitOnlyAtEnd: 'exit_only_at_end',
+} as const
+
+export interface ExperimentHoldout {
+    readonly id: number
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    filters?: unknown
+    readonly created_by: UserBasic
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface ExperimentToSavedMetric {
+    readonly id: number
+    experiment: number
+    saved_metric: number
+    metadata?: unknown
+    readonly created_at: string
+    readonly query: unknown
+    readonly name: string
+}
+
+/**
+ * * `web` - web
+ * `product` - product
+ */
+export type ExperimentTypeEnum = (typeof ExperimentTypeEnum)[keyof typeof ExperimentTypeEnum]
+
+export const ExperimentTypeEnum = {
+    Web: 'web',
+    Product: 'product',
+} as const
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface Experiment {
+    readonly id: number
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    feature_flag_key: string
+    readonly feature_flag: MinimalFeatureFlag
+    readonly holdout: ExperimentHoldout
+    /** @nullable */
+    holdout_id?: number | null
+    /** @nullable */
+    readonly exposure_cohort: number | null
+    parameters?: unknown | null
+    secondary_metrics?: unknown | null
+    readonly saved_metrics: readonly ExperimentToSavedMetric[]
+    /** @nullable */
+    saved_metrics_ids?: unknown[] | null
+    filters?: unknown
+    archived?: boolean
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasic
+    readonly created_at: string
+    readonly updated_at: string
+    type?: ExperimentTypeEnum | BlankEnum | NullEnum | null
+    exposure_criteria?: unknown | null
+    metrics?: unknown | null
+    metrics_secondary?: unknown | null
+    stats_config?: unknown | null
+    scheduling_config?: unknown | null
+    _create_in_folder?: string
+    conclusion?: ConclusionEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    conclusion_comment?: string | null
+    primary_metrics_ordered_uuids?: unknown | null
+    secondary_metrics_ordered_uuids?: unknown | null
+    exposure_preaggregation_enabled?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface SessionData {
+    event_uuid: string
+    person_id: string
+    session_id: string
+    timestamp: string
+}
+
+export type ExperimentStatsValidationFailure =
+    (typeof ExperimentStatsValidationFailure)[keyof typeof ExperimentStatsValidationFailure]
+
+export const ExperimentStatsValidationFailure = {
+    NotEnoughExposures: 'not-enough-exposures',
+    BaselineMeanIsZero: 'baseline-mean-is-zero',
+    NotEnoughMetricData: 'not-enough-metric-data',
+} as const
+
+export interface ExperimentStatsBaseValidated {
+    /** @nullable */
+    denominator_sum?: number | null
+    /** @nullable */
+    denominator_sum_squares?: number | null
+    key: string
+    number_of_samples: number
+    /** @nullable */
+    numerator_denominator_sum_product?: number | null
+    /** @nullable */
+    step_counts?: number[] | null
+    /** @nullable */
+    step_sessions?: SessionData[][] | null
+    sum: number
+    sum_squares: number
+    /** @nullable */
+    validation_failures?: ExperimentStatsValidationFailure[] | null
+}
+
+export type ExperimentVariantResultFrequentistMethod =
+    (typeof ExperimentVariantResultFrequentistMethod)[keyof typeof ExperimentVariantResultFrequentistMethod]
+
+export const ExperimentVariantResultFrequentistMethod = {
+    Frequentist: 'frequentist',
+} as const
+
+export interface ExperimentVariantResultFrequentist {
+    /**
+     * @minItems 2
+     * @maxItems 2
+     * @nullable
+     */
+    confidence_interval?: number[] | null
+    /** @nullable */
+    denominator_sum?: number | null
+    /** @nullable */
+    denominator_sum_squares?: number | null
+    key: string
+    method?: ExperimentVariantResultFrequentistMethod
+    number_of_samples: number
+    /** @nullable */
+    numerator_denominator_sum_product?: number | null
+    /** @nullable */
+    p_value?: number | null
+    /** @nullable */
+    significant?: boolean | null
+    /** @nullable */
+    step_counts?: number[] | null
+    /** @nullable */
+    step_sessions?: SessionData[][] | null
+    sum: number
+    sum_squares: number
+    /** @nullable */
+    validation_failures?: ExperimentStatsValidationFailure[] | null
+}
+
+export type ExperimentVariantResultBayesianMethod =
+    (typeof ExperimentVariantResultBayesianMethod)[keyof typeof ExperimentVariantResultBayesianMethod]
+
+export const ExperimentVariantResultBayesianMethod = {
+    Bayesian: 'bayesian',
+} as const
+
+export interface ExperimentVariantResultBayesian {
+    /** @nullable */
+    chance_to_win?: number | null
+    /**
+     * @minItems 2
+     * @maxItems 2
+     * @nullable
+     */
+    credible_interval?: number[] | null
+    /** @nullable */
+    denominator_sum?: number | null
+    /** @nullable */
+    denominator_sum_squares?: number | null
+    key: string
+    method?: ExperimentVariantResultBayesianMethod
+    number_of_samples: number
+    /** @nullable */
+    numerator_denominator_sum_product?: number | null
+    /** @nullable */
+    significant?: boolean | null
+    /** @nullable */
+    step_counts?: number[] | null
+    /** @nullable */
+    step_sessions?: SessionData[][] | null
+    sum: number
+    sum_squares: number
+    /** @nullable */
+    validation_failures?: ExperimentStatsValidationFailure[] | null
+}
+
+export interface ExperimentBreakdownResult {
+    /** Control variant stats for this breakdown */
+    baseline: ExperimentStatsBaseValidated
+    /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
+    breakdown_value: (string | number | number)[]
+    /** Test variant results with statistical comparisons for this breakdown */
+    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
+export type ExperimentDataWarehouseNodeKind =
+    (typeof ExperimentDataWarehouseNodeKind)[keyof typeof ExperimentDataWarehouseNodeKind]
+
+export const ExperimentDataWarehouseNodeKind = {
+    ExperimentDataWarehouseNode: 'ExperimentDataWarehouseNode',
+} as const
+
+export const ExperimentDataWarehouseNodeMath = {
+    ...BaseMathType,
+    ...FunnelMathType,
+    ...PropertyMathType,
+    ...CountPerActorMathType,
+    ...ExperimentMetricMathType,
+    ...CalendarHeatmapMathType,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null | null
+
+export interface ExperimentDataWarehouseNode {
+    /** @nullable */
+    custom_name?: string | null
+    data_warehouse_join_key: string
+    events_join_key: string
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    kind?: ExperimentDataWarehouseNodeKind
+    math?: (typeof ExperimentDataWarehouseNodeMath)[keyof typeof ExperimentDataWarehouseNodeMath] | null
+    math_group_type_index?: MathGroupTypeIndex | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    response?: ExperimentDataWarehouseNodeResponse
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentEventExposureConfigKind =
+    (typeof ExperimentEventExposureConfigKind)[keyof typeof ExperimentEventExposureConfigKind]
+
+export const ExperimentEventExposureConfigKind = {
+    ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentEventExposureConfigResponse = { [key: string]: unknown } | null | null
+
+export interface ExperimentEventExposureConfig {
+    event: string
+    kind?: ExperimentEventExposureConfigKind
+    properties: (
+        | EventPropertyFilter
+        | PersonPropertyFilter
+        | ElementPropertyFilter
+        | EventMetadataPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | RecordingPropertyFilter
+        | LogEntryPropertyFilter
+        | GroupPropertyFilter
+        | FeaturePropertyFilter
+        | FlagPropertyFilter
+        | HogQLPropertyFilter
+        | EmptyPropertyFilter
+        | DataWarehousePropertyFilter
+        | DataWarehousePersonPropertyFilter
+        | ErrorTrackingIssueFilter
+        | LogPropertyFilter
+        | RevenueAnalyticsPropertyFilter
+    )[]
+    /** @nullable */
+    response?: ExperimentEventExposureConfigResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type MultipleVariantHandling = (typeof MultipleVariantHandling)[keyof typeof MultipleVariantHandling]
+
+export const MultipleVariantHandling = {
+    Exclude: 'exclude',
+    FirstSeen: 'first_seen',
+} as const
+
+export interface ExperimentExposureCriteria {
+    exposure_config?: ExperimentEventExposureConfig | ActionsNode | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    multiple_variant_handling?: MultipleVariantHandling | null
+}
+
+export type ExperimentExposureQueryFeatureFlag = { [key: string]: unknown }
+
+export type ExperimentExposureQueryKind = (typeof ExperimentExposureQueryKind)[keyof typeof ExperimentExposureQueryKind]
+
+export const ExperimentExposureQueryKind = {
+    ExperimentExposureQuery: 'ExperimentExposureQuery',
+} as const
+
+export interface FeatureFlagGroupType {
+    /** @nullable */
+    description?: string | null
+    /** @nullable */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    /** @nullable */
+    rollout_percentage?: number | null
+    /** @nullable */
+    sort_key?: string | null
+    /** @nullable */
+    users_affected?: number | null
+    /** @nullable */
+    variant?: string | null
+}
+
+export interface ExperimentHoldoutType {
+    /** @nullable */
+    created_at?: string | null
+    created_by?: UserBasicType | null
+    /** @nullable */
+    description?: string | null
+    filters: FeatureFlagGroupType[]
+    /** @nullable */
+    id?: number | null
+    name: string
+    /** @nullable */
+    updated_at?: string | null
+}
+
+export type ExperimentExposureQueryResponseKind =
+    (typeof ExperimentExposureQueryResponseKind)[keyof typeof ExperimentExposureQueryResponseKind]
+
+export const ExperimentExposureQueryResponseKind = {
+    ExperimentExposureQuery: 'ExperimentExposureQuery',
+} as const
+
+export type SampleRatioMismatchExpected = { [key: string]: number }
+
+export interface SampleRatioMismatch {
+    expected: SampleRatioMismatchExpected
+    p_value: number
+}
+
+export interface ExperimentExposureTimeSeries {
+    days: string[]
+    exposure_counts: number[]
+    variant: string
+}
+
+export type ExperimentExposureQueryResponseTotalExposures = { [key: string]: number }
+
+export interface ExperimentExposureQueryResponse {
+    date_range: DateRange
+    kind?: ExperimentExposureQueryResponseKind
+    sample_ratio_mismatch?: SampleRatioMismatch | null
+    timeseries: ExperimentExposureTimeSeries[]
+    total_exposures: ExperimentExposureQueryResponseTotalExposures
+}
+
+export interface ExperimentExposureQuery {
+    /** @nullable */
+    end_date?: string | null
+    /** @nullable */
+    experiment_id?: number | null
+    experiment_name: string
+    exposure_criteria?: ExperimentExposureCriteria | null
+    feature_flag: ExperimentExposureQueryFeatureFlag
+    holdout?: ExperimentHoldoutType | null
+    kind?: ExperimentExposureQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: ExperimentExposureQueryResponse | null
+    /** @nullable */
+    start_date?: string | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentFunnelMetricKind = (typeof ExperimentFunnelMetricKind)[keyof typeof ExperimentFunnelMetricKind]
+
+export const ExperimentFunnelMetricKind = {
+    ExperimentMetric: 'ExperimentMetric',
+} as const
+
+export type ExperimentFunnelMetricMetricType =
+    (typeof ExperimentFunnelMetricMetricType)[keyof typeof ExperimentFunnelMetricMetricType]
+
+export const ExperimentFunnelMetricMetricType = {
+    Funnel: 'funnel',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null | null
+
+export type ExperimentMetricGoal = (typeof ExperimentMetricGoal)[keyof typeof ExperimentMetricGoal]
+
+export const ExperimentMetricGoal = {
+    Increase: 'increase',
+    Decrease: 'decrease',
+} as const
+
+export interface ExperimentFunnelMetric {
+    breakdownFilter?: BreakdownFilter | null
+    /** @nullable */
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnit | null
+    /** @nullable */
+    fingerprint?: string | null
+    funnel_order_type?: StepOrderValue | null
+    goal?: ExperimentMetricGoal | null
+    /** @nullable */
+    isSharedMetric?: boolean | null
+    kind?: ExperimentFunnelMetricKind
+    metric_type?: ExperimentFunnelMetricMetricType
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    response?: ExperimentFunnelMetricResponse
+    series: (EventsNode | ActionsNode)[]
+    /** @nullable */
+    sharedMetricId?: number | null
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentMeanMetricKind = (typeof ExperimentMeanMetricKind)[keyof typeof ExperimentMeanMetricKind]
+
+export const ExperimentMeanMetricKind = {
+    ExperimentMetric: 'ExperimentMetric',
+} as const
+
+export type ExperimentMeanMetricMetricType =
+    (typeof ExperimentMeanMetricMetricType)[keyof typeof ExperimentMeanMetricMetricType]
+
+export const ExperimentMeanMetricMetricType = {
+    Mean: 'mean',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null | null
+
+export interface ExperimentMeanMetric {
+    breakdownFilter?: BreakdownFilter | null
+    /** @nullable */
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnit | null
+    /** @nullable */
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoal | null
+    /** @nullable */
+    ignore_zeros?: boolean | null
+    /** @nullable */
+    isSharedMetric?: boolean | null
+    kind?: ExperimentMeanMetricKind
+    /** @nullable */
+    lower_bound_percentile?: number | null
+    metric_type?: ExperimentMeanMetricMetricType
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    response?: ExperimentMeanMetricResponse
+    /** @nullable */
+    sharedMetricId?: number | null
+    source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    /** @nullable */
+    upper_bound_percentile?: number | null
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentQueryKind = (typeof ExperimentQueryKind)[keyof typeof ExperimentQueryKind]
+
+export const ExperimentQueryKind = {
+    ExperimentQuery: 'ExperimentQuery',
+} as const
+
+export type ExperimentRatioMetricKind = (typeof ExperimentRatioMetricKind)[keyof typeof ExperimentRatioMetricKind]
+
+export const ExperimentRatioMetricKind = {
+    ExperimentMetric: 'ExperimentMetric',
+} as const
+
+export type ExperimentRatioMetricMetricType =
+    (typeof ExperimentRatioMetricMetricType)[keyof typeof ExperimentRatioMetricMetricType]
+
+export const ExperimentRatioMetricMetricType = {
+    Ratio: 'ratio',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null | null
+
+export interface ExperimentRatioMetric {
+    breakdownFilter?: BreakdownFilter | null
+    /** @nullable */
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnit | null
+    denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    /** @nullable */
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoal | null
+    /** @nullable */
+    isSharedMetric?: boolean | null
+    kind?: ExperimentRatioMetricKind
+    metric_type?: ExperimentRatioMetricMetricType
+    /** @nullable */
+    name?: string | null
+    numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    /** @nullable */
+    response?: ExperimentRatioMetricResponse
+    /** @nullable */
+    sharedMetricId?: number | null
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentRetentionMetricKind =
+    (typeof ExperimentRetentionMetricKind)[keyof typeof ExperimentRetentionMetricKind]
+
+export const ExperimentRetentionMetricKind = {
+    ExperimentMetric: 'ExperimentMetric',
+} as const
+
+export type ExperimentRetentionMetricMetricType =
+    (typeof ExperimentRetentionMetricMetricType)[keyof typeof ExperimentRetentionMetricMetricType]
+
+export const ExperimentRetentionMetricMetricType = {
+    Retention: 'retention',
+} as const
+
+export type StartHandling = (typeof StartHandling)[keyof typeof StartHandling]
+
+export const StartHandling = {
+    FirstSeen: 'first_seen',
+    LastSeen: 'last_seen',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentRetentionMetricResponse = { [key: string]: unknown } | null | null
+
+export interface ExperimentRetentionMetric {
+    breakdownFilter?: BreakdownFilter | null
+    completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    /** @nullable */
+    conversion_window?: number | null
+    conversion_window_unit?: FunnelConversionWindowTimeUnit | null
+    /** @nullable */
+    fingerprint?: string | null
+    goal?: ExperimentMetricGoal | null
+    /** @nullable */
+    isSharedMetric?: boolean | null
+    kind?: ExperimentRetentionMetricKind
+    metric_type?: ExperimentRetentionMetricMetricType
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    response?: ExperimentRetentionMetricResponse
+    retention_window_end: number
+    retention_window_start: number
+    retention_window_unit: FunnelConversionWindowTimeUnit
+    /** @nullable */
+    sharedMetricId?: number | null
+    start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    start_handling: StartHandling
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentQueryResponseKind = (typeof ExperimentQueryResponseKind)[keyof typeof ExperimentQueryResponseKind]
+
+export const ExperimentQueryResponseKind = {
+    ExperimentQuery: 'ExperimentQuery',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentQueryResponseCredibleIntervals = { [key: string]: number[] } | null | null
+
+export type ExperimentQueryResponseInsightItem = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type ExperimentQueryResponseProbability = { [key: string]: number } | null | null
+
+export interface ExperimentQueryResponse {
+    baseline?: ExperimentStatsBaseValidated | null
+    /**
+     * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
+     * @nullable
+     */
+    breakdown_results?: ExperimentBreakdownResult[] | null
+    /** @nullable */
+    clickhouse_sql?: string | null
+    /** @nullable */
+    credible_intervals?: ExperimentQueryResponseCredibleIntervals
+    /** @nullable */
+    hogql?: string | null
+    /** @nullable */
+    insight?: ExperimentQueryResponseInsightItem[] | null
+    kind?: ExperimentQueryResponseKind
+    metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null
+    /** @nullable */
+    p_value?: number | null
+    /** @nullable */
+    probability?: ExperimentQueryResponseProbability
+    significance_code?: ExperimentSignificanceCode | null
+    /** @nullable */
+    significant?: boolean | null
+    /** @nullable */
+    stats_version?: number | null
+    variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null
+    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null
+}
+
+export interface ExperimentQuery {
+    /** @nullable */
+    experiment_id?: number | null
+    kind?: ExperimentQueryKind
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    name?: string | null
+    response?: ExperimentQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface ExperimentSavedMetric {
+    readonly id: number
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    query: unknown
+    readonly created_by: UserBasic
+    readonly created_at: string
+    readonly updated_at: string
+    tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface ExplainRequest {
+    /** UUID of the log entry to explain */
+    uuid: string
+    /** Timestamp of the log entry (used for efficient lookup) */
+    timestamp: string
+    /** Force regenerate explanation, bypassing cache */
+    force_refresh?: boolean
+}
+
+/**
+ * * `image/png` - image/png
+ * `application/pdf` - application/pdf
+ * `text/csv` - text/csv
+ * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * `video/webm` - video/webm
+ * `video/mp4` - video/mp4
+ * `image/gif` - image/gif
+ * `application/json` - application/json
+ */
+export type ExportFormatEnum = (typeof ExportFormatEnum)[keyof typeof ExportFormatEnum]
+
+export const ExportFormatEnum = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAsset {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    export_format: ExportFormatEnum
+    readonly created_at: string
+    readonly has_content: string
+    export_context?: unknown | null
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+}
+
+/**
+ * @nullable
+ */
+export type ExternalDataSchemaTable = { [key: string]: unknown } | null | null
+
+export type SyncTypeEnum = (typeof SyncTypeEnum)[keyof typeof SyncTypeEnum]
+
+export const SyncTypeEnum = {
+    FullRefresh: 'full_refresh',
+    Incremental: 'incremental',
+    Append: 'append',
+} as const
+
+export interface ExternalDataSchema {
+    readonly id: string
+    readonly name: string
+    /** @nullable */
+    readonly table: ExternalDataSchemaTable
+    should_sync?: boolean
+    /** @nullable */
+    readonly last_synced_at: string | null
+    /**
+     * The latest error that occurred when syncing this schema.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    readonly incremental: boolean
+    /** @nullable */
+    readonly status: string | null
+    readonly sync_type: SyncTypeEnum | null
+    /** @nullable */
+    readonly incremental_field: string | null
+    /** @nullable */
+    readonly incremental_field_type: string | null
+    readonly sync_frequency: string
+    readonly sync_time_of_day: string
+}
+
+export interface ExternalDataSourceRevenueAnalyticsConfig {
+    enabled?: boolean
+    include_invoiceless_charges?: boolean
+}
+
+/**
+ * * `Ashby` - Ashby
+ * `Supabase` - Supabase
+ * `CustomerIO` - CustomerIO
+ * `Github` - Github
+ * `Stripe` - Stripe
+ * `Hubspot` - Hubspot
+ * `Postgres` - Postgres
+ * `Zendesk` - Zendesk
+ * `Snowflake` - Snowflake
+ * `Salesforce` - Salesforce
+ * `MySQL` - MySQL
+ * `MongoDB` - MongoDB
+ * `MSSQL` - MSSQL
+ * `Vitally` - Vitally
+ * `BigQuery` - BigQuery
+ * `Chargebee` - Chargebee
+ * `Clerk` - Clerk
+ * `GoogleAds` - GoogleAds
+ * `TemporalIO` - TemporalIO
+ * `DoIt` - DoIt
+ * `GoogleSheets` - GoogleSheets
+ * `MetaAds` - MetaAds
+ * `Klaviyo` - Klaviyo
+ * `Mailchimp` - Mailchimp
+ * `Braze` - Braze
+ * `Mailjet` - Mailjet
+ * `Redshift` - Redshift
+ * `Polar` - Polar
+ * `RevenueCat` - RevenueCat
+ * `LinkedinAds` - LinkedinAds
+ * `RedditAds` - RedditAds
+ * `TikTokAds` - TikTokAds
+ * `BingAds` - BingAds
+ * `Shopify` - Shopify
+ * `Attio` - Attio
+ * `SnapchatAds` - SnapchatAds
+ * `Linear` - Linear
+ * `Intercom` - Intercom
+ * `Amplitude` - Amplitude
+ * `Mixpanel` - Mixpanel
+ * `Jira` - Jira
+ * `ActiveCampaign` - ActiveCampaign
+ * `Marketo` - Marketo
+ * `Adjust` - Adjust
+ * `AppsFlyer` - AppsFlyer
+ * `Freshdesk` - Freshdesk
+ * `GoogleAnalytics` - GoogleAnalytics
+ * `Pipedrive` - Pipedrive
+ * `SendGrid` - SendGrid
+ * `Slack` - Slack
+ * `PagerDuty` - PagerDuty
+ * `Asana` - Asana
+ * `Notion` - Notion
+ * `Airtable` - Airtable
+ * `Greenhouse` - Greenhouse
+ * `BambooHR` - BambooHR
+ * `Lever` - Lever
+ * `GitLab` - GitLab
+ * `Datadog` - Datadog
+ * `Sentry` - Sentry
+ * `Pendo` - Pendo
+ * `FullStory` - FullStory
+ * `AmazonAds` - AmazonAds
+ * `PinterestAds` - PinterestAds
+ * `AppleSearchAds` - AppleSearchAds
+ * `QuickBooks` - QuickBooks
+ * `Xero` - Xero
+ * `NetSuite` - NetSuite
+ * `WooCommerce` - WooCommerce
+ * `BigCommerce` - BigCommerce
+ * `PayPal` - PayPal
+ * `Square` - Square
+ * `Zoom` - Zoom
+ * `Trello` - Trello
+ * `Monday` - Monday
+ * `ClickUp` - ClickUp
+ * `Confluence` - Confluence
+ * `Recurly` - Recurly
+ * `SalesLoft` - SalesLoft
+ * `Outreach` - Outreach
+ * `Gong` - Gong
+ * `Calendly` - Calendly
+ * `Typeform` - Typeform
+ * `Iterable` - Iterable
+ * `ZohoCRM` - ZohoCRM
+ * `Close` - Close
+ * `Oracle` - Oracle
+ * `DynamoDB` - DynamoDB
+ * `Elasticsearch` - Elasticsearch
+ * `Kafka` - Kafka
+ * `LaunchDarkly` - LaunchDarkly
+ * `Braintree` - Braintree
+ * `Recharge` - Recharge
+ * `HelpScout` - HelpScout
+ * `Gorgias` - Gorgias
+ * `Instagram` - Instagram
+ * `YouTubeAnalytics` - YouTubeAnalytics
+ * `FacebookPages` - FacebookPages
+ * `TwitterAds` - TwitterAds
+ * `Workday` - Workday
+ * `ServiceNow` - ServiceNow
+ * `Pardot` - Pardot
+ * `Copper` - Copper
+ * `Front` - Front
+ * `ChartMogul` - ChartMogul
+ * `Zuora` - Zuora
+ * `Paddle` - Paddle
+ * `CircleCI` - CircleCI
+ * `CockroachDB` - CockroachDB
+ * `Firebase` - Firebase
+ * `AzureBlob` - AzureBlob
+ * `GoogleDrive` - GoogleDrive
+ * `OneDrive` - OneDrive
+ * `SharePoint` - SharePoint
+ * `Box` - Box
+ * `SFTP` - SFTP
+ * `MicrosoftTeams` - MicrosoftTeams
+ * `Aircall` - Aircall
+ * `Webflow` - Webflow
+ * `Okta` - Okta
+ * `Auth0` - Auth0
+ * `Productboard` - Productboard
+ * `Smartsheet` - Smartsheet
+ * `Wrike` - Wrike
+ * `Plaid` - Plaid
+ * `SurveyMonkey` - SurveyMonkey
+ * `Eventbrite` - Eventbrite
+ * `RingCentral` - RingCentral
+ * `Twilio` - Twilio
+ * `Freshsales` - Freshsales
+ * `Shortcut` - Shortcut
+ * `ConvertKit` - ConvertKit
+ * `Drip` - Drip
+ * `CampaignMonitor` - CampaignMonitor
+ * `MailerLite` - MailerLite
+ * `Omnisend` - Omnisend
+ * `Brevo` - Brevo
+ * `Postmark` - Postmark
+ * `Granola` - Granola
+ * `BuildBetter` - BuildBetter
+ */
+export type SourceTypeE09Enum = (typeof SourceTypeE09Enum)[keyof typeof SourceTypeE09Enum]
+
+export const SourceTypeE09Enum = {
+    Ashby: 'Ashby',
+    Supabase: 'Supabase',
+    CustomerIO: 'CustomerIO',
+    Github: 'Github',
+    Stripe: 'Stripe',
+    Hubspot: 'Hubspot',
+    Postgres: 'Postgres',
+    Zendesk: 'Zendesk',
+    Snowflake: 'Snowflake',
+    Salesforce: 'Salesforce',
+    MySQL: 'MySQL',
+    MongoDB: 'MongoDB',
+    Mssql: 'MSSQL',
+    Vitally: 'Vitally',
+    BigQuery: 'BigQuery',
+    Chargebee: 'Chargebee',
+    Clerk: 'Clerk',
+    GoogleAds: 'GoogleAds',
+    TemporalIO: 'TemporalIO',
+    DoIt: 'DoIt',
+    GoogleSheets: 'GoogleSheets',
+    MetaAds: 'MetaAds',
+    Klaviyo: 'Klaviyo',
+    Mailchimp: 'Mailchimp',
+    Braze: 'Braze',
+    Mailjet: 'Mailjet',
+    Redshift: 'Redshift',
+    Polar: 'Polar',
+    RevenueCat: 'RevenueCat',
+    LinkedinAds: 'LinkedinAds',
+    RedditAds: 'RedditAds',
+    TikTokAds: 'TikTokAds',
+    BingAds: 'BingAds',
+    Shopify: 'Shopify',
+    Attio: 'Attio',
+    SnapchatAds: 'SnapchatAds',
+    Linear: 'Linear',
+    Intercom: 'Intercom',
+    Amplitude: 'Amplitude',
+    Mixpanel: 'Mixpanel',
+    Jira: 'Jira',
+    ActiveCampaign: 'ActiveCampaign',
+    Marketo: 'Marketo',
+    Adjust: 'Adjust',
+    AppsFlyer: 'AppsFlyer',
+    Freshdesk: 'Freshdesk',
+    GoogleAnalytics: 'GoogleAnalytics',
+    Pipedrive: 'Pipedrive',
+    SendGrid: 'SendGrid',
+    Slack: 'Slack',
+    PagerDuty: 'PagerDuty',
+    Asana: 'Asana',
+    Notion: 'Notion',
+    Airtable: 'Airtable',
+    Greenhouse: 'Greenhouse',
+    BambooHR: 'BambooHR',
+    Lever: 'Lever',
+    GitLab: 'GitLab',
+    Datadog: 'Datadog',
+    Sentry: 'Sentry',
+    Pendo: 'Pendo',
+    FullStory: 'FullStory',
+    AmazonAds: 'AmazonAds',
+    PinterestAds: 'PinterestAds',
+    AppleSearchAds: 'AppleSearchAds',
+    QuickBooks: 'QuickBooks',
+    Xero: 'Xero',
+    NetSuite: 'NetSuite',
+    WooCommerce: 'WooCommerce',
+    BigCommerce: 'BigCommerce',
+    PayPal: 'PayPal',
+    Square: 'Square',
+    Zoom: 'Zoom',
+    Trello: 'Trello',
+    Monday: 'Monday',
+    ClickUp: 'ClickUp',
+    Confluence: 'Confluence',
+    Recurly: 'Recurly',
+    SalesLoft: 'SalesLoft',
+    Outreach: 'Outreach',
+    Gong: 'Gong',
+    Calendly: 'Calendly',
+    Typeform: 'Typeform',
+    Iterable: 'Iterable',
+    ZohoCRM: 'ZohoCRM',
+    Close: 'Close',
+    Oracle: 'Oracle',
+    DynamoDB: 'DynamoDB',
+    Elasticsearch: 'Elasticsearch',
+    Kafka: 'Kafka',
+    LaunchDarkly: 'LaunchDarkly',
+    Braintree: 'Braintree',
+    Recharge: 'Recharge',
+    HelpScout: 'HelpScout',
+    Gorgias: 'Gorgias',
+    Instagram: 'Instagram',
+    YouTubeAnalytics: 'YouTubeAnalytics',
+    FacebookPages: 'FacebookPages',
+    TwitterAds: 'TwitterAds',
+    Workday: 'Workday',
+    ServiceNow: 'ServiceNow',
+    Pardot: 'Pardot',
+    Copper: 'Copper',
+    Front: 'Front',
+    ChartMogul: 'ChartMogul',
+    Zuora: 'Zuora',
+    Paddle: 'Paddle',
+    CircleCI: 'CircleCI',
+    CockroachDB: 'CockroachDB',
+    Firebase: 'Firebase',
+    AzureBlob: 'AzureBlob',
+    GoogleDrive: 'GoogleDrive',
+    OneDrive: 'OneDrive',
+    SharePoint: 'SharePoint',
+    Box: 'Box',
+    Sftp: 'SFTP',
+    MicrosoftTeams: 'MicrosoftTeams',
+    Aircall: 'Aircall',
+    Webflow: 'Webflow',
+    Okta: 'Okta',
+    Auth0: 'Auth0',
+    Productboard: 'Productboard',
+    Smartsheet: 'Smartsheet',
+    Wrike: 'Wrike',
+    Plaid: 'Plaid',
+    SurveyMonkey: 'SurveyMonkey',
+    Eventbrite: 'Eventbrite',
+    RingCentral: 'RingCentral',
+    Twilio: 'Twilio',
+    Freshsales: 'Freshsales',
+    Shortcut: 'Shortcut',
+    ConvertKit: 'ConvertKit',
+    Drip: 'Drip',
+    CampaignMonitor: 'CampaignMonitor',
+    MailerLite: 'MailerLite',
+    Omnisend: 'Omnisend',
+    Brevo: 'Brevo',
+    Postmark: 'Postmark',
+    Granola: 'Granola',
+    BuildBetter: 'BuildBetter',
+} as const
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface ExternalDataSourceSerializers {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: string | null
+    readonly status: string
+    client_secret: string
+    account_id: string
+    readonly source_type: SourceTypeE09Enum
+    readonly latest_error: string
+    /** @nullable */
+    readonly prefix: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    readonly last_run_at: string
+    readonly schemas: string
+    job_inputs?: unknown | null
+    readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export type ExternalQueryErrorCode = (typeof ExternalQueryErrorCode)[keyof typeof ExternalQueryErrorCode]
+
+export const ExternalQueryErrorCode = {
+    PlatformAccessRequired: 'platform_access_required',
+    QueryExecutionFailed: 'query_execution_failed',
+} as const
+
+export interface ExternalQueryError {
+    code: ExternalQueryErrorCode
+    detail: string
+}
+
+export type ExternalQueryStatus = (typeof ExternalQueryStatus)[keyof typeof ExternalQueryStatus]
+
+export const ExternalQueryStatus = {
+    Success: 'success',
+    Error: 'error',
+} as const
+
+export type FeatureFlagFilters = { [key: string]: unknown }
+
+export type FeatureFlagSurveys = { [key: string]: unknown }
+
+export type FeatureFlagFeatures = { [key: string]: unknown }
+
+/**
+ * * `feature_flags` - feature_flags
+ * `experiments` - experiments
+ * `surveys` - surveys
+ * `early_access_features` - early_access_features
+ * `web_experiments` - web_experiments
+ * `product_tours` - product_tours
+ */
+export type FeatureFlagCreationContextEnum =
+    (typeof FeatureFlagCreationContextEnum)[keyof typeof FeatureFlagCreationContextEnum]
+
+export const FeatureFlagCreationContextEnum = {
+    FeatureFlags: 'feature_flags',
+    Experiments: 'experiments',
+    Surveys: 'surveys',
+    EarlyAccessFeatures: 'early_access_features',
+    WebExperiments: 'web_experiments',
+    ProductTours: 'product_tours',
+} as const
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface FeatureFlag {
+    readonly id: number
+    /** contains the description for the flag (field name `name` is kept for backwards-compatibility) */
+    name?: string
+    /** @maxLength 400 */
+    key: string
+    filters?: FeatureFlagFilters
+    deleted?: boolean
+    active?: boolean
+    readonly created_by: UserBasic
+    created_at?: string
+    /** @nullable */
+    readonly updated_at: string | null
+    version?: number
+    readonly last_modified_by: UserBasic
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    readonly experiment_set: string
+    readonly surveys: FeatureFlagSurveys
+    readonly features: FeatureFlagFeatures
+    rollback_conditions?: unknown | null
+    /** @nullable */
+    performed_rollback?: boolean | null
+    readonly can_edit: boolean
+    tags?: unknown[]
+    evaluation_tags?: unknown[]
+    readonly usage_dashboard: number
+    analytics_dashboards?: number[]
+    /** @nullable */
+    has_enriched_analytics?: boolean | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
+
+* `feature_flags` - feature_flags
+* `experiments` - experiments
+* `surveys` - surveys
+* `early_access_features` - early_access_features
+* `web_experiments` - web_experiments
+* `product_tours` - product_tours */
+    creation_context?: FeatureFlagCreationContextEnum
+    /** @nullable */
+    is_remote_configuration?: boolean | null
+    /** @nullable */
+    has_encrypted_payloads?: boolean | null
+    readonly status: string
+    /** Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null
+    /** Identifier used for bucketing users into rollout and variants
+
+* `distinct_id` - User ID (default)
+* `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null
+    /**
+     * Last time this feature flag was called (from $feature_flag_called events)
+     * @nullable
+     */
+    last_called_at?: string | null
+    _create_in_folder?: string
+    _should_create_usage_dashboard?: boolean
+    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    readonly is_used_in_replay_settings: boolean
+}
+
+export interface FileSystem {
+    readonly id: string
+    path: string
+    /** @nullable */
+    readonly depth: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown | null
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly last_viewed_at: string | null
+}
+
+export interface FileSystemShortcut {
+    readonly id: string
+    path: string
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    readonly created_at: string
+}
+
+export interface FlagValueItem {
+    name: unknown
+}
+
+export interface FlagValueResponse {
+    results: FlagValueItem[]
+    refreshing: boolean
+}
+
+/**
+ * * `daily` - Daily
+ * `weekly` - Weekly
+ * `monthly` - Monthly
+ * `yearly` - Yearly
+ */
+export type FrequencyEnum = (typeof FrequencyEnum)[keyof typeof FrequencyEnum]
+
+export const FrequencyEnum = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+    Yearly: 'yearly',
+} as const
+
+export type GenerateRequestStepsItem = { [key: string]: unknown }
+
+export interface GenerateRequest {
+    title?: string
+    goal?: string
+    steps?: GenerateRequestStepsItem[]
+}
+
+export interface GenerateStepResponse {
+    step_id: string
+    title: string
+    description: string
+}
+
+export interface GenerateResponse {
+    steps: GenerateStepResponse[]
+}
+
+export type GenerationSentimentScores = { [key: string]: number }
+
+export type MessageSentimentScores = { [key: string]: number }
+
+export interface MessageSentiment {
+    label: string
+    score: number
+    scores: MessageSentimentScores
+}
+
+export type GenerationSentimentMessages = { [key: string]: MessageSentiment }
+
+export interface GenerationSentiment {
+    label: string
+    score: number
+    scores: GenerationSentimentScores
+    messages: GenerationSentimentMessages
+}
+
+export interface Group {
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    group_type_index: number
+    /** @maxLength 400 */
+    group_key: string
+    group_properties?: unknown
+    readonly created_at: string
+}
+
+export interface GroupType {
+    readonly group_type: string
+    readonly group_type_index: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_singular?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_plural?: string | null
+    /** @nullable */
+    detail_dashboard?: number | null
+    /** @nullable */
+    default_columns?: string[] | null
+    /** @nullable */
+    created_at?: string | null
+}
+
+/**
+ * * `numeric` - numeric
+ * `currency` - currency
+ */
+export type GroupUsageMetricFormatEnum = (typeof GroupUsageMetricFormatEnum)[keyof typeof GroupUsageMetricFormatEnum]
+
+export const GroupUsageMetricFormatEnum = {
+    Numeric: 'numeric',
+    Currency: 'currency',
+} as const
+
+export interface GroupUsageMetric {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    format?: GroupUsageMetricFormatEnum
+    /**
+     * In days
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    display?: DisplayEnum
+    filters: unknown
+}
+
+/**
+ * * `critical` - Critical
+ * `warning` - Warning
+ * `info` - Info
+ */
+export type SeverityEnum = (typeof SeverityEnum)[keyof typeof SeverityEnum]
+
+export const SeverityEnum = {
+    Critical: 'critical',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `active` - Active
+ * `resolved` - Resolved
+ */
+export type HealthIssueStatusEnum = (typeof HealthIssueStatusEnum)[keyof typeof HealthIssueStatusEnum]
+
+export const HealthIssueStatusEnum = {
+    Active: 'active',
+    Resolved: 'resolved',
+} as const
+
+export interface HealthIssue {
+    readonly id: string
+    readonly kind: string
+    readonly severity: SeverityEnum
+    readonly status: HealthIssueStatusEnum
+    dismissed?: boolean
+    readonly payload: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly resolved_at: string | null
+}
+
+export interface HeatmapResponseItem {
+    count: number
+    pointer_y: number
+    pointer_relative_x: number
+    pointer_target_fixed: boolean
+}
+
+export type HeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown }
+
+/**
+ * * `screenshot` - Screenshot
+ * `iframe` - Iframe
+ * `recording` - Recording
+ */
+export type HeatmapScreenshotResponseTypeEnum =
+    (typeof HeatmapScreenshotResponseTypeEnum)[keyof typeof HeatmapScreenshotResponseTypeEnum]
+
+export const HeatmapScreenshotResponseTypeEnum = {
+    Screenshot: 'screenshot',
+    Iframe: 'iframe',
+    Recording: 'recording',
+} as const
+
+/**
+ * * `processing` - Processing
+ * `completed` - Completed
+ * `failed` - Failed
+ */
+export type HeatmapScreenshotResponseStatusEnum =
+    (typeof HeatmapScreenshotResponseStatusEnum)[keyof typeof HeatmapScreenshotResponseStatusEnum]
+
+export const HeatmapScreenshotResponseStatusEnum = {
+    Processing: 'processing',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface HeatmapScreenshotResponse {
+    readonly id: string
+    readonly short_id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 2000 */
+    url: string
+    /**
+     * URL for fetching heatmap data
+     * @maxLength 2000
+     * @nullable
+     */
+    data_url?: string | null
+    target_widths?: unknown
+    type?: HeatmapScreenshotResponseTypeEnum
+    readonly status: HeatmapScreenshotResponseStatusEnum
+    readonly has_content: boolean
+    readonly snapshots: readonly HeatmapScreenshotResponseSnapshotsItem[]
+    deleted?: boolean
+    readonly created_by: UserBasic
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface HeatmapsResponse {
+    results: HeatmapResponseItem[]
+}
+
+export type HogFlowVariablesItem = { [key: string]: string }
+
+/**
+ * * `draft` - Draft
+ * `active` - Active
+ * `archived` - Archived
+ */
+export type StatusA5eEnum = (typeof StatusA5eEnum)[keyof typeof StatusA5eEnum]
+
+export const StatusA5eEnum = {
+    Draft: 'draft',
+    Active: 'active',
+    Archived: 'archived',
+} as const
+
+export interface HogFlowMasking {
+    /**
+     * @minimum 60
+     * @maximum 94608000
+     * @nullable
+     */
+    ttl?: number | null
+    /** @nullable */
+    threshold?: number | null
+    hash: string
+    bytecode?: unknown | null
+}
+
+/**
+ * * `continue` - continue
+ * `abort` - abort
+ * `complete` - complete
+ * `branch` - branch
+ */
+export type OnErrorEnum = (typeof OnErrorEnum)[keyof typeof OnErrorEnum]
+
+export const OnErrorEnum = {
+    Continue: 'continue',
+    Abort: 'abort',
+    Complete: 'complete',
+    Branch: 'branch',
+} as const
+
+/**
+ * * `events` - events
+ * `person-updates` - person-updates
+ * `data-warehouse-table` - data-warehouse-table
+ */
+export type HogFunctionFiltersSourceEnum =
+    (typeof HogFunctionFiltersSourceEnum)[keyof typeof HogFunctionFiltersSourceEnum]
+
+export const HogFunctionFiltersSourceEnum = {
+    Events: 'events',
+    PersonUpdates: 'person-updates',
+    DataWarehouseTable: 'data-warehouse-table',
+} as const
+
+export type HogFunctionFiltersActionsItem = { [key: string]: unknown }
+
+export type HogFunctionFiltersEventsItem = { [key: string]: unknown }
+
+export type HogFunctionFiltersDataWarehouseItem = { [key: string]: unknown }
+
+export type HogFunctionFiltersPropertiesItem = { [key: string]: unknown }
+
+export interface HogFunctionFilters {
+    source?: HogFunctionFiltersSourceEnum
+    actions?: HogFunctionFiltersActionsItem[]
+    events?: HogFunctionFiltersEventsItem[]
+    data_warehouse?: HogFunctionFiltersDataWarehouseItem[]
+    properties?: HogFunctionFiltersPropertiesItem[]
+    bytecode?: unknown | null
+    transpiled?: unknown
+    filter_test_accounts?: boolean
+    bytecode_error?: string
+}
+
+export interface HogFlowAction {
+    id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    on_error?: OnErrorEnum | NullEnum | null
+    created_at?: number
+    updated_at?: number
+    filters?: HogFunctionFilters | null
+    /** @maxLength 100 */
+    type: string
+    config: unknown
+    output_variable?: unknown | null
+}
+
+export interface HogFlow {
+    readonly id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    readonly version: number
+    status?: StatusA5eEnum
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly updated_at: string
+    trigger?: unknown
+    trigger_masking?: HogFlowMasking | null
+    conversion?: unknown | null
+    exit_condition?: ExitConditionEnum
+    edges?: unknown
+    actions: HogFlowAction[]
+    /** @nullable */
+    readonly abort_action: string | null
+    variables?: HogFlowVariablesItem[]
+    readonly billable_action_types: unknown | null
+    readonly draft: unknown | null
+    /** @nullable */
+    readonly draft_updated_at: string | null
+}
+
+export interface HogFlowMinimal {
+    readonly id: string
+    /** @nullable */
+    readonly name: string | null
+    readonly description: string
+    readonly version: number
+    readonly status: StatusA5eEnum
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly updated_at: string
+    readonly trigger: unknown
+    readonly trigger_masking: unknown | null
+    readonly conversion: unknown | null
+    readonly exit_condition: ExitConditionEnum
+    readonly edges: unknown
+    readonly actions: unknown
+    /** @nullable */
+    readonly abort_action: string | null
+    readonly variables: unknown | null
+    readonly billable_action_types: unknown | null
+    readonly draft: unknown | null
+    /** @nullable */
+    readonly draft_updated_at: string | null
+}
+
+export type HogFlowTemplateVariablesItem = { [key: string]: string }
+
+/**
+ * * `team` - Only team
+ * `organization` - Organization
+ * `global` - Global
+ */
+export type HogFlowTemplateScopeEnum = (typeof HogFlowTemplateScopeEnum)[keyof typeof HogFlowTemplateScopeEnum]
+
+export const HogFlowTemplateScopeEnum = {
+    Team: 'team',
+    Organization: 'organization',
+    Global: 'global',
+} as const
+
+/**
+ * Custom action serializer for templates that skips input validation
+(since templates should have default/empty values).
+ */
+export interface HogFlowTemplateAction {
+    id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    on_error?: OnErrorEnum | NullEnum | null
+    created_at?: number
+    updated_at?: number
+    filters?: HogFunctionFilters | null
+    /** @maxLength 100 */
+    type: string
+    config: unknown
+    output_variable?: unknown | null
+}
+
+/**
+ * Serializer for creating hog flow templates.
+Validates and sanitizes the workflow before creating it as a template.
+ */
+export interface HogFlowTemplate {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    tags?: string[]
+    scope: HogFlowTemplateScopeEnum
+    readonly created_at: string
+    readonly created_by: string
+    readonly updated_at: string
+    trigger?: unknown
+    trigger_masking?: HogFlowMasking | null
+    conversion?: unknown | null
+    exit_condition?: ExitConditionEnum
+    edges?: unknown
+    actions: HogFlowTemplateAction[]
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    abort_action?: string | null
+    variables?: HogFlowTemplateVariablesItem[]
+}
+
+/**
+ * * `hog` - hog
+ * `liquid` - liquid
+ */
+export type Templating186Enum = (typeof Templating186Enum)[keyof typeof Templating186Enum]
+
+export const Templating186Enum = {
+    Hog: 'hog',
+    Liquid: 'liquid',
+} as const
+
+export interface InputsItem {
+    value?: string
+    templating?: Templating186Enum
+    readonly bytecode: readonly unknown[]
+    readonly order: number
+    readonly transpiled: unknown
+}
+
+export type HogFunctionInputs = { [key: string]: InputsItem }
+
+/**
+ * * `destination` - Destination
+ * `site_destination` - Site Destination
+ * `internal_destination` - Internal Destination
+ * `source_webhook` - Source Webhook
+ * `warehouse_source_webhook` - Warehouse Source Webhook
+ * `site_app` - Site App
+ * `transformation` - Transformation
+ */
+export type HogFunctionTypeEnum = (typeof HogFunctionTypeEnum)[keyof typeof HogFunctionTypeEnum]
+
+export const HogFunctionTypeEnum = {
+    Destination: 'destination',
+    SiteDestination: 'site_destination',
+    InternalDestination: 'internal_destination',
+    SourceWebhook: 'source_webhook',
+    WarehouseSourceWebhook: 'warehouse_source_webhook',
+    SiteApp: 'site_app',
+    Transformation: 'transformation',
+} as const
+
+/**
+ * * `string` - string
+ * `number` - number
+ * `boolean` - boolean
+ * `dictionary` - dictionary
+ * `choice` - choice
+ * `json` - json
+ * `integration` - integration
+ * `integration_field` - integration_field
+ * `email` - email
+ * `native_email` - native_email
+ */
+export type InputsSchemaItemTypeEnum = (typeof InputsSchemaItemTypeEnum)[keyof typeof InputsSchemaItemTypeEnum]
+
+export const InputsSchemaItemTypeEnum = {
+    String: 'string',
+    Number: 'number',
+    Boolean: 'boolean',
+    Dictionary: 'dictionary',
+    Choice: 'choice',
+    Json: 'json',
+    Integration: 'integration',
+    IntegrationField: 'integration_field',
+    Email: 'email',
+    NativeEmail: 'native_email',
+} as const
+
+/**
+ * * `True` - True
+ * `False` - False
+ * `hog` - hog
+ * `liquid` - liquid
+ */
+export type InputsSchemaItemTemplatingEnum =
+    (typeof InputsSchemaItemTemplatingEnum)[keyof typeof InputsSchemaItemTemplatingEnum]
+
+export const InputsSchemaItemTemplatingEnum = {
+    True: true,
+    False: false,
+    Hog: 'hog',
+    Liquid: 'liquid',
+} as const
+
+export type InputsSchemaItemChoicesItem = { [key: string]: unknown }
+
+export interface InputsSchemaItem {
+    type: InputsSchemaItemTypeEnum
+    key: string
+    label?: string
+    choices?: InputsSchemaItemChoicesItem[]
+    required?: boolean
+    default?: unknown
+    secret?: boolean
+    hidden?: boolean
+    description?: string
+    integration?: string
+    integration_key?: string
+    requires_field?: string
+    integration_field?: string
+    requiredScopes?: string
+    templating?: InputsSchemaItemTemplatingEnum
+}
+
+export interface HogFunctionMasking {
+    /**
+     * @minimum 60
+     * @maximum 86400
+     */
+    ttl: number
+    /** @nullable */
+    threshold?: number | null
+    hash: string
+    bytecode?: unknown | null
+}
+
+export type MappingsInputs = { [key: string]: InputsItem }
+
+export interface Mappings {
+    name?: string
+    inputs_schema?: InputsSchemaItem[]
+    inputs?: MappingsInputs
+    filters?: HogFunctionFilters
+}
+
+export interface HogFunctionMappingTemplate {
+    name: string
+    /** @nullable */
+    include_by_default?: boolean | null
+    filters?: unknown | null
+    inputs?: unknown | null
+    inputs_schema?: unknown | null
+}
+
+export interface HogFunctionTemplate {
+    id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    description?: string | null
+    code: string
+    /** @maxLength 20 */
+    code_language?: string
+    inputs_schema: unknown
+    /** @maxLength 50 */
+    type: string
+    /** @maxLength 20 */
+    status?: string
+    category?: unknown
+    free?: boolean
+    /** @nullable */
+    icon_url?: string | null
+    filters?: unknown | null
+    masking?: unknown | null
+    /** @nullable */
+    mapping_templates?: HogFunctionMappingTemplate[] | null
+}
+
+/**
+ * * `0` - 0
+ * `1` - 1
+ * `2` - 2
+ * `3` - 3
+ * `11` - 11
+ * `12` - 12
+ */
+export type HogFunctionStatusStateEnum = (typeof HogFunctionStatusStateEnum)[keyof typeof HogFunctionStatusStateEnum]
+
+export const HogFunctionStatusStateEnum = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number11: 11,
+    Number12: 12,
+} as const
+
+export interface HogFunctionStatus {
+    state: HogFunctionStatusStateEnum
+    tokens: number
+}
+
+export interface HogFunction {
+    readonly id: string
+    type?: HogFunctionTypeEnum | NullEnum | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly updated_at: string
+    enabled?: boolean
+    deleted?: boolean
+    hog?: string
+    readonly bytecode: unknown | null
+    /** @nullable */
+    readonly transpiled: string | null
+    inputs_schema?: InputsSchemaItem[]
+    inputs?: HogFunctionInputs
+    filters?: HogFunctionFilters
+    masking?: HogFunctionMasking | null
+    /** @nullable */
+    mappings?: Mappings[] | null
+    /** @nullable */
+    icon_url?: string | null
+    readonly template: HogFunctionTemplate
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_id?: string | null
+    readonly status: HogFunctionStatus | null
+    /**
+     * @minimum 0
+     * @maximum 32767
+     * @nullable
+     */
+    execution_order?: number | null
+    _create_in_folder?: string
+    /** @nullable */
+    readonly batch_export_id: string | null
+}
+
+export interface HogFunctionMinimal {
+    readonly id: string
+    /** @nullable */
+    readonly type: string | null
+    /** @nullable */
+    readonly name: string | null
+    readonly description: string
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly updated_at: string
+    readonly enabled: boolean
+    readonly hog: string
+    readonly filters: unknown | null
+    /** @nullable */
+    readonly icon_url: string | null
+    readonly template: HogFunctionTemplate
+    readonly status: HogFunctionStatus | null
+    /** @nullable */
+    readonly execution_order: number | null
+}
+
+export type HogLanguage = (typeof HogLanguage)[keyof typeof HogLanguage]
+
+export const HogLanguage = {
+    Hog: 'hog',
+    HogJson: 'hogJson',
+    HogQL: 'hogQL',
+    HogQLExpr: 'hogQLExpr',
+    HogTemplate: 'hogTemplate',
+    Liquid: 'liquid',
+} as const
+
+/**
+ * Global values in scope
+ * @nullable
+ */
+export type HogQLAutocompleteGlobals = { [key: string]: unknown } | null | null
+
+export type HogQLAutocompleteKind = (typeof HogQLAutocompleteKind)[keyof typeof HogQLAutocompleteKind]
+
+export const HogQLAutocompleteKind = {
+    HogQLAutocomplete: 'HogQLAutocomplete',
+} as const
+
+export interface HogQLAutocompleteResponse {
+    /** Whether or not the suggestions returned are complete */
+    incomplete_list: boolean
+    suggestions: AutocompleteCompletionItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type InsightActorsQueryOptionsKind =
+    (typeof InsightActorsQueryOptionsKind)[keyof typeof InsightActorsQueryOptionsKind]
+
+export const InsightActorsQueryOptionsKind = {
+    InsightActorsQueryOptions: 'InsightActorsQueryOptions',
+} as const
+
+export interface MultipleBreakdownOptions {
+    values: BreakdownItem[]
+}
+
+export interface IntervalItem {
+    label: string
+    /** An interval selected out of available intervals in source query */
+    value: number
+}
+
+export interface Series {
+    label: string
+    value: number
+}
+
+export interface StatusItem {
+    label: string
+    value: string
+}
+
+export interface InsightActorsQueryOptionsResponse {
+    /** @nullable */
+    breakdown?: BreakdownItem[] | null
+    /** @nullable */
+    breakdowns?: MultipleBreakdownOptions[] | null
+    /** @nullable */
+    compare?: CompareItem[] | null
+    /** @nullable */
+    day?: DayItem[] | null
+    /** @nullable */
+    interval?: IntervalItem[] | null
+    /** @nullable */
+    series?: Series[] | null
+    /** @nullable */
+    status?: StatusItem[] | null
+}
+
+export interface InsightActorsQueryOptions {
+    kind?: InsightActorsQueryOptionsKind
+    response?: InsightActorsQueryOptionsResponse | null
+    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type SessionsTimelineQueryKind = (typeof SessionsTimelineQueryKind)[keyof typeof SessionsTimelineQueryKind]
+
+export const SessionsTimelineQueryKind = {
+    SessionsTimelineQuery: 'SessionsTimelineQuery',
+} as const
+
+export interface TimelineEntry {
+    events: EventType[]
+    /**
+     * Duration of the recording in seconds.
+     * @nullable
+     */
+    recording_duration_s?: number | null
+    /**
+     * Session ID. None means out-of-session events
+     * @nullable
+     */
+    sessionId?: string | null
+}
+
+export interface SessionsTimelineQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: TimelineEntry[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface SessionsTimelineQuery {
+    /**
+     * Only fetch sessions that started after this timestamp (default: '-24h')
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * Only fetch sessions that started before this timestamp (default: '+5s')
+     * @nullable
+     */
+    before?: string | null
+    kind?: SessionsTimelineQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Fetch sessions only for a given person
+     * @nullable
+     */
+    personId?: string | null
+    response?: SessionsTimelineQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type HogQueryKind = (typeof HogQueryKind)[keyof typeof HogQueryKind]
+
+export const HogQueryKind = {
+    HogQuery: 'HogQuery',
+} as const
+
+export interface HogQueryResponse {
+    /** @nullable */
+    bytecode?: unknown[] | null
+    /** @nullable */
+    coloredBytecode?: unknown[] | null
+    results: unknown
+    /** @nullable */
+    stdout?: string | null
+}
+
+export interface HogQuery {
+    /** @nullable */
+    code?: string | null
+    kind: HogQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: HogQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type HogQLMetadataKind = (typeof HogQLMetadataKind)[keyof typeof HogQLMetadataKind]
+
+export const HogQLMetadataKind = {
+    HogQLMetadata: 'HogQLMetadata',
+} as const
+
+export type WebPageURLSearchQueryKind = (typeof WebPageURLSearchQueryKind)[keyof typeof WebPageURLSearchQueryKind]
+
+export const WebPageURLSearchQueryKind = {
+    WebPageURLSearchQuery: 'WebPageURLSearchQuery',
+} as const
+
+export interface PageURL {
+    url: string
+}
+
+export interface WebPageURLSearchQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: PageURL[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export const WebPageURLSearchQueryOrderByItem = {
+    ...WebAnalyticsOrderByFields,
+    ...WebAnalyticsOrderByDirection,
+} as const
+export interface WebPageURLSearchQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalType | null
+    kind?: WebPageURLSearchQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    orderBy?: (typeof WebPageURLSearchQueryOrderByItem)[keyof typeof WebPageURLSearchQueryOrderByItem][] | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: WebPageURLSearchQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** @nullable */
+    searchTerm?: string | null
+    /** @nullable */
+    stripQueryParams?: boolean | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type WebTrendsQueryKind = (typeof WebTrendsQueryKind)[keyof typeof WebTrendsQueryKind]
+
+export const WebTrendsQueryKind = {
+    WebTrendsQuery: 'WebTrendsQuery',
+} as const
+
+export type WebTrendsMetric = (typeof WebTrendsMetric)[keyof typeof WebTrendsMetric]
+
+export const WebTrendsMetric = {
+    UniqueUsers: 'UniqueUsers',
+    PageViews: 'PageViews',
+    Sessions: 'Sessions',
+    Bounces: 'Bounces',
+    SessionDuration: 'SessionDuration',
+    TotalSessions: 'TotalSessions',
+} as const
+
+export interface Metrics {
+    /** @nullable */
+    Bounces?: number | null
+    /** @nullable */
+    PageViews?: number | null
+    /** @nullable */
+    SessionDuration?: number | null
+    /** @nullable */
+    Sessions?: number | null
+    /** @nullable */
+    TotalSessions?: number | null
+    /** @nullable */
+    UniqueUsers?: number | null
+}
+
+export interface WebTrendsItem {
+    bucket: string
+    metrics: Metrics
+}
+
+export interface WebTrendsQueryResponse {
+    /**
+     * Executed ClickHouse query
+     * @nullable
+     */
+    clickhouse?: string | null
+    /**
+     * Returned columns
+     * @nullable
+     */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Query explanation output
+     * @nullable
+     */
+    explain?: string[] | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Input query string
+     * @nullable
+     */
+    query?: string | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: WebTrendsItem[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /**
+     * Types of returned columns
+     * @nullable
+     */
+    types?: unknown[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export const WebTrendsQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
+export interface WebTrendsQuery {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    compareFilter?: CompareFilter | null
+    conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    dateRange?: DateRange | null
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval: IntervalType
+    kind?: WebTrendsQueryKind
+    /** @nullable */
+    limit?: number | null
+    metrics: WebTrendsMetric[]
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: (typeof WebTrendsQueryOrderByItem)[keyof typeof WebTrendsQueryOrderByItem][] | null
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: WebTrendsQueryResponse | null
+    sampling?: WebAnalyticsSampling | null
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type WebAnalyticsExternalSummaryQueryKind =
+    (typeof WebAnalyticsExternalSummaryQueryKind)[keyof typeof WebAnalyticsExternalSummaryQueryKind]
+
+export const WebAnalyticsExternalSummaryQueryKind = {
+    WebAnalyticsExternalSummaryQuery: 'WebAnalyticsExternalSummaryQuery',
+} as const
+
+export type WebAnalyticsExternalSummaryQueryResponseData = { [key: string]: unknown }
+
+export interface WebAnalyticsExternalSummaryQueryResponse {
+    data: WebAnalyticsExternalSummaryQueryResponseData
+    error?: ExternalQueryError | null
+    status: ExternalQueryStatus
+}
+
+export interface WebAnalyticsExternalSummaryQuery {
+    dateRange: DateRange
+    kind?: WebAnalyticsExternalSummaryQueryKind
+    properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    response?: WebAnalyticsExternalSummaryQueryResponse | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type LogsQueryKind = (typeof LogsQueryKind)[keyof typeof LogsQueryKind]
+
+export const LogsQueryKind = {
+    LogsQuery: 'LogsQuery',
+} as const
+
+export type OrderBy3 = (typeof OrderBy3)[keyof typeof OrderBy3]
+
+export const OrderBy3 = {
+    Latest: 'latest',
+    Earliest: 'earliest',
+} as const
+
+export interface LogsQueryResponse {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Cursor for fetching the next page of results
+     * @nullable
+     */
+    nextCursor?: string | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type LogSeverityLevel = (typeof LogSeverityLevel)[keyof typeof LogSeverityLevel]
+
+export const LogSeverityLevel = {
+    Trace: 'trace',
+    Debug: 'debug',
+    Info: 'info',
+    Warn: 'warn',
+    Error: 'error',
+    Fatal: 'fatal',
+} as const
+
+export type LogsSparklineBreakdownBy = (typeof LogsSparklineBreakdownBy)[keyof typeof LogsSparklineBreakdownBy]
+
+export const LogsSparklineBreakdownBy = {
+    Severity: 'severity',
+    Service: 'service',
+} as const
+
+export interface LogsQuery {
+    /**
+     * Cursor for fetching the next page of results
+     * @nullable
+     */
+    after?: string | null
+    dateRange: DateRange
+    filterGroup: PropertyGroupFilter
+    kind?: LogsQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** @nullable */
+    liveLogsCheckpoint?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    orderBy?: OrderBy3 | null
+    /** @nullable */
+    resourceFingerprint?: string | null
+    response?: LogsQueryResponse | null
+    /** @nullable */
+    searchTerm?: string | null
+    serviceNames: string[]
+    severityLevels: LogSeverityLevel[]
+    /** Field to break down sparkline data by (used only by sparkline endpoint) */
+    sparklineBreakdownBy?: LogsSparklineBreakdownBy | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type LogAttributesQueryKind = (typeof LogAttributesQueryKind)[keyof typeof LogAttributesQueryKind]
+
+export const LogAttributesQueryKind = {
+    LogAttributesQuery: 'LogAttributesQuery',
+} as const
+
+export type LogAttributesQueryResponseResultsItem = { [key: string]: unknown }
+
+export interface LogAttributesQueryResponse {
+    count: number
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: LogAttributesQueryResponseResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface LogAttributesQuery {
+    attributeType: string
+    dateRange?: DateRange | null
+    filterGroup?: PropertyGroupFilter | null
+    kind?: LogAttributesQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    response?: LogAttributesQueryResponse | null
+    /** @nullable */
+    search?: string | null
+    /** @nullable */
+    serviceNames?: string[] | null
+    /** @nullable */
+    severityLevels?: LogSeverityLevel[] | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type LogValuesQueryKind = (typeof LogValuesQueryKind)[keyof typeof LogValuesQueryKind]
+
+export const LogValuesQueryKind = {
+    LogValuesQuery: 'LogValuesQuery',
+} as const
+
+export interface LogValueResult {
+    id: string
+    name: string
+}
+
+export interface LogValuesQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: LogValueResult[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface LogValuesQuery {
+    attributeKey: string
+    attributeType: string
+    dateRange?: DateRange | null
+    filterGroup?: PropertyGroupFilter | null
+    kind?: LogValuesQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    response?: LogValuesQueryResponse | null
+    /** @nullable */
+    search?: string | null
+    /** @nullable */
+    serviceNames?: string[] | null
+    /** @nullable */
+    severityLevels?: LogSeverityLevel[] | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RecordingsQueryKind = (typeof RecordingsQueryKind)[keyof typeof RecordingsQueryKind]
+
+export const RecordingsQueryKind = {
+    RecordingsQuery: 'RecordingsQuery',
+} as const
+
+export type RecordingOrder = (typeof RecordingOrder)[keyof typeof RecordingOrder]
+
+export const RecordingOrder = {
+    Duration: 'duration',
+    RecordingDuration: 'recording_duration',
+    InactiveSeconds: 'inactive_seconds',
+    ActiveSeconds: 'active_seconds',
+    StartTime: 'start_time',
+    ConsoleErrorCount: 'console_error_count',
+    ClickCount: 'click_count',
+    KeypressCount: 'keypress_count',
+    MouseActivityCount: 'mouse_activity_count',
+    ActivityScore: 'activity_score',
+    RecordingTtl: 'recording_ttl',
+} as const
+
+export type RecordingOrderDirection = (typeof RecordingOrderDirection)[keyof typeof RecordingOrderDirection]
+
+export const RecordingOrderDirection = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+/**
+ * * `slack` - Slack
+ * `slack-twig` - Slack Twig
+ * `salesforce` - Salesforce
+ * `hubspot` - Hubspot
+ * `google-pubsub` - Google Pubsub
+ * `google-cloud-storage` - Google Cloud Storage
+ * `google-ads` - Google Ads
+ * `google-sheets` - Google Sheets
+ * `snapchat` - Snapchat
+ * `linkedin-ads` - Linkedin Ads
+ * `reddit-ads` - Reddit Ads
+ * `tiktok-ads` - Tiktok Ads
+ * `bing-ads` - Bing Ads
+ * `intercom` - Intercom
+ * `email` - Email
+ * `linear` - Linear
+ * `github` - Github
+ * `gitlab` - Gitlab
+ * `meta-ads` - Meta Ads
+ * `twilio` - Twilio
+ * `clickup` - Clickup
+ * `vercel` - Vercel
+ * `databricks` - Databricks
+ * `azure-blob` - Azure Blob
+ * `firebase` - Firebase
+ * `jira` - Jira
+ * `pinterest-ads` - Pinterest Ads
+ */
+export type Kind439Enum = (typeof Kind439Enum)[keyof typeof Kind439Enum]
+
+export const Kind439Enum = {
+    Slack: 'slack',
+    SlackTwig: 'slack-twig',
+    Salesforce: 'salesforce',
+    Hubspot: 'hubspot',
+    GooglePubsub: 'google-pubsub',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GoogleAds: 'google-ads',
+    GoogleSheets: 'google-sheets',
+    Snapchat: 'snapchat',
+    LinkedinAds: 'linkedin-ads',
+    RedditAds: 'reddit-ads',
+    TiktokAds: 'tiktok-ads',
+    BingAds: 'bing-ads',
+    Intercom: 'intercom',
+    Email: 'email',
+    Linear: 'linear',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    MetaAds: 'meta-ads',
+    Twilio: 'twilio',
+    Clickup: 'clickup',
+    Vercel: 'vercel',
+    Databricks: 'databricks',
+    AzureBlob: 'azure-blob',
+    Firebase: 'firebase',
+    Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
+} as const
+
+/**
+ * Standard Integration serializer.
+ */
+export interface Integration {
+    readonly id: number
+    kind: Kind439Enum
+    config?: unknown
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly errors: string
+    readonly display_name: string
+}
+
+/**
+ * @nullable
+ */
+export type SessionRecordingExternalReferenceMetadata = { [key: string]: string } | null | null
+
+export interface SessionRecordingExternalReference {
+    external_url: string
+    id: string
+    integration: Integration
+    issue_id: string
+    /** @nullable */
+    metadata?: SessionRecordingExternalReferenceMetadata
+    title: string
+}
+
+export interface MatchedRecordingEvent {
+    timestamp: string
+    uuid: string
+}
+
+export interface MatchedRecording {
+    events: MatchedRecordingEvent[]
+    /** @nullable */
+    session_id?: string | null
+}
+
+export type PersonTypeProperties = { [key: string]: unknown }
+
+export interface PersonType {
+    /** @nullable */
+    created_at?: string | null
+    distinct_ids: string[]
+    /** @nullable */
+    id?: string | null
+    /** @nullable */
+    is_identified?: boolean | null
+    /** @nullable */
+    last_seen_at?: string | null
+    /** @nullable */
+    name?: string | null
+    properties: PersonTypeProperties
+    /** @nullable */
+    uuid?: string | null
+}
+
+export type SnapshotSource = (typeof SnapshotSource)[keyof typeof SnapshotSource]
+
+export const SnapshotSource = {
+    Web: 'web',
+    Mobile: 'mobile',
+    Unknown: 'unknown',
+} as const
+
+export interface SessionRecordingType {
+    /** @nullable */
+    active_seconds?: number | null
+    /**
+     * calculated on the backend so that we can sort by it, definition may change over time
+     * @nullable
+     */
+    activity_score?: number | null
+    /** @nullable */
+    click_count?: number | null
+    /** @nullable */
+    console_error_count?: number | null
+    /** @nullable */
+    console_log_count?: number | null
+    /** @nullable */
+    console_warn_count?: number | null
+    /** @nullable */
+    distinct_id?: string | null
+    /** @nullable */
+    email?: string | null
+    /** When the recording ends in ISO format. */
+    end_time: string
+    /**
+     * When the recording expires, in ISO format.
+     * @nullable
+     */
+    expiry_time?: string | null
+    /**
+     * External references to third party issues.
+     * @nullable
+     */
+    external_references?: SessionRecordingExternalReference[] | null
+    id: string
+    /** @nullable */
+    inactive_seconds?: number | null
+    /** @nullable */
+    keypress_count?: number | null
+    /**
+     * List of matching events. *
+     * @nullable
+     */
+    matching_events?: MatchedRecording[] | null
+    /**
+     * count of all mouse activity in the recording, not just clicks
+     * @nullable
+     */
+    mouse_activity_count?: number | null
+    /**
+     * whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded from ClickHouse)
+     *
+     * @nullable
+     */
+    ongoing?: boolean | null
+    person?: PersonType | null
+    /** Length of recording in seconds. */
+    recording_duration: number
+    /**
+     * Number of whole days left until the recording expires.
+     * @nullable
+     */
+    recording_ttl?: number | null
+    /**
+     * retention period for this recording
+     * @nullable
+     */
+    retention_period_days?: number | null
+    /** @nullable */
+    snapshot_library?: string | null
+    snapshot_source: SnapshotSource
+    /** When the recording starts in ISO format. */
+    start_time: string
+    /** @nullable */
+    start_url?: string | null
+    /** @nullable */
+    summary?: string | null
+    /** Whether this recording has been viewed by you already. */
+    viewed: boolean
+    /** user ids of other users who have viewed this recording */
+    viewers: string[]
+}
+
+export interface RecordingsQueryResponse {
+    has_next: boolean
+    /**
+     * Cursor for the next page. Contains the ordering value and session_id from the last record.
+     * @nullable
+     */
+    next_cursor?: string | null
+    results: SessionRecordingType[]
+}
+
+export type RecordingsQueryActionsItem = { [key: string]: unknown }
+
+export type RecordingsQueryEventsItem = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type RecordingsQueryUserModifiedFilters = { [key: string]: unknown } | null | null
+
+export interface RecordingsQuery {
+    /** @nullable */
+    actions?: RecordingsQueryActionsItem[] | null
+    /**
+     * Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page.
+     * @nullable
+     */
+    after?: string | null
+    comment_text?: RecordingPropertyFilter | null
+    /** @nullable */
+    console_log_filters?: LogEntryPropertyFilter[] | null
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+    /** @nullable */
+    distinct_ids?: string[] | null
+    /** @nullable */
+    events?: RecordingsQueryEventsItem[] | null
+    /** @nullable */
+    filter_test_accounts?: boolean | null
+    /** @nullable */
+    having_predicates?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    kind?: RecordingsQueryKind
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    operand?: FilterLogicalOperator | null
+    order?: RecordingOrder | null
+    /** Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here */
+    order_direction?: RecordingOrderDirection | null
+    /** @nullable */
+    person_uuid?: string | null
+    /** @nullable */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    response?: RecordingsQueryResponse | null
+    /** @nullable */
+    session_ids?: string[] | null
+    /**
+     * If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters
+     * @nullable
+     */
+    session_recording_id?: string | null
+    tags?: QueryLogTags | null
+    /** @nullable */
+    user_modified_filters?: RecordingsQueryUserModifiedFilters
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type TraceNeighborsQueryKind = (typeof TraceNeighborsQueryKind)[keyof typeof TraceNeighborsQueryKind]
+
+export const TraceNeighborsQueryKind = {
+    TraceNeighborsQuery: 'TraceNeighborsQuery',
+} as const
+
+export interface TraceNeighborsQueryResponse {
+    /**
+     * Timestamp of the newer trace
+     * @nullable
+     */
+    newerTimestamp?: string | null
+    /**
+     * ID of the newer trace (chronologically after current)
+     * @nullable
+     */
+    newerTraceId?: string | null
+    /**
+     * Timestamp of the older trace
+     * @nullable
+     */
+    olderTimestamp?: string | null
+    /**
+     * ID of the older trace (chronologically before current)
+     * @nullable
+     */
+    olderTraceId?: string | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface TraceNeighborsQuery {
+    dateRange?: DateRange | null
+    /** @nullable */
+    filterSupportTraces?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    kind?: TraceNeighborsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilter
+              | PersonPropertyFilter
+              | ElementPropertyFilter
+              | EventMetadataPropertyFilter
+              | SessionPropertyFilter
+              | CohortPropertyFilter
+              | RecordingPropertyFilter
+              | LogEntryPropertyFilter
+              | GroupPropertyFilter
+              | FeaturePropertyFilter
+              | FlagPropertyFilter
+              | HogQLPropertyFilter
+              | EmptyPropertyFilter
+              | DataWarehousePropertyFilter
+              | DataWarehousePersonPropertyFilter
+              | ErrorTrackingIssueFilter
+              | LogPropertyFilter
+              | RevenueAnalyticsPropertyFilter
+          )[]
+        | null
+    response?: TraceNeighborsQueryResponse | null
+    tags?: QueryLogTags | null
+    /** Timestamp of the current trace to find neighbors for */
+    timestamp: string
+    /** ID of the current trace to find neighbors for */
+    traceId: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type VectorSearchQueryKind = (typeof VectorSearchQueryKind)[keyof typeof VectorSearchQueryKind]
+
+export const VectorSearchQueryKind = {
+    VectorSearchQuery: 'VectorSearchQuery',
+} as const
+
+export interface VectorSearchResponseItem {
+    distance: number
+    id: string
+}
+
+export interface VectorSearchQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: VectorSearchResponseItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface VectorSearchQuery {
+    embedding: number[]
+    /** @nullable */
+    embeddingVersion?: number | null
+    kind?: VectorSearchQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: VectorSearchQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type UsageMetricsQueryKind = (typeof UsageMetricsQueryKind)[keyof typeof UsageMetricsQueryKind]
+
+export const UsageMetricsQueryKind = {
+    UsageMetricsQuery: 'UsageMetricsQuery',
+} as const
+
+export type UsageMetricDisplay = (typeof UsageMetricDisplay)[keyof typeof UsageMetricDisplay]
+
+export const UsageMetricDisplay = {
+    Number: 'number',
+    Sparkline: 'sparkline',
+} as const
+
+export type UsageMetricFormat = (typeof UsageMetricFormat)[keyof typeof UsageMetricFormat]
+
+export const UsageMetricFormat = {
+    Numeric: 'numeric',
+    Currency: 'currency',
+} as const
+
+export interface UsageMetric {
+    /** @nullable */
+    change_from_previous_pct?: number | null
+    display: UsageMetricDisplay
+    format: UsageMetricFormat
+    id: string
+    interval: number
+    name: string
+    previous: number
+    value: number
+}
+
+export interface UsageMetricsQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: UsageMetric[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface UsageMetricsQuery {
+    /**
+     * Group key. Required with group_type_index for group queries.
+     * @nullable
+     */
+    group_key?: string | null
+    /**
+     * Group type index. Required with group_key for group queries.
+     * @nullable
+     */
+    group_type_index?: number | null
+    kind?: UsageMetricsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Person ID to fetch metrics for. Mutually exclusive with group parameters.
+     * @nullable
+     */
+    person_id?: string | null
+    response?: UsageMetricsQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * Extra globals for the query
+ * @nullable
+ */
+export type HogQLMetadataGlobals = { [key: string]: unknown } | null | null
+
+/**
+ * Variables to be subsituted into the query
+ * @nullable
+ */
+export type HogQLMetadataVariables = { [key: string]: HogQLVariable } | null | null
+
+export interface HogQLMetadata {
+    /**
+     * Enable more verbose output, usually run from the /debug page
+     * @nullable
+     */
+    debug?: boolean | null
+    /** Extra filters applied to query via {filters} */
+    filters?: HogQLFilters | null
+    /**
+     * Extra globals for the query
+     * @nullable
+     */
+    globals?: HogQLMetadataGlobals
+    kind?: HogQLMetadataKind
+    /** Language to validate */
+    language: HogLanguage
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query to validate */
+    query: string
+    response?: HogQLMetadataResponse | null
+    /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
+    sourceQuery?:
+        | EventsNode
+        | ActionsNode
+        | PersonsNode
+        | EventsQuery
+        | SessionsQuery
+        | ActorsQuery
+        | GroupsQuery
+        | InsightActorsQuery
+        | InsightActorsQueryOptions
+        | SessionsTimelineQuery
+        | HogQuery
+        | HogQLQuery
+        | HogQLMetadata
+        | HogQLAutocomplete
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebPageURLSearchQuery
+        | WebTrendsQuery
+        | WebAnalyticsExternalSummaryQuery
+        | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingSimilarIssuesQuery
+        | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | CalendarHeatmapQuery
+        | RecordingsQuery
+        | TracesQuery
+        | TraceQuery
+        | TraceNeighborsQuery
+        | VectorSearchQuery
+        | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
+        | null
+    tags?: QueryLogTags | null
+    /**
+     * Variables to be subsituted into the query
+     * @nullable
+     */
+    variables?: HogQLMetadataVariables
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface HogQLAutocomplete {
+    /** End position of the editor word */
+    endPosition: number
+    /** Table to validate the expression against */
+    filters?: HogQLFilters | null
+    /**
+     * Global values in scope
+     * @nullable
+     */
+    globals?: HogQLAutocompleteGlobals
+    kind?: HogQLAutocompleteKind
+    /** Language to validate */
+    language: HogLanguage
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query to validate */
+    query: string
+    response?: HogQLAutocompleteResponse | null
+    /** Query in whose context to validate. */
+    sourceQuery?:
+        | EventsNode
+        | ActionsNode
+        | PersonsNode
+        | EventsQuery
+        | SessionsQuery
+        | ActorsQuery
+        | GroupsQuery
+        | InsightActorsQuery
+        | InsightActorsQueryOptions
+        | SessionsTimelineQuery
+        | HogQuery
+        | HogQLQuery
+        | HogQLMetadata
+        | HogQLAutocomplete
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebPageURLSearchQuery
+        | WebTrendsQuery
+        | WebAnalyticsExternalSummaryQuery
+        | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingSimilarIssuesQuery
+        | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | CalendarHeatmapQuery
+        | RecordingsQuery
+        | TracesQuery
+        | TraceQuery
+        | TraceNeighborsQuery
+        | VectorSearchQuery
+        | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
+        | null
+    /** Start position of the editor word */
+    startPosition: number
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type InsightVizNodeKind = (typeof InsightVizNodeKind)[keyof typeof InsightVizNodeKind]
+
+export const InsightVizNodeKind = {
+    InsightVizNode: 'InsightVizNode',
+} as const
+
+export interface Retention {
+    /** @nullable */
+    hideLineGraph?: boolean | null
+    /** @nullable */
+    hideSizeColumn?: boolean | null
+    /** @nullable */
+    useSmallLayout?: boolean | null
+}
+
+export interface VizSpecificOptions {
+    ActionsPie?: ActionsPie | null
+    RETENTION?: Retention | null
+}
+
+export interface InsightVizNode {
+    /**
+     * Query is embedded inside another bordered component
+     * @nullable
+     */
+    embedded?: boolean | null
+    /**
+     * Show with most visual options enabled. Used in insight scene.
+     * @nullable
+     */
+    full?: boolean | null
+    /** @nullable */
+    hidePersonsModal?: boolean | null
+    /** @nullable */
+    hideTooltipOnScroll?: boolean | null
+    kind: InsightVizNodeKind
+    /** @nullable */
+    showCorrelationTable?: boolean | null
+    /** @nullable */
+    showFilters?: boolean | null
+    /** @nullable */
+    showHeader?: boolean | null
+    /** @nullable */
+    showLastComputation?: boolean | null
+    /** @nullable */
+    showLastComputationRefresh?: boolean | null
+    /** @nullable */
+    showResults?: boolean | null
+    /** @nullable */
+    showTable?: boolean | null
+    source:
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | WebStatsTableQuery
+        | WebOverviewQuery
+    /** @nullable */
+    suppressSessionAnalysisWarning?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    vizSpecificOptions?: VizSpecificOptions | null
+}
+
+/**
+ * The query definition for this insight. The `kind` field determines the query type:
+- `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
+- `DataVisualizationNode` — SQL insights using HogQL
+- `DataTableNode` — raw data tables
+- `HogQuery` — Hog language queries
+ */
+export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | HogQuery
+
+/**
+ * Simplified serializer to speed response times when loading large amounts of objects.
+ */
+export interface Insight {
+    readonly id: number
+    readonly short_id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    derived_name?: string | null
+    query?: _InsightQuerySchema | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    order?: number | null
+    deleted?: boolean
+    /**
+        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+        A dashboard ID for each of the dashboards that this insight is displayed on.
+         */
+    dashboards?: number[]
+    /**
+    A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+     */
+    readonly dashboard_tiles: readonly DashboardTileBasic[]
+    /**
+    The datetime this insight's results were generated.
+    If added to one or more dashboards the insight can be refreshed separately on each.
+    Returns the appropriate last_refresh datetime for the context the insight is viewed in
+    (see from_dashboard query parameter).
+     */
+    readonly last_refresh: string
+    /** The target age of the cached results for this insight. */
+    readonly cache_target_age: string
+    /**
+    The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+    by querying the database.
+     */
+    readonly next_allowed_client_refresh: string
+    readonly result: string
+    readonly hasMore: string
+    readonly columns: string
+    /** @nullable */
+    readonly created_at: string | null
+    readonly created_by: UserBasic
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    readonly updated_at: string
+    tags?: unknown[]
+    favorited?: boolean
+    readonly last_modified_at: string
+    readonly last_modified_by: UserBasic
+    readonly is_sample: boolean
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnum
+    readonly effective_privilege_level: EffectivePrivilegeLevelEnum
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** The timezone this chart is displayed in. */
+    readonly timezone: string
+    readonly is_cached: string
+    readonly query_status: string
+    readonly hogql: string
+    readonly types: string
+    readonly resolved_date_range: string
+    _create_in_folder?: string
+    readonly alerts: string
+    readonly last_viewed_at: string
+}
+
+/**
+ * * `String` - String
+ * `Number` - Number
+ * `Boolean` - Boolean
+ * `List` - List
+ * `Date` - Date
+ */
+export type InsightVariableTypeEnum = (typeof InsightVariableTypeEnum)[keyof typeof InsightVariableTypeEnum]
+
+export const InsightVariableTypeEnum = {
+    String: 'String',
+    Number: 'Number',
+    Boolean: 'Boolean',
+    List: 'List',
+    Date: 'Date',
+} as const
+
+export interface InsightVariable {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    type: InsightVariableTypeEnum
+    default_value?: unknown | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+    /** @nullable */
+    readonly code_name: string | null
+    values?: unknown | null
+}
+
+/**
+ * * `api_key` - api_key
+ * `oauth` - oauth
+ */
+export type InstallCustomAuthTypeEnum = (typeof InstallCustomAuthTypeEnum)[keyof typeof InstallCustomAuthTypeEnum]
+
+export const InstallCustomAuthTypeEnum = {
+    ApiKey: 'api_key',
+    Oauth: 'oauth',
+} as const
+
+export interface InstallCustom {
+    /** @maxLength 200 */
+    name: string
+    /** @maxLength 2048 */
+    url: string
+    auth_type: InstallCustomAuthTypeEnum
+    api_key?: string
+    description?: string
+    oauth_provider_kind?: string
+}
+
+export interface InterestingNote {
+    text: string
+    line_refs: string
+}
+
+/**
+ * * `2.0` - 2.0
+ */
+export type JsonrpcEnum = (typeof JsonrpcEnum)[keyof typeof JsonrpcEnum]
+
+export const JsonrpcEnum = {
+    '20': '2.0',
+} as const
+
+export interface LLMPrompt {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    prompt: unknown
+    readonly version: number
+    readonly created_by: UserBasic
+    readonly created_at: string
+    readonly updated_at: string
+    deleted?: boolean
+}
+
+/**
+ * * `unknown` - Unknown
+ * `ok` - Ok
+ * `invalid` - Invalid
+ * `error` - Error
+ */
+export type LLMProviderKeyStateEnum = (typeof LLMProviderKeyStateEnum)[keyof typeof LLMProviderKeyStateEnum]
+
+export const LLMProviderKeyStateEnum = {
+    Unknown: 'unknown',
+    Ok: 'ok',
+    Invalid: 'invalid',
+    Error: 'error',
+} as const
+
+export interface LLMProviderKey {
+    readonly id: string
+    provider: ProviderEnum
+    /** @maxLength 255 */
+    name: string
+    readonly state: LLMProviderKeyStateEnum
+    /** @nullable */
+    readonly error_message: string | null
+    api_key?: string
+    readonly api_key_masked: string
+    set_as_active?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasic
+    /** @nullable */
+    readonly last_used_at: string | null
+}
+
+export type LimitContext = (typeof LimitContext)[keyof typeof LimitContext]
+
+export const LimitContext = {
+    PosthogAi: 'posthog_ai',
+} as const
+
+export interface LiveDebuggerBreakpoint {
+    readonly id: string
+    /** @nullable */
+    repository?: string | null
+    filename: string
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    line_number: number
+    enabled?: boolean
+    /** @nullable */
+    condition?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export type LocalEvaluationResponseGroupTypeMapping = { [key: string]: string }
+
+/**
+ * Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).
+ */
+export type LocalEvaluationResponseCohorts = { [key: string]: unknown }
+
+export interface LocalEvaluationResponse {
+    flags: MinimalFeatureFlag[]
+    group_type_mapping: LocalEvaluationResponseGroupTypeMapping
+    /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
+    cohorts: LocalEvaluationResponseCohorts
+}
+
+/**
+ * * `api_key` - API Key
+ * `oauth` - OAuth
+ */
+export type MCPServerInstallationAuthTypeEnum =
+    (typeof MCPServerInstallationAuthTypeEnum)[keyof typeof MCPServerInstallationAuthTypeEnum]
+
+export const MCPServerInstallationAuthTypeEnum = {
+    ApiKey: 'api_key',
+    Oauth: 'oauth',
+} as const
+
+export interface MCPServerInstallation {
+    readonly id: string
+    /** @nullable */
+    readonly server_id: string | null
+    readonly name: string
+    /** @maxLength 200 */
+    display_name?: string
+    /** @maxLength 2048 */
+    url?: string
+    description?: string
+    auth_type?: MCPServerInstallationAuthTypeEnum
+    readonly needs_reauth: boolean
+    readonly pending_oauth: boolean
+    readonly proxy_url: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+/**
+ * * `1` - event
+ * `2` - person
+ * `3` - group
+ * `4` - session
+ */
+export type PropertyDefinitionTypeEnum = (typeof PropertyDefinitionTypeEnum)[keyof typeof PropertyDefinitionTypeEnum]
+
+export const PropertyDefinitionTypeEnum = {
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
+export interface PropertyDefinition {
+    readonly id: string
+    readonly name: string
+    readonly property_type: PropertyType549Enum | NullEnum | null
+    readonly type: PropertyDefinitionTypeEnum
+}
+
+/**
+ * * `BACKFILL` - Backfill
+ * `READY` - Ready
+ * `ERROR` - Error
+ */
+export type MaterializedColumnSlotStateEnum =
+    (typeof MaterializedColumnSlotStateEnum)[keyof typeof MaterializedColumnSlotStateEnum]
+
+export const MaterializedColumnSlotStateEnum = {
+    Backfill: 'BACKFILL',
+    Ready: 'READY',
+    Error: 'ERROR',
+} as const
+
+export interface MaterializedColumnSlot {
+    readonly id: string
+    team: number
+    property_definition: string
+    readonly property_definition_details: PropertyDefinition
+    property_type: PropertyType549Enum
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    slot_index: number
+    state?: MaterializedColumnSlotStateEnum
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    backfill_temporal_workflow_id?: string | null
+    /** @nullable */
+    error_message?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+/**
+ * * `pending` - Pending
+ * `completed` - Completed
+ * `skipped` - Skipped
+ */
+export type ScrapingStatusEnum = (typeof ScrapingStatusEnum)[keyof typeof ScrapingStatusEnum]
+
+export const ScrapingStatusEnum = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Skipped: 'skipped',
+} as const
+
+export interface MaxCoreMemory {
+    readonly id: string
+    text: string
+    scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null
+}
+
+export type MembershipLevelEnum = (typeof MembershipLevelEnum)[keyof typeof MembershipLevelEnum]
+
+export const MembershipLevelEnum = {
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
+} as const
+
+export type MessageContextualTools = { [key: string]: unknown }
+
+/**
+ * Serializer for appending a message to an existing conversation without triggering AI processing.
+ */
+export interface Message {
+    /**
+     * @maxLength 40000
+     * @nullable
+     */
+    content: string | null
+    conversation: string
+    contextual_tools?: MessageContextualTools
+    ui_context?: unknown
+    billing_context?: unknown
+    trace_id: string
+    session_id?: string
+    agent_mode?: AgentModeEnum
+    resume_payload?: unknown | null
+}
+
+export interface MessageCategory {
+    readonly id: string
+    /** @maxLength 64 */
+    key: string
+    /** @maxLength 128 */
+    name: string
+    description?: string
+    public_description?: string
+    category_type?: CategoryTypeEnum
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    deleted?: boolean
+}
+
+/**
+ * Serializer for appending a message to an existing conversation without triggering AI processing.
+ */
+export interface MessageMinimal {
+    /** @maxLength 10000 */
+    content: string
+}
+
+export interface MessageTemplateContent {
+    templating?: Templating186Enum
+    email?: EmailTemplate | null
+}
+
+export interface MessageTemplate {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    readonly created_at: string
+    readonly updated_at: string
+    content?: MessageTemplateContent
+    readonly created_by: UserBasic
+    /** @maxLength 24 */
+    type?: string
+    /** @nullable */
+    message_category?: string | null
+    deleted?: boolean
+}
+
+/**
+ * * `viewed` - viewed
+ */
+export type MetricNameEnum = (typeof MetricNameEnum)[keyof typeof MetricNameEnum]
+
+export const MetricNameEnum = {
+    Viewed: 'viewed',
+} as const
+
+export interface MetalyticsCreateRequest {
+    metric_name: MetricNameEnum
+    instance_id: string
+}
+
+/**
+ * * `user_message` - user_message
+ * `cancel` - cancel
+ * `close` - close
+ */
+export type MethodEnum = (typeof MethodEnum)[keyof typeof MethodEnum]
+
+export const MethodEnum = {
+    UserMessage: 'user_message',
+    Cancel: 'cancel',
+    Close: 'close',
+} as const
+
+export interface MinimalPerson {
+    readonly id: number
+    readonly name: string
+    readonly distinct_ids: string
+    properties?: unknown
+    readonly created_at: string
+    readonly uuid: string
+    /** @nullable */
+    readonly last_seen_at: string | null
+}
+
+/**
+ * * `FeatureFlag` - feature flag
+ */
+export type ModelNameEnum = (typeof ModelNameEnum)[keyof typeof ModelNameEnum]
+
+export const ModelNameEnum = {
+    FeatureFlag: 'FeatureFlag',
+} as const
+
+export interface MyFlagsResponse {
+    feature_flag: MinimalFeatureFlag
+    value: unknown
+}
+
+/**
+ * * `table` - Table
+ * `view` - View
+ * `matview` - Mat View
+ * `endpoint` - Endpoint
+ */
+export type NodeTypeEnum = (typeof NodeTypeEnum)[keyof typeof NodeTypeEnum]
+
+export const NodeTypeEnum = {
+    Table: 'table',
+    View: 'view',
+    Matview: 'matview',
+    Endpoint: 'endpoint',
+} as const
+
+export interface Node {
+    readonly id: string
+    /** @maxLength 2048 */
+    name: string
+    type?: NodeTypeEnum
+    /** @maxLength 256 */
+    dag_id_text?: string
+    /** @nullable */
+    readonly saved_query_id: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly upstream_count: number
+    readonly downstream_count: number
+    /** @nullable */
+    readonly last_run_at: string | null
+    /** @nullable */
+    readonly last_run_status: string | null
+    /** @nullable */
+    readonly user_tag: string | null
+    /** @nullable */
+    readonly sync_interval: string | null
+}
+
+export interface Notebook {
+    readonly id: string
+    readonly short_id: string
+    /**
+     * @maxLength 256
+     * @nullable
+     */
+    title?: string | null
+    content?: unknown | null
+    /** @nullable */
+    text_content?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    version?: number
+    deleted?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly last_modified_at: string
+    readonly last_modified_by: UserBasic
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    _create_in_folder?: string
+}
+
+export interface NotebookMinimal {
+    readonly id: string
+    readonly short_id: string
+    /** @nullable */
+    readonly title: string | null
+    readonly deleted: boolean
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly last_modified_at: string
+    readonly last_modified_by: UserBasic
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    _create_in_folder?: string
+}
+
+export interface OAuthCallbackRequest {
+    code: string
+    server_id: string
+    state_token: string
+}
+
+export interface OAuthRedirectResponse {
+    redirect_url: string
+}
+
+export interface ObjectMediaPreview {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly media_url: string
+    /** Return 'uploaded' or 'exported' based on which media is set */
+    readonly media_type: string
+    metadata?: unknown
+    /** @nullable */
+    uploaded_media_id?: string | null
+    /** @nullable */
+    exported_asset_id?: string | null
+    /** @nullable */
+    event_definition_id?: string | null
+}
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
+ * `gt` - gt
+ * `lt` - lt
+ * `gte` - gte
+ * `lte` - lte
+ * `is_set` - is_set
+ * `is_not_set` - is_not_set
+ * `is_date_exact` - is_date_exact
+ * `is_date_after` - is_date_after
+ * `is_date_before` - is_date_before
+ * `in` - in
+ * `not_in` - not_in
+ */
+export type OperatorEnum = (typeof OperatorEnum)[keyof typeof OperatorEnum]
+
+export const OperatorEnum = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Lt: 'lt',
+    Gte: 'gte',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateAfter: 'is_date_after',
+    IsDateBefore: 'is_date_before',
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+export type OrganizationTeamsItem = { [key: string]: unknown }
+
+export type OrganizationProjectsItem = { [key: string]: unknown }
+
+/**
+ * * `0` - none
+ * `3` - config
+ * `6` - install
+ * `9` - root
+ */
+export type PluginsAccessLevelEnum = (typeof PluginsAccessLevelEnum)[keyof typeof PluginsAccessLevelEnum]
+
+export const PluginsAccessLevelEnum = {
+    Number0: 0,
+    Number3: 3,
+    Number6: 6,
+    Number9: 9,
+} as const
+
+export interface Organization {
+    readonly id: string
+    /** @maxLength 64 */
+    name: string
+    /** @pattern ^[-a-zA-Z0-9_]+$ */
+    readonly slug: string
+    /** @nullable */
+    logo_media_id?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly membership_level: MembershipLevelEnum | null
+    readonly plugins_access_level: PluginsAccessLevelEnum
+    readonly teams: readonly OrganizationTeamsItem[]
+    readonly projects: readonly OrganizationProjectsItem[]
+    /** @nullable */
+    readonly available_product_features: readonly unknown[] | null
+    is_member_join_email_enabled?: boolean
+    readonly metadata: string
+    /** @nullable */
+    readonly customer_id: string | null
+    /** @nullable */
+    enforce_2fa?: boolean | null
+    /** @nullable */
+    members_can_invite?: boolean | null
+    members_can_use_personal_api_keys?: boolean
+    allow_publicly_shared_resources?: boolean
+    readonly member_count: string
+    /** @nullable */
+    is_ai_data_processing_approved?: boolean | null
+    /** Default statistical method for new experiments in this organization.
+
+* `bayesian` - Bayesian
+* `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null
+    /** Default setting for 'Discard client IP data' for new projects in this organization. */
+    default_anonymize_ips?: boolean
+    /**
+     * ID of the role to automatically assign to new members joining the organization
+     * @nullable
+     */
+    default_role_id?: string | null
+    /**
+     * Set this to 'No' to temporarily disable an organization.
+     * @nullable
+     */
+    readonly is_active: boolean | null
+    /**
+     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+     * @nullable
+     */
+    readonly is_not_active_reason: string | null
+}
+
+/**
+ * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
+Also used for nested serializers.
+ */
+export interface OrganizationBasic {
+    readonly id: string
+    /** @maxLength 64 */
+    name: string
+    /**
+     * @maxLength 48
+     * @pattern ^[-a-zA-Z0-9_]+$
+     */
+    slug: string
+    /** @nullable */
+    readonly logo_media_id: string | null
+    readonly membership_level: MembershipLevelEnum | null
+    members_can_use_personal_api_keys?: boolean
+    /**
+     * Set this to 'No' to temporarily disable an organization.
+     * @nullable
+     */
+    is_active?: boolean | null
+    /**
+     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+     * @maxLength 200
+     * @nullable
+     */
+    is_not_active_reason?: string | null
+}
+
+export interface OrganizationDomain {
+    readonly id: string
+    /** @maxLength 128 */
+    domain: string
+    /** Determines whether a domain is verified or not. */
+    readonly is_verified: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verification_challenge: string
+    jit_provisioning_enabled?: boolean
+    /** @maxLength 28 */
+    sso_enforcement?: string
+    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
+    readonly has_saml: boolean
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_entity_id?: string | null
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_acs_url?: string | null
+    /** @nullable */
+    saml_x509_cert?: string | null
+    /** Returns whether SCIM is configured and enabled for this domain. */
+    readonly has_scim: boolean
+    scim_enabled?: boolean
+    /** @nullable */
+    readonly scim_base_url: string | null
+    /** @nullable */
+    readonly scim_bearer_token: string | null
+}
+
+/**
+ * * `vercel` - Vercel
+ */
+export type OrganizationIntegrationKindEnum =
+    (typeof OrganizationIntegrationKindEnum)[keyof typeof OrganizationIntegrationKindEnum]
+
+export const OrganizationIntegrationKindEnum = {
+    Vercel: 'vercel',
+} as const
+
+/**
+ * Serializer for organization-level integrations.
+ */
+export interface OrganizationIntegration {
+    readonly id: string
+    readonly kind: OrganizationIntegrationKindEnum
+    /** @nullable */
+    readonly integration_id: string | null
+    readonly config: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasic
+}
+
+/**
+ * * `1` - member
+ * `8` - administrator
+ * `15` - owner
+ */
+export type OrganizationMembershipLevel = (typeof OrganizationMembershipLevel)[keyof typeof OrganizationMembershipLevel]
+
+export const OrganizationMembershipLevel = {
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
+} as const
+
+export interface OrganizationInvite {
+    readonly id: string
+    /** @maxLength 254 */
+    target_email: string
+    /** @maxLength 30 */
+    first_name?: string
+    readonly emailing_attempt_made: boolean
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevel
+    /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
+    readonly is_expired: boolean
+    readonly created_by: UserBasic
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    message?: string | null
+    /** List of team IDs and corresponding access levels to private projects. */
+    private_project_access?: unknown | null
+    send_email?: boolean
+    combine_pending_invites?: boolean
+}
+
+export interface OrganizationMember {
+    readonly id: string
+    readonly user: UserBasic
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevel
+    readonly joined_at: string
+    readonly updated_at: string
+    readonly is_2fa_enabled: boolean
+    readonly has_social_auth: boolean
+    readonly last_login: string
+}
+
+/**
+ * Serializer for organization-scoped OAuth applications (read-only).
+ */
+export interface OrganizationOAuthApplication {
+    readonly id: string
+    /** @maxLength 255 */
+    name?: string
+    /** @maxLength 100 */
+    client_id?: string
+    readonly redirect_uris_list: readonly string[]
+    /** True if this application has been verified by PostHog */
+    is_verified?: boolean
+    readonly created: string
+    readonly updated: string
+}
+
+/**
+ * * `error_tracking` - Error Tracking
+ * `eval_clusters` - Eval Clusters
+ * `user_created` - User Created
+ * `slack` - Slack
+ * `support_queue` - Support Queue
+ * `session_summaries` - Session Summaries
+ */
+export type OriginProductEnum = (typeof OriginProductEnum)[keyof typeof OriginProductEnum]
+
+export const OriginProductEnum = {
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    UserCreated: 'user_created',
+    Slack: 'slack',
+    SupportQueue: 'support_queue',
+    SessionSummaries: 'session_summaries',
+} as const
+
+export interface PaginatedActionList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Action[]
+}
+
+export type PaginatedActivityLogList = ActivityLog[]
+
+export interface PaginatedAlertList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Alert[]
+}
+
+export interface PaginatedAnnotationList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Annotation[]
+}
+
+export interface PaginatedApprovalPolicyList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ApprovalPolicy[]
+}
+
+export interface PaginatedBatchExportBackfillList {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportBackfill[]
+}
+
+export interface PaginatedBatchExportList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExport[]
+}
+
+export interface PaginatedBatchExportRunList {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportRun[]
+}
+
+export interface PaginatedBatchImportList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchImport[]
+}
+
+export interface PaginatedChangeRequestList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChangeRequest[]
+}
+
+export interface PaginatedClickhouseEventList {
+    /** @nullable */
+    next?: string | null
+    results?: ClickhouseEvent[]
+}
+
+export interface PaginatedClusteringJobList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ClusteringJob[]
+}
+
+export interface PaginatedCohortList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Cohort[]
+}
+
+export interface PaginatedColumnConfigurationList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ColumnConfiguration[]
+}
+
+export interface PaginatedCommentList {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Comment[]
+}
+
+export interface PaginatedConversationList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Conversation[]
+}
+
+export interface PaginatedCoreEventList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CoreEvent[]
+}
+
+export interface PaginatedCustomerJourneyList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomerJourney[]
+}
+
+export interface PaginatedCustomerProfileConfigList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomerProfileConfig[]
+}
+
+export interface PaginatedDashboardBasicList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardBasic[]
+}
+
+export interface PaginatedDashboardTemplateList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardTemplate[]
+}
+
+export interface PaginatedDataColorThemeList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataColorTheme[]
+}
+
+export interface PaginatedDataModelingJobList {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataModelingJob[]
+}
+
+export interface PaginatedDataWarehouseModelPathList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseModelPath[]
+}
+
+export interface PaginatedDataWarehouseSavedQueryDraftList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseSavedQueryDraft[]
+}
+
+export interface PaginatedDataWarehouseSavedQueryMinimalList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseSavedQueryMinimal[]
+}
+
+export interface PaginatedDatasetItemList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetItem[]
+}
+
+export interface PaginatedDatasetList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Dataset[]
+}
+
+export interface PaginatedDesktopRecordingList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DesktopRecording[]
+}
+
+export interface PaginatedEarlyAccessFeatureList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EarlyAccessFeature[]
+}
+
+export interface PaginatedEdgeList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Edge[]
+}
+
+export interface PaginatedElementList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Element[]
+}
+
+export interface PaginatedEnterpriseEventDefinitionList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EnterpriseEventDefinition[]
+}
+
+export interface PaginatedEnterprisePropertyDefinitionList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EnterprisePropertyDefinition[]
+}
+
+export interface PaginatedErrorTrackingAssignmentRuleList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingAssignmentRule[]
+}
+
+export interface PaginatedErrorTrackingAutoCaptureControlsList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingAutoCaptureControls[]
+}
+
+export interface PaginatedErrorTrackingExternalReferenceList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingExternalReference[]
+}
+
+export interface PaginatedErrorTrackingFingerprintList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingFingerprint[]
+}
+
+export interface PaginatedErrorTrackingGroupingRuleList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingGroupingRule[]
+}
+
+export interface PaginatedErrorTrackingIssueFullList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingIssueFull[]
+}
+
+export interface PaginatedErrorTrackingReleaseList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingRelease[]
+}
+
+export interface PaginatedErrorTrackingStackFrameList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingStackFrame[]
+}
+
+export interface PaginatedErrorTrackingSuppressionRuleList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSuppressionRule[]
+}
+
+export interface PaginatedErrorTrackingSymbolSetList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSymbolSet[]
+}
+
+export interface PaginatedEvaluationList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Evaluation[]
+}
+
+export interface PaginatedEventSchemaList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EventSchema[]
+}
+
+export interface PaginatedExperimentHoldoutList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExperimentHoldout[]
+}
+
+export interface PaginatedExperimentList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Experiment[]
+}
+
+export interface PaginatedExperimentSavedMetricList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExperimentSavedMetric[]
+}
+
+export interface PaginatedExportedAssetList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExportedAsset[]
+}
+
+export interface PaginatedExternalDataSchemaList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataSchema[]
+}
+
+export interface PaginatedExternalDataSourceSerializersList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataSourceSerializers[]
+}
+
+export interface PaginatedFeatureFlagList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FeatureFlag[]
+}
+
+export interface PaginatedFileSystemList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystem[]
+}
+
+export interface PaginatedFileSystemShortcutList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemShortcut[]
+}
+
+export interface PaginatedGroupList {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Group[]
+}
+
+export interface PaginatedGroupUsageMetricList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: GroupUsageMetric[]
+}
+
+export interface PaginatedHealthIssueList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HealthIssue[]
+}
+
+export interface PaginatedHeatmapScreenshotResponseList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HeatmapScreenshotResponse[]
+}
+
+export interface PaginatedHeatmapsResponseList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HeatmapsResponse[]
+}
+
+export interface PaginatedHogFlowMinimalList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HogFlowMinimal[]
+}
+
+export interface PaginatedHogFlowTemplateList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HogFlowTemplate[]
+}
+
+export interface PaginatedHogFunctionMinimalList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HogFunctionMinimal[]
+}
+
+export interface PaginatedInsightList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Insight[]
+}
+
+export interface PaginatedInsightVariableList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: InsightVariable[]
+}
+
+export interface PaginatedIntegrationList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Integration[]
+}
+
+export interface PaginatedLLMPromptList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMPrompt[]
+}
+
+export interface PaginatedLLMProviderKeyList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMProviderKey[]
+}
+
+export interface PaginatedLiveDebuggerBreakpointList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LiveDebuggerBreakpoint[]
+}
+
+export interface PaginatedMCPServerInstallationList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MCPServerInstallation[]
+}
+
+export interface PaginatedMaterializedColumnSlotList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MaterializedColumnSlot[]
+}
+
+export interface PaginatedMaxCoreMemoryList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MaxCoreMemory[]
+}
+
+export interface PaginatedMessageCategoryList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MessageCategory[]
+}
+
+export interface PaginatedMessageTemplateList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MessageTemplate[]
+}
+
+export interface PaginatedNodeList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Node[]
+}
+
+export interface PaginatedNotebookMinimalList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: NotebookMinimal[]
+}
+
+export interface PaginatedObjectMediaPreviewList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ObjectMediaPreview[]
+}
+
+export interface PaginatedOrganizationDomainList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationDomain[]
+}
+
+export interface PaginatedOrganizationIntegrationList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationIntegration[]
+}
+
+export interface PaginatedOrganizationInviteList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationInvite[]
+}
+
+export interface PaginatedOrganizationList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Organization[]
+}
+
+export interface PaginatedOrganizationMemberList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationMember[]
+}
+
+export interface PaginatedOrganizationOAuthApplicationList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationOAuthApplication[]
+}
+
+/**
+ * * `home` - Home
+ * `pinned` - Pinned
+ * `custom_products` - Custom Products
+ */
+export type PersistedFolderTypeEnum = (typeof PersistedFolderTypeEnum)[keyof typeof PersistedFolderTypeEnum]
+
+export const PersistedFolderTypeEnum = {
+    Home: 'home',
+    Pinned: 'pinned',
+    CustomProducts: 'custom_products',
+} as const
+
+export interface PersistedFolder {
+    readonly id: string
+    type: PersistedFolderTypeEnum
+    /** @maxLength 64 */
+    protocol?: string
+    path?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedPersistedFolderList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PersistedFolder[]
+}
+
+export interface PaginatedPersonList {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    count?: number
+    results?: Person[]
+}
+
+/**
+ * * `SYSTEM` - SYSTEM
+ * `PLUGIN` - PLUGIN
+ * `CONSOLE` - CONSOLE
+ */
+export type PluginLogEntrySourceEnum = (typeof PluginLogEntrySourceEnum)[keyof typeof PluginLogEntrySourceEnum]
+
+export const PluginLogEntrySourceEnum = {
+    System: 'SYSTEM',
+    Plugin: 'PLUGIN',
+    Console: 'CONSOLE',
+} as const
+
+/**
+ * * `DEBUG` - DEBUG
+ * `LOG` - LOG
+ * `INFO` - INFO
+ * `WARN` - WARN
+ * `ERROR` - ERROR
+ */
+export type PluginLogEntryTypeEnum = (typeof PluginLogEntryTypeEnum)[keyof typeof PluginLogEntryTypeEnum]
+
+export const PluginLogEntryTypeEnum = {
+    Debug: 'DEBUG',
+    Log: 'LOG',
+    Info: 'INFO',
+    Warn: 'WARN',
+    Error: 'ERROR',
+} as const
+
+export interface PluginLogEntry {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    source: PluginLogEntrySourceEnum
+    type: PluginLogEntryTypeEnum
+    message: string
+    instance_id: string
+}
+
+export interface PaginatedPluginLogEntryList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PluginLogEntry[]
+}
+
+/**
+ * Return the targeting flag filters, excluding the base exclusion properties.
+ * @nullable
+ */
+export type ProductTourTargetingFlagFilters = { [key: string]: unknown } | null | null
+
+/**
+ * Read-only serializer for ProductTour.
+ */
+export interface ProductTour {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    readonly internal_targeting_flag: MinimalFeatureFlag
+    readonly linked_flag: MinimalFeatureFlag
+    /**
+     * Return the targeting flag filters, excluding the base exclusion properties.
+     * @nullable
+     */
+    readonly targeting_flag_filters: ProductTourTargetingFlagFilters
+    content?: unknown
+    readonly draft_content: unknown | null
+    readonly has_draft: boolean
+    auto_launch?: boolean
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly updated_at: string
+    archived?: boolean
+}
+
+export interface PaginatedProductTourList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ProductTour[]
+}
+
+/**
+ * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+backward compatibility of the REST API.
+Do not use this in greenfield endpoints!
+ */
+export interface ProjectBackwardCompatBasic {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown | null
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: string
+    readonly access_control: boolean
+}
+
+export interface PaginatedProjectBackwardCompatBasicList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ProjectBackwardCompatBasic[]
+}
+
+/**
+ * * `waiting` - Waiting
+ * `issuing` - Issuing
+ * `valid` - Valid
+ * `warning` - Warning
+ * `erroring` - Erroring
+ * `deleting` - Deleting
+ * `timed_out` - Timed Out
+ */
+export type ProxyRecordStatusEnum = (typeof ProxyRecordStatusEnum)[keyof typeof ProxyRecordStatusEnum]
+
+export const ProxyRecordStatusEnum = {
+    Waiting: 'waiting',
+    Issuing: 'issuing',
+    Valid: 'valid',
+    Warning: 'warning',
+    Erroring: 'erroring',
+    Deleting: 'deleting',
+    TimedOut: 'timed_out',
+} as const
+
+export interface ProxyRecord {
+    readonly id: string
+    /** @maxLength 64 */
+    domain: string
+    readonly target_cname: string
+    readonly status: ProxyRecordStatusEnum
+    /** @nullable */
+    readonly message: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly created_by: number | null
+}
+
+export interface PaginatedProxyRecordList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ProxyRecord[]
+}
+
+export interface QueryTabState {
+    readonly id: string
+    /**
+            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+            for a user.
+             */
+    state?: unknown | null
+}
+
+export interface PaginatedQueryTabStateList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QueryTabState[]
+}
+
+/**
+ * * `manual-options` - manual-options
+ * `auto-discovery` - auto-discovery
+ */
+export type QuickFilterTypeEnum = (typeof QuickFilterTypeEnum)[keyof typeof QuickFilterTypeEnum]
+
+export const QuickFilterTypeEnum = {
+    ManualOptions: 'manual-options',
+    AutoDiscovery: 'auto-discovery',
+} as const
+
+export interface QuickFilter {
+    readonly id: string
+    /** @maxLength 200 */
+    name: string
+    /** @maxLength 500 */
+    property_name: string
+    type?: QuickFilterTypeEnum
+    options?: unknown | null
+    readonly contexts: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedQuickFilterList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QuickFilter[]
+}
+
+/**
+ * * `none` - none
+ * `api_key` - api_key
+ * `oauth` - oauth
+ */
+export type RecommendedServerAuthTypeEnum =
+    (typeof RecommendedServerAuthTypeEnum)[keyof typeof RecommendedServerAuthTypeEnum]
+
+export const RecommendedServerAuthTypeEnum = {
+    None: 'none',
+    ApiKey: 'api_key',
+    Oauth: 'oauth',
+} as const
+
+export interface RecommendedServer {
+    name: string
+    url: string
+    description: string
+    icon_url: string
+    auth_type: RecommendedServerAuthTypeEnum
+    oauth_provider_kind?: string
+}
+
+export interface PaginatedRecommendedServerList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RecommendedServer[]
+}
+
+export interface Role {
+    readonly id: string
+    /** @maxLength 200 */
+    name: string
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly members: string
+    readonly is_default: string
+}
+
+export interface PaginatedRoleList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Role[]
+}
+
+export interface RoleMembership {
+    readonly id: string
+    readonly role_id: string
+    readonly organization_member: OrganizationMember
+    readonly user: UserBasic
+    readonly joined_at: string
+    readonly updated_at: string
+    user_uuid: string
+}
+
+export interface PaginatedRoleMembershipList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RoleMembership[]
+}
+
+/**
+ * * `daily` - daily
+ * `weekly` - weekly
+ * `monthly` - monthly
+ * `yearly` - yearly
+ */
+export type RecurrenceIntervalEnum = (typeof RecurrenceIntervalEnum)[keyof typeof RecurrenceIntervalEnum]
+
+export const RecurrenceIntervalEnum = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+    Yearly: 'yearly',
+} as const
+
+export interface ScheduledChange {
+    readonly id: number
+    readonly team_id: number
+    /** @maxLength 200 */
+    record_id: string
+    model_name: ModelNameEnum
+    payload?: unknown
+    scheduled_at: string
+    /** @nullable */
+    executed_at?: string | null
+    /**
+     * Return the safely formatted failure reason instead of raw data.
+     * @nullable
+     */
+    readonly failure_reason: string | null
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly updated_at: string
+    is_recurring?: boolean
+    recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    readonly last_executed_at: string | null
+    /** @nullable */
+    end_date?: string | null
+}
+
+export interface PaginatedScheduledChangeList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ScheduledChange[]
+}
+
+export interface PaginatedSchemaPropertyGroupList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SchemaPropertyGroup[]
+}
+
+export interface SessionGroupSummaryMinimal {
+    readonly id: string
+    /** Title of the group session summary */
+    readonly title: string
+    readonly session_count: number
+    readonly created_at: string
+    readonly created_by: UserBasic
+}
+
+export interface PaginatedSessionGroupSummaryMinimalList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SessionGroupSummaryMinimal[]
+}
+
+export interface PaginatedSessionRecordingExternalReferenceList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SessionRecordingExternalReference[]
+}
+
+export type SessionRecordingExternalReferencesItem = { [key: string]: unknown }
+
+export interface SessionRecording {
+    readonly id: string
+    /** @nullable */
+    readonly distinct_id: string | null
+    readonly viewed: boolean
+    readonly viewers: readonly string[]
+    readonly recording_duration: number
+    /** @nullable */
+    readonly active_seconds: number | null
+    /** @nullable */
+    readonly inactive_seconds: number | null
+    /** @nullable */
+    readonly start_time: string | null
+    /** @nullable */
+    readonly end_time: string | null
+    /** @nullable */
+    readonly click_count: number | null
+    /** @nullable */
+    readonly keypress_count: number | null
+    /** @nullable */
+    readonly mouse_activity_count: number | null
+    /** @nullable */
+    readonly console_log_count: number | null
+    /** @nullable */
+    readonly console_warn_count: number | null
+    /** @nullable */
+    readonly console_error_count: number | null
+    /** @nullable */
+    readonly start_url: string | null
+    person?: MinimalPerson
+    /** @nullable */
+    readonly retention_period_days: number | null
+    readonly expiry_time: string
+    readonly recording_ttl: string
+    /** @nullable */
+    readonly snapshot_source: string | null
+    /** @nullable */
+    readonly snapshot_library: string | null
+    readonly ongoing: boolean
+    /** @nullable */
+    readonly activity_score: number | null
+    /** Load external references (linked issues) for this recording */
+    readonly external_references: readonly SessionRecordingExternalReferencesItem[]
+}
+
+export interface PaginatedSessionRecordingList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SessionRecording[]
+}
+
+/**
+ * * `collection` - Collection
+ * `filters` - Filters
+ */
+export type SessionRecordingPlaylistTypeEnum =
+    (typeof SessionRecordingPlaylistTypeEnum)[keyof typeof SessionRecordingPlaylistTypeEnum]
+
+export const SessionRecordingPlaylistTypeEnum = {
+    Collection: 'collection',
+    Filters: 'filters',
+} as const
+
+export type SessionRecordingPlaylistRecordingsCounts = { [key: string]: { [key: string]: number | boolean | null } }
+
+export interface SessionRecordingPlaylist {
+    readonly id: number
+    readonly short_id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    derived_name?: string | null
+    description?: string
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasic
+    deleted?: boolean
+    filters?: unknown
+    readonly last_modified_at: string
+    readonly last_modified_by: UserBasic
+    readonly recordings_counts: SessionRecordingPlaylistRecordingsCounts
+    readonly type: SessionRecordingPlaylistTypeEnum | NullEnum | null
+    /** Return whether this is a synthetic playlist */
+    readonly is_synthetic: boolean
+    _create_in_folder?: string
+}
+
+export interface PaginatedSessionRecordingPlaylistList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SessionRecordingPlaylist[]
+}
+
+/**
+ * * `session_replay` - Session replay
+ * `llm_analytics` - LLM analytics
+ */
+export type SourceProductEnum = (typeof SourceProductEnum)[keyof typeof SourceProductEnum]
+
+export const SourceProductEnum = {
+    SessionReplay: 'session_replay',
+    LlmAnalytics: 'llm_analytics',
+} as const
+
+/**
+ * * `session_analysis_cluster` - Session analysis cluster
+ * `evaluation` - Evaluation
+ */
+export type SignalSourceConfigSourceTypeEnum =
+    (typeof SignalSourceConfigSourceTypeEnum)[keyof typeof SignalSourceConfigSourceTypeEnum]
+
+export const SignalSourceConfigSourceTypeEnum = {
+    SessionAnalysisCluster: 'session_analysis_cluster',
+    Evaluation: 'evaluation',
+} as const
+
+export interface SignalSourceConfig {
+    readonly id: string
+    source_product: SourceProductEnum
+    source_type: SignalSourceConfigSourceTypeEnum
+    enabled?: boolean
+    config?: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly status: string | null
+}
+
+export interface PaginatedSignalSourceConfigList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalSourceConfig[]
+}
+
+/**
+ * * `email` - Email
+ * `slack` - Slack
+ * `webhook` - Webhook
+ */
+export type TargetTypeEnum = (typeof TargetTypeEnum)[keyof typeof TargetTypeEnum]
+
+export const TargetTypeEnum = {
+    Email: 'email',
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
+/**
+ * Standard Subscription serializer.
+ */
+export interface Subscription {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    target_type: TargetTypeEnum
+    target_value: string
+    frequency: FrequencyEnum
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    /** @nullable */
+    byweekday?: ByweekdayEnum[] | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    bysetpos?: number | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    start_date: string
+    /** @nullable */
+    until_date?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasic
+    deleted?: boolean
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    title?: string | null
+    readonly summary: string
+    /** @nullable */
+    readonly next_delivery_date: string | null
+    /** @nullable */
+    invite_message?: string | null
+}
+
+export interface PaginatedSubscriptionList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Subscription[]
+}
+
+/**
+ * * `popover` - popover
+ * `widget` - widget
+ * `external_survey` - external survey
+ * `api` - api
+ */
+export type SurveyType = (typeof SurveyType)[keyof typeof SurveyType]
+
+export const SurveyType = {
+    Popover: 'popover',
+    Widget: 'widget',
+    ExternalSurvey: 'external_survey',
+    Api: 'api',
+} as const
+
+/**
+ * * `day` - day
+ * `week` - week
+ * `month` - month
+ */
+export type ResponseSamplingIntervalTypeEnum =
+    (typeof ResponseSamplingIntervalTypeEnum)[keyof typeof ResponseSamplingIntervalTypeEnum]
+
+export const ResponseSamplingIntervalTypeEnum = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface Survey {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    type: SurveyType
+    /** @nullable */
+    schedule?: string | null
+    readonly linked_flag: MinimalFeatureFlag
+    /** @nullable */
+    linked_flag_id?: number | null
+    /** @nullable */
+    linked_insight_id?: number | null
+    readonly targeting_flag: MinimalFeatureFlag
+    readonly internal_targeting_flag: MinimalFeatureFlag
+    /**
+        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
+
+        Basic (open-ended question)
+        - `id`: The question ID
+        - `type`: `open`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Link (a question with a link)
+        - `id`: The question ID
+        - `type`: `link`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `link`: The URL associated with the question.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Rating (a question with a rating scale)
+        - `id`: The question ID
+        - `type`: `rating`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `display`: Display style of the rating (`number` or `emoji`).
+        - `scale`: The scale of the rating (`number`).
+        - `lowerBoundLabel`: Label for the lower bound of the scale.
+        - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Multiple choice
+        - `id`: The question ID
+        - `type`: `single_choice` or `multiple_choice`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `choices`: An array of choices for the question.
+        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Branching logic can be one of the following types:
+
+        Next question: Proceeds to the next question
+        ```json
+        {
+            "type": "next_question"
+        }
+        ```
+
+        End: Ends the survey, optionally displaying a confirmation message.
+        ```json
+        {
+            "type": "end"
+        }
+        ```
+
+        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+        ```json
+        {
+            "type": "response_based",
+            "responseValues": {
+                "responseKey": "value"
+            }
+        }
+        ```
+
+        Specific question: Proceeds to a specific question by index.
+        ```json
+        {
+            "type": "specific_question",
+            "index": 2
+        }
+        ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
+         */
+    questions?: unknown | null
+    readonly conditions: string
+    appearance?: unknown | null
+    readonly created_at: string
+    readonly created_by: UserBasic
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    archived?: boolean
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    responses_limit?: number | null
+    readonly feature_flag_keys: readonly unknown[]
+    /**
+     * @minimum 0
+     * @maximum 500
+     * @nullable
+     */
+    iteration_count?: number | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    iteration_frequency_days?: number | null
+    /** @nullable */
+    iteration_start_dates?: (string | null)[] | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    current_iteration?: number | null
+    /** @nullable */
+    current_iteration_start_date?: string | null
+    /** @nullable */
+    response_sampling_start_date?: string | null
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    response_sampling_interval?: number | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    response_sampling_limit?: number | null
+    response_sampling_daily_limits?: unknown | null
+    /** @nullable */
+    enable_partial_responses?: boolean | null
+    /** @nullable */
+    enable_iframe_embedding?: boolean | null
+    translations?: unknown | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    form_content?: unknown | null
+}
+
+export interface PaginatedSurveyList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Survey[]
+}
+
+/**
+ * * `CSV` - CSV
+ * `CSVWithNames` - CSVWithNames
+ * `Parquet` - Parquet
+ * `JSONEachRow` - JSON
+ * `Delta` - Delta
+ * `DeltaS3Wrapper` - DeltaS3Wrapper
+ */
+export type TableFormatEnum = (typeof TableFormatEnum)[keyof typeof TableFormatEnum]
+
+export const TableFormatEnum = {
+    Csv: 'CSV',
+    CSVWithNames: 'CSVWithNames',
+    Parquet: 'Parquet',
+    JSONEachRow: 'JSONEachRow',
+    Delta: 'Delta',
+    DeltaS3Wrapper: 'DeltaS3Wrapper',
+} as const
+
+export interface SimpleExternalDataSourceSerializers {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    readonly status: string
+    readonly source_type: SourceTypeE09Enum
+}
+
+export type TableOptions = { [key: string]: unknown }
+
+export interface Table {
+    readonly id: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name: string
+    format: TableFormatEnum
+    readonly created_by: UserBasic
+    readonly created_at: string
+    /** @maxLength 500 */
+    url_pattern: string
+    credential: Credential
+    readonly columns: string
+    readonly external_data_source: SimpleExternalDataSourceSerializers
+    readonly external_schema: string
+    options?: TableOptions
+}
+
+export interface PaginatedTableList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Table[]
+}
+
+export interface TaggedItem {
+    readonly tag: string
+}
+
+export interface PaginatedTaggedItemList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaggedItem[]
+}
+
+export interface PaginatedTaskList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Task[]
+}
+
+/**
+ * * `not_started` - Not Started
+ * `queued` - Queued
+ * `in_progress` - In Progress
+ * `completed` - Completed
+ * `failed` - Failed
+ * `cancelled` - Cancelled
+ */
+export type TaskRunDetailStatusEnum = (typeof TaskRunDetailStatusEnum)[keyof typeof TaskRunDetailStatusEnum]
+
+export const TaskRunDetailStatusEnum = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface TaskRunArtifactResponse {
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Artifact size in bytes */
+    size?: number
+    /** Optional MIME type */
+    content_type?: string
+    /** S3 object key for the artifact */
+    storage_path: string
+    /** Timestamp when the artifact was uploaded */
+    uploaded_at: string
+}
+
+export interface TaskRunDetail {
+    readonly id: string
+    readonly task: string
+    /**
+     * Current stage for this run (e.g., 'research', 'plan', 'build')
+     * @maxLength 100
+     * @nullable
+     */
+    stage?: string | null
+    /**
+     * Branch name for the run
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    status?: TaskRunDetailStatusEnum
+    /** Execution environment
+
+* `local` - Local
+* `cloud` - Cloud */
+    environment?: EnvironmentEnum
+    /**
+     * Presigned S3 URL for log access (valid for 1 hour).
+     * @nullable
+     */
+    readonly log_url: string | null
+    /**
+     * Error message if execution failed
+     * @nullable
+     */
+    error_message?: string | null
+    /** Run output data (e.g., PR URL, commit SHA, etc.) */
+    output?: unknown | null
+    /** Run state data for resuming or tracking execution state */
+    state?: unknown
+    readonly artifacts: readonly TaskRunArtifactResponse[]
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly completed_at: string | null
+}
+
+export interface PaginatedTaskRunDetailList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskRunDetail[]
+}
+
+/**
+ * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+Also used for nested serializers.
+ */
+export interface TeamBasic {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    /**
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     */
+    readonly project_id: number
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown | null
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: string
+    readonly access_control: boolean
+}
+
+export interface PaginatedTeamBasicList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TeamBasic[]
+}
+
+export interface ThresholdWithAlert {
+    readonly id: string
+    readonly created_at: string
+    /** @maxLength 255 */
+    name?: string
+    configuration: InsightThreshold
+    readonly alerts: readonly Alert[]
+}
+
+export interface PaginatedThresholdWithAlertList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ThresholdWithAlert[]
+}
+
+/**
+ * * `new` - New
+ * `open` - Open
+ * `pending` - Pending
+ * `on_hold` - On hold
+ * `resolved` - Resolved
+ */
+export type TicketStatusEnum = (typeof TicketStatusEnum)[keyof typeof TicketStatusEnum]
+
+export const TicketStatusEnum = {
+    New: 'new',
+    Open: 'open',
+    Pending: 'pending',
+    OnHold: 'on_hold',
+    Resolved: 'resolved',
+} as const
+
+/**
+ * * `low` - Low
+ * `medium` - Medium
+ * `high` - High
+ */
+export type PriorityEnum = (typeof PriorityEnum)[keyof typeof PriorityEnum]
+
+export const PriorityEnum = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+} as const
+
+/**
+ * Serializer for ticket assignment (user or role).
+ */
+export interface TicketAssignment {
+    readonly id: string
+    readonly type: string
+}
+
+export type TicketPersonProperties = { [key: string]: unknown }
+
+/**
+ * Minimal person serializer for embedding in ticket responses.
+ */
+export interface TicketPerson {
+    readonly id: string
+    readonly name: string
+    readonly distinct_ids: readonly string[]
+    readonly properties: TicketPersonProperties
+    readonly created_at: string
+    readonly is_identified: boolean
+}
+
+export interface Ticket {
+    readonly id: string
+    readonly ticket_number: number
+    readonly channel_source: ChannelSourceEnum
+    readonly distinct_id: string
+    status?: TicketStatusEnum
+    priority?: PriorityEnum | BlankEnum | NullEnum | null
+    readonly assignee: TicketAssignment
+    anonymous_traits?: unknown
+    ai_resolved?: boolean
+    /** @nullable */
+    escalation_reason?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly message_count: number
+    /** @nullable */
+    readonly last_message_at: string | null
+    /** @nullable */
+    readonly last_message_text: string | null
+    readonly unread_team_count: number
+    readonly unread_customer_count: number
+    /** @nullable */
+    readonly session_id: string | null
+    readonly session_context: unknown
+    /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
+    readonly slack_channel_id: string | null
+    /** @nullable */
+    readonly slack_thread_ts: string | null
+    /** @nullable */
+    readonly slack_team_id: string | null
+    readonly person: TicketPerson | null
+}
+
+export interface PaginatedTicketList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Ticket[]
+}
+
+export interface UserInterview {
+    readonly id: string
+    readonly created_by: UserBasic
+    readonly created_at: string
+    interviewee_emails?: string[]
+    readonly transcript: string
+    summary?: string
+    audio: string
+}
+
+export interface PaginatedUserInterviewList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserInterview[]
+}
+
+/**
+ * * `disabled` - disabled
+ * `toolbar` - toolbar
+ */
+export type ToolbarModeEnum = (typeof ToolbarModeEnum)[keyof typeof ToolbarModeEnum]
+
+export const ToolbarModeEnum = {
+    Disabled: 'disabled',
+    Toolbar: 'toolbar',
+} as const
+
+export interface ScenePersonalisationBasic {
+    /** @maxLength 200 */
+    scene: string
+    /** @nullable */
+    dashboard?: number | null
+}
+
+/**
+ * * `light` - Light
+ * `dark` - Dark
+ * `system` - System
+ */
+export type ThemeModeEnum = (typeof ThemeModeEnum)[keyof typeof ThemeModeEnum]
+
+export const ThemeModeEnum = {
+    Light: 'light',
+    Dark: 'dark',
+    System: 'system',
+} as const
+
+/**
+ * * `above` - Above
+ * `below` - Below
+ * `hidden` - Hidden
+ */
+export type ShortcutPositionEnum = (typeof ShortcutPositionEnum)[keyof typeof ShortcutPositionEnum]
+
+export const ShortcutPositionEnum = {
+    Above: 'above',
+    Below: 'below',
+    Hidden: 'hidden',
+} as const
+
+export type UserNotificationSettings = { [key: string]: unknown }
+
+export interface User {
+    readonly date_joined: string
+    readonly uuid: string
+    /** @nullable */
+    readonly distinct_id: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    readonly pending_email: string | null
+    /** @nullable */
+    readonly is_email_verified: boolean | null
+    notification_settings?: UserNotificationSettings
+    /** @nullable */
+    anonymize_data?: boolean | null
+    /** @nullable */
+    allow_impersonation?: boolean | null
+    toolbar_mode?: ToolbarModeEnum | BlankEnum | NullEnum | null
+    readonly has_password: boolean
+    readonly id: number
+    /** Designates whether the user can log into this admin site. */
+    is_staff?: boolean
+    /** @nullable */
+    readonly is_impersonated: boolean | null
+    /** @nullable */
+    readonly is_impersonated_until: string | null
+    /** @nullable */
+    readonly is_impersonated_read_only: boolean | null
+    /** @nullable */
+    readonly sensitive_session_expires_at: string | null
+    readonly team: TeamBasic
+    readonly organization: Organization
+    readonly organizations: readonly OrganizationBasic[]
+    set_current_organization?: string
+    set_current_team?: string
+    /** @maxLength 128 */
+    password: string
+    current_password?: string
+    events_column_config?: unknown
+    readonly is_2fa_enabled: boolean
+    readonly has_social_auth: boolean
+    readonly has_sso_enforcement: boolean
+    has_seen_product_intro_for?: unknown | null
+    readonly scene_personalisation: readonly ScenePersonalisationBasic[]
+    theme_mode?: ThemeModeEnum | BlankEnum | NullEnum | null
+    hedgehog_config?: unknown | null
+    /** @nullable */
+    allow_sidebar_suggestions?: boolean | null
+    shortcut_position?: ShortcutPositionEnum | BlankEnum | NullEnum | null
+    role_at_organization?: RoleAtOrganizationEnum
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
+}
+
+export interface PaginatedUserList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: User[]
+}
+
+/**
+ * * `onboarding` - Onboarding
+ * `product_intent` - Product Intent
+ * `used_by_colleagues` - Used by Colleagues
+ * `used_similar_products` - Used Similar Products
+ * `used_on_separate_team` - Used on Separate Team
+ * `new_product` - New Product
+ * `sales_led` - Sales Led
+ */
+export type ReasonEnum = (typeof ReasonEnum)[keyof typeof ReasonEnum]
+
+export const ReasonEnum = {
+    Onboarding: 'onboarding',
+    ProductIntent: 'product_intent',
+    UsedByColleagues: 'used_by_colleagues',
+    UsedSimilarProducts: 'used_similar_products',
+    UsedOnSeparateTeam: 'used_on_separate_team',
+    NewProduct: 'new_product',
+    SalesLed: 'sales_led',
+} as const
+
+export interface UserProductList {
+    readonly id: string
+    readonly product_path: string
+    enabled?: boolean
+    readonly reason: ReasonEnum | NullEnum | null
+    /** @nullable */
+    readonly reason_text: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedUserProductListList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserProductList[]
+}
+
+export interface ViewLink {
+    readonly id: string
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasic
+    readonly created_at: string
+    /** @maxLength 400 */
+    source_table_name: string
+    /** @maxLength 400 */
+    source_table_key: string
+    /** @maxLength 400 */
+    joining_table_name: string
+    /** @maxLength 400 */
+    joining_table_key: string
+    /** @maxLength 400 */
+    field_name: string
+    configuration?: unknown | null
+}
+
+export interface PaginatedViewLinkList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ViewLink[]
+}
+
+export interface WebAnalyticsFilterPreset {
+    readonly id: string
+    readonly short_id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasic
+    deleted?: boolean
+    filters?: unknown
+    readonly last_modified_at: string
+    readonly last_modified_by: UserBasic
+}
+
+export interface PaginatedWebAnalyticsFilterPresetList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WebAnalyticsFilterPreset[]
+}
+
+/**
+ * Serializer for the exposed /api/web_experiments endpoint, to be used in posthog-js and for headless APIs.
+ */
+export interface WebExperimentsAPI {
+    readonly id: number
+    /** @maxLength 400 */
+    name: string
+    created_at?: string
+    readonly feature_flag_key: string
+    /** Variants for the web experiment. Example:
+
+        {
+            "control": {
+                "transforms": [
+                    {
+                        "text": "Here comes Superman!",
+                        "html": "",
+                        "selector": "#page > #body > .header h1"
+                    }
+                ],
+                "conditions": "None",
+                "rollout_percentage": 50
+            },
+        } */
+    variants: unknown
+}
+
+export interface PaginatedWebExperimentsAPIList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WebExperimentsAPI[]
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface PatchedAction {
+    readonly id?: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    tags?: unknown[]
+    post_to_slack?: boolean
+    /** @maxLength 1200 */
+    slack_message_format?: string
+    steps?: ActionStepJSON[]
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    deleted?: boolean
+    readonly is_calculating?: boolean
+    last_calculated_at?: string
+    readonly team_id?: number
+    readonly is_action?: boolean
+    /** @nullable */
+    readonly bytecode_error?: string | null
+    /** @nullable */
+    pinned_at?: string | null
+    readonly creation_context?: string
+    _create_in_folder?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+export interface PatchedAddPersonsToStaticCohortRequest {
+    /** List of person UUIDs to add to the cohort */
+    person_ids?: string[]
+}
+
+export interface PatchedAlert {
+    readonly id?: string
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
+    insight?: number
+    /** @maxLength 255 */
+    name?: string
+    /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
+    subscribed_users?: number[]
+    threshold?: Threshold
+    condition?: AlertCondition | null
+    readonly state?: State66aEnum
+    enabled?: boolean
+    /** @nullable */
+    readonly last_notified_at?: string | null
+    /** @nullable */
+    readonly last_checked_at?: string | null
+    /** @nullable */
+    readonly next_check_at?: string | null
+    readonly checks?: readonly AlertCheck[]
+    config?: TrendsAlertConfig | null
+    calculation_interval?: CalculationIntervalEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    snoozed_until?: string | null
+    /** @nullable */
+    skip_weekend?: boolean | null
+    /** @nullable */
+    readonly last_value?: number | null
+}
+
+export interface PatchedAnnotation {
+    readonly id?: number
+    /**
+     * @maxLength 8192
+     * @nullable
+     */
+    content?: string | null
+    /** @nullable */
+    date_marker?: string | null
+    creation_type?: CreationTypeEnum
+    /** @nullable */
+    dashboard_item?: number | null
+    /** @nullable */
+    dashboard_id?: number | null
+    /** @nullable */
+    readonly dashboard_name?: string | null
+    /** @nullable */
+    readonly insight_short_id?: string | null
+    /** @nullable */
+    readonly insight_name?: string | null
+    /** @nullable */
+    readonly insight_derived_name?: string | null
+    readonly created_by?: UserBasic
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly updated_at?: string
+    deleted?: boolean
+    scope?: AnnotationScopeEnum
+}
+
+export interface PatchedApprovalPolicy {
+    readonly id?: string
+    /** @maxLength 128 */
+    action_key?: string
+    conditions?: unknown
+    approver_config?: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * Serializer for a BatchExport model.
+ */
+export interface PatchedBatchExport {
+    readonly id?: string
+    /** The team this belongs to. */
+    readonly team_id?: number
+    /** A human-readable name for this BatchExport. */
+    name?: string
+    /** Which model this BatchExport is exporting.
+
+* `events` - Events
+* `persons` - Persons
+* `sessions` - Sessions */
+    model?: ModelEnum | BlankEnum | NullEnum | null
+    destination?: BatchExportDestination
+    interval?: IntervalEnum
+    /** Whether this BatchExport is paused or not. */
+    paused?: boolean
+    /** The timestamp at which this BatchExport was created. */
+    readonly created_at?: string
+    /** The timestamp at which this BatchExport was last updated. */
+    readonly last_updated_at?: string
+    /**
+     * The timestamp at which this BatchExport was last paused.
+     * @nullable
+     */
+    last_paused_at?: string | null
+    /**
+     * Time before which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * Time after which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    end_at?: string | null
+    readonly latest_runs?: readonly BatchExportRun[]
+    hogql_query?: string
+    /** A schema of custom fields to select when exporting data. */
+    readonly schema?: unknown | null
+    filters?: unknown | null
+    timezone?: string | NullEnum | null
+    /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+    offset_day?: number | null
+    /**
+     * @minimum 0
+     * @maximum 23
+     * @nullable
+     */
+    offset_hour?: number | null
+}
+
+/**
+ * Serializer for BatchImport model
+ */
+export interface PatchedBatchImport {
+    readonly id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly state?: unknown | null
+    readonly created_by?: string
+    status?: BatchImportStatusEnum
+    /** @nullable */
+    readonly display_status_message?: string | null
+    import_config?: unknown
+}
+
+export interface PatchedClusteringJob {
+    readonly id?: string
+    /** @maxLength 100 */
+    name?: string
+    analysis_level?: AnalysisLevelEnum
+    event_filters?: unknown
+    enabled?: boolean
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface PatchedCohort {
+    readonly id?: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 1000 */
+    description?: string
+    groups?: unknown
+    deleted?: boolean
+    filters?: CohortFilters | null
+    query?: unknown | null
+    /** @nullable */
+    readonly version?: number | null
+    /** @nullable */
+    readonly pending_version?: number | null
+    readonly is_calculating?: boolean
+    readonly created_by?: UserBasic
+    /** @nullable */
+    readonly created_at?: string | null
+    /** @nullable */
+    readonly last_calculation?: string | null
+    readonly errors_calculating?: number
+    /** @nullable */
+    readonly last_error_message?: string | null
+    /** @nullable */
+    readonly count?: number | null
+    is_static?: boolean
+    /** Type of cohort based on filter complexity
+
+* `static` - static
+* `person_property` - person_property
+* `behavioral` - behavioral
+* `realtime` - realtime
+* `analytical` - analytical */
+    cohort_type?: CohortTypeEnum | BlankEnum | NullEnum | null
+    readonly experiment_set?: readonly number[]
+    _create_in_folder?: string
+    _create_static_person_ids?: string[]
+}
+
+export interface PatchedColumnConfiguration {
+    readonly id?: string
+    /** @maxLength 255 */
+    context_key?: string
+    columns?: string[]
+    /** @maxLength 255 */
+    name?: string
+    filters?: unknown
+    visibility?: VisibilityEnum
+    /** @nullable */
+    readonly created_by?: number | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface PatchedComment {
+    readonly id?: string
+    readonly created_by?: UserBasic
+    /** @nullable */
+    deleted?: boolean | null
+    mentions?: number[]
+    slug?: string
+    /** @nullable */
+    content?: string | null
+    rich_content?: unknown | null
+    readonly version?: number
+    readonly created_at?: string
+    /**
+     * @maxLength 72
+     * @nullable
+     */
+    item_id?: string | null
+    item_context?: unknown | null
+    /** @maxLength 79 */
+    scope?: string
+    /** @nullable */
+    source_comment?: string | null
+}
+
+export type PatchedConversationMessagesItem = { [key: string]: unknown }
+
+export type PatchedConversationPendingApprovalsItem = { [key: string]: unknown }
+
+export interface PatchedConversation {
+    readonly id?: string
+    readonly status?: ConversationStatusEnum
+    /**
+     * Title of the conversation.
+     * @nullable
+     */
+    readonly title?: string | null
+    readonly user?: UserBasic
+    /** @nullable */
+    readonly created_at?: string | null
+    /** @nullable */
+    readonly updated_at?: string | null
+    readonly type?: ConversationTypeEnum
+    /**
+     * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+     * @nullable
+     */
+    readonly is_internal?: boolean | null
+    /**
+     * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+     * @nullable
+     */
+    readonly slack_thread_key?: string | null
+    /**
+     * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+     * @nullable
+     */
+    readonly slack_workspace_domain?: string | null
+    readonly messages?: readonly PatchedConversationMessagesItem[]
+    readonly has_unsupported_content?: boolean
+    /** @nullable */
+    readonly agent_mode?: string | null
+    /** Return pending approval cards as structured data.
+
+Combines metadata from conversation.approval_decisions with payload from checkpoint
+interrupts (single source of truth for payload data). */
+    readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[]
+}
+
+export interface PatchedCoreEvent {
+    readonly id?: string
+    /**
+     * Display name for this core event
+     * @maxLength 255
+     */
+    name?: string
+    /** Optional description */
+    description?: string
+    /** Lifecycle category for this core event
+
+* `acquisition` - Acquisition
+* `activation` - Activation
+* `monetization` - Monetization
+* `expansion` - Expansion
+* `referral` - Referral
+* `retention` - Retention
+* `churn` - Churn
+* `reactivation` - Reactivation */
+    category?: CategoryEnum
+    /** Filter configuration - event, action, or data warehouse node */
+    filter?: unknown
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface PatchedCustomerJourney {
+    readonly id?: string
+    insight?: number
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    description?: string | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface PatchedCustomerProfileConfig {
+    readonly id?: string
+    scope?: CustomerProfileConfigScopeEnum
+    content?: unknown | null
+    sidebar?: unknown | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export type PatchedDashboardFilters = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type PatchedDashboardVariables = { [key: string]: unknown } | null | null
+
+/**
+ * @nullable
+ */
+export type PatchedDashboardPersistedFilters = { [key: string]: unknown } | null | null
+
+/**
+ * @nullable
+ */
+export type PatchedDashboardPersistedVariables = { [key: string]: unknown } | null | null
+
+export type PatchedDashboardTilesItem = { [key: string]: unknown }
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface PatchedDashboard {
+    readonly id?: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    pinned?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    /** @nullable */
+    last_accessed_at?: string | null
+    /** @nullable */
+    readonly last_viewed_at?: string | null
+    readonly is_shared?: boolean
+    deleted?: boolean
+    readonly creation_mode?: CreationModeEnum
+    readonly filters?: PatchedDashboardFilters
+    /** @nullable */
+    readonly variables?: PatchedDashboardVariables
+    breakdown_colors?: unknown
+    /** @nullable */
+    data_color_theme_id?: number | null
+    tags?: unknown[]
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    restriction_level?: DashboardRestrictionLevel
+    readonly effective_restriction_level?: EffectiveRestrictionLevelEnum
+    readonly effective_privilege_level?: EffectivePrivilegeLevelEnum
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+    readonly access_control_version?: string
+    /** @nullable */
+    last_refresh?: string | null
+    /** @nullable */
+    readonly persisted_filters?: PatchedDashboardPersistedFilters
+    /** @nullable */
+    readonly persisted_variables?: PatchedDashboardPersistedVariables
+    readonly team_id?: number
+    /** @nullable */
+    readonly tiles?: readonly PatchedDashboardTilesItem[] | null
+    use_template?: string
+    /** @nullable */
+    use_dashboard?: number | null
+    delete_insights?: boolean
+    _create_in_folder?: string
+}
+
+export interface PatchedDashboardTemplate {
+    readonly id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown | null
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown | null
+    variables?: unknown | null
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at?: string | null
+    /** @nullable */
+    created_by?: number | null
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id?: number | null
+    scope?: DashboardTemplateScopeEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+}
+
+export interface PatchedDataColorTheme {
+    readonly id?: number
+    /** @maxLength 100 */
+    name?: string
+    colors?: unknown
+    readonly is_global?: string
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly created_by?: UserBasic
+}
+
+/**
+ * Shared methods for DataWarehouseSavedQuery serializers.
+
+This mixin is intended to be used with serializers.ModelSerializer subclasses.
+ */
+export interface PatchedDataWarehouseSavedQuery {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name?: string
+    /** HogQL query */
+    query?: unknown | null
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    readonly sync_frequency?: string
+    readonly columns?: string
+    /** The status of when this SavedQuery last ran.
+
+* `Cancelled` - Cancelled
+* `Modified` - Modified
+* `Completed` - Completed
+* `Failed` - Failed
+* `Running` - Running */
+    readonly status?: StatusD5cEnum | NullEnum | null
+    /** @nullable */
+    readonly last_run_at?: string | null
+    readonly managed_viewset_kind?: string
+    /** @nullable */
+    readonly latest_error?: string | null
+    /** @nullable */
+    edited_history_id?: string | null
+    readonly latest_history_id?: string
+    /** @nullable */
+    soft_update?: boolean | null
+    /** @nullable */
+    readonly is_materialized?: boolean | null
+    /** Where this SavedQuery is created.
+
+* `data_warehouse` - Data Warehouse
+* `endpoint` - Endpoint
+* `managed_viewset` - Managed Viewset */
+    readonly origin?: OriginEnum | NullEnum | null
+}
+
+export interface PatchedDataWarehouseSavedQueryDraft {
+    readonly id?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
+export interface PatchedDataset {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasic
+    readonly team?: number
+}
+
+export interface PatchedDatasetItem {
+    readonly id?: string
+    dataset?: string
+    input?: unknown | null
+    output?: unknown | null
+    metadata?: unknown | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    readonly created_by?: UserBasic
+    readonly team?: number
+}
+
+export interface PatchedDesktopRecording {
+    readonly id?: string
+    readonly team?: number
+    /** @nullable */
+    readonly created_by?: number | null
+    readonly sdk_upload_id?: string
+    /** @nullable */
+    recall_recording_id?: string | null
+    platform?: Platform9aaEnum
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    meeting_title?: string | null
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    meeting_url?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    duration_seconds?: number | null
+    status?: Status292Enum
+    /** @nullable */
+    notes?: string | null
+    /** @nullable */
+    error_message?: string | null
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    video_url?: string | null
+    /**
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     * @nullable
+     */
+    video_size_bytes?: number | null
+    /** List of participant names */
+    participants?: string[]
+    readonly transcript_text?: string
+    /** Transcript segments with timestamps */
+    transcript_segments?: TranscriptSegment[]
+    /** @nullable */
+    summary?: string | null
+    /** AI-extracted tasks from transcript */
+    extracted_tasks?: Task[]
+    /** @nullable */
+    tasks_generated_at?: string | null
+    /** @nullable */
+    summary_generated_at?: string | null
+    started_at?: string
+    /** @nullable */
+    completed_at?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface PatchedEarlyAccessFeature {
+    readonly id?: string
+    readonly feature_flag?: MinimalFeatureFlag
+    /** @maxLength 200 */
+    name?: string
+    description?: string
+    stage?: StageEnum
+    /** @maxLength 800 */
+    documentation_url?: string
+    readonly payload?: string
+    readonly created_at?: string
+}
+
+export interface PatchedEdge {
+    readonly id?: string
+    readonly source_id?: string
+    readonly target_id?: string
+    readonly dag_id_text?: string
+    properties?: unknown
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface PatchedElement {
+    /**
+     * @maxLength 10000
+     * @nullable
+     */
+    text?: string | null
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    tag_name?: string | null
+    /** @nullable */
+    attr_class?: string[] | null
+    /**
+     * @maxLength 10000
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * @maxLength 10000
+     * @nullable
+     */
+    attr_id?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    nth_child?: number | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    nth_of_type?: number | null
+    attributes?: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    order?: number | null
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface PatchedEnterpriseEventDefinition {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    owner?: number | null
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly updated_at?: string
+    readonly updated_by?: UserBasic
+    /** @nullable */
+    readonly last_seen_at?: string | null
+    readonly last_updated_at?: string
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at?: string | null
+    readonly verified_by?: UserBasic
+    /** @nullable */
+    hidden?: boolean | null
+    enforcement_mode?: EnforcementModeEnum
+    readonly is_action?: boolean
+    readonly action_id?: number
+    readonly is_calculating?: boolean
+    readonly last_calculated_at?: string
+    readonly created_by?: UserBasic
+    post_to_slack?: boolean
+    default_columns?: string[]
+    readonly media_preview_urls?: readonly string[]
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface PatchedEnterprisePropertyDefinition {
+    readonly id?: string
+    readonly name?: string
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    readonly is_numerical?: boolean
+    readonly updated_at?: string
+    readonly updated_by?: UserBasic
+    /** @nullable */
+    readonly is_seen_on_filtered_events?: boolean | null
+    property_type?: PropertyType549Enum | BlankEnum | NullEnum | null
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at?: string | null
+    readonly verified_by?: UserBasic
+    /** @nullable */
+    hidden?: boolean | null
+}
+
+export interface PatchedErrorTrackingAssignmentRule {
+    readonly id?: string
+    filters?: unknown
+    readonly assignee?: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key?: number
+    disabled_data?: unknown | null
+}
+
+export interface PatchedErrorTrackingAutoCaptureControls {
+    readonly id?: string
+    readonly library?: LibraryEnum
+    match_type?: MatchTypeEnum
+    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
+    sample_rate?: string
+    linked_feature_flag?: unknown | null
+    /** @nullable */
+    event_triggers?: (string | null)[] | null
+    /** @nullable */
+    url_triggers?: (unknown | null)[] | null
+    /** @nullable */
+    url_blocklist?: (unknown | null)[] | null
+}
+
+export interface PatchedErrorTrackingExternalReference {
+    readonly id?: string
+    readonly integration?: ErrorTrackingExternalReferenceIntegration
+    integration_id?: number
+    config?: unknown
+    issue?: string
+    readonly external_url?: string
+}
+
+export interface PatchedErrorTrackingGroupingRule {
+    readonly id?: string
+    filters?: unknown
+    readonly assignee?: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key?: number
+    disabled_data?: unknown | null
+}
+
+export interface PatchedErrorTrackingIssueFull {
+    readonly id?: string
+    status?: ErrorTrackingIssueFullStatusEnum
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    description?: string | null
+    first_seen?: string
+    assignee?: ErrorTrackingIssueAssignment
+    external_issues?: ErrorTrackingExternalReference[]
+    readonly cohort?: string
+}
+
+export interface PatchedErrorTrackingRelease {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    metadata?: unknown | null
+    version?: string
+    project?: string
+}
+
+export interface PatchedErrorTrackingSuppressionRule {
+    readonly id?: string
+    filters?: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key?: number
+}
+
+export interface PatchedErrorTrackingSymbolSet {
+    readonly id?: string
+    ref?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    /** @nullable */
+    last_used?: string | null
+    /** @nullable */
+    storage_ptr?: string | null
+    /** @nullable */
+    failure_reason?: string | null
+    readonly release?: string
+}
+
+export interface PatchedEvaluation {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    enabled?: boolean
+    evaluation_type?: EvaluationTypeEnum
+    evaluation_config?: unknown
+    output_type?: OutputTypeEnum
+    output_config?: unknown
+    conditions?: unknown
+    model_configuration?: ModelConfiguration | null
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly created_by?: UserBasic
+    deleted?: boolean
+}
+
+export interface PatchedEventSchema {
+    readonly id?: string
+    event_definition?: string
+    readonly property_group?: SchemaPropertyGroup
+    property_group_id?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface PatchedExperiment {
+    readonly id?: number
+    /** @maxLength 400 */
+    name?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    feature_flag_key?: string
+    readonly feature_flag?: MinimalFeatureFlag
+    readonly holdout?: ExperimentHoldout
+    /** @nullable */
+    holdout_id?: number | null
+    /** @nullable */
+    readonly exposure_cohort?: number | null
+    parameters?: unknown | null
+    secondary_metrics?: unknown | null
+    readonly saved_metrics?: readonly ExperimentToSavedMetric[]
+    /** @nullable */
+    saved_metrics_ids?: unknown[] | null
+    filters?: unknown
+    archived?: boolean
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    readonly updated_at?: string
+    type?: ExperimentTypeEnum | BlankEnum | NullEnum | null
+    exposure_criteria?: unknown | null
+    metrics?: unknown | null
+    metrics_secondary?: unknown | null
+    stats_config?: unknown | null
+    scheduling_config?: unknown | null
+    _create_in_folder?: string
+    conclusion?: ConclusionEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    conclusion_comment?: string | null
+    primary_metrics_ordered_uuids?: unknown | null
+    secondary_metrics_ordered_uuids?: unknown | null
+    exposure_preaggregation_enabled?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+export interface PatchedExperimentHoldout {
+    readonly id?: number
+    /** @maxLength 400 */
+    name?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    filters?: unknown
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface PatchedExperimentSavedMetric {
+    readonly id?: number
+    /** @maxLength 400 */
+    name?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    query?: unknown
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    readonly updated_at?: string
+    tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+/**
+ * @nullable
+ */
+export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null | null
+
+export interface PatchedExternalDataSchema {
+    readonly id?: string
+    readonly name?: string
+    /** @nullable */
+    readonly table?: PatchedExternalDataSchemaTable
+    should_sync?: boolean
+    /** @nullable */
+    readonly last_synced_at?: string | null
+    /**
+     * The latest error that occurred when syncing this schema.
+     * @nullable
+     */
+    readonly latest_error?: string | null
+    readonly incremental?: boolean
+    /** @nullable */
+    readonly status?: string | null
+    readonly sync_type?: SyncTypeEnum | null
+    /** @nullable */
+    readonly incremental_field?: string | null
+    /** @nullable */
+    readonly incremental_field_type?: string | null
+    readonly sync_frequency?: string
+    readonly sync_time_of_day?: string
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface PatchedExternalDataSourceSerializers {
+    readonly id?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: string | null
+    readonly status?: string
+    client_secret?: string
+    account_id?: string
+    readonly source_type?: SourceTypeE09Enum
+    readonly latest_error?: string
+    /** @nullable */
+    readonly prefix?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    readonly last_run_at?: string
+    readonly schemas?: string
+    job_inputs?: unknown | null
+    readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfig
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+export type PatchedFeatureFlagFilters = { [key: string]: unknown }
+
+export type PatchedFeatureFlagSurveys = { [key: string]: unknown }
+
+export type PatchedFeatureFlagFeatures = { [key: string]: unknown }
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface PatchedFeatureFlag {
+    readonly id?: number
+    /** contains the description for the flag (field name `name` is kept for backwards-compatibility) */
+    name?: string
+    /** @maxLength 400 */
+    key?: string
+    filters?: PatchedFeatureFlagFilters
+    deleted?: boolean
+    active?: boolean
+    readonly created_by?: UserBasic
+    created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    version?: number
+    readonly last_modified_by?: UserBasic
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    readonly experiment_set?: string
+    readonly surveys?: PatchedFeatureFlagSurveys
+    readonly features?: PatchedFeatureFlagFeatures
+    rollback_conditions?: unknown | null
+    /** @nullable */
+    performed_rollback?: boolean | null
+    readonly can_edit?: boolean
+    tags?: unknown[]
+    evaluation_tags?: unknown[]
+    readonly usage_dashboard?: number
+    analytics_dashboards?: number[]
+    /** @nullable */
+    has_enriched_analytics?: boolean | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
+
+* `feature_flags` - feature_flags
+* `experiments` - experiments
+* `surveys` - surveys
+* `early_access_features` - early_access_features
+* `web_experiments` - web_experiments
+* `product_tours` - product_tours */
+    creation_context?: FeatureFlagCreationContextEnum
+    /** @nullable */
+    is_remote_configuration?: boolean | null
+    /** @nullable */
+    has_encrypted_payloads?: boolean | null
+    readonly status?: string
+    /** Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null
+    /** Identifier used for bucketing users into rollout and variants
+
+* `distinct_id` - User ID (default)
+* `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null
+    /**
+     * Last time this feature flag was called (from $feature_flag_called events)
+     * @nullable
+     */
+    last_called_at?: string | null
+    _create_in_folder?: string
+    _should_create_usage_dashboard?: boolean
+    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    readonly is_used_in_replay_settings?: boolean
+}
+
+export interface PatchedFileSystem {
+    readonly id?: string
+    path?: string
+    /** @nullable */
+    readonly depth?: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown | null
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly last_viewed_at?: string | null
+}
+
+export interface PatchedFileSystemShortcut {
+    readonly id?: string
+    path?: string
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    readonly created_at?: string
+}
+
+export interface PatchedGroupType {
+    readonly group_type?: string
+    readonly group_type_index?: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_singular?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_plural?: string | null
+    /** @nullable */
+    detail_dashboard?: number | null
+    /** @nullable */
+    default_columns?: string[] | null
+    /** @nullable */
+    created_at?: string | null
+}
+
+export interface PatchedGroupUsageMetric {
+    readonly id?: string
+    /** @maxLength 255 */
+    name?: string
+    format?: GroupUsageMetricFormatEnum
+    /**
+     * In days
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    display?: DisplayEnum
+    filters?: unknown
+}
+
+export interface PatchedHealthIssue {
+    readonly id?: string
+    readonly kind?: string
+    readonly severity?: SeverityEnum
+    readonly status?: HealthIssueStatusEnum
+    dismissed?: boolean
+    readonly payload?: unknown
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly resolved_at?: string | null
+}
+
+export type PatchedHeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown }
+
+export interface PatchedHeatmapScreenshotResponse {
+    readonly id?: string
+    readonly short_id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 2000 */
+    url?: string
+    /**
+     * URL for fetching heatmap data
+     * @maxLength 2000
+     * @nullable
+     */
+    data_url?: string | null
+    target_widths?: unknown
+    type?: HeatmapScreenshotResponseTypeEnum
+    readonly status?: HeatmapScreenshotResponseStatusEnum
+    readonly has_content?: boolean
+    readonly snapshots?: readonly PatchedHeatmapScreenshotResponseSnapshotsItem[]
+    deleted?: boolean
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly exception?: string | null
+}
+
+export type PatchedHogFlowVariablesItem = { [key: string]: string }
+
+export interface PatchedHogFlow {
+    readonly id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    readonly version?: number
+    status?: StatusA5eEnum
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    readonly updated_at?: string
+    trigger?: unknown
+    trigger_masking?: HogFlowMasking | null
+    conversion?: unknown | null
+    exit_condition?: ExitConditionEnum
+    edges?: unknown
+    actions?: HogFlowAction[]
+    /** @nullable */
+    readonly abort_action?: string | null
+    variables?: PatchedHogFlowVariablesItem[]
+    readonly billable_action_types?: unknown | null
+    readonly draft?: unknown | null
+    /** @nullable */
+    readonly draft_updated_at?: string | null
+}
+
+export type PatchedHogFlowTemplateVariablesItem = { [key: string]: string }
+
+/**
+ * Serializer for creating hog flow templates.
+Validates and sanitizes the workflow before creating it as a template.
+ */
+export interface PatchedHogFlowTemplate {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    tags?: string[]
+    scope?: HogFlowTemplateScopeEnum
+    readonly created_at?: string
+    readonly created_by?: string
+    readonly updated_at?: string
+    trigger?: unknown
+    trigger_masking?: HogFlowMasking | null
+    conversion?: unknown | null
+    exit_condition?: ExitConditionEnum
+    edges?: unknown
+    actions?: HogFlowTemplateAction[]
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    abort_action?: string | null
+    variables?: PatchedHogFlowTemplateVariablesItem[]
+}
+
+export type PatchedHogFunctionInputs = { [key: string]: InputsItem }
+
+export interface PatchedHogFunction {
+    readonly id?: string
+    type?: HogFunctionTypeEnum | NullEnum | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    readonly updated_at?: string
+    enabled?: boolean
+    deleted?: boolean
+    hog?: string
+    readonly bytecode?: unknown | null
+    /** @nullable */
+    readonly transpiled?: string | null
+    inputs_schema?: InputsSchemaItem[]
+    inputs?: PatchedHogFunctionInputs
+    filters?: HogFunctionFilters
+    masking?: HogFunctionMasking | null
+    /** @nullable */
+    mappings?: Mappings[] | null
+    /** @nullable */
+    icon_url?: string | null
+    readonly template?: HogFunctionTemplate
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_id?: string | null
+    readonly status?: HogFunctionStatus | null
+    /**
+     * @minimum 0
+     * @maximum 32767
+     * @nullable
+     */
+    execution_order?: number | null
+    _create_in_folder?: string
+    /** @nullable */
+    readonly batch_export_id?: string | null
+}
+
+/**
+ * Simplified serializer to speed response times when loading large amounts of objects.
+ */
+export interface PatchedInsight {
+    readonly id?: number
+    readonly short_id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    derived_name?: string | null
+    query?: _InsightQuerySchema | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    order?: number | null
+    deleted?: boolean
+    /**
+        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+        A dashboard ID for each of the dashboards that this insight is displayed on.
+         */
+    dashboards?: number[]
+    /**
+    A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+     */
+    readonly dashboard_tiles?: readonly DashboardTileBasic[]
+    /**
+    The datetime this insight's results were generated.
+    If added to one or more dashboards the insight can be refreshed separately on each.
+    Returns the appropriate last_refresh datetime for the context the insight is viewed in
+    (see from_dashboard query parameter).
+     */
+    readonly last_refresh?: string
+    /** The target age of the cached results for this insight. */
+    readonly cache_target_age?: string
+    /**
+    The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+    by querying the database.
+     */
+    readonly next_allowed_client_refresh?: string
+    readonly result?: string
+    readonly hasMore?: string
+    readonly columns?: string
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly created_by?: UserBasic
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    readonly updated_at?: string
+    tags?: unknown[]
+    favorited?: boolean
+    readonly last_modified_at?: string
+    readonly last_modified_by?: UserBasic
+    readonly is_sample?: boolean
+    readonly effective_restriction_level?: EffectiveRestrictionLevelEnum
+    readonly effective_privilege_level?: EffectivePrivilegeLevelEnum
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+    /** The timezone this chart is displayed in. */
+    readonly timezone?: string
+    readonly is_cached?: string
+    readonly query_status?: string
+    readonly hogql?: string
+    readonly types?: string
+    readonly resolved_date_range?: string
+    _create_in_folder?: string
+    readonly alerts?: string
+    readonly last_viewed_at?: string
+}
+
+export interface PatchedInsightVariable {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    type?: InsightVariableTypeEnum
+    default_value?: unknown | null
+    /** @nullable */
+    readonly created_by?: number | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly code_name?: string | null
+    values?: unknown | null
+}
+
+/**
+ * Standard Integration serializer.
+ */
+export interface PatchedIntegration {
+    readonly id?: number
+    kind?: Kind439Enum
+    config?: unknown
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    readonly errors?: string
+    readonly display_name?: string
+}
+
+export interface PatchedLLMPrompt {
+    readonly id?: string
+    /** @maxLength 255 */
+    name?: string
+    prompt?: unknown
+    readonly version?: number
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    readonly updated_at?: string
+    deleted?: boolean
+}
+
+export interface PatchedLLMProviderKey {
+    readonly id?: string
+    provider?: ProviderEnum
+    /** @maxLength 255 */
+    name?: string
+    readonly state?: LLMProviderKeyStateEnum
+    /** @nullable */
+    readonly error_message?: string | null
+    api_key?: string
+    readonly api_key_masked?: string
+    set_as_active?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    /** @nullable */
+    readonly last_used_at?: string | null
+}
+
+export interface PatchedLiveDebuggerBreakpoint {
+    readonly id?: string
+    /** @nullable */
+    repository?: string | null
+    filename?: string
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    line_number?: number
+    enabled?: boolean
+    /** @nullable */
+    condition?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface PatchedMCPServerInstallationUpdate {
+    display_name?: string
+    description?: string
+}
+
+export interface PatchedMaterializedColumnSlot {
+    readonly id?: string
+    team?: number
+    property_definition?: string
+    readonly property_definition_details?: PropertyDefinition
+    property_type?: PropertyType549Enum
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    slot_index?: number
+    state?: MaterializedColumnSlotStateEnum
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    backfill_temporal_workflow_id?: string | null
+    /** @nullable */
+    error_message?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface PatchedMaxCoreMemory {
+    readonly id?: string
+    text?: string
+    scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null
+}
+
+export interface PatchedMessageCategory {
+    readonly id?: string
+    /** @maxLength 64 */
+    key?: string
+    /** @maxLength 128 */
+    name?: string
+    description?: string
+    public_description?: string
+    category_type?: CategoryTypeEnum
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    deleted?: boolean
+}
+
+export interface PatchedMessageTemplate {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+    content?: MessageTemplateContent
+    readonly created_by?: UserBasic
+    /** @maxLength 24 */
+    type?: string
+    /** @nullable */
+    message_category?: string | null
+    deleted?: boolean
+}
+
+export interface PatchedNode {
+    readonly id?: string
+    /** @maxLength 2048 */
+    name?: string
+    type?: NodeTypeEnum
+    /** @maxLength 256 */
+    dag_id_text?: string
+    /** @nullable */
+    readonly saved_query_id?: string | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    readonly upstream_count?: number
+    readonly downstream_count?: number
+    /** @nullable */
+    readonly last_run_at?: string | null
+    /** @nullable */
+    readonly last_run_status?: string | null
+    /** @nullable */
+    readonly user_tag?: string | null
+    /** @nullable */
+    readonly sync_interval?: string | null
+}
+
+export interface PatchedNotebook {
+    readonly id?: string
+    readonly short_id?: string
+    /**
+     * @maxLength 256
+     * @nullable
+     */
+    title?: string | null
+    content?: unknown | null
+    /** @nullable */
+    text_content?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    version?: number
+    deleted?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    readonly last_modified_at?: string
+    readonly last_modified_by?: UserBasic
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+    _create_in_folder?: string
+}
+
+export interface PatchedObjectMediaPreview {
+    readonly id?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    readonly media_url?: string
+    /** Return 'uploaded' or 'exported' based on which media is set */
+    readonly media_type?: string
+    metadata?: unknown
+    /** @nullable */
+    uploaded_media_id?: string | null
+    /** @nullable */
+    exported_asset_id?: string | null
+    /** @nullable */
+    event_definition_id?: string | null
+}
+
+export type PatchedOrganizationTeamsItem = { [key: string]: unknown }
+
+export type PatchedOrganizationProjectsItem = { [key: string]: unknown }
+
+export interface PatchedOrganization {
+    readonly id?: string
+    /** @maxLength 64 */
+    name?: string
+    /** @pattern ^[-a-zA-Z0-9_]+$ */
+    readonly slug?: string
+    /** @nullable */
+    logo_media_id?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly membership_level?: MembershipLevelEnum | null
+    readonly plugins_access_level?: PluginsAccessLevelEnum
+    readonly teams?: readonly PatchedOrganizationTeamsItem[]
+    readonly projects?: readonly PatchedOrganizationProjectsItem[]
+    /** @nullable */
+    readonly available_product_features?: readonly unknown[] | null
+    is_member_join_email_enabled?: boolean
+    readonly metadata?: string
+    /** @nullable */
+    readonly customer_id?: string | null
+    /** @nullable */
+    enforce_2fa?: boolean | null
+    /** @nullable */
+    members_can_invite?: boolean | null
+    members_can_use_personal_api_keys?: boolean
+    allow_publicly_shared_resources?: boolean
+    readonly member_count?: string
+    /** @nullable */
+    is_ai_data_processing_approved?: boolean | null
+    /** Default statistical method for new experiments in this organization.
+
+* `bayesian` - Bayesian
+* `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null
+    /** Default setting for 'Discard client IP data' for new projects in this organization. */
+    default_anonymize_ips?: boolean
+    /**
+     * ID of the role to automatically assign to new members joining the organization
+     * @nullable
+     */
+    default_role_id?: string | null
+    /**
+     * Set this to 'No' to temporarily disable an organization.
+     * @nullable
+     */
+    readonly is_active?: boolean | null
+    /**
+     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+     * @nullable
+     */
+    readonly is_not_active_reason?: string | null
+}
+
+export interface PatchedOrganizationDomain {
+    readonly id?: string
+    /** @maxLength 128 */
+    domain?: string
+    /** Determines whether a domain is verified or not. */
+    readonly is_verified?: boolean
+    /** @nullable */
+    readonly verified_at?: string | null
+    readonly verification_challenge?: string
+    jit_provisioning_enabled?: boolean
+    /** @maxLength 28 */
+    sso_enforcement?: string
+    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
+    readonly has_saml?: boolean
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_entity_id?: string | null
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_acs_url?: string | null
+    /** @nullable */
+    saml_x509_cert?: string | null
+    /** Returns whether SCIM is configured and enabled for this domain. */
+    readonly has_scim?: boolean
+    scim_enabled?: boolean
+    /** @nullable */
+    readonly scim_base_url?: string | null
+    /** @nullable */
+    readonly scim_bearer_token?: string | null
+}
+
+export interface PatchedOrganizationMember {
+    readonly id?: string
+    readonly user?: UserBasic
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevel
+    readonly joined_at?: string
+    readonly updated_at?: string
+    readonly is_2fa_enabled?: boolean
+    readonly has_social_auth?: boolean
+    readonly last_login?: string
+}
+
+export interface PatchedPersistedFolder {
+    readonly id?: string
+    type?: PersistedFolderTypeEnum
+    /** @maxLength 64 */
+    protocol?: string
+    path?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface PatchedPerson {
+    readonly id?: number
+    readonly name?: string
+    readonly distinct_ids?: readonly string[]
+    properties?: unknown
+    readonly created_at?: string
+    readonly uuid?: string
+    /** @nullable */
+    readonly last_seen_at?: string | null
+}
+
+export interface PinnedSceneTab {
+    id?: string
+    pathname?: string
+    search?: string
+    hash?: string
+    title?: string
+    /** @nullable */
+    customTitle?: string | null
+    iconType?: string
+    /** @nullable */
+    sceneId?: string | null
+    /** @nullable */
+    sceneKey?: string | null
+    sceneParams?: unknown
+    pinned?: boolean
+}
+
+export interface PatchedPinnedSceneTabs {
+    tabs?: PinnedSceneTab[]
+    homepage?: PinnedSceneTab | null
+}
+
+/**
+ * * `app` - app
+ * `toolbar` - toolbar
+ */
+export type ProductTourSerializerCreateUpdateOnlyCreationContextEnum =
+    (typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnum)[keyof typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnum]
+
+export const ProductTourSerializerCreateUpdateOnlyCreationContextEnum = {
+    App: 'app',
+    Toolbar: 'toolbar',
+} as const
+
+/**
+ * Serializer for creating and updating ProductTour.
+ */
+export interface PatchedProductTourSerializerCreateUpdateOnly {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    readonly internal_targeting_flag?: MinimalFeatureFlag
+    readonly linked_flag?: MinimalFeatureFlag
+    /** @nullable */
+    linked_flag_id?: number | null
+    targeting_flag_filters?: unknown | null
+    content?: unknown
+    auto_launch?: boolean
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    readonly updated_at?: string
+    archived?: boolean
+    /** Where the tour was created/updated from
+
+* `app` - app
+* `toolbar` - toolbar */
+    creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum
+}
+
+export type PatchedProjectBackwardCompatGroupTypesItem = { [key: string]: unknown }
+
+/**
+ * * `0` - Sunday
+ * `1` - Monday
+ */
+export type WeekStartDayEnum = (typeof WeekStartDayEnum)[keyof typeof WeekStartDayEnum]
+
+export const WeekStartDayEnum = {
+    Number0: 0,
+    Number1: 1,
+} as const
+
+/**
+ * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+backward compatibility of the REST API.
+Do not use this in greenfield endpoints!
+ */
+export interface PatchedProjectBackwardCompat {
+    readonly id?: number
+    readonly organization?: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at?: string
+    readonly effective_membership_level?: EffectiveMembershipLevelEnum | null
+    readonly has_group_types?: boolean
+    readonly group_types?: readonly PatchedProjectBackwardCompatGroupTypesItem[]
+    /** @nullable */
+    readonly live_events_token?: string | null
+    readonly updated_at?: string
+    readonly uuid?: string
+    readonly api_token?: string
+    app_urls?: (string | null)[]
+    /**
+     * @maxLength 500
+     * @nullable
+     */
+    slack_incoming_webhook?: string | null
+    anonymize_ips?: boolean
+    completed_snippet_onboarding?: boolean
+    readonly ingested_event?: boolean
+    test_account_filters?: unknown
+    /** @nullable */
+    test_account_filters_default_checked?: boolean | null
+    path_cleaning_filters?: unknown | null
+    is_demo?: boolean
+    timezone?: string
+    data_attributes?: unknown
+    /** @nullable */
+    person_display_name_properties?: string[] | null
+    correlation_config?: unknown | null
+    /** @nullable */
+    autocapture_opt_out?: boolean | null
+    /** @nullable */
+    autocapture_exceptions_opt_in?: boolean | null
+    /** @nullable */
+    autocapture_web_vitals_opt_in?: boolean | null
+    autocapture_web_vitals_allowed_metrics?: unknown | null
+    autocapture_exceptions_errors_to_ignore?: unknown | null
+    /** @nullable */
+    capture_console_log_opt_in?: boolean | null
+    /** @nullable */
+    capture_performance_opt_in?: boolean | null
+    session_recording_opt_in?: boolean
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    session_recording_sample_rate?: string | null
+    /**
+     * @minimum 0
+     * @maximum 30000
+     * @nullable
+     */
+    session_recording_minimum_duration_milliseconds?: number | null
+    session_recording_linked_flag?: unknown | null
+    session_recording_network_payload_capture_config?: unknown | null
+    session_recording_masking_config?: unknown | null
+    session_replay_config?: unknown | null
+    survey_config?: unknown | null
+    access_control?: boolean
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    week_start_day?: WeekStartDayEnum | NullEnum | null
+    /** @nullable */
+    primary_dashboard?: number | null
+    /** @nullable */
+    live_events_columns?: string[] | null
+    /** @nullable */
+    recording_domains?: (string | null)[] | null
+    readonly person_on_events_querying_enabled?: string
+    /** @nullable */
+    inject_web_apps?: boolean | null
+    extra_settings?: unknown | null
+    modifiers?: unknown | null
+    readonly default_modifiers?: string
+    has_completed_onboarding_for?: unknown | null
+    /** @nullable */
+    surveys_opt_in?: boolean | null
+    /** @nullable */
+    heatmaps_opt_in?: boolean | null
+    readonly product_intents?: string
+    /** @nullable */
+    flags_persistence_default?: boolean | null
+    /** @nullable */
+    readonly secret_api_token?: string | null
+    /** @nullable */
+    readonly secret_api_token_backup?: string | null
+    /** @nullable */
+    receive_org_level_activity_logs?: boolean | null
+    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other */
+    business_model?: BusinessModelEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    conversations_enabled?: boolean | null
+    conversations_settings?: unknown | null
+    logs_settings?: unknown | null
+    /** @nullable */
+    proactive_tasks_enabled?: boolean | null
+    readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[]
+}
+
+export interface PatchedProxyRecord {
+    readonly id?: string
+    /** @maxLength 64 */
+    domain?: string
+    readonly target_cname?: string
+    readonly status?: ProxyRecordStatusEnum
+    /** @nullable */
+    readonly message?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+}
+
+export interface PatchedQueryTabState {
+    readonly id?: string
+    /**
+            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+            for a user.
+             */
+    state?: unknown | null
+}
+
+export interface PatchedQuickFilter {
+    readonly id?: string
+    /** @maxLength 200 */
+    name?: string
+    /** @maxLength 500 */
+    property_name?: string
+    type?: QuickFilterTypeEnum
+    options?: unknown | null
+    readonly contexts?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface PatchedRemovePersonRequest {
+    /** Person UUID to remove from the cohort */
+    person_id?: string
+}
+
+export interface PatchedRole {
+    readonly id?: string
+    /** @maxLength 200 */
+    name?: string
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    readonly members?: string
+    readonly is_default?: string
+}
+
+export interface PatchedScheduledChange {
+    readonly id?: number
+    readonly team_id?: number
+    /** @maxLength 200 */
+    record_id?: string
+    model_name?: ModelNameEnum
+    payload?: unknown
+    scheduled_at?: string
+    /** @nullable */
+    executed_at?: string | null
+    /**
+     * Return the safely formatted failure reason instead of raw data.
+     * @nullable
+     */
+    readonly failure_reason?: string | null
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    readonly updated_at?: string
+    is_recurring?: boolean
+    recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    readonly last_executed_at?: string | null
+    /** @nullable */
+    end_date?: string | null
+}
+
+export interface PatchedSchemaPropertyGroup {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    properties?: SchemaPropertyGroupProperty[]
+    readonly events?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly created_by?: UserBasic
+}
+
+export interface PatchedSessionGroupSummary {
+    readonly id?: string
+    /** Title of the group session summary */
+    readonly title?: string
+    /** List of session replay IDs included in this group summary */
+    readonly session_ids?: readonly string[]
+    /** Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema) */
+    readonly summary?: unknown
+    /** Additional context passed to the summary (ExtraSummaryContext schema) */
+    readonly extra_summary_context?: unknown | null
+    /** Summary run metadata (SessionSummaryRunMeta schema) */
+    readonly run_metadata?: unknown | null
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    readonly team?: number
+}
+
+export type PatchedSessionRecordingExternalReferencesItem = { [key: string]: unknown }
+
+export interface PatchedSessionRecording {
+    readonly id?: string
+    /** @nullable */
+    readonly distinct_id?: string | null
+    readonly viewed?: boolean
+    readonly viewers?: readonly string[]
+    readonly recording_duration?: number
+    /** @nullable */
+    readonly active_seconds?: number | null
+    /** @nullable */
+    readonly inactive_seconds?: number | null
+    /** @nullable */
+    readonly start_time?: string | null
+    /** @nullable */
+    readonly end_time?: string | null
+    /** @nullable */
+    readonly click_count?: number | null
+    /** @nullable */
+    readonly keypress_count?: number | null
+    /** @nullable */
+    readonly mouse_activity_count?: number | null
+    /** @nullable */
+    readonly console_log_count?: number | null
+    /** @nullable */
+    readonly console_warn_count?: number | null
+    /** @nullable */
+    readonly console_error_count?: number | null
+    /** @nullable */
+    readonly start_url?: string | null
+    person?: MinimalPerson
+    /** @nullable */
+    readonly retention_period_days?: number | null
+    readonly expiry_time?: string
+    readonly recording_ttl?: string
+    /** @nullable */
+    readonly snapshot_source?: string | null
+    /** @nullable */
+    readonly snapshot_library?: string | null
+    readonly ongoing?: boolean
+    /** @nullable */
+    readonly activity_score?: number | null
+    /** Load external references (linked issues) for this recording */
+    readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[]
+}
+
+/**
+ * Get provider-specific metadata (e.g. repository for GitHub, project for Jira)
+ */
+export type PatchedSessionRecordingExternalReferenceMetadata = { [key: string]: string }
+
+/**
+ * Read-only serializer for Integration info embedded in external references
+ */
+export interface SessionRecordingExternalReferenceIntegration {
+    readonly id: number
+    readonly kind: Kind439Enum
+    readonly display_name: string
+}
+
+/**
+ * Serializer for linking session recordings to external issue trackers.
+Reuses error tracking's integration infrastructure
+ */
+export interface PatchedSessionRecordingExternalReference {
+    readonly id?: string
+    readonly integration?: SessionRecordingExternalReferenceIntegration
+    integration_id?: number
+    config?: unknown
+    session_recording_id?: string
+    readonly external_url?: string
+    readonly title?: string
+    /** Get the external issue ID (e.g., POST-123) from the issue tracker */
+    readonly issue_id?: string
+    /** Get provider-specific metadata (e.g. repository for GitHub, project for Jira) */
+    readonly metadata?: PatchedSessionRecordingExternalReferenceMetadata
+}
+
+export type PatchedSessionRecordingPlaylistRecordingsCounts = {
+    [key: string]: { [key: string]: number | boolean | null }
+}
+
+export interface PatchedSessionRecordingPlaylist {
+    readonly id?: number
+    readonly short_id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    derived_name?: string | null
+    description?: string
+    pinned?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    deleted?: boolean
+    filters?: unknown
+    readonly last_modified_at?: string
+    readonly last_modified_by?: UserBasic
+    readonly recordings_counts?: PatchedSessionRecordingPlaylistRecordingsCounts
+    readonly type?: SessionRecordingPlaylistTypeEnum | NullEnum | null
+    /** Return whether this is a synthetic playlist */
+    readonly is_synthetic?: boolean
+    _create_in_folder?: string
+}
+
+export interface PatchedSignalSourceConfig {
+    readonly id?: string
+    source_product?: SourceProductEnum
+    source_type?: SignalSourceConfigSourceTypeEnum
+    enabled?: boolean
+    config?: unknown
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly status?: string | null
+}
+
+/**
+ * Standard Subscription serializer.
+ */
+export interface PatchedSubscription {
+    readonly id?: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    target_type?: TargetTypeEnum
+    target_value?: string
+    frequency?: FrequencyEnum
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    /** @nullable */
+    byweekday?: ByweekdayEnum[] | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    bysetpos?: number | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    start_date?: string
+    /** @nullable */
+    until_date?: string | null
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    deleted?: boolean
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    title?: string | null
+    readonly summary?: string
+    /** @nullable */
+    readonly next_delivery_date?: string | null
+    /** @nullable */
+    invite_message?: string | null
+}
+
+export interface PatchedSurveySerializerCreateUpdateOnly {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    type?: SurveyType
+    /** @nullable */
+    schedule?: string | null
+    readonly linked_flag?: MinimalFeatureFlag
+    /** @nullable */
+    linked_flag_id?: number | null
+    /** @nullable */
+    linked_insight_id?: number | null
+    targeting_flag_id?: number
+    readonly targeting_flag?: MinimalFeatureFlag
+    readonly internal_targeting_flag?: MinimalFeatureFlag
+    targeting_flag_filters?: unknown | null
+    /** @nullable */
+    remove_targeting_flag?: boolean | null
+    /**
+        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
+
+        Basic (open-ended question)
+        - `id`: The question ID
+        - `type`: `open`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Link (a question with a link)
+        - `id`: The question ID
+        - `type`: `link`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `link`: The URL associated with the question.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Rating (a question with a rating scale)
+        - `id`: The question ID
+        - `type`: `rating`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `display`: Display style of the rating (`number` or `emoji`).
+        - `scale`: The scale of the rating (`number`).
+        - `lowerBoundLabel`: Label for the lower bound of the scale.
+        - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Multiple choice
+        - `id`: The question ID
+        - `type`: `single_choice` or `multiple_choice`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `choices`: An array of choices for the question.
+        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Branching logic can be one of the following types:
+
+        Next question: Proceeds to the next question
+        ```json
+        {
+            "type": "next_question"
+        }
+        ```
+
+        End: Ends the survey, optionally displaying a confirmation message.
+        ```json
+        {
+            "type": "end"
+        }
+        ```
+
+        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+        ```json
+        {
+            "type": "response_based",
+            "responseValues": {
+                "responseKey": "value"
+            }
+        }
+        ```
+
+        Specific question: Proceeds to a specific question by index.
+        ```json
+        {
+            "type": "specific_question",
+            "index": 2
+        }
+        ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
+         */
+    questions?: unknown | null
+    conditions?: unknown | null
+    appearance?: unknown | null
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    archived?: boolean
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    responses_limit?: number | null
+    /**
+     * @minimum 0
+     * @maximum 500
+     * @nullable
+     */
+    iteration_count?: number | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    iteration_frequency_days?: number | null
+    /** @nullable */
+    iteration_start_dates?: (string | null)[] | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    current_iteration?: number | null
+    /** @nullable */
+    current_iteration_start_date?: string | null
+    /** @nullable */
+    response_sampling_start_date?: string | null
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    response_sampling_interval?: number | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    response_sampling_limit?: number | null
+    response_sampling_daily_limits?: unknown | null
+    /** @nullable */
+    enable_partial_responses?: boolean | null
+    /** @nullable */
+    enable_iframe_embedding?: boolean | null
+    translations?: unknown | null
+    _create_in_folder?: string
+    form_content?: unknown | null
+}
+
+export type PatchedTableOptions = { [key: string]: unknown }
+
+export interface PatchedTable {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name?: string
+    format?: TableFormatEnum
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    /** @maxLength 500 */
+    url_pattern?: string
+    credential?: Credential
+    readonly columns?: string
+    readonly external_data_source?: SimpleExternalDataSourceSerializers
+    readonly external_schema?: string
+    options?: PatchedTableOptions
+}
+
+export interface PatchedTask {
+    readonly id?: string
+    /** @nullable */
+    readonly task_number?: number | null
+    readonly slug?: string
+    /** @maxLength 255 */
+    title?: string
+    description?: string
+    origin_product?: OriginProductEnum
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /**
+     * GitHub integration for this task
+     * @nullable
+     */
+    github_integration?: number | null
+    /** JSON schema for the task. This is used to validate the output of the task. */
+    json_schema?: unknown | null
+    readonly latest_run?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly created_by?: UserBasic
+}
+
+/**
+ * * `not_started` - not_started
+ * `queued` - queued
+ * `in_progress` - in_progress
+ * `completed` - completed
+ * `failed` - failed
+ * `cancelled` - cancelled
+ */
+export type TaskRunUpdateStatusEnum = (typeof TaskRunUpdateStatusEnum)[keyof typeof TaskRunUpdateStatusEnum]
+
+export const TaskRunUpdateStatusEnum = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface PatchedTaskRunUpdate {
+    /** Current execution status
+
+* `not_started` - not_started
+* `queued` - queued
+* `in_progress` - in_progress
+* `completed` - completed
+* `failed` - failed
+* `cancelled` - cancelled */
+    status?: TaskRunUpdateStatusEnum
+    /**
+     * Git branch name to associate with the task
+     * @nullable
+     */
+    branch?: string | null
+    /**
+     * Current stage of the run (e.g. research, plan, build)
+     * @nullable
+     */
+    stage?: string | null
+    /** Output from the run */
+    output?: unknown | null
+    /** State of the run */
+    state?: unknown
+    /**
+     * Error message if execution failed
+     * @nullable
+     */
+    error_message?: string | null
+}
+
+export type PatchedTeamDefaultModifiers = { [key: string]: unknown }
+
+export type PatchedTeamGroupTypesItem = { [key: string]: unknown }
+
+/**
+ * * `30d` - 30 Days
+ * `90d` - 90 Days
+ * `1y` - 1 Year
+ * `5y` - 5 Years
+ */
+export type SessionRecordingRetentionPeriodEnum =
+    (typeof SessionRecordingRetentionPeriodEnum)[keyof typeof SessionRecordingRetentionPeriodEnum]
+
+export const SessionRecordingRetentionPeriodEnum = {
+    '30d': '30d',
+    '90d': '90d',
+    '1y': '1y',
+    '5y': '5y',
+} as const
+
+export interface TeamRevenueAnalyticsConfig {
+    base_currency?: BaseCurrencyEnum
+    events?: unknown
+    goals?: unknown
+    filter_test_accounts?: boolean
+}
+
+export interface TeamMarketingAnalyticsConfig {
+    sources_map?: unknown
+    conversion_goals?: unknown
+    /**
+     * @minimum 1
+     * @maximum 90
+     */
+    attribution_window_days?: number
+    attribution_mode?: AttributionModeEnum
+    campaign_name_mappings?: unknown
+    custom_source_mappings?: unknown
+    campaign_field_preferences?: unknown
+}
+
+export interface TeamCustomerAnalyticsConfig {
+    activity_event?: unknown
+    signup_pageview_event?: unknown
+    signup_event?: unknown
+    subscription_event?: unknown
+    payment_event?: unknown
+}
+
+export interface PatchedTeam {
+    readonly id?: number
+    readonly uuid?: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    access_control?: boolean
+    readonly organization?: string
+    /**
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     */
+    readonly project_id?: number
+    readonly api_token?: string
+    /** @nullable */
+    readonly secret_api_token?: string | null
+    /** @nullable */
+    readonly secret_api_token_backup?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly ingested_event?: boolean
+    readonly default_modifiers?: PatchedTeamDefaultModifiers
+    readonly person_on_events_querying_enabled?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+    app_urls?: (string | null)[]
+    /**
+     * @maxLength 500
+     * @nullable
+     */
+    slack_incoming_webhook?: string | null
+    anonymize_ips?: boolean
+    completed_snippet_onboarding?: boolean
+    test_account_filters?: unknown
+    /** @nullable */
+    test_account_filters_default_checked?: boolean | null
+    path_cleaning_filters?: unknown | null
+    is_demo?: boolean
+    timezone?: string
+    data_attributes?: unknown
+    /** @nullable */
+    person_display_name_properties?: string[] | null
+    correlation_config?: unknown | null
+    /** @nullable */
+    autocapture_opt_out?: boolean | null
+    /** @nullable */
+    autocapture_exceptions_opt_in?: boolean | null
+    /** @nullable */
+    autocapture_web_vitals_opt_in?: boolean | null
+    autocapture_web_vitals_allowed_metrics?: unknown | null
+    autocapture_exceptions_errors_to_ignore?: unknown | null
+    /** @nullable */
+    capture_console_log_opt_in?: boolean | null
+    logs_settings?: unknown | null
+    /** @nullable */
+    capture_performance_opt_in?: boolean | null
+    session_recording_opt_in?: boolean
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    session_recording_sample_rate?: string | null
+    /**
+     * @minimum 0
+     * @maximum 30000
+     * @nullable
+     */
+    session_recording_minimum_duration_milliseconds?: number | null
+    session_recording_linked_flag?: unknown | null
+    session_recording_network_payload_capture_config?: unknown | null
+    session_recording_masking_config?: unknown | null
+    /** @nullable */
+    session_recording_url_trigger_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_url_blocklist_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_event_trigger_config?: (string | null)[] | null
+    /**
+     * @maxLength 24
+     * @nullable
+     */
+    session_recording_trigger_match_type_config?: string | null
+    session_recording_retention_period?: SessionRecordingRetentionPeriodEnum
+    session_replay_config?: unknown | null
+    survey_config?: unknown | null
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    week_start_day?: WeekStartDayEnum | NullEnum | null
+    /** @nullable */
+    primary_dashboard?: number | null
+    /** @nullable */
+    live_events_columns?: string[] | null
+    /** @nullable */
+    recording_domains?: (string | null)[] | null
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    cookieless_server_hash_mode?: CookielessServerHashModeEnum | NullEnum | null
+    /** @nullable */
+    human_friendly_comparison_periods?: boolean | null
+    /** @nullable */
+    inject_web_apps?: boolean | null
+    extra_settings?: unknown | null
+    modifiers?: unknown | null
+    has_completed_onboarding_for?: unknown | null
+    /** @nullable */
+    surveys_opt_in?: boolean | null
+    /** @nullable */
+    heatmaps_opt_in?: boolean | null
+    /** @nullable */
+    flags_persistence_default?: boolean | null
+    /** @nullable */
+    feature_flag_confirmation_enabled?: boolean | null
+    /** @nullable */
+    feature_flag_confirmation_message?: string | null
+    /**
+     * Whether to automatically apply default evaluation contexts to new feature flags
+     * @nullable
+     */
+    default_evaluation_contexts_enabled?: boolean | null
+    /**
+     * Whether to require at least one evaluation context tag when creating new feature flags
+     * @nullable
+     */
+    require_evaluation_contexts?: boolean | null
+    /** @nullable */
+    capture_dead_clicks?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    default_data_theme?: number | null
+    revenue_analytics_config?: TeamRevenueAnalyticsConfig
+    marketing_analytics_config?: TeamMarketingAnalyticsConfig
+    customer_analytics_config?: TeamCustomerAnalyticsConfig
+    onboarding_tasks?: unknown | null
+    base_currency?: BaseCurrencyEnum
+    /** @nullable */
+    web_analytics_pre_aggregated_tables_enabled?: boolean | null
+    /**
+     * Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.
+     * @nullable
+     */
+    experiment_recalculation_time?: string | null
+    /**
+     * Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    default_experiment_confidence_level?: string | null
+    /** Default statistical method for new experiments in this environment.
+
+* `bayesian` - Bayesian
+* `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    receive_org_level_activity_logs?: boolean | null
+    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other */
+    business_model?: BusinessModelEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    conversations_enabled?: boolean | null
+    conversations_settings?: unknown | null
+    /** @nullable */
+    proactive_tasks_enabled?: boolean | null
+    readonly effective_membership_level?: EffectiveMembershipLevelEnum | null
+    readonly has_group_types?: boolean
+    readonly group_types?: readonly PatchedTeamGroupTypesItem[]
+    /** @nullable */
+    readonly live_events_token?: string | null
+    readonly product_intents?: string
+    readonly managed_viewsets?: string
+    readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[]
+}
+
+export interface PatchedTicket {
+    readonly id?: string
+    readonly ticket_number?: number
+    readonly channel_source?: ChannelSourceEnum
+    readonly distinct_id?: string
+    status?: TicketStatusEnum
+    priority?: PriorityEnum | BlankEnum | NullEnum | null
+    readonly assignee?: TicketAssignment
+    anonymous_traits?: unknown
+    ai_resolved?: boolean
+    /** @nullable */
+    escalation_reason?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly message_count?: number
+    /** @nullable */
+    readonly last_message_at?: string | null
+    /** @nullable */
+    readonly last_message_text?: string | null
+    readonly unread_team_count?: number
+    readonly unread_customer_count?: number
+    /** @nullable */
+    readonly session_id?: string | null
+    readonly session_context?: unknown
+    /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
+    readonly slack_channel_id?: string | null
+    /** @nullable */
+    readonly slack_thread_ts?: string | null
+    /** @nullable */
+    readonly slack_team_id?: string | null
+    readonly person?: TicketPerson | null
+}
+
+export type PatchedUserNotificationSettings = { [key: string]: unknown }
+
+export interface PatchedUser {
+    readonly date_joined?: string
+    readonly uuid?: string
+    /** @nullable */
+    readonly distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email?: string
+    /** @nullable */
+    readonly pending_email?: string | null
+    /** @nullable */
+    readonly is_email_verified?: boolean | null
+    notification_settings?: PatchedUserNotificationSettings
+    /** @nullable */
+    anonymize_data?: boolean | null
+    /** @nullable */
+    allow_impersonation?: boolean | null
+    toolbar_mode?: ToolbarModeEnum | BlankEnum | NullEnum | null
+    readonly has_password?: boolean
+    readonly id?: number
+    /** Designates whether the user can log into this admin site. */
+    is_staff?: boolean
+    /** @nullable */
+    readonly is_impersonated?: boolean | null
+    /** @nullable */
+    readonly is_impersonated_until?: string | null
+    /** @nullable */
+    readonly is_impersonated_read_only?: boolean | null
+    /** @nullable */
+    readonly sensitive_session_expires_at?: string | null
+    readonly team?: TeamBasic
+    readonly organization?: Organization
+    readonly organizations?: readonly OrganizationBasic[]
+    set_current_organization?: string
+    set_current_team?: string
+    /** @maxLength 128 */
+    password?: string
+    current_password?: string
+    events_column_config?: unknown
+    readonly is_2fa_enabled?: boolean
+    readonly has_social_auth?: boolean
+    readonly has_sso_enforcement?: boolean
+    has_seen_product_intro_for?: unknown | null
+    readonly scene_personalisation?: readonly ScenePersonalisationBasic[]
+    theme_mode?: ThemeModeEnum | BlankEnum | NullEnum | null
+    hedgehog_config?: unknown | null
+    /** @nullable */
+    allow_sidebar_suggestions?: boolean | null
+    shortcut_position?: ShortcutPositionEnum | BlankEnum | NullEnum | null
+    role_at_organization?: RoleAtOrganizationEnum
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
+}
+
+export interface PatchedUserInterview {
+    readonly id?: string
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    interviewee_emails?: string[]
+    readonly transcript?: string
+    summary?: string
+    audio?: string
+}
+
+export interface PatchedUserProductList {
+    readonly id?: string
+    readonly product_path?: string
+    enabled?: boolean
+    readonly reason?: ReasonEnum | NullEnum | null
+    /** @nullable */
+    readonly reason_text?: string | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface PatchedViewLink {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasic
+    readonly created_at?: string
+    /** @maxLength 400 */
+    source_table_name?: string
+    /** @maxLength 400 */
+    source_table_key?: string
+    /** @maxLength 400 */
+    joining_table_name?: string
+    /** @maxLength 400 */
+    joining_table_key?: string
+    /** @maxLength 400 */
+    field_name?: string
+    configuration?: unknown | null
+}
+
+export interface PatchedWebAnalyticsFilterPreset {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    pinned?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasic
+    deleted?: boolean
+    filters?: unknown
+    readonly last_modified_at?: string
+    readonly last_modified_by?: UserBasic
+}
+
+/**
+ * Serializer for the exposed /api/web_experiments endpoint, to be used in posthog-js and for headless APIs.
+ */
+export interface PatchedWebExperimentsAPI {
+    readonly id?: number
+    /** @maxLength 400 */
+    name?: string
+    created_at?: string
+    readonly feature_flag_key?: string
+    /** Variants for the web experiment. Example:
+
+        {
+            "control": {
+                "transforms": [
+                    {
+                        "text": "Here comes Superman!",
+                        "html": "",
+                        "selector": "#page > #body > .header h1"
+                    }
+                ],
+                "conditions": "None",
+                "rollout_percentage": 50
+            },
+        } */
+    variants?: unknown
+}
+
+/**
+ * The parameters passed to the query
+ */
+export type PersonPropertiesAtTimeDebugParams = { [key: string]: unknown }
+
+export type PersonPropertiesAtTimeDebugEventsItem = { [key: string]: unknown }
+
+/**
+ * Serializer for the debug information (only available to staff users).
+ */
+export interface PersonPropertiesAtTimeDebug {
+    /** The ClickHouse query that was executed */
+    query: string
+    /** The parameters passed to the query */
+    params: PersonPropertiesAtTimeDebugParams
+    /** Number of events found */
+    events_found: number
+    /** Raw events that were used to build the properties */
+    events: PersonPropertiesAtTimeDebugEventsItem[]
+    /** Error message if debug query failed */
+    error?: string
+}
+
+/**
+ * Serializer for the point-in-time query metadata.
+ */
+export interface PersonPropertiesAtTimeMetadata {
+    /** The timestamp that was queried in ISO format */
+    queried_timestamp: string
+    /** Whether $set_once operations were included */
+    include_set_once: boolean
+    /**
+     * The distinct_id parameter used in the request
+     * @nullable
+     */
+    distinct_id_used: string | null
+    /**
+     * The person_id parameter used in the request
+     * @nullable
+     */
+    person_id_used: string | null
+    /** Whether the query used 'distinct_id' or 'person_id' mode */
+    query_mode: string
+    /** All distinct_ids that were queried for this person */
+    distinct_ids_queried: string[]
+    /** Number of distinct_ids associated with this person */
+    distinct_ids_count: number
+}
+
+/**
+ * Person properties as they existed at the specified time
+ */
+export type PersonPropertiesAtTimeResponseProperties = { [key: string]: string | null }
+
+/**
+ * Serializer for the point-in-time person properties response.
+ */
+export interface PersonPropertiesAtTimeResponse {
+    /** The person ID */
+    id: number
+    /** The person's display name */
+    name: string
+    /** All distinct IDs associated with this person */
+    distinct_ids: string[]
+    /** Person properties as they existed at the specified time */
+    properties: PersonPropertiesAtTimeResponseProperties
+    /** When the person was first created */
+    created_at: string
+    /** The person's UUID */
+    uuid: string
+    /**
+     * When the person was last seen
+     * @nullable
+     */
+    last_seen_at: string | null
+    /** Metadata about the point-in-time query */
+    point_in_time_metadata: PersonPropertiesAtTimeMetadata
+    /** Debug information (only available when debug=true and DEBUG=True) */
+    debug?: PersonPropertiesAtTimeDebug
+}
+
+export interface PinnedSceneTabs {
+    tabs?: PinnedSceneTab[]
+    homepage?: PinnedSceneTab | null
+}
+
+/**
+ * Serializer for creating and updating ProductTour.
+ */
+export interface ProductTourSerializerCreateUpdateOnly {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    readonly internal_targeting_flag: MinimalFeatureFlag
+    readonly linked_flag: MinimalFeatureFlag
+    /** @nullable */
+    linked_flag_id?: number | null
+    targeting_flag_filters?: unknown | null
+    content?: unknown
+    auto_launch?: boolean
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly updated_at: string
+    archived?: boolean
+    /** Where the tour was created/updated from
+
+* `app` - app
+* `toolbar` - toolbar */
+    creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum
+}
+
+export type ProjectBackwardCompatGroupTypesItem = { [key: string]: unknown }
+
+/**
+ * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+backward compatibility of the REST API.
+Do not use this in greenfield endpoints!
+ */
+export interface ProjectBackwardCompat {
+    readonly id: number
+    readonly organization: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at: string
+    readonly effective_membership_level: EffectiveMembershipLevelEnum | null
+    readonly has_group_types: boolean
+    readonly group_types: readonly ProjectBackwardCompatGroupTypesItem[]
+    /** @nullable */
+    readonly live_events_token: string | null
+    readonly updated_at: string
+    readonly uuid: string
+    readonly api_token: string
+    app_urls?: (string | null)[]
+    /**
+     * @maxLength 500
+     * @nullable
+     */
+    slack_incoming_webhook?: string | null
+    anonymize_ips?: boolean
+    completed_snippet_onboarding?: boolean
+    readonly ingested_event: boolean
+    test_account_filters?: unknown
+    /** @nullable */
+    test_account_filters_default_checked?: boolean | null
+    path_cleaning_filters?: unknown | null
+    is_demo?: boolean
+    timezone?: string
+    data_attributes?: unknown
+    /** @nullable */
+    person_display_name_properties?: string[] | null
+    correlation_config?: unknown | null
+    /** @nullable */
+    autocapture_opt_out?: boolean | null
+    /** @nullable */
+    autocapture_exceptions_opt_in?: boolean | null
+    /** @nullable */
+    autocapture_web_vitals_opt_in?: boolean | null
+    autocapture_web_vitals_allowed_metrics?: unknown | null
+    autocapture_exceptions_errors_to_ignore?: unknown | null
+    /** @nullable */
+    capture_console_log_opt_in?: boolean | null
+    /** @nullable */
+    capture_performance_opt_in?: boolean | null
+    session_recording_opt_in?: boolean
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    session_recording_sample_rate?: string | null
+    /**
+     * @minimum 0
+     * @maximum 30000
+     * @nullable
+     */
+    session_recording_minimum_duration_milliseconds?: number | null
+    session_recording_linked_flag?: unknown | null
+    session_recording_network_payload_capture_config?: unknown | null
+    session_recording_masking_config?: unknown | null
+    session_replay_config?: unknown | null
+    survey_config?: unknown | null
+    access_control?: boolean
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    week_start_day?: WeekStartDayEnum | NullEnum | null
+    /** @nullable */
+    primary_dashboard?: number | null
+    /** @nullable */
+    live_events_columns?: string[] | null
+    /** @nullable */
+    recording_domains?: (string | null)[] | null
+    readonly person_on_events_querying_enabled: string
+    /** @nullable */
+    inject_web_apps?: boolean | null
+    extra_settings?: unknown | null
+    modifiers?: unknown | null
+    readonly default_modifiers: string
+    has_completed_onboarding_for?: unknown | null
+    /** @nullable */
+    surveys_opt_in?: boolean | null
+    /** @nullable */
+    heatmaps_opt_in?: boolean | null
+    readonly product_intents: string
+    /** @nullable */
+    flags_persistence_default?: boolean | null
+    /** @nullable */
+    readonly secret_api_token: string | null
+    /** @nullable */
+    readonly secret_api_token_backup: string | null
+    /** @nullable */
+    receive_org_level_activity_logs?: boolean | null
+    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other */
+    business_model?: BusinessModelEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    conversations_enabled?: boolean | null
+    conversations_settings?: unknown | null
+    logs_settings?: unknown | null
+    /** @nullable */
+    proactive_tasks_enabled?: boolean | null
+    readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[]
+}
+
+/**
+ * * `event` - event
+ * `event_metadata` - event_metadata
+ * `feature` - feature
+ * `person` - person
+ * `cohort` - cohort
+ * `element` - element
+ * `static-cohort` - static-cohort
+ * `dynamic-cohort` - dynamic-cohort
+ * `precalculated-cohort` - precalculated-cohort
+ * `group` - group
+ * `recording` - recording
+ * `log_entry` - log_entry
+ * `behavioral` - behavioral
+ * `session` - session
+ * `hogql` - hogql
+ * `data_warehouse` - data_warehouse
+ * `data_warehouse_person_property` - data_warehouse_person_property
+ * `error_tracking_issue` - error_tracking_issue
+ * `log` - log
+ * `log_attribute` - log_attribute
+ * `log_resource_attribute` - log_resource_attribute
+ * `revenue_analytics` - revenue_analytics
+ * `flag` - flag
+ * `workflow_variable` - workflow_variable
+ */
+export type PropertyItemTypeEnum = (typeof PropertyItemTypeEnum)[keyof typeof PropertyItemTypeEnum]
+
+export const PropertyItemTypeEnum = {
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Feature: 'feature',
+    Person: 'person',
+    Cohort: 'cohort',
+    Element: 'element',
+    StaticCohort: 'static-cohort',
+    DynamicCohort: 'dynamic-cohort',
+    PrecalculatedCohort: 'precalculated-cohort',
+    Group: 'group',
+    Recording: 'recording',
+    LogEntry: 'log_entry',
+    Behavioral: 'behavioral',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+    RevenueAnalytics: 'revenue_analytics',
+    Flag: 'flag',
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+export interface PropertyItem {
+    /** Key of the property you're filtering on. For example `email` or `$current_url` */
+    key: string
+    /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
+    value: string
+    operator?: OperatorEnum | BlankEnum | NullEnum | null
+    type?: PropertyItemTypeEnum | BlankEnum
+}
+
+export interface Property {
+    /**
+ You can use a simplified version:
+```json
+{
+    "properties": [
+        {
+            "key": "email",
+            "value": "x@y.com",
+            "operator": "exact",
+            "type": "event"
+        }
+    ]
+}
+```
+
+Or you can create more complicated queries with AND and OR:
+```json
+{
+    "properties": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "OR",
+                "values": [
+                    {"key": "email", ...},
+                    {"key": "email", ...}
+                ]
+            },
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "email", ...},
+                    {"key": "email", ...}
+                ]
+            }
+        ]
+    ]
+}
+```
+
+
+* `AND` - AND
+* `OR` - OR */
+    type?: PropertyGroupOperator
+    values: PropertyItem[]
+}
+
+export type PropertyType = (typeof PropertyType)[keyof typeof PropertyType]
+
+export const PropertyType = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
+export interface PropertyValueItem {
+    /** @nullable */
+    count?: number | null
+    name?: string | number | boolean | null
+}
+
+export type PropertyValuesQueryKind = (typeof PropertyValuesQueryKind)[keyof typeof PropertyValuesQueryKind]
+
+export const PropertyValuesQueryKind = {
+    PropertyValuesQuery: 'PropertyValuesQuery',
+} as const
+
+export interface PropertyValuesQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: PropertyValueItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface PropertyValuesQuery {
+    /** @nullable */
+    event_names?: string[] | null
+    /** @nullable */
+    is_column?: boolean | null
+    kind?: PropertyValuesQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    property_key: string
+    property_type: PropertyType
+    response?: PropertyValuesQueryResponse | null
+    /** @nullable */
+    search_value?: string | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * @nullable
+ */
+export type QueryRequestVariablesOverride = { [key: string]: { [key: string]: unknown } } | null | null
+
+export type SavedInsightNodeKind = (typeof SavedInsightNodeKind)[keyof typeof SavedInsightNodeKind]
+
+export const SavedInsightNodeKind = {
+    SavedInsightNode: 'SavedInsightNode',
+} as const
+
+export interface SavedInsightNode {
+    /**
+     * Can the user click on column headers to sort the table? (default: true)
+     * @nullable
+     */
+    allowSorting?: boolean | null
+    /** Context for the table, used by components like ColumnConfigurator */
+    context?: DataTableNodeViewPropsContext | null
+    /**
+     * Context key for universal column configuration (e.g., "survey:123")
+     * @nullable
+     */
+    contextKey?: string | null
+    /**
+     * Default columns to use when resetting column configuration
+     * @nullable
+     */
+    defaultColumns?: string[] | null
+    /**
+     * Query is embedded inside another bordered component
+     * @nullable
+     */
+    embedded?: boolean | null
+    /**
+     * Can expand row to show raw event data (default: true)
+     * @nullable
+     */
+    expandable?: boolean | null
+    /**
+     * Show with most visual options enabled. Used in insight scene.
+     * @nullable
+     */
+    full?: boolean | null
+    /** @nullable */
+    hidePersonsModal?: boolean | null
+    /** @nullable */
+    hideTooltipOnScroll?: boolean | null
+    kind?: SavedInsightNodeKind
+    /**
+     * Link properties via the URL (default: false)
+     * @nullable
+     */
+    propertiesViaUrl?: boolean | null
+    shortId: string
+    /**
+     * Show the kebab menu at the end of the row
+     * @nullable
+     */
+    showActions?: boolean | null
+    /**
+     * Show a button to configure the table's columns if possible
+     * @nullable
+     */
+    showColumnConfigurator?: boolean | null
+    /** @nullable */
+    showCorrelationTable?: boolean | null
+    /**
+     * Show count of total and filtered results
+     * @nullable
+     */
+    showCount?: boolean | null
+    /**
+     * Show date range selector
+     * @nullable
+     */
+    showDateRange?: boolean | null
+    /**
+     * Show the time it takes to run a query
+     * @nullable
+     */
+    showElapsedTime?: boolean | null
+    /**
+     * Include an event filter above the table (EventsNode only)
+     * @nullable
+     */
+    showEventFilter?: boolean | null
+    /**
+     * Include an events filter above the table to filter by multiple events (EventsQuery only)
+     * @nullable
+     */
+    showEventsFilter?: boolean | null
+    /**
+     * Show the export button
+     * @nullable
+     */
+    showExport?: boolean | null
+    /** @nullable */
+    showFilters?: boolean | null
+    /** @nullable */
+    showHeader?: boolean | null
+    /**
+     * Include a HogQL query editor above HogQL tables
+     * @nullable
+     */
+    showHogQLEditor?: boolean | null
+    /** @nullable */
+    showLastComputation?: boolean | null
+    /** @nullable */
+    showLastComputationRefresh?: boolean | null
+    /**
+     * Show a button to open the current query as a new insight. (default: true)
+     * @nullable
+     */
+    showOpenEditorButton?: boolean | null
+    /**
+     * Show a button to configure and persist the table's default columns if possible
+     * @nullable
+     */
+    showPersistentColumnConfigurator?: boolean | null
+    /** Include a property filter above the table */
+    showPropertyFilter?: boolean | TaxonomicFilterGroupType[] | null
+    /**
+     * Show a recording column for events with session recordings
+     * @nullable
+     */
+    showRecordingColumn?: boolean | null
+    /**
+     * Show a reload button
+     * @nullable
+     */
+    showReload?: boolean | null
+    /** @nullable */
+    showResults?: boolean | null
+    /**
+     * Show a results table
+     * @nullable
+     */
+    showResultsTable?: boolean | null
+    /**
+     * Show saved filters feature for this table (requires uniqueKey)
+     * @nullable
+     */
+    showSavedFilters?: boolean | null
+    /**
+     * Shows a list of saved queries
+     * @nullable
+     */
+    showSavedQueries?: boolean | null
+    /**
+     * Include a free text search field (PersonsNode only)
+     * @nullable
+     */
+    showSearch?: boolean | null
+    /**
+     * Show actors query options and back to source
+     * @nullable
+     */
+    showSourceQueryOptions?: boolean | null
+    /** @nullable */
+    showTable?: boolean | null
+    /**
+     * Show table views feature for this table (requires uniqueKey)
+     * @nullable
+     */
+    showTableViews?: boolean | null
+    /**
+     * Show filter to exclude test accounts
+     * @nullable
+     */
+    showTestAccountFilters?: boolean | null
+    /**
+     * Show a detailed query timing breakdown
+     * @nullable
+     */
+    showTimings?: boolean | null
+    /** @nullable */
+    suppressSessionAnalysisWarning?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    vizSpecificOptions?: VizSpecificOptions | null
+}
+
+export type SuggestedQuestionsQueryKind = (typeof SuggestedQuestionsQueryKind)[keyof typeof SuggestedQuestionsQueryKind]
+
+export const SuggestedQuestionsQueryKind = {
+    SuggestedQuestionsQuery: 'SuggestedQuestionsQuery',
+} as const
+
+export interface SuggestedQuestionsQueryResponse {
+    questions: string[]
+}
+
+export interface SuggestedQuestionsQuery {
+    kind?: SuggestedQuestionsQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: SuggestedQuestionsQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type TeamTaxonomyQueryKind = (typeof TeamTaxonomyQueryKind)[keyof typeof TeamTaxonomyQueryKind]
+
+export const TeamTaxonomyQueryKind = {
+    TeamTaxonomyQuery: 'TeamTaxonomyQuery',
+} as const
+
+export interface TeamTaxonomyItem {
+    count: number
+    event: string
+}
+
+export interface TeamTaxonomyQueryResponse {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: TeamTaxonomyItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface TeamTaxonomyQuery {
+    kind?: TeamTaxonomyQueryKind
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    response?: TeamTaxonomyQueryResponse | null
+    tags?: QueryLogTags | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RefreshType = (typeof RefreshType)[keyof typeof RefreshType]
+
+export const RefreshType = {
+    Async: 'async',
+    AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
+    Blocking: 'blocking',
+    ForceAsync: 'force_async',
+    ForceBlocking: 'force_blocking',
+    ForceCache: 'force_cache',
+    LazyAsync: 'lazy_async',
+} as const
+
+export interface QueryRequest {
+    /** @nullable */
+    async?: boolean | null
+    /**
+     * Client provided query ID. Can be used to retrieve the status or cancel the query.
+     * @nullable
+     */
+    client_query_id?: string | null
+    filters_override?: DashboardFilter | null
+    /** Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value. */
+    limit_context?: LimitContext | null
+    /**
+     * Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.
+     * @nullable
+     */
+    name?: string | null
+    /** Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.
+
+Example payload:
+
+```
+
+{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}
+
+```
+
+For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
+    query:
+        | EventsNode
+        | ActionsNode
+        | PersonsNode
+        | DataWarehouseNode
+        | EventsQuery
+        | SessionsQuery
+        | ActorsQuery
+        | GroupsQuery
+        | InsightActorsQuery
+        | InsightActorsQueryOptions
+        | SessionsTimelineQuery
+        | HogQuery
+        | HogQLQuery
+        | HogQLMetadata
+        | HogQLAutocomplete
+        | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingSimilarIssuesQuery
+        | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | ExperimentQuery
+        | ExperimentExposureQuery
+        | DocumentSimilarityQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebPageURLSearchQuery
+        | WebAnalyticsExternalSummaryQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | DataVisualizationNode
+        | DataTableNode
+        | SavedInsightNode
+        | InsightVizNode
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | FunnelCorrelationQuery
+        | DatabaseSchemaQuery
+        | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
+        | SuggestedQuestionsQuery
+        | TeamTaxonomyQuery
+        | EventTaxonomyQuery
+        | ActorsPropertyTaxonomyQuery
+        | TracesQuery
+        | TraceQuery
+        | TraceNeighborsQuery
+        | VectorSearchQuery
+        | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
+    /** Whether results should be calculated sync or async, and how much to rely on the cache:
+- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+- `'force_async'` - kick off background calculation, even if fresh results are already cached
+- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field. */
+    refresh?: RefreshType | null
+    /** @nullable */
+    variables_override?: QueryRequestVariablesOverride
+}
+
+export interface QueryResponseAlternative1 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface QueryResponseAlternative3 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    limit: number
+    /** @nullable */
+    missing_actors_count?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: string[] | null
+}
+
+export type QueryResponseAlternative4Kind =
+    (typeof QueryResponseAlternative4Kind)[keyof typeof QueryResponseAlternative4Kind]
+
+export const QueryResponseAlternative4Kind = {
+    GroupsQuery: 'GroupsQuery',
+} as const
+
+export interface QueryResponseAlternative4 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: QueryResponseAlternative4Kind
+    limit: number
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface QueryResponseAlternative5 {
+    /** @nullable */
+    breakdown?: BreakdownItem[] | null
+    /** @nullable */
+    breakdowns?: MultipleBreakdownOptions[] | null
+    /** @nullable */
+    compare?: CompareItem[] | null
+    /** @nullable */
+    day?: DayItem[] | null
+    /** @nullable */
+    interval?: IntervalItem[] | null
+    /** @nullable */
+    series?: Series[] | null
+    /** @nullable */
+    status?: StatusItem[] | null
+}
+
+export interface QueryResponseAlternative6 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: TimelineEntry[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative7 {
+    /** @nullable */
+    bytecode?: unknown[] | null
+    /** @nullable */
+    coloredBytecode?: unknown[] | null
+    results: unknown
+    /** @nullable */
+    stdout?: string | null
+}
+
+export interface QueryResponseAlternative8 {
+    /**
+     * Executed ClickHouse query
+     * @nullable
+     */
+    clickhouse?: string | null
+    /**
+     * Returned columns
+     * @nullable
+     */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Query explanation output
+     * @nullable
+     */
+    explain?: string[] | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Input query string
+     * @nullable
+     */
+    query?: string | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /**
+     * Types of returned columns
+     * @nullable
+     */
+    types?: unknown[] | null
+}
+
+export interface QueryResponseAlternative9 {
+    /** @nullable */
+    ch_table_names?: string[] | null
+    errors: HogQLNotice[]
+    isUsingIndices?: QueryIndexUsage | null
+    /** @nullable */
+    isValid?: boolean | null
+    notices: HogQLNotice[]
+    /** @nullable */
+    query?: string | null
+    /** @nullable */
+    table_names?: string[] | null
+    warnings: HogQLNotice[]
+}
+
+export interface QueryResponseAlternative10 {
+    /** Whether or not the suggestions returned are complete */
+    incomplete_list: boolean
+    suggestions: AutocompleteCompletionItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative11 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface QueryResponseAlternative14 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ErrorTrackingIssue[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative15 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: SimilarIssue[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type QueryResponseAlternative16Results = { [key: string]: Results }
+
+export interface QueryResponseAlternative16 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: QueryResponseAlternative16Results
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative17 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ErrorTrackingCorrelatedIssue[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type QueryResponseAlternative18Kind =
+    (typeof QueryResponseAlternative18Kind)[keyof typeof QueryResponseAlternative18Kind]
+
+export const QueryResponseAlternative18Kind = {
+    ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
+} as const
+
+export type QueryResponseAlternative18CredibleIntervals = { [key: string]: number[] }
+
+export type QueryResponseAlternative18InsightItemItem = { [key: string]: unknown }
+
+export type QueryResponseAlternative18Probability = { [key: string]: number }
+
+export interface QueryResponseAlternative18 {
+    credible_intervals: QueryResponseAlternative18CredibleIntervals
+    expected_loss: number
+    funnels_query?: FunnelsQuery | null
+    insight: QueryResponseAlternative18InsightItemItem[][]
+    kind?: QueryResponseAlternative18Kind
+    probability: QueryResponseAlternative18Probability
+    significance_code: ExperimentSignificanceCode
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantFunnelsBaseStats[]
+}
+
+export type QueryResponseAlternative19Kind =
+    (typeof QueryResponseAlternative19Kind)[keyof typeof QueryResponseAlternative19Kind]
+
+export const QueryResponseAlternative19Kind = {
+    ExperimentTrendsQuery: 'ExperimentTrendsQuery',
+} as const
+
+export type QueryResponseAlternative19CredibleIntervals = { [key: string]: number[] }
+
+export type QueryResponseAlternative19InsightItem = { [key: string]: unknown }
+
+export type QueryResponseAlternative19Probability = { [key: string]: number }
+
+export interface QueryResponseAlternative19 {
+    count_query?: TrendsQuery | null
+    credible_intervals: QueryResponseAlternative19CredibleIntervals
+    exposure_query?: TrendsQuery | null
+    insight: QueryResponseAlternative19InsightItem[]
+    kind?: QueryResponseAlternative19Kind
+    p_value: number
+    probability: QueryResponseAlternative19Probability
+    significance_code: ExperimentSignificanceCode
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantTrendsBaseStats[]
+}
+
+export type QueryResponseAlternative20Kind =
+    (typeof QueryResponseAlternative20Kind)[keyof typeof QueryResponseAlternative20Kind]
+
+export const QueryResponseAlternative20Kind = {
+    ExperimentQuery: 'ExperimentQuery',
+} as const
+
+/**
+ * @nullable
+ */
+export type QueryResponseAlternative20CredibleIntervals = { [key: string]: number[] } | null | null
+
+export type QueryResponseAlternative20InsightItem = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type QueryResponseAlternative20Probability = { [key: string]: number } | null | null
+
+export interface QueryResponseAlternative20 {
+    baseline?: ExperimentStatsBaseValidated | null
+    /**
+     * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
+     * @nullable
+     */
+    breakdown_results?: ExperimentBreakdownResult[] | null
+    /** @nullable */
+    clickhouse_sql?: string | null
+    /** @nullable */
+    credible_intervals?: QueryResponseAlternative20CredibleIntervals
+    /** @nullable */
+    hogql?: string | null
+    /** @nullable */
+    insight?: QueryResponseAlternative20InsightItem[] | null
+    kind?: QueryResponseAlternative20Kind
+    metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null
+    /** @nullable */
+    p_value?: number | null
+    /** @nullable */
+    probability?: QueryResponseAlternative20Probability
+    significance_code?: ExperimentSignificanceCode | null
+    /** @nullable */
+    significant?: boolean | null
+    /** @nullable */
+    stats_version?: number | null
+    variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null
+    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null
+}
+
+export type QueryResponseAlternative21Kind =
+    (typeof QueryResponseAlternative21Kind)[keyof typeof QueryResponseAlternative21Kind]
+
+export const QueryResponseAlternative21Kind = {
+    ExperimentExposureQuery: 'ExperimentExposureQuery',
+} as const
+
+export type QueryResponseAlternative21TotalExposures = { [key: string]: number }
+
+export interface QueryResponseAlternative21 {
+    date_range: DateRange
+    kind?: QueryResponseAlternative21Kind
+    sample_ratio_mismatch?: SampleRatioMismatch | null
+    timeseries: ExperimentExposureTimeSeries[]
+    total_exposures: QueryResponseAlternative21TotalExposures
+}
+
+export interface QueryResponseAlternative22 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: EmbeddingDistance[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative23 {
+    /** @nullable */
+    dateFrom?: string | null
+    /** @nullable */
+    dateTo?: string | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: WebOverviewItem[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export interface QueryResponseAlternative24 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export interface QueryResponseAlternative25 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface QueryResponseAlternative27 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    /**
+     * @minItems 1
+     * @maxItems 1
+     */
+    results: WebVitalsPathBreakdownResult[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative28 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: PageURL[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type QueryResponseAlternative29Data = { [key: string]: unknown }
+
+export interface QueryResponseAlternative29 {
+    data: QueryResponseAlternative29Data
+    error?: ExternalQueryError | null
+    status: ExternalQueryStatus
+}
+
+export interface QueryResponseAlternative30 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative31 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative32 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RevenueAnalyticsMRRQueryResultItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative33 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RevenueAnalyticsOverviewItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative34 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative35 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: MarketingAnalyticsItem[][]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type QueryResponseAlternative36Results = { [key: string]: MarketingAnalyticsItem }
+
+export interface QueryResponseAlternative36 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: QueryResponseAlternative36Results
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative37 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: MarketingAnalyticsItem[][]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface QueryResponseAlternative38 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface QueryResponseAlternative39 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    limit: number
+    /** @nullable */
+    missing_actors_count?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: string[] | null
+}
+
+export type QueryResponseAlternative40Kind =
+    (typeof QueryResponseAlternative40Kind)[keyof typeof QueryResponseAlternative40Kind]
+
+export const QueryResponseAlternative40Kind = {
+    GroupsQuery: 'GroupsQuery',
+} as const
+
+export interface QueryResponseAlternative40 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: QueryResponseAlternative40Kind
+    limit: number
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface QueryResponseAlternative41 {
+    /**
+     * Executed ClickHouse query
+     * @nullable
+     */
+    clickhouse?: string | null
+    /**
+     * Returned columns
+     * @nullable
+     */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Query explanation output
+     * @nullable
+     */
+    explain?: string[] | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Input query string
+     * @nullable
+     */
+    query?: string | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /**
+     * Types of returned columns
+     * @nullable
+     */
+    types?: unknown[] | null
+}
+
+export interface QueryResponseAlternative42 {
+    /** @nullable */
+    dateFrom?: string | null
+    /** @nullable */
+    dateTo?: string | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: WebOverviewItem[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export interface QueryResponseAlternative43 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export interface QueryResponseAlternative44 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface QueryResponseAlternative46 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    /**
+     * @minItems 1
+     * @maxItems 1
+     */
+    results: WebVitalsPathBreakdownResult[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative47 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface QueryResponseAlternative48 {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    types: string[]
+}
+
+export interface QueryResponseAlternative49 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative50 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative51 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RevenueAnalyticsMRRQueryResultItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative52 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RevenueAnalyticsOverviewItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative53 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative54 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface QueryResponseAlternative56 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: MarketingAnalyticsItem[][]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type QueryResponseAlternative57Results = { [key: string]: MarketingAnalyticsItem }
+
+export interface QueryResponseAlternative57 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: QueryResponseAlternative57Results
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative58 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: MarketingAnalyticsItem[][]
+    samplingRate?: SamplingRate | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface QueryResponseAlternative59 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ErrorTrackingIssue[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type QueryResponseAlternative61Kind =
+    (typeof QueryResponseAlternative61Kind)[keyof typeof QueryResponseAlternative61Kind]
+
+export const QueryResponseAlternative61Kind = {
+    ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
+} as const
+
+export type QueryResponseAlternative61CredibleIntervals = { [key: string]: number[] }
+
+export type QueryResponseAlternative61InsightItemItem = { [key: string]: unknown }
+
+export type QueryResponseAlternative61Probability = { [key: string]: number }
+
+export interface QueryResponseAlternative61 {
+    credible_intervals: QueryResponseAlternative61CredibleIntervals
+    expected_loss: number
+    funnels_query?: FunnelsQuery | null
+    insight: QueryResponseAlternative61InsightItemItem[][]
+    kind?: QueryResponseAlternative61Kind
+    probability: QueryResponseAlternative61Probability
+    significance_code: ExperimentSignificanceCode
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantFunnelsBaseStats[]
+}
+
+export type QueryResponseAlternative62Kind =
+    (typeof QueryResponseAlternative62Kind)[keyof typeof QueryResponseAlternative62Kind]
+
+export const QueryResponseAlternative62Kind = {
+    ExperimentTrendsQuery: 'ExperimentTrendsQuery',
+} as const
+
+export type QueryResponseAlternative62CredibleIntervals = { [key: string]: number[] }
+
+export type QueryResponseAlternative62InsightItem = { [key: string]: unknown }
+
+export type QueryResponseAlternative62Probability = { [key: string]: number }
+
+export interface QueryResponseAlternative62 {
+    count_query?: TrendsQuery | null
+    credible_intervals: QueryResponseAlternative62CredibleIntervals
+    exposure_query?: TrendsQuery | null
+    insight: QueryResponseAlternative62InsightItem[]
+    kind?: QueryResponseAlternative62Kind
+    p_value: number
+    probability: QueryResponseAlternative62Probability
+    significance_code: ExperimentSignificanceCode
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantTrendsBaseStats[]
+}
+
+export interface QueryResponseAlternative63 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: LLMTrace[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative64 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type QueryResponseAlternative65ResultsItem = { [key: string]: unknown }
+
+export interface QueryResponseAlternative65 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Wether more breakdown values are available.
+     * @nullable
+     */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: QueryResponseAlternative65ResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative66 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative67 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: RetentionResult[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative68 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: PathsLink[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type QueryResponseAlternative69ResultsItem = { [key: string]: unknown }
+
+export interface QueryResponseAlternative69 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: QueryResponseAlternative69ResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative71 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: FunnelCorrelationResult
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type QueryResponseAlternative72Tables = {
+    [key: string]:
+        | DatabaseSchemaPostHogTable
+        | DatabaseSchemaSystemTable
+        | DatabaseSchemaDataWarehouseTable
+        | DatabaseSchemaViewTable
+        | DatabaseSchemaManagedViewTable
+        | DatabaseSchemaBatchExportTable
+        | DatabaseSchemaMaterializedViewTable
+        | DatabaseSchemaEndpointTable
+}
+
+export interface QueryResponseAlternative72 {
+    joins: DataWarehouseViewLink[]
+    tables: QueryResponseAlternative72Tables
+}
+
+export interface QueryResponseAlternative73 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /**
+     * Cursor for fetching the next page of results
+     * @nullable
+     */
+    nextCursor?: string | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type QueryResponseAlternative74ResultsItem = { [key: string]: unknown }
+
+export interface QueryResponseAlternative74 {
+    count: number
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: QueryResponseAlternative74ResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative75 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: LogValueResult[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative76 {
+    questions: string[]
+}
+
+export interface QueryResponseAlternative77 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: TeamTaxonomyItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative78 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: EventTaxonomyItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative79 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative80 {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: LLMTrace[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative82 {
+    /**
+     * Timestamp of the newer trace
+     * @nullable
+     */
+    newerTimestamp?: string | null
+    /**
+     * ID of the newer trace (chronologically after current)
+     * @nullable
+     */
+    newerTraceId?: string | null
+    /**
+     * Timestamp of the older trace
+     * @nullable
+     */
+    olderTimestamp?: string | null
+    /**
+     * ID of the older trace (chronologically before current)
+     * @nullable
+     */
+    olderTraceId?: string | null
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative83 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: VectorSearchResponseItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative84 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: UsageMetric[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative85 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: EndpointsUsageOverviewItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative86 {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** @nullable */
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type QueryResponseAlternative87ResultsItem = { [key: string]: unknown }
+
+export interface QueryResponseAlternative87 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: QueryResponseAlternative87ResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export interface QueryResponseAlternative88 {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse | null
+    results: PropertyValueItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTiming[] | null
+}
+
+export type QueryResponseAlternative =
+    | { [key: string]: unknown }
+    | QueryResponseAlternative1
+    | QueryResponseAlternative3
+    | QueryResponseAlternative4
+    | QueryResponseAlternative5
+    | QueryResponseAlternative6
+    | QueryResponseAlternative7
+    | QueryResponseAlternative8
+    | QueryResponseAlternative9
+    | QueryResponseAlternative10
+    | QueryResponseAlternative11
+    | QueryResponseAlternative14
+    | QueryResponseAlternative15
+    | QueryResponseAlternative16
+    | QueryResponseAlternative17
+    | QueryResponseAlternative18
+    | QueryResponseAlternative19
+    | QueryResponseAlternative20
+    | QueryResponseAlternative21
+    | QueryResponseAlternative22
+    | QueryResponseAlternative23
+    | QueryResponseAlternative24
+    | QueryResponseAlternative25
+    | QueryResponseAlternative27
+    | QueryResponseAlternative28
+    | QueryResponseAlternative29
+    | QueryResponseAlternative30
+    | QueryResponseAlternative31
+    | QueryResponseAlternative32
+    | QueryResponseAlternative33
+    | QueryResponseAlternative34
+    | QueryResponseAlternative35
+    | QueryResponseAlternative36
+    | QueryResponseAlternative37
+    | unknown
+    | QueryResponseAlternative38
+    | QueryResponseAlternative39
+    | QueryResponseAlternative40
+    | QueryResponseAlternative41
+    | QueryResponseAlternative42
+    | QueryResponseAlternative43
+    | QueryResponseAlternative44
+    | QueryResponseAlternative46
+    | QueryResponseAlternative47
+    | QueryResponseAlternative48
+    | QueryResponseAlternative49
+    | QueryResponseAlternative50
+    | QueryResponseAlternative51
+    | QueryResponseAlternative52
+    | QueryResponseAlternative53
+    | QueryResponseAlternative54
+    | QueryResponseAlternative56
+    | QueryResponseAlternative57
+    | QueryResponseAlternative58
+    | QueryResponseAlternative59
+    | QueryResponseAlternative61
+    | QueryResponseAlternative62
+    | QueryResponseAlternative63
+    | QueryResponseAlternative64
+    | QueryResponseAlternative65
+    | QueryResponseAlternative66
+    | QueryResponseAlternative67
+    | QueryResponseAlternative68
+    | QueryResponseAlternative69
+    | QueryResponseAlternative71
+    | QueryResponseAlternative72
+    | QueryResponseAlternative73
+    | QueryResponseAlternative74
+    | QueryResponseAlternative75
+    | QueryResponseAlternative76
+    | QueryResponseAlternative77
+    | QueryResponseAlternative78
+    | QueryResponseAlternative79
+    | QueryResponseAlternative80
+    | QueryResponseAlternative82
+    | QueryResponseAlternative83
+    | QueryResponseAlternative84
+    | QueryResponseAlternative85
+    | QueryResponseAlternative86
+    | QueryResponseAlternative87
+    | QueryResponseAlternative88
+
+export interface QueryStatusResponse {
+    query_status: QueryStatus
+}
+
+export interface QueryUpgradeRequest {
+    query:
+        | EventsNode
+        | ActionsNode
+        | PersonsNode
+        | DataWarehouseNode
+        | EventsQuery
+        | SessionsQuery
+        | ActorsQuery
+        | GroupsQuery
+        | InsightActorsQuery
+        | InsightActorsQueryOptions
+        | SessionsTimelineQuery
+        | HogQuery
+        | HogQLQuery
+        | HogQLMetadata
+        | HogQLAutocomplete
+        | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingSimilarIssuesQuery
+        | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | ExperimentQuery
+        | ExperimentExposureQuery
+        | DocumentSimilarityQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebPageURLSearchQuery
+        | WebAnalyticsExternalSummaryQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | DataVisualizationNode
+        | DataTableNode
+        | SavedInsightNode
+        | InsightVizNode
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | FunnelCorrelationQuery
+        | DatabaseSchemaQuery
+        | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
+        | SuggestedQuestionsQuery
+        | TeamTaxonomyQuery
+        | EventTaxonomyQuery
+        | ActorsPropertyTaxonomyQuery
+        | TracesQuery
+        | TraceQuery
+        | TraceNeighborsQuery
+        | VectorSearchQuery
+        | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
+}
+
+export interface QueryUpgradeResponse {
+    query:
+        | EventsNode
+        | ActionsNode
+        | PersonsNode
+        | DataWarehouseNode
+        | EventsQuery
+        | SessionsQuery
+        | ActorsQuery
+        | GroupsQuery
+        | InsightActorsQuery
+        | InsightActorsQueryOptions
+        | SessionsTimelineQuery
+        | HogQuery
+        | HogQLQuery
+        | HogQLMetadata
+        | HogQLAutocomplete
+        | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingSimilarIssuesQuery
+        | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | ExperimentQuery
+        | ExperimentExposureQuery
+        | DocumentSimilarityQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebPageURLSearchQuery
+        | WebAnalyticsExternalSummaryQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | DataVisualizationNode
+        | DataTableNode
+        | SavedInsightNode
+        | InsightVizNode
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | FunnelCorrelationQuery
+        | DatabaseSchemaQuery
+        | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
+        | SuggestedQuestionsQuery
+        | TeamTaxonomyQuery
+        | EventTaxonomyQuery
+        | ActorsPropertyTaxonomyQuery
+        | TracesQuery
+        | TraceQuery
+        | TraceNeighborsQuery
+        | VectorSearchQuery
+        | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
+}
+
+export interface ScanEvidence {
+    /** Number of files scanned */
+    filesScanned: number
+    /** Total candidate files detected */
+    detectedFilesCount: number
+    /** Number of distinct event names found */
+    eventNameCount: number
+    /** Whether posthog.init() was found in scanned files */
+    foundPosthogInit: boolean
+    /** Whether posthog.capture() was found in scanned files */
+    foundPosthogCapture: boolean
+    /** Whether error tracking signals were found in scanned files */
+    foundErrorSignal: boolean
+}
+
+export interface RepositoryReadinessResponse {
+    /** Normalized repository identifier */
+    repository: string
+    /** Repository classification */
+    classification: string
+    /** Whether the repository is excluded from readiness checks */
+    excluded: boolean
+    /** Tracking capability state */
+    coreSuggestions: CapabilityState
+    /** Computer vision capability state */
+    replayInsights: CapabilityState
+    /** Error tracking capability state */
+    errorInsights: CapabilityState
+    /** Overall readiness state */
+    overall: string
+    /** Count of replay-derived evidence tasks */
+    evidenceTaskCount: number
+    /** Lookback window in days */
+    windowDays: number
+    /** ISO timestamp when the response was generated */
+    generatedAt: string
+    /** Age of cached response in seconds */
+    cacheAgeSeconds: number
+    /** Scan evidence details */
+    scan?: ScanEvidence
+}
+
+export type SentimentResponseScores = { [key: string]: number }
+
+export type SentimentResponseGenerations = { [key: string]: GenerationSentiment }
+
+export interface SentimentResponse {
+    trace_id: string
+    label: string
+    score: number
+    scores: SentimentResponseScores
+    generations: SentimentResponseGenerations
+    generation_count: number
+    message_count: number
+}
+
+export type SentimentBatchResponseResults = { [key: string]: SentimentResponse }
+
+export interface SentimentBatchResponse {
+    results: SentimentBatchResponseResults
+}
+
+export interface SentimentRequest {
+    /**
+     * @minItems 1
+     * @maxItems 5
+     */
+    trace_ids: string[]
+    force_refresh?: boolean
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export interface SessionGroupSummary {
+    readonly id: string
+    /** Title of the group session summary */
+    readonly title: string
+    /** List of session replay IDs included in this group summary */
+    readonly session_ids: readonly string[]
+    /** Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema) */
+    readonly summary: unknown
+    /** Additional context passed to the summary (ExtraSummaryContext schema) */
+    readonly extra_summary_context: unknown | null
+    /** Summary run metadata (SessionSummaryRunMeta schema) */
+    readonly run_metadata: unknown | null
+    readonly created_at: string
+    readonly created_by: UserBasic
+    readonly team: number
+}
+
+export interface SessionSummaries {
+    /**
+     * List of session IDs to summarize (max 300)
+     * @minItems 1
+     * @maxItems 300
+     */
+    session_ids: string[]
+    /**
+     * Optional focus area for the summarization
+     * @maxLength 500
+     */
+    focus_area?: string
+}
+
+export interface SharingConfiguration {
+    readonly created_at: string
+    enabled?: boolean
+    /** @nullable */
+    readonly access_token: string | null
+    settings?: unknown | null
+    password_required?: boolean
+    readonly share_passwords: string
+}
+
+export interface SummaryBullet {
+    text: string
+    line_refs: string
+}
+
+export interface StructuredSummary {
+    /** Concise title (no longer than 10 words) summarizing the trace/event */
+    title: string
+    /** Mermaid flowchart code showing the main flow */
+    flow_diagram: string
+    /** Main summary bullets */
+    summary_bullets: SummaryBullet[]
+    /** Interesting notes (0-2 for minimal, more for detailed) */
+    interesting_notes: InterestingNote[]
+}
+
+export interface SuggestReplyError {
+    detail: string
+    error_type?: string
+}
+
+export interface SuggestReplyResponse {
+    suggestion: string
+}
+
+/**
+ * * `trace` - trace
+ * `event` - event
+ */
+export type SummarizeTypeEnum = (typeof SummarizeTypeEnum)[keyof typeof SummarizeTypeEnum]
+
+export const SummarizeTypeEnum = {
+    Trace: 'trace',
+    Event: 'event',
+} as const
+
+export interface SummarizeRequest {
+    /** Type of entity to summarize
+
+* `trace` - trace
+* `event` - event */
+    summarize_type: SummarizeTypeEnum
+    /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
+
+* `minimal` - minimal
+* `detailed` - detailed */
+    mode?: Mode02aEnum
+    /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
+    data: unknown
+    /** Force regenerate summary, bypassing cache */
+    force_refresh?: boolean
+    /**
+     * LLM model to use (defaults based on provider)
+     * @nullable
+     */
+    model?: string | null
+}
+
+export interface SummarizeResponse {
+    /** Structured AI-generated summary with flow, bullets, and optional notes */
+    summary: StructuredSummary
+    /** Line-numbered text representation that the summary references */
+    text_repr: string
+    /** Metadata about the summarization */
+    metadata?: unknown
+}
+
+export interface SurveySerializerCreateUpdateOnly {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    type: SurveyType
+    /** @nullable */
+    schedule?: string | null
+    readonly linked_flag: MinimalFeatureFlag
+    /** @nullable */
+    linked_flag_id?: number | null
+    /** @nullable */
+    linked_insight_id?: number | null
+    targeting_flag_id?: number
+    readonly targeting_flag: MinimalFeatureFlag
+    readonly internal_targeting_flag: MinimalFeatureFlag
+    targeting_flag_filters?: unknown | null
+    /** @nullable */
+    remove_targeting_flag?: boolean | null
+    /**
+        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
+
+        Basic (open-ended question)
+        - `id`: The question ID
+        - `type`: `open`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Link (a question with a link)
+        - `id`: The question ID
+        - `type`: `link`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `link`: The URL associated with the question.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Rating (a question with a rating scale)
+        - `id`: The question ID
+        - `type`: `rating`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `display`: Display style of the rating (`number` or `emoji`).
+        - `scale`: The scale of the rating (`number`).
+        - `lowerBoundLabel`: Label for the lower bound of the scale.
+        - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Multiple choice
+        - `id`: The question ID
+        - `type`: `single_choice` or `multiple_choice`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `choices`: An array of choices for the question.
+        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Branching logic can be one of the following types:
+
+        Next question: Proceeds to the next question
+        ```json
+        {
+            "type": "next_question"
+        }
+        ```
+
+        End: Ends the survey, optionally displaying a confirmation message.
+        ```json
+        {
+            "type": "end"
+        }
+        ```
+
+        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+        ```json
+        {
+            "type": "response_based",
+            "responseValues": {
+                "responseKey": "value"
+            }
+        }
+        ```
+
+        Specific question: Proceeds to a specific question by index.
+        ```json
+        {
+            "type": "specific_question",
+            "index": 2
+        }
+        ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
+         */
+    questions?: unknown | null
+    conditions?: unknown | null
+    appearance?: unknown | null
+    readonly created_at: string
+    readonly created_by: UserBasic
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    archived?: boolean
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    responses_limit?: number | null
+    /**
+     * @minimum 0
+     * @maximum 500
+     * @nullable
+     */
+    iteration_count?: number | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    iteration_frequency_days?: number | null
+    /** @nullable */
+    iteration_start_dates?: (string | null)[] | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    current_iteration?: number | null
+    /** @nullable */
+    current_iteration_start_date?: string | null
+    /** @nullable */
+    response_sampling_start_date?: string | null
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    response_sampling_interval?: number | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    response_sampling_limit?: number | null
+    response_sampling_daily_limits?: unknown | null
+    /** @nullable */
+    enable_partial_responses?: boolean | null
+    /** @nullable */
+    enable_iframe_embedding?: boolean | null
+    translations?: unknown | null
+    _create_in_folder?: string
+    form_content?: unknown | null
+}
+
+export type TaskRunAppendLogRequestEntriesItem = { [key: string]: unknown }
+
+export interface TaskRunAppendLogRequest {
+    /** Array of log entry dictionaries to append */
+    entries: TaskRunAppendLogRequestEntriesItem[]
+}
+
+export interface TaskRunArtifactPresignRequest {
+    /**
+     * S3 storage path returned in the artifact manifest
+     * @maxLength 500
+     */
+    storage_path: string
+}
+
+export interface TaskRunArtifactPresignResponse {
+    /** Presigned URL for downloading the artifact */
+    url: string
+    /** URL expiry in seconds */
+    expires_in: number
+}
+
+/**
+ * * `plan` - plan
+ * `context` - context
+ * `reference` - reference
+ * `output` - output
+ * `artifact` - artifact
+ */
+export type TaskRunArtifactUploadTypeEnum =
+    (typeof TaskRunArtifactUploadTypeEnum)[keyof typeof TaskRunArtifactUploadTypeEnum]
+
+export const TaskRunArtifactUploadTypeEnum = {
+    Plan: 'plan',
+    Context: 'context',
+    Reference: 'reference',
+    Output: 'output',
+    Artifact: 'artifact',
+} as const
+
+export interface TaskRunArtifactUpload {
+    /**
+     * File name to associate with the artifact
+     * @maxLength 255
+     */
+    name: string
+    /** Classification for the artifact
+
+* `plan` - plan
+* `context` - context
+* `reference` - reference
+* `output` - output
+* `artifact` - artifact */
+    type: TaskRunArtifactUploadTypeEnum
+    /** Raw file contents (UTF-8 string or base64 data) */
+    content: string
+    /**
+     * Optional MIME type for the artifact
+     * @maxLength 255
+     */
+    content_type?: string
+}
+
+export interface TaskRunArtifactsUploadRequest {
+    /** Array of artifacts to upload */
+    artifacts: TaskRunArtifactUpload[]
+}
+
+export interface TaskRunArtifactsUploadResponse {
+    /** Updated list of artifacts on the run */
+    artifacts: TaskRunArtifactResponse[]
+}
+
+/**
+ * Parameters for the command
+ */
+export type TaskRunCommandRequestParams = { [key: string]: unknown }
+
+/**
+ * JSON-RPC request to send a command to the agent server in the sandbox.
+ */
+export interface TaskRunCommandRequest {
+    /** JSON-RPC version, must be '2.0'
+
+* `2.0` - 2.0 */
+    jsonrpc: JsonrpcEnum
+    /** Command method to execute on the agent server
+
+* `user_message` - user_message
+* `cancel` - cancel
+* `close` - close */
+    method: MethodEnum
+    /** Parameters for the command */
+    params?: TaskRunCommandRequestParams
+    /** Optional JSON-RPC request ID (string or number) */
+    id?: unknown
+}
+
+/**
+ * Command result on success
+ */
+export type TaskRunCommandResponseResult = { [key: string]: unknown }
+
+/**
+ * Error details on failure
+ */
+export type TaskRunCommandResponseError = { [key: string]: unknown }
+
+/**
+ * Response from the agent server command endpoint.
+ */
+export interface TaskRunCommandResponse {
+    /** JSON-RPC version */
+    jsonrpc: string
+    /** Request ID echoed back (string or number) */
+    id?: unknown
+    /** Command result on success */
+    result?: TaskRunCommandResponseResult
+    /** Error details on failure */
+    error?: TaskRunCommandResponseError
+}
+
+/**
+ * * `interactive` - interactive
+ * `background` - background
+ */
+export type TaskRunCreateRequestModeEnum =
+    (typeof TaskRunCreateRequestModeEnum)[keyof typeof TaskRunCreateRequestModeEnum]
+
+export const TaskRunCreateRequestModeEnum = {
+    Interactive: 'interactive',
+    Background: 'background',
+} as const
+
+/**
+ * Request body for creating a new task run
+ */
+export interface TaskRunCreateRequest {
+    /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+* `interactive` - interactive
+* `background` - background */
+    mode?: TaskRunCreateRequestModeEnum
+}
+
+export interface TaskRunRelayMessageRequest {
+    /** @maxLength 10000 */
+    text: string
+}
+
+export type TeamDefaultModifiers = { [key: string]: unknown }
+
+export type TeamGroupTypesItem = { [key: string]: unknown }
+
+export interface Team {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    access_control?: boolean
+    readonly organization: string
+    /**
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     */
+    readonly project_id: number
+    readonly api_token: string
+    /** @nullable */
+    readonly secret_api_token: string | null
+    /** @nullable */
+    readonly secret_api_token_backup: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly ingested_event: boolean
+    readonly default_modifiers: TeamDefaultModifiers
+    readonly person_on_events_querying_enabled: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    app_urls?: (string | null)[]
+    /**
+     * @maxLength 500
+     * @nullable
+     */
+    slack_incoming_webhook?: string | null
+    anonymize_ips?: boolean
+    completed_snippet_onboarding?: boolean
+    test_account_filters?: unknown
+    /** @nullable */
+    test_account_filters_default_checked?: boolean | null
+    path_cleaning_filters?: unknown | null
+    is_demo?: boolean
+    timezone?: string
+    data_attributes?: unknown
+    /** @nullable */
+    person_display_name_properties?: string[] | null
+    correlation_config?: unknown | null
+    /** @nullable */
+    autocapture_opt_out?: boolean | null
+    /** @nullable */
+    autocapture_exceptions_opt_in?: boolean | null
+    /** @nullable */
+    autocapture_web_vitals_opt_in?: boolean | null
+    autocapture_web_vitals_allowed_metrics?: unknown | null
+    autocapture_exceptions_errors_to_ignore?: unknown | null
+    /** @nullable */
+    capture_console_log_opt_in?: boolean | null
+    logs_settings?: unknown | null
+    /** @nullable */
+    capture_performance_opt_in?: boolean | null
+    session_recording_opt_in?: boolean
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    session_recording_sample_rate?: string | null
+    /**
+     * @minimum 0
+     * @maximum 30000
+     * @nullable
+     */
+    session_recording_minimum_duration_milliseconds?: number | null
+    session_recording_linked_flag?: unknown | null
+    session_recording_network_payload_capture_config?: unknown | null
+    session_recording_masking_config?: unknown | null
+    /** @nullable */
+    session_recording_url_trigger_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_url_blocklist_config?: (unknown | null)[] | null
+    /** @nullable */
+    session_recording_event_trigger_config?: (string | null)[] | null
+    /**
+     * @maxLength 24
+     * @nullable
+     */
+    session_recording_trigger_match_type_config?: string | null
+    session_recording_retention_period?: SessionRecordingRetentionPeriodEnum
+    session_replay_config?: unknown | null
+    survey_config?: unknown | null
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    week_start_day?: WeekStartDayEnum | NullEnum | null
+    /** @nullable */
+    primary_dashboard?: number | null
+    /** @nullable */
+    live_events_columns?: string[] | null
+    /** @nullable */
+    recording_domains?: (string | null)[] | null
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    cookieless_server_hash_mode?: CookielessServerHashModeEnum | NullEnum | null
+    /** @nullable */
+    human_friendly_comparison_periods?: boolean | null
+    /** @nullable */
+    inject_web_apps?: boolean | null
+    extra_settings?: unknown | null
+    modifiers?: unknown | null
+    has_completed_onboarding_for?: unknown | null
+    /** @nullable */
+    surveys_opt_in?: boolean | null
+    /** @nullable */
+    heatmaps_opt_in?: boolean | null
+    /** @nullable */
+    flags_persistence_default?: boolean | null
+    /** @nullable */
+    feature_flag_confirmation_enabled?: boolean | null
+    /** @nullable */
+    feature_flag_confirmation_message?: string | null
+    /**
+     * Whether to automatically apply default evaluation contexts to new feature flags
+     * @nullable
+     */
+    default_evaluation_contexts_enabled?: boolean | null
+    /**
+     * Whether to require at least one evaluation context tag when creating new feature flags
+     * @nullable
+     */
+    require_evaluation_contexts?: boolean | null
+    /** @nullable */
+    capture_dead_clicks?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    default_data_theme?: number | null
+    revenue_analytics_config?: TeamRevenueAnalyticsConfig
+    marketing_analytics_config?: TeamMarketingAnalyticsConfig
+    customer_analytics_config?: TeamCustomerAnalyticsConfig
+    onboarding_tasks?: unknown | null
+    base_currency?: BaseCurrencyEnum
+    /** @nullable */
+    web_analytics_pre_aggregated_tables_enabled?: boolean | null
+    /**
+     * Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.
+     * @nullable
+     */
+    experiment_recalculation_time?: string | null
+    /**
+     * Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    default_experiment_confidence_level?: string | null
+    /** Default statistical method for new experiments in this environment.
+
+* `bayesian` - Bayesian
+* `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    receive_org_level_activity_logs?: boolean | null
+    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other */
+    business_model?: BusinessModelEnum | BlankEnum | NullEnum | null
+    /** @nullable */
+    conversations_enabled?: boolean | null
+    conversations_settings?: unknown | null
+    /** @nullable */
+    proactive_tasks_enabled?: boolean | null
+    readonly effective_membership_level: EffectiveMembershipLevelEnum | null
+    readonly has_group_types: boolean
+    readonly group_types: readonly TeamGroupTypesItem[]
+    /** @nullable */
+    readonly live_events_token: string | null
+    readonly product_intents: string
+    readonly managed_viewsets: string
+    readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[]
+}
+
+export interface TextReprMetadata {
+    event_type?: string
+    event_id?: string
+    trace_id?: string
+    rendering: string
+    char_count: number
+    truncated: boolean
+    error?: string
+}
+
+export interface TextReprOptions {
+    /** Maximum length of generated text (default: 2000000) */
+    max_length?: number
+    /** Use truncation for long content within events (default: true) */
+    truncated?: boolean
+    /** Characters to show at start/end when truncating (default: 1000) */
+    truncate_buffer?: number
+    /** Use interactive markers for frontend vs plain text for backend/LLM (default: true) */
+    include_markers?: boolean
+    /** Show summary vs full tree hierarchy for traces (default: false) */
+    collapsed?: boolean
+    /** Include metadata in response */
+    include_metadata?: boolean
+    /** Include hierarchy information (for traces) */
+    include_hierarchy?: boolean
+    /** Maximum depth for hierarchical rendering */
+    max_depth?: number
+    /** Number of tools before collapsing the list (default: 5) */
+    tools_collapse_threshold?: number
+    /** Prefix each line with line number (default: false) */
+    include_line_numbers?: boolean
+}
+
+export interface TextReprRequest {
+    /** Type of LLM event to stringify
+
+* `$ai_generation` - $ai_generation
+* `$ai_span` - $ai_span
+* `$ai_embedding` - $ai_embedding
+* `$ai_trace` - $ai_trace */
+    event_type: EventTypeEnum
+    /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
+    data: unknown
+    /** Optional configuration for text generation */
+    options?: TextReprOptions
+}
+
+export interface TextReprResponse {
+    /** Generated text representation of the event */
+    text: string
+    /** Metadata about the text representation */
+    metadata: TextReprMetadata
+}
+
+export interface ViewLinkValidation {
+    /** @maxLength 255 */
+    joining_table_name: string
+    /** @maxLength 255 */
+    joining_table_key: string
+    /** @maxLength 255 */
+    source_table_name: string
+    /** @maxLength 255 */
+    source_table_key: string
+}
+
+export interface WebAnalyticsBreakdownResponse {
+    /**
+     * URL for next page of results
+     * @nullable
+     */
+    next?: string | null
+    /** Array of breakdown items */
+    results: unknown[]
+}
+
+export interface WebAnalyticsOverviewResponse {
+    /** Unique visitors */
+    visitors: number
+    /** Total page views */
+    views: number
+    /** Total sessions */
+    sessions: number
+    /**
+     * Bounce rate
+     * @minimum 0
+     * @maximum 1
+     */
+    bounce_rate: number
+    /** Average session duration in seconds */
+    session_duration: number
+}
+
+export type EnvironmentsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsBatchExportsBackfillsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+}
+
+export type EnvironmentsBatchExportsRunsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+}
+
+export type EnvironmentsDashboardsListParams = {
+    format?: EnvironmentsDashboardsListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsDashboardsListFormat =
+    (typeof EnvironmentsDashboardsListFormat)[keyof typeof EnvironmentsDashboardsListFormat]
+
+export const EnvironmentsDashboardsListFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsCreateParams = {
+    format?: EnvironmentsDashboardsCreateFormat
+}
+
+export type EnvironmentsDashboardsCreateFormat =
+    (typeof EnvironmentsDashboardsCreateFormat)[keyof typeof EnvironmentsDashboardsCreateFormat]
+
+export const EnvironmentsDashboardsCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsRetrieveParams = {
+    format?: EnvironmentsDashboardsRetrieveFormat
+}
+
+export type EnvironmentsDashboardsRetrieveFormat =
+    (typeof EnvironmentsDashboardsRetrieveFormat)[keyof typeof EnvironmentsDashboardsRetrieveFormat]
+
+export const EnvironmentsDashboardsRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsUpdateParams = {
+    format?: EnvironmentsDashboardsUpdateFormat
+}
+
+export type EnvironmentsDashboardsUpdateFormat =
+    (typeof EnvironmentsDashboardsUpdateFormat)[keyof typeof EnvironmentsDashboardsUpdateFormat]
+
+export const EnvironmentsDashboardsUpdateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsPartialUpdateParams = {
+    format?: EnvironmentsDashboardsPartialUpdateFormat
+}
+
+export type EnvironmentsDashboardsPartialUpdateFormat =
+    (typeof EnvironmentsDashboardsPartialUpdateFormat)[keyof typeof EnvironmentsDashboardsPartialUpdateFormat]
+
+export const EnvironmentsDashboardsPartialUpdateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsDestroyParams = {
+    format?: EnvironmentsDashboardsDestroyFormat
+}
+
+export type EnvironmentsDashboardsDestroyFormat =
+    (typeof EnvironmentsDashboardsDestroyFormat)[keyof typeof EnvironmentsDashboardsDestroyFormat]
+
+export const EnvironmentsDashboardsDestroyFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsAnalyzeRefreshResultCreateParams = {
+    format?: EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat
+}
+
+export type EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat =
+    (typeof EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat)[keyof typeof EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat]
+
+export const EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
+    format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat
+}
+
+export type EnvironmentsDashboardsMoveTilePartialUpdateFormat =
+    (typeof EnvironmentsDashboardsMoveTilePartialUpdateFormat)[keyof typeof EnvironmentsDashboardsMoveTilePartialUpdateFormat]
+
+export const EnvironmentsDashboardsMoveTilePartialUpdateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsSnapshotCreateParams = {
+    format?: EnvironmentsDashboardsSnapshotCreateFormat
+}
+
+export type EnvironmentsDashboardsSnapshotCreateFormat =
+    (typeof EnvironmentsDashboardsSnapshotCreateFormat)[keyof typeof EnvironmentsDashboardsSnapshotCreateFormat]
+
+export const EnvironmentsDashboardsSnapshotCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
+    format?: EnvironmentsDashboardsStreamTilesRetrieveFormat
+}
+
+export type EnvironmentsDashboardsStreamTilesRetrieveFormat =
+    (typeof EnvironmentsDashboardsStreamTilesRetrieveFormat)[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveFormat]
+
+export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsCreateFromTemplateJsonCreateParams = {
+    format?: EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat
+}
+
+export type EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat =
+    (typeof EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat)[keyof typeof EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat]
+
+export const EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDashboardsCreateUnlistedDashboardCreateParams = {
+    format?: EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat
+}
+
+export type EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat =
+    (typeof EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat)[keyof typeof EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat]
+
+export const EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type EnvironmentsDataColorThemesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsDataModelingJobsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * @nullable
+     */
+    saved_query_id?: string | null
+}
+
+export type EnvironmentsDatasetItemsListParams = {
+    /**
+     * Filter by dataset ID
+     */
+    dataset?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsDatasetsListParams = {
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+ */
+    order_by?: string[]
+    /**
+     * Search in name, description, or metadata
+     */
+    search?: string
+}
+
+export type EnvironmentsElementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsEventsListParams = {
+    /**
+     * Only return events with a timestamp after this time. Default: now() - 24 hours.
+     */
+    after?: string
+    /**
+     * Only return events with a timestamp before this time. Default: now() + 5 seconds.
+     */
+    before?: string
+    /**
+     * Filter list by distinct id.
+     */
+    distinct_id?: number
+    /**
+     * Filter list by event. For example `user sign up` or `$pageview`.
+     */
+    event?: string
+    format?: EnvironmentsEventsListFormat
+    /**
+     * The maximum number of results to return
+     */
+    limit?: number
+    /**
+     * Allows to skip first offset rows. Will fail for value larger than 100000. Read about proper way of paginating: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset
+     */
+    offset?: number
+    /**
+     * Filter list by person id.
+     */
+    person_id?: number
+    /**
+     * Filter events by event property, person property, cohort, groups and more.
+     */
+    properties?: Property[]
+    /**
+     * (Experimental) JSON-serialized array of HogQL expressions to return
+     */
+    select?: string[]
+    /**
+     * (Experimental) JSON-serialized array of HogQL expressions that must pass
+     */
+    where?: string[]
+}
+
+export type EnvironmentsEventsListFormat =
+    (typeof EnvironmentsEventsListFormat)[keyof typeof EnvironmentsEventsListFormat]
+
+export const EnvironmentsEventsListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsEventsRetrieveParams = {
+    format?: EnvironmentsEventsRetrieveFormat
+}
+
+export type EnvironmentsEventsRetrieveFormat =
+    (typeof EnvironmentsEventsRetrieveFormat)[keyof typeof EnvironmentsEventsRetrieveFormat]
+
+export const EnvironmentsEventsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsEventsValuesRetrieveParams = {
+    format?: EnvironmentsEventsValuesRetrieveFormat
+}
+
+export type EnvironmentsEventsValuesRetrieveFormat =
+    (typeof EnvironmentsEventsValuesRetrieveFormat)[keyof typeof EnvironmentsEventsValuesRetrieveFormat]
+
+export const EnvironmentsEventsValuesRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsExternalDataSchemasListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type EnvironmentsExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type EnvironmentsFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type EnvironmentsFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsGroupsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Specify the group type to list
+     */
+    group_type_index: number
+    /**
+     * Search the group name
+     */
+    search: string
+}
+
+export type EnvironmentsGroupsActivityRetrieveParams = {
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+    /**
+     * Specify the id of the user to find groups for
+     */
+    id: string
+}
+
+export type EnvironmentsGroupsDeletePropertyCreateParams = {
+    /**
+     * Specify the key of the group to find
+     */
+    group_key: string
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+}
+
+export type EnvironmentsGroupsFindRetrieveParams = {
+    /**
+     * Specify the key of the group to find
+     */
+    group_key: string
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+}
+
+export type EnvironmentsGroupsRelatedRetrieveParams = {
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+    /**
+     * Specify the id of the user to find groups for
+     */
+    id: string
+}
+
+export type EnvironmentsGroupsUpdatePropertyCreateParams = {
+    /**
+     * Specify the key of the group to find
+     */
+    group_key: string
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+}
+
+export type EnvironmentsHeatmapsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsHogFlowTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsHogFlowsListParams = {
+    created_at?: string
+    created_by?: number
+    id?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    updated_at?: string
+}
+
+export type EnvironmentsHogFunctionsListParams = {
+    created_at?: string
+    created_by?: number
+    enabled?: boolean
+    id?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * Multiple values may be separated by commas.
+     */
+    type?: string[]
+    updated_at?: string
+}
+
+export type EnvironmentsInsightVariablesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
+}
+
+export type EnvironmentsInsightsListParams = {
+    /**
+     * Return basic insight metadata only (no results, faster).
+     */
+    basic?: boolean
+    format?: EnvironmentsInsightsListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * 
+Whether to refresh the retrieved insights, how aggressively, and if sync or async:
+- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+- `'force_async'` - kick off background calculation, even if fresh results are already cached
+Background calculation can be tracked using the `query_status` response field.
+ */
+    refresh?: EnvironmentsInsightsListRefresh
+    short_id?: string
+}
+
+export type EnvironmentsInsightsListFormat =
+    (typeof EnvironmentsInsightsListFormat)[keyof typeof EnvironmentsInsightsListFormat]
+
+export const EnvironmentsInsightsListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsListRefresh =
+    (typeof EnvironmentsInsightsListRefresh)[keyof typeof EnvironmentsInsightsListRefresh]
+
+export const EnvironmentsInsightsListRefresh = {
+    Async: 'async',
+    AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
+    Blocking: 'blocking',
+    ForceAsync: 'force_async',
+    ForceBlocking: 'force_blocking',
+    ForceCache: 'force_cache',
+    LazyAsync: 'lazy_async',
+} as const
+
+export type EnvironmentsInsightsCreateParams = {
+    format?: EnvironmentsInsightsCreateFormat
+}
+
+export type EnvironmentsInsightsCreateFormat =
+    (typeof EnvironmentsInsightsCreateFormat)[keyof typeof EnvironmentsInsightsCreateFormat]
+
+export const EnvironmentsInsightsCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsThresholdsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsInsightsRetrieveParams = {
+    format?: EnvironmentsInsightsRetrieveFormat
+    /**
+ * 
+Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
+When set, the specified dashboard's filters and date range override will be applied.
+ */
+    from_dashboard?: number
+    /**
+ * 
+Whether to refresh the insight, how aggresively, and if sync or async:
+- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+- `'force_async'` - kick off background calculation, even if fresh results are already cached
+Background calculation can be tracked using the `query_status` response field.
+ */
+    refresh?: EnvironmentsInsightsRetrieveRefresh
+}
+
+export type EnvironmentsInsightsRetrieveFormat =
+    (typeof EnvironmentsInsightsRetrieveFormat)[keyof typeof EnvironmentsInsightsRetrieveFormat]
+
+export const EnvironmentsInsightsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsRetrieveRefresh =
+    (typeof EnvironmentsInsightsRetrieveRefresh)[keyof typeof EnvironmentsInsightsRetrieveRefresh]
+
+export const EnvironmentsInsightsRetrieveRefresh = {
+    Async: 'async',
+    AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
+    Blocking: 'blocking',
+    ForceAsync: 'force_async',
+    ForceBlocking: 'force_blocking',
+    ForceCache: 'force_cache',
+    LazyAsync: 'lazy_async',
+} as const
+
+export type EnvironmentsInsightsUpdateParams = {
+    format?: EnvironmentsInsightsUpdateFormat
+}
+
+export type EnvironmentsInsightsUpdateFormat =
+    (typeof EnvironmentsInsightsUpdateFormat)[keyof typeof EnvironmentsInsightsUpdateFormat]
+
+export const EnvironmentsInsightsUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsPartialUpdateParams = {
+    format?: EnvironmentsInsightsPartialUpdateFormat
+}
+
+export type EnvironmentsInsightsPartialUpdateFormat =
+    (typeof EnvironmentsInsightsPartialUpdateFormat)[keyof typeof EnvironmentsInsightsPartialUpdateFormat]
+
+export const EnvironmentsInsightsPartialUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsDestroyParams = {
+    format?: EnvironmentsInsightsDestroyFormat
+}
+
+export type EnvironmentsInsightsDestroyFormat =
+    (typeof EnvironmentsInsightsDestroyFormat)[keyof typeof EnvironmentsInsightsDestroyFormat]
+
+export const EnvironmentsInsightsDestroyFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsActivityRetrieve2Params = {
+    format?: EnvironmentsInsightsActivityRetrieve2Format
+}
+
+export type EnvironmentsInsightsActivityRetrieve2Format =
+    (typeof EnvironmentsInsightsActivityRetrieve2Format)[keyof typeof EnvironmentsInsightsActivityRetrieve2Format]
+
+export const EnvironmentsInsightsActivityRetrieve2Format = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsAnalyzeRetrieveParams = {
+    format?: EnvironmentsInsightsAnalyzeRetrieveFormat
+}
+
+export type EnvironmentsInsightsAnalyzeRetrieveFormat =
+    (typeof EnvironmentsInsightsAnalyzeRetrieveFormat)[keyof typeof EnvironmentsInsightsAnalyzeRetrieveFormat]
+
+export const EnvironmentsInsightsAnalyzeRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsSuggestionsRetrieveParams = {
+    format?: EnvironmentsInsightsSuggestionsRetrieveFormat
+}
+
+export type EnvironmentsInsightsSuggestionsRetrieveFormat =
+    (typeof EnvironmentsInsightsSuggestionsRetrieveFormat)[keyof typeof EnvironmentsInsightsSuggestionsRetrieveFormat]
+
+export const EnvironmentsInsightsSuggestionsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsSuggestionsCreateParams = {
+    format?: EnvironmentsInsightsSuggestionsCreateFormat
+}
+
+export type EnvironmentsInsightsSuggestionsCreateFormat =
+    (typeof EnvironmentsInsightsSuggestionsCreateFormat)[keyof typeof EnvironmentsInsightsSuggestionsCreateFormat]
+
+export const EnvironmentsInsightsSuggestionsCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsActivityRetrieveParams = {
+    format?: EnvironmentsInsightsActivityRetrieveFormat
+}
+
+export type EnvironmentsInsightsActivityRetrieveFormat =
+    (typeof EnvironmentsInsightsActivityRetrieveFormat)[keyof typeof EnvironmentsInsightsActivityRetrieveFormat]
+
+export const EnvironmentsInsightsActivityRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsCancelCreateParams = {
+    format?: EnvironmentsInsightsCancelCreateFormat
+}
+
+export type EnvironmentsInsightsCancelCreateFormat =
+    (typeof EnvironmentsInsightsCancelCreateFormat)[keyof typeof EnvironmentsInsightsCancelCreateFormat]
+
+export const EnvironmentsInsightsCancelCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsGenerateNameCreateParams = {
+    format?: EnvironmentsInsightsGenerateNameCreateFormat
+}
+
+export type EnvironmentsInsightsGenerateNameCreateFormat =
+    (typeof EnvironmentsInsightsGenerateNameCreateFormat)[keyof typeof EnvironmentsInsightsGenerateNameCreateFormat]
+
+export const EnvironmentsInsightsGenerateNameCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsMyLastViewedRetrieveParams = {
+    format?: EnvironmentsInsightsMyLastViewedRetrieveFormat
+}
+
+export type EnvironmentsInsightsMyLastViewedRetrieveFormat =
+    (typeof EnvironmentsInsightsMyLastViewedRetrieveFormat)[keyof typeof EnvironmentsInsightsMyLastViewedRetrieveFormat]
+
+export const EnvironmentsInsightsMyLastViewedRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsTrendingRetrieveParams = {
+    format?: EnvironmentsInsightsTrendingRetrieveFormat
+}
+
+export type EnvironmentsInsightsTrendingRetrieveFormat =
+    (typeof EnvironmentsInsightsTrendingRetrieveFormat)[keyof typeof EnvironmentsInsightsTrendingRetrieveFormat]
+
+export const EnvironmentsInsightsTrendingRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsInsightsViewedCreateParams = {
+    format?: EnvironmentsInsightsViewedCreateFormat
+}
+
+export type EnvironmentsInsightsViewedCreateFormat =
+    (typeof EnvironmentsInsightsViewedCreateFormat)[keyof typeof EnvironmentsInsightsViewedCreateFormat]
+
+export const EnvironmentsInsightsViewedCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsIntegrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsPersonsListParams = {
+    /**
+     * Filter list by distinct id.
+     */
+    distinct_id?: string
+    /**
+     * Filter persons by email (exact match)
+     */
+    email?: string
+    format?: EnvironmentsPersonsListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter Persons by person properties.
+     */
+    properties?: Property[]
+    /**
+     * Search persons, either by email (full text search) or distinct_id (exact match).
+     */
+    search?: string
+}
+
+export type EnvironmentsPersonsListFormat =
+    (typeof EnvironmentsPersonsListFormat)[keyof typeof EnvironmentsPersonsListFormat]
+
+export const EnvironmentsPersonsListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsRetrieveParams = {
+    format?: EnvironmentsPersonsRetrieveFormat
+}
+
+export type EnvironmentsPersonsRetrieveFormat =
+    (typeof EnvironmentsPersonsRetrieveFormat)[keyof typeof EnvironmentsPersonsRetrieveFormat]
+
+export const EnvironmentsPersonsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsUpdateParams = {
+    format?: EnvironmentsPersonsUpdateFormat
+}
+
+export type EnvironmentsPersonsUpdateFormat =
+    (typeof EnvironmentsPersonsUpdateFormat)[keyof typeof EnvironmentsPersonsUpdateFormat]
+
+export const EnvironmentsPersonsUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsPartialUpdateParams = {
+    format?: EnvironmentsPersonsPartialUpdateFormat
+}
+
+export type EnvironmentsPersonsPartialUpdateFormat =
+    (typeof EnvironmentsPersonsPartialUpdateFormat)[keyof typeof EnvironmentsPersonsPartialUpdateFormat]
+
+export const EnvironmentsPersonsPartialUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsActivityRetrieve2Params = {
+    format?: EnvironmentsPersonsActivityRetrieve2Format
+}
+
+export type EnvironmentsPersonsActivityRetrieve2Format =
+    (typeof EnvironmentsPersonsActivityRetrieve2Format)[keyof typeof EnvironmentsPersonsActivityRetrieve2Format]
+
+export const EnvironmentsPersonsActivityRetrieve2Format = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsDeletePropertyCreateParams = {
+    /**
+     * Specify the property key to delete
+     */
+    $unset: string
+    format?: EnvironmentsPersonsDeletePropertyCreateFormat
+}
+
+export type EnvironmentsPersonsDeletePropertyCreateFormat =
+    (typeof EnvironmentsPersonsDeletePropertyCreateFormat)[keyof typeof EnvironmentsPersonsDeletePropertyCreateFormat]
+
+export const EnvironmentsPersonsDeletePropertyCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsPropertiesTimelineRetrieveParams = {
+    format?: EnvironmentsPersonsPropertiesTimelineRetrieveFormat
+}
+
+export type EnvironmentsPersonsPropertiesTimelineRetrieveFormat =
+    (typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat)[keyof typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat]
+
+export const EnvironmentsPersonsPropertiesTimelineRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsSplitCreateParams = {
+    format?: EnvironmentsPersonsSplitCreateFormat
+}
+
+export type EnvironmentsPersonsSplitCreateFormat =
+    (typeof EnvironmentsPersonsSplitCreateFormat)[keyof typeof EnvironmentsPersonsSplitCreateFormat]
+
+export const EnvironmentsPersonsSplitCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsUpdatePropertyCreateParams = {
+    format?: EnvironmentsPersonsUpdatePropertyCreateFormat
+    /**
+     * Specify the property key
+     */
+    key: string
+    /**
+     * Specify the property value
+     */
+    value: unknown
+}
+
+export type EnvironmentsPersonsUpdatePropertyCreateFormat =
+    (typeof EnvironmentsPersonsUpdatePropertyCreateFormat)[keyof typeof EnvironmentsPersonsUpdatePropertyCreateFormat]
+
+export const EnvironmentsPersonsUpdatePropertyCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsActivityRetrieveParams = {
+    format?: EnvironmentsPersonsActivityRetrieveFormat
+}
+
+export type EnvironmentsPersonsActivityRetrieveFormat =
+    (typeof EnvironmentsPersonsActivityRetrieveFormat)[keyof typeof EnvironmentsPersonsActivityRetrieveFormat]
+
+export const EnvironmentsPersonsActivityRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsBatchByDistinctIdsCreateParams = {
+    format?: EnvironmentsPersonsBatchByDistinctIdsCreateFormat
+}
+
+export type EnvironmentsPersonsBatchByDistinctIdsCreateFormat =
+    (typeof EnvironmentsPersonsBatchByDistinctIdsCreateFormat)[keyof typeof EnvironmentsPersonsBatchByDistinctIdsCreateFormat]
+
+export const EnvironmentsPersonsBatchByDistinctIdsCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsBulkDeleteCreateParams = {
+    /**
+     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
+     */
+    delete_events?: boolean
+    /**
+     * If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
+     */
+    delete_recordings?: boolean
+    /**
+     * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
+     */
+    distinct_ids?: { [key: string]: unknown }
+    format?: EnvironmentsPersonsBulkDeleteCreateFormat
+    /**
+     * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
+     */
+    ids?: { [key: string]: unknown }
+    /**
+     * If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them
+     */
+    keep_person?: boolean
+}
+
+export type EnvironmentsPersonsBulkDeleteCreateFormat =
+    (typeof EnvironmentsPersonsBulkDeleteCreateFormat)[keyof typeof EnvironmentsPersonsBulkDeleteCreateFormat]
+
+export const EnvironmentsPersonsBulkDeleteCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsCohortsRetrieveParams = {
+    format?: EnvironmentsPersonsCohortsRetrieveFormat
+}
+
+export type EnvironmentsPersonsCohortsRetrieveFormat =
+    (typeof EnvironmentsPersonsCohortsRetrieveFormat)[keyof typeof EnvironmentsPersonsCohortsRetrieveFormat]
+
+export const EnvironmentsPersonsCohortsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsFunnelRetrieveParams = {
+    format?: EnvironmentsPersonsFunnelRetrieveFormat
+}
+
+export type EnvironmentsPersonsFunnelRetrieveFormat =
+    (typeof EnvironmentsPersonsFunnelRetrieveFormat)[keyof typeof EnvironmentsPersonsFunnelRetrieveFormat]
+
+export const EnvironmentsPersonsFunnelRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsFunnelCreateParams = {
+    format?: EnvironmentsPersonsFunnelCreateFormat
+}
+
+export type EnvironmentsPersonsFunnelCreateFormat =
+    (typeof EnvironmentsPersonsFunnelCreateFormat)[keyof typeof EnvironmentsPersonsFunnelCreateFormat]
+
+export const EnvironmentsPersonsFunnelCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsFunnelCorrelationRetrieveParams = {
+    format?: EnvironmentsPersonsFunnelCorrelationRetrieveFormat
+}
+
+export type EnvironmentsPersonsFunnelCorrelationRetrieveFormat =
+    (typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat)[keyof typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat]
+
+export const EnvironmentsPersonsFunnelCorrelationRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsFunnelCorrelationCreateParams = {
+    format?: EnvironmentsPersonsFunnelCorrelationCreateFormat
+}
+
+export type EnvironmentsPersonsFunnelCorrelationCreateFormat =
+    (typeof EnvironmentsPersonsFunnelCorrelationCreateFormat)[keyof typeof EnvironmentsPersonsFunnelCorrelationCreateFormat]
+
+export const EnvironmentsPersonsFunnelCorrelationCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsLifecycleRetrieveParams = {
+    format?: EnvironmentsPersonsLifecycleRetrieveFormat
+}
+
+export type EnvironmentsPersonsLifecycleRetrieveFormat =
+    (typeof EnvironmentsPersonsLifecycleRetrieveFormat)[keyof typeof EnvironmentsPersonsLifecycleRetrieveFormat]
+
+export const EnvironmentsPersonsLifecycleRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsPropertiesAtTimeRetrieveParams = {
+    /**
+     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
+     */
+    debug?: boolean
+    /**
+     * The distinct_id of the person (mutually exclusive with person_id)
+     */
+    distinct_id?: string
+    format?: EnvironmentsPersonsPropertiesAtTimeRetrieveFormat
+    /**
+     * Whether to handle $set_once operations (default: false)
+     */
+    include_set_once?: boolean
+    /**
+     * The person_id (UUID) to build properties for (mutually exclusive with distinct_id)
+     */
+    person_id?: string
+    /**
+     * ISO datetime string for the point in time (e.g., '2023-06-15T14:30:00Z')
+     */
+    timestamp: string
+}
+
+export type EnvironmentsPersonsPropertiesAtTimeRetrieveFormat =
+    (typeof EnvironmentsPersonsPropertiesAtTimeRetrieveFormat)[keyof typeof EnvironmentsPersonsPropertiesAtTimeRetrieveFormat]
+
+export const EnvironmentsPersonsPropertiesAtTimeRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsResetPersonDistinctIdCreateParams = {
+    format?: EnvironmentsPersonsResetPersonDistinctIdCreateFormat
+}
+
+export type EnvironmentsPersonsResetPersonDistinctIdCreateFormat =
+    (typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat)[keyof typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat]
+
+export const EnvironmentsPersonsResetPersonDistinctIdCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsStickinessRetrieveParams = {
+    format?: EnvironmentsPersonsStickinessRetrieveFormat
+}
+
+export type EnvironmentsPersonsStickinessRetrieveFormat =
+    (typeof EnvironmentsPersonsStickinessRetrieveFormat)[keyof typeof EnvironmentsPersonsStickinessRetrieveFormat]
+
+export const EnvironmentsPersonsStickinessRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsTrendsRetrieveParams = {
+    format?: EnvironmentsPersonsTrendsRetrieveFormat
+}
+
+export type EnvironmentsPersonsTrendsRetrieveFormat =
+    (typeof EnvironmentsPersonsTrendsRetrieveFormat)[keyof typeof EnvironmentsPersonsTrendsRetrieveFormat]
+
+export const EnvironmentsPersonsTrendsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPersonsValuesRetrieveParams = {
+    format?: EnvironmentsPersonsValuesRetrieveFormat
+}
+
+export type EnvironmentsPersonsValuesRetrieveFormat =
+    (typeof EnvironmentsPersonsValuesRetrieveFormat)[keyof typeof EnvironmentsPersonsValuesRetrieveFormat]
+
+export const EnvironmentsPersonsValuesRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EnvironmentsPluginConfigsLogsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+/**
+ * Unspecified response body
+ */
+export type EnvironmentsQueryLogRetrieve200 = { [key: string]: unknown }
+
+export type EnvironmentsSavedListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsSessionRecordingPlaylistsListParams = {
+    created_by?: number
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    short_id?: string
+}
+
+export type EnvironmentsSessionRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsSubscriptionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsUserProductListListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsWarehouseSavedQueriesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type EnvironmentsWarehouseTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type EnvironmentsWarehouseViewLinkListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type EnvironmentsWarehouseViewLinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ApprovalPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ChangeRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ColumnConfigurationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CoreMemoryListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomerJourneysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomerProfileConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DataModelingEdgesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DataModelingNodesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingAutocaptureControlsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingFingerprintsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingGroupingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingIssuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingStackFramesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSuppressionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSymbolSetsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EvaluationsListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+* `name` - Name
+* `-name` - Name (descending)
+ */
+    order_by?: string[]
+    /**
+     * Search in name or description
+     */
+    search?: string
+}
+
+export type HealthIssuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsProviderKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown }
+
+export type LlmAnalyticsSummarizationCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown }
+
+export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
+
+export type LlmPromptsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type MaterializedColumnSlotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type McpServerInstallationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type McpServerInstallationsAuthorizeRetrieveParams = {
+    server_id: string
+}
+
+export type McpServersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type MessagingCategoriesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type MessagingTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type QuickFiltersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SessionRecordingExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UserInterviewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WebAnalyticsFilterPresetsListParams = {
+    created_by?: number
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    short_id?: string
+}
+
+export type WebVitalsRetrieveParams = {
+    /**
+     * Filter web vitals by pathname
+     */
+    pathname: string
+}
+
+export type ListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type BatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DomainsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type IntegrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type InvitesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type MembersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type OauthApplicationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type List2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ProxyRecordsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type RolesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type RolesRoleMembershipsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ActionsListParams = {
+    format?: ActionsListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ActionsListFormat = (typeof ActionsListFormat)[keyof typeof ActionsListFormat]
+
+export const ActionsListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsCreateParams = {
+    format?: ActionsCreateFormat
+}
+
+export type ActionsCreateFormat = (typeof ActionsCreateFormat)[keyof typeof ActionsCreateFormat]
+
+export const ActionsCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsRetrieveParams = {
+    format?: ActionsRetrieveFormat
+}
+
+export type ActionsRetrieveFormat = (typeof ActionsRetrieveFormat)[keyof typeof ActionsRetrieveFormat]
+
+export const ActionsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsUpdateParams = {
+    format?: ActionsUpdateFormat
+}
+
+export type ActionsUpdateFormat = (typeof ActionsUpdateFormat)[keyof typeof ActionsUpdateFormat]
+
+export const ActionsUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsPartialUpdateParams = {
+    format?: ActionsPartialUpdateFormat
+}
+
+export type ActionsPartialUpdateFormat = (typeof ActionsPartialUpdateFormat)[keyof typeof ActionsPartialUpdateFormat]
+
+export const ActionsPartialUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsDestroyParams = {
+    format?: ActionsDestroyFormat
+}
+
+export type ActionsDestroyFormat = (typeof ActionsDestroyFormat)[keyof typeof ActionsDestroyFormat]
+
+export const ActionsDestroyFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type AlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AnnotationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type BatchExportsList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type BatchExportsBackfillsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+}
+
+export type BatchExportsRunsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+}
+
+export type CohortsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CohortsPersonsRetrieveParams = {
+    format?: CohortsPersonsRetrieveFormat
+}
+
+export type CohortsPersonsRetrieveFormat =
+    (typeof CohortsPersonsRetrieveFormat)[keyof typeof CohortsPersonsRetrieveFormat]
+
+export const CohortsPersonsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type CommentsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+}
+
+export type ConversationsTicketsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DashboardTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DashboardsListParams = {
+    format?: DashboardsListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DashboardsListFormat = (typeof DashboardsListFormat)[keyof typeof DashboardsListFormat]
+
+export const DashboardsListFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsCreateParams = {
+    format?: DashboardsCreateFormat
+}
+
+export type DashboardsCreateFormat = (typeof DashboardsCreateFormat)[keyof typeof DashboardsCreateFormat]
+
+export const DashboardsCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsRetrieveParams = {
+    format?: DashboardsRetrieveFormat
+}
+
+export type DashboardsRetrieveFormat = (typeof DashboardsRetrieveFormat)[keyof typeof DashboardsRetrieveFormat]
+
+export const DashboardsRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsUpdateParams = {
+    format?: DashboardsUpdateFormat
+}
+
+export type DashboardsUpdateFormat = (typeof DashboardsUpdateFormat)[keyof typeof DashboardsUpdateFormat]
+
+export const DashboardsUpdateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsPartialUpdateParams = {
+    format?: DashboardsPartialUpdateFormat
+}
+
+export type DashboardsPartialUpdateFormat =
+    (typeof DashboardsPartialUpdateFormat)[keyof typeof DashboardsPartialUpdateFormat]
+
+export const DashboardsPartialUpdateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsDestroyParams = {
+    format?: DashboardsDestroyFormat
+}
+
+export type DashboardsDestroyFormat = (typeof DashboardsDestroyFormat)[keyof typeof DashboardsDestroyFormat]
+
+export const DashboardsDestroyFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsAnalyzeRefreshResultCreateParams = {
+    format?: DashboardsAnalyzeRefreshResultCreateFormat
+}
+
+export type DashboardsAnalyzeRefreshResultCreateFormat =
+    (typeof DashboardsAnalyzeRefreshResultCreateFormat)[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat]
+
+export const DashboardsAnalyzeRefreshResultCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsMoveTilePartialUpdateParams = {
+    format?: DashboardsMoveTilePartialUpdateFormat
+}
+
+export type DashboardsMoveTilePartialUpdateFormat =
+    (typeof DashboardsMoveTilePartialUpdateFormat)[keyof typeof DashboardsMoveTilePartialUpdateFormat]
+
+export const DashboardsMoveTilePartialUpdateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsSnapshotCreateParams = {
+    format?: DashboardsSnapshotCreateFormat
+}
+
+export type DashboardsSnapshotCreateFormat =
+    (typeof DashboardsSnapshotCreateFormat)[keyof typeof DashboardsSnapshotCreateFormat]
+
+export const DashboardsSnapshotCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsStreamTilesRetrieveParams = {
+    format?: DashboardsStreamTilesRetrieveFormat
+}
+
+export type DashboardsStreamTilesRetrieveFormat =
+    (typeof DashboardsStreamTilesRetrieveFormat)[keyof typeof DashboardsStreamTilesRetrieveFormat]
+
+export const DashboardsStreamTilesRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsCreateFromTemplateJsonCreateParams = {
+    format?: DashboardsCreateFromTemplateJsonCreateFormat
+}
+
+export type DashboardsCreateFromTemplateJsonCreateFormat =
+    (typeof DashboardsCreateFromTemplateJsonCreateFormat)[keyof typeof DashboardsCreateFromTemplateJsonCreateFormat]
+
+export const DashboardsCreateFromTemplateJsonCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsCreateUnlistedDashboardCreateParams = {
+    format?: DashboardsCreateUnlistedDashboardCreateFormat
+}
+
+export type DashboardsCreateUnlistedDashboardCreateFormat =
+    (typeof DashboardsCreateUnlistedDashboardCreateFormat)[keyof typeof DashboardsCreateUnlistedDashboardCreateFormat]
+
+export const DashboardsCreateUnlistedDashboardCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DataColorThemesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DataModelingJobsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * @nullable
+     */
+    saved_query_id?: string | null
+}
+
+export type DatasetItemsListParams = {
+    /**
+     * Filter by dataset ID
+     */
+    dataset?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DatasetsListParams = {
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+ */
+    order_by?: string[]
+    /**
+     * Search in name, description, or metadata
+     */
+    search?: string
+}
+
+export type EarlyAccessFeatureListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ElementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type List3Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingReleasesList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSymbolSetsList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EventDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EventDefinitionsByNameRetrieveParams = {
+    /**
+     * The exact event name to look up
+     */
+    name: string
+}
+
+export type EventSchemasListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EventsListParams = {
+    /**
+     * Only return events with a timestamp after this time. Default: now() - 24 hours.
+     */
+    after?: string
+    /**
+     * Only return events with a timestamp before this time. Default: now() + 5 seconds.
+     */
+    before?: string
+    /**
+     * Filter list by distinct id.
+     */
+    distinct_id?: number
+    /**
+     * Filter list by event. For example `user sign up` or `$pageview`.
+     */
+    event?: string
+    format?: EventsListFormat
+    /**
+     * The maximum number of results to return
+     */
+    limit?: number
+    /**
+     * Allows to skip first offset rows. Will fail for value larger than 100000. Read about proper way of paginating: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset
+     */
+    offset?: number
+    /**
+     * Filter list by person id.
+     */
+    person_id?: number
+    /**
+     * Filter events by event property, person property, cohort, groups and more.
+     */
+    properties?: Property[]
+    /**
+     * (Experimental) JSON-serialized array of HogQL expressions to return
+     */
+    select?: string[]
+    /**
+     * (Experimental) JSON-serialized array of HogQL expressions that must pass
+     */
+    where?: string[]
+}
+
+export type EventsListFormat = (typeof EventsListFormat)[keyof typeof EventsListFormat]
+
+export const EventsListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EventsRetrieveParams = {
+    format?: EventsRetrieveFormat
+}
+
+export type EventsRetrieveFormat = (typeof EventsRetrieveFormat)[keyof typeof EventsRetrieveFormat]
+
+export const EventsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type EventsValuesRetrieveParams = {
+    format?: EventsValuesRetrieveFormat
+}
+
+export type EventsValuesRetrieveFormat = (typeof EventsValuesRetrieveFormat)[keyof typeof EventsValuesRetrieveFormat]
+
+export const EventsValuesRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ExperimentHoldoutsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ExperimentSavedMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ExperimentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ExternalDataSchemasListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type FeatureFlagsListParams = {
+    active?: FeatureFlagsListActive
+    /**
+     * The User ID which initially created the feature flag.
+     */
+    created_by_id?: string
+    /**
+     * Filter feature flags by their evaluation runtime.
+     */
+    evaluation_runtime?: FeatureFlagsListEvaluationRuntime
+    /**
+     * JSON-encoded list of feature flag keys to exclude from the results.
+     */
+    excluded_properties?: string
+    /**
+     * Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
+     */
+    has_evaluation_tags?: FeatureFlagsListHasEvaluationTags
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Search by feature flag key or name. Case insensitive.
+     */
+    search?: string
+    /**
+     * JSON-encoded list of tag names to filter feature flags by.
+     */
+    tags?: string
+    type?: FeatureFlagsListType
+}
+
+export type FeatureFlagsListActive = (typeof FeatureFlagsListActive)[keyof typeof FeatureFlagsListActive]
+
+export const FeatureFlagsListActive = {
+    Stale: 'STALE',
+    False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListEvaluationRuntime =
+    (typeof FeatureFlagsListEvaluationRuntime)[keyof typeof FeatureFlagsListEvaluationRuntime]
+
+export const FeatureFlagsListEvaluationRuntime = {
+    Both: 'both',
+    Client: 'client',
+    Server: 'server',
+} as const
+
+export type FeatureFlagsListHasEvaluationTags =
+    (typeof FeatureFlagsListHasEvaluationTags)[keyof typeof FeatureFlagsListHasEvaluationTags]
+
+export const FeatureFlagsListHasEvaluationTags = {
+    False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListType = (typeof FeatureFlagsListType)[keyof typeof FeatureFlagsListType]
+
+export const FeatureFlagsListType = {
+    Boolean: 'boolean',
+    Experiment: 'experiment',
+    Multivariant: 'multivariant',
+} as const
+
+export type FeatureFlagsActivityRetrieve2Params = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
+
+export type FeatureFlagsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
+
+export type FeatureFlagsEvaluationReasonsRetrieveParams = {
+    /**
+     * User distinct ID
+     * @minLength 1
+     */
+    distinct_id: string
+    /**
+     * Groups for feature flag evaluation (JSON object string)
+     */
+    groups?: string
+}
+
+export type FeatureFlagsLocalEvaluationRetrieveParams = {
+    /**
+     * Include cohorts in response
+     * @nullable
+     */
+    send_cohorts?: boolean | null
+}
+
+/**
+ * Unspecified response body
+ */
+export type FeatureFlagsLocalEvaluationRetrieve402 = { [key: string]: unknown }
+
+/**
+ * Unspecified response body
+ */
+export type FeatureFlagsLocalEvaluationRetrieve500 = { [key: string]: unknown }
+
+export type FeatureFlagsMyFlagsRetrieveParams = {
+    /**
+     * Groups for feature flag evaluation (JSON object string)
+     */
+    groups?: string
+}
+
+export type FileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type FileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type FlagValueValuesRetrieveParams = {
+    /**
+     * The flag ID
+     */
+    key?: string
+}
+
+/**
+ * Unspecified response body
+ */
+export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
+
+/**
+ * Unspecified response body
+ */
+export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
+
+export type GroupsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Specify the group type to list
+     */
+    group_type_index: number
+    /**
+     * Search the group name
+     */
+    search: string
+}
+
+export type GroupsActivityRetrieveParams = {
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+    /**
+     * Specify the id of the user to find groups for
+     */
+    id: string
+}
+
+export type GroupsDeletePropertyCreateParams = {
+    /**
+     * Specify the key of the group to find
+     */
+    group_key: string
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+}
+
+export type GroupsFindRetrieveParams = {
+    /**
+     * Specify the key of the group to find
+     */
+    group_key: string
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+}
+
+export type GroupsRelatedRetrieveParams = {
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+    /**
+     * Specify the id of the user to find groups for
+     */
+    id: string
+}
+
+export type GroupsUpdatePropertyCreateParams = {
+    /**
+     * Specify the key of the group to find
+     */
+    group_key: string
+    /**
+     * Specify the group type to find
+     */
+    group_type_index: number
+}
+
+export type GroupsTypesMetricsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type HeatmapsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type HogFlowTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type HogFlowsListParams = {
+    created_at?: string
+    created_by?: number
+    id?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    updated_at?: string
+}
+
+export type HogFunctionsListParams = {
+    created_at?: string
+    created_by?: number
+    enabled?: boolean
+    id?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * Multiple values may be separated by commas.
+     */
+    type?: string[]
+    updated_at?: string
+}
+
+export type InsightVariablesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
+}
+
+export type InsightsListParams = {
+    /**
+     * Return basic insight metadata only (no results, faster).
+     */
+    basic?: boolean
+    format?: InsightsListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * 
+Whether to refresh the retrieved insights, how aggressively, and if sync or async:
+- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+- `'force_async'` - kick off background calculation, even if fresh results are already cached
+Background calculation can be tracked using the `query_status` response field.
+ */
+    refresh?: InsightsListRefresh
+    short_id?: string
+}
+
+export type InsightsListFormat = (typeof InsightsListFormat)[keyof typeof InsightsListFormat]
+
+export const InsightsListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsListRefresh = (typeof InsightsListRefresh)[keyof typeof InsightsListRefresh]
+
+export const InsightsListRefresh = {
+    Async: 'async',
+    AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
+    Blocking: 'blocking',
+    ForceAsync: 'force_async',
+    ForceBlocking: 'force_blocking',
+    ForceCache: 'force_cache',
+    LazyAsync: 'lazy_async',
+} as const
+
+export type InsightsCreateParams = {
+    format?: InsightsCreateFormat
+}
+
+export type InsightsCreateFormat = (typeof InsightsCreateFormat)[keyof typeof InsightsCreateFormat]
+
+export const InsightsCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsThresholdsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type InsightsRetrieveParams = {
+    format?: InsightsRetrieveFormat
+    /**
+ * 
+Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
+When set, the specified dashboard's filters and date range override will be applied.
+ */
+    from_dashboard?: number
+    /**
+ * 
+Whether to refresh the insight, how aggresively, and if sync or async:
+- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+- `'force_async'` - kick off background calculation, even if fresh results are already cached
+Background calculation can be tracked using the `query_status` response field.
+ */
+    refresh?: InsightsRetrieveRefresh
+}
+
+export type InsightsRetrieveFormat = (typeof InsightsRetrieveFormat)[keyof typeof InsightsRetrieveFormat]
+
+export const InsightsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsRetrieveRefresh = (typeof InsightsRetrieveRefresh)[keyof typeof InsightsRetrieveRefresh]
+
+export const InsightsRetrieveRefresh = {
+    Async: 'async',
+    AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
+    Blocking: 'blocking',
+    ForceAsync: 'force_async',
+    ForceBlocking: 'force_blocking',
+    ForceCache: 'force_cache',
+    LazyAsync: 'lazy_async',
+} as const
+
+export type InsightsUpdateParams = {
+    format?: InsightsUpdateFormat
+}
+
+export type InsightsUpdateFormat = (typeof InsightsUpdateFormat)[keyof typeof InsightsUpdateFormat]
+
+export const InsightsUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsPartialUpdateParams = {
+    format?: InsightsPartialUpdateFormat
+}
+
+export type InsightsPartialUpdateFormat = (typeof InsightsPartialUpdateFormat)[keyof typeof InsightsPartialUpdateFormat]
+
+export const InsightsPartialUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsDestroyParams = {
+    format?: InsightsDestroyFormat
+}
+
+export type InsightsDestroyFormat = (typeof InsightsDestroyFormat)[keyof typeof InsightsDestroyFormat]
+
+export const InsightsDestroyFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsActivityRetrieve2Params = {
+    format?: InsightsActivityRetrieve2Format
+}
+
+export type InsightsActivityRetrieve2Format =
+    (typeof InsightsActivityRetrieve2Format)[keyof typeof InsightsActivityRetrieve2Format]
+
+export const InsightsActivityRetrieve2Format = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsAnalyzeRetrieveParams = {
+    format?: InsightsAnalyzeRetrieveFormat
+}
+
+export type InsightsAnalyzeRetrieveFormat =
+    (typeof InsightsAnalyzeRetrieveFormat)[keyof typeof InsightsAnalyzeRetrieveFormat]
+
+export const InsightsAnalyzeRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsSuggestionsRetrieveParams = {
+    format?: InsightsSuggestionsRetrieveFormat
+}
+
+export type InsightsSuggestionsRetrieveFormat =
+    (typeof InsightsSuggestionsRetrieveFormat)[keyof typeof InsightsSuggestionsRetrieveFormat]
+
+export const InsightsSuggestionsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsSuggestionsCreateParams = {
+    format?: InsightsSuggestionsCreateFormat
+}
+
+export type InsightsSuggestionsCreateFormat =
+    (typeof InsightsSuggestionsCreateFormat)[keyof typeof InsightsSuggestionsCreateFormat]
+
+export const InsightsSuggestionsCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsActivityRetrieveParams = {
+    format?: InsightsActivityRetrieveFormat
+}
+
+export type InsightsActivityRetrieveFormat =
+    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
+
+export const InsightsActivityRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsCancelCreateParams = {
+    format?: InsightsCancelCreateFormat
+}
+
+export type InsightsCancelCreateFormat = (typeof InsightsCancelCreateFormat)[keyof typeof InsightsCancelCreateFormat]
+
+export const InsightsCancelCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsGenerateNameCreateParams = {
+    format?: InsightsGenerateNameCreateFormat
+}
+
+export type InsightsGenerateNameCreateFormat =
+    (typeof InsightsGenerateNameCreateFormat)[keyof typeof InsightsGenerateNameCreateFormat]
+
+export const InsightsGenerateNameCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsMyLastViewedRetrieveParams = {
+    format?: InsightsMyLastViewedRetrieveFormat
+}
+
+export type InsightsMyLastViewedRetrieveFormat =
+    (typeof InsightsMyLastViewedRetrieveFormat)[keyof typeof InsightsMyLastViewedRetrieveFormat]
+
+export const InsightsMyLastViewedRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsTrendingRetrieveParams = {
+    format?: InsightsTrendingRetrieveFormat
+}
+
+export type InsightsTrendingRetrieveFormat =
+    (typeof InsightsTrendingRetrieveFormat)[keyof typeof InsightsTrendingRetrieveFormat]
+
+export const InsightsTrendingRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsViewedCreateParams = {
+    format?: InsightsViewedCreateFormat
+}
+
+export type InsightsViewedCreateFormat = (typeof InsightsViewedCreateFormat)[keyof typeof InsightsViewedCreateFormat]
+
+export const InsightsViewedCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type IntegrationsList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LiveDebuggerBreakpointsListParams = {
+    filename?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    repository?: string
+}
+
+export type LiveDebuggerBreakpointsActiveRetrieveParams = {
+    /**
+     * Only return enabled breakpoints
+     */
+    enabled?: boolean
+    /**
+     * Filter breakpoints for a specific file
+     */
+    filename?: string
+    /**
+     * Filter breakpoints for a specific repository (e.g., 'PostHog/posthog')
+     */
+    repository?: string
+}
+
+export type LiveDebuggerBreakpointsBreakpointHitsRetrieveParams = {
+    /**
+     * Filter hits for specific breakpoints (repeat parameter for multiple IDs, e.g., ?breakpoint_ids=uuid1&breakpoint_ids=uuid2)
+     */
+    breakpoint_ids?: string
+    /**
+     * Number of hits to return (default: 100, max: 1000)
+     */
+    limit?: number
+    /**
+     * Pagination offset for retrieving additional results (default: 0)
+     */
+    offset?: number
+}
+
+export type ManagedMigrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * * `completed` - Completed
+     * `failed` - Failed
+     * `paused` - Paused
+     * `running` - Running
+     */
+    status?: ManagedMigrationsListStatus
+}
+
+export type ManagedMigrationsListStatus = (typeof ManagedMigrationsListStatus)[keyof typeof ManagedMigrationsListStatus]
+
+export const ManagedMigrationsListStatus = {
+    Completed: 'completed',
+    Failed: 'failed',
+    Paused: 'paused',
+    Running: 'running',
+} as const
+
+export type NotebooksListParams = {
+    /**
+ * Filter for notebooks that match a provided filter.
+                Each match pair is separated by a colon,
+                multiple match pairs can be sent separated by a space or a comma
+ */
+    contains?: string
+    /**
+     * The UUID of the Notebook's creator
+     */
+    created_by?: string
+    /**
+     * Filter for notebooks created after this date & time
+     */
+    date_from?: string
+    /**
+     * Filter for notebooks created before this date & time
+     */
+    date_to?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * If any value is provided for this parameter, return notebooks created by the logged in user.
+     */
+    user?: string
+}
+
+export type ObjectMediaPreviewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type PersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type PersonsListParams = {
+    /**
+     * Filter list by distinct id.
+     */
+    distinct_id?: string
+    /**
+     * Filter persons by email (exact match)
+     */
+    email?: string
+    format?: PersonsListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter Persons by person properties.
+     */
+    properties?: Property[]
+    /**
+     * Search persons, either by email (full text search) or distinct_id (exact match).
+     */
+    search?: string
+}
+
+export type PersonsListFormat = (typeof PersonsListFormat)[keyof typeof PersonsListFormat]
+
+export const PersonsListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsRetrieveParams = {
+    format?: PersonsRetrieveFormat
+}
+
+export type PersonsRetrieveFormat = (typeof PersonsRetrieveFormat)[keyof typeof PersonsRetrieveFormat]
+
+export const PersonsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsUpdateParams = {
+    format?: PersonsUpdateFormat
+}
+
+export type PersonsUpdateFormat = (typeof PersonsUpdateFormat)[keyof typeof PersonsUpdateFormat]
+
+export const PersonsUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsPartialUpdateParams = {
+    format?: PersonsPartialUpdateFormat
+}
+
+export type PersonsPartialUpdateFormat = (typeof PersonsPartialUpdateFormat)[keyof typeof PersonsPartialUpdateFormat]
+
+export const PersonsPartialUpdateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsActivityRetrieve2Params = {
+    format?: PersonsActivityRetrieve2Format
+}
+
+export type PersonsActivityRetrieve2Format =
+    (typeof PersonsActivityRetrieve2Format)[keyof typeof PersonsActivityRetrieve2Format]
+
+export const PersonsActivityRetrieve2Format = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsDeletePropertyCreateParams = {
+    /**
+     * Specify the property key to delete
+     */
+    $unset: string
+    format?: PersonsDeletePropertyCreateFormat
+}
+
+export type PersonsDeletePropertyCreateFormat =
+    (typeof PersonsDeletePropertyCreateFormat)[keyof typeof PersonsDeletePropertyCreateFormat]
+
+export const PersonsDeletePropertyCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsPropertiesTimelineRetrieveParams = {
+    format?: PersonsPropertiesTimelineRetrieveFormat
+}
+
+export type PersonsPropertiesTimelineRetrieveFormat =
+    (typeof PersonsPropertiesTimelineRetrieveFormat)[keyof typeof PersonsPropertiesTimelineRetrieveFormat]
+
+export const PersonsPropertiesTimelineRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsSplitCreateParams = {
+    format?: PersonsSplitCreateFormat
+}
+
+export type PersonsSplitCreateFormat = (typeof PersonsSplitCreateFormat)[keyof typeof PersonsSplitCreateFormat]
+
+export const PersonsSplitCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsUpdatePropertyCreateParams = {
+    format?: PersonsUpdatePropertyCreateFormat
+    /**
+     * Specify the property key
+     */
+    key: string
+    /**
+     * Specify the property value
+     */
+    value: unknown
+}
+
+export type PersonsUpdatePropertyCreateFormat =
+    (typeof PersonsUpdatePropertyCreateFormat)[keyof typeof PersonsUpdatePropertyCreateFormat]
+
+export const PersonsUpdatePropertyCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsActivityRetrieveParams = {
+    format?: PersonsActivityRetrieveFormat
+}
+
+export type PersonsActivityRetrieveFormat =
+    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
+
+export const PersonsActivityRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsBatchByDistinctIdsCreateParams = {
+    format?: PersonsBatchByDistinctIdsCreateFormat
+}
+
+export type PersonsBatchByDistinctIdsCreateFormat =
+    (typeof PersonsBatchByDistinctIdsCreateFormat)[keyof typeof PersonsBatchByDistinctIdsCreateFormat]
+
+export const PersonsBatchByDistinctIdsCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsBulkDeleteCreateParams = {
+    /**
+     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
+     */
+    delete_events?: boolean
+    /**
+     * If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
+     */
+    delete_recordings?: boolean
+    /**
+     * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
+     */
+    distinct_ids?: { [key: string]: unknown }
+    format?: PersonsBulkDeleteCreateFormat
+    /**
+     * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
+     */
+    ids?: { [key: string]: unknown }
+    /**
+     * If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them
+     */
+    keep_person?: boolean
+}
+
+export type PersonsBulkDeleteCreateFormat =
+    (typeof PersonsBulkDeleteCreateFormat)[keyof typeof PersonsBulkDeleteCreateFormat]
+
+export const PersonsBulkDeleteCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsCohortsRetrieveParams = {
+    format?: PersonsCohortsRetrieveFormat
+}
+
+export type PersonsCohortsRetrieveFormat =
+    (typeof PersonsCohortsRetrieveFormat)[keyof typeof PersonsCohortsRetrieveFormat]
+
+export const PersonsCohortsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsFunnelRetrieveParams = {
+    format?: PersonsFunnelRetrieveFormat
+}
+
+export type PersonsFunnelRetrieveFormat = (typeof PersonsFunnelRetrieveFormat)[keyof typeof PersonsFunnelRetrieveFormat]
+
+export const PersonsFunnelRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsFunnelCreateParams = {
+    format?: PersonsFunnelCreateFormat
+}
+
+export type PersonsFunnelCreateFormat = (typeof PersonsFunnelCreateFormat)[keyof typeof PersonsFunnelCreateFormat]
+
+export const PersonsFunnelCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsFunnelCorrelationRetrieveParams = {
+    format?: PersonsFunnelCorrelationRetrieveFormat
+}
+
+export type PersonsFunnelCorrelationRetrieveFormat =
+    (typeof PersonsFunnelCorrelationRetrieveFormat)[keyof typeof PersonsFunnelCorrelationRetrieveFormat]
+
+export const PersonsFunnelCorrelationRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsFunnelCorrelationCreateParams = {
+    format?: PersonsFunnelCorrelationCreateFormat
+}
+
+export type PersonsFunnelCorrelationCreateFormat =
+    (typeof PersonsFunnelCorrelationCreateFormat)[keyof typeof PersonsFunnelCorrelationCreateFormat]
+
+export const PersonsFunnelCorrelationCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsLifecycleRetrieveParams = {
+    format?: PersonsLifecycleRetrieveFormat
+}
+
+export type PersonsLifecycleRetrieveFormat =
+    (typeof PersonsLifecycleRetrieveFormat)[keyof typeof PersonsLifecycleRetrieveFormat]
+
+export const PersonsLifecycleRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsPropertiesAtTimeRetrieveParams = {
+    /**
+     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
+     */
+    debug?: boolean
+    /**
+     * The distinct_id of the person (mutually exclusive with person_id)
+     */
+    distinct_id?: string
+    format?: PersonsPropertiesAtTimeRetrieveFormat
+    /**
+     * Whether to handle $set_once operations (default: false)
+     */
+    include_set_once?: boolean
+    /**
+     * The person_id (UUID) to build properties for (mutually exclusive with distinct_id)
+     */
+    person_id?: string
+    /**
+     * ISO datetime string for the point in time (e.g., '2023-06-15T14:30:00Z')
+     */
+    timestamp: string
+}
+
+export type PersonsPropertiesAtTimeRetrieveFormat =
+    (typeof PersonsPropertiesAtTimeRetrieveFormat)[keyof typeof PersonsPropertiesAtTimeRetrieveFormat]
+
+export const PersonsPropertiesAtTimeRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsResetPersonDistinctIdCreateParams = {
+    format?: PersonsResetPersonDistinctIdCreateFormat
+}
+
+export type PersonsResetPersonDistinctIdCreateFormat =
+    (typeof PersonsResetPersonDistinctIdCreateFormat)[keyof typeof PersonsResetPersonDistinctIdCreateFormat]
+
+export const PersonsResetPersonDistinctIdCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsStickinessRetrieveParams = {
+    format?: PersonsStickinessRetrieveFormat
+}
+
+export type PersonsStickinessRetrieveFormat =
+    (typeof PersonsStickinessRetrieveFormat)[keyof typeof PersonsStickinessRetrieveFormat]
+
+export const PersonsStickinessRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsTrendsRetrieveParams = {
+    format?: PersonsTrendsRetrieveFormat
+}
+
+export type PersonsTrendsRetrieveFormat = (typeof PersonsTrendsRetrieveFormat)[keyof typeof PersonsTrendsRetrieveFormat]
+
+export const PersonsTrendsRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsValuesRetrieveParams = {
+    format?: PersonsValuesRetrieveFormat
+}
+
+export type PersonsValuesRetrieveFormat = (typeof PersonsValuesRetrieveFormat)[keyof typeof PersonsValuesRetrieveFormat]
+
+export const PersonsValuesRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PluginConfigsLogsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ProductToursListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type PropertyDefinitionsListParams = {
+    /**
+     * If sent, response value will have `is_seen_on_filtered_events` populated. JSON-encoded
+     * @minLength 1
+     */
+    event_names?: string
+    /**
+     * Whether to exclude core properties
+     */
+    exclude_core_properties?: boolean
+    /**
+     * Whether to exclude properties marked as hidden
+     */
+    exclude_hidden?: boolean
+    /**
+     * JSON-encoded list of excluded properties
+     * @minLength 1
+     */
+    excluded_properties?: string
+    /**
+     * Whether to return only properties for events in `event_names`
+     * @nullable
+     */
+    filter_by_event_names?: boolean | null
+    /**
+     * What group type is the property for. Only should be set if `type=group`
+     */
+    group_type_index?: number
+    /**
+     * Whether to return only (or excluding) feature flag properties
+     * @nullable
+     */
+    is_feature_flag?: boolean | null
+    /**
+     * Whether to return only (or excluding) numerical property definitions
+     * @nullable
+     */
+    is_numerical?: boolean | null
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Comma-separated list of properties to filter
+     * @minLength 1
+     */
+    properties?: string
+    /**
+     * Searches properties by name
+     */
+    search?: string
+    /**
+ * What property definitions to return
+
+* `event` - event
+* `person` - person
+* `group` - group
+* `session` - session
+ * @minLength 1
+ */
+    type?: PropertyDefinitionsListType
+}
+
+export type PropertyDefinitionsListType = (typeof PropertyDefinitionsListType)[keyof typeof PropertyDefinitionsListType]
+
+export const PropertyDefinitionsListType = {
+    Event: 'event',
+    Person: 'person',
+    Group: 'group',
+    Session: 'session',
+} as const
+
+/**
+ * Unspecified response body
+ */
+export type QueryLogRetrieve200 = { [key: string]: unknown }
+
+export type QueryTabStateListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SavedListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ScheduledChangesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SchemaPropertyGroupsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SessionGroupSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SessionRecordingPlaylistsListParams = {
+    created_by?: number
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    short_id?: string
+}
+
+export type SessionRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SignalSourceConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SubscriptionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SurveysListParams = {
+    archived?: boolean
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type TagsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksListParams = {
+    /**
+     * Filter by creator user ID
+     */
+    created_by?: number
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by repository organization
+     * @minLength 1
+     */
+    organization?: string
+    /**
+     * Filter by origin product
+     * @minLength 1
+     */
+    origin_product?: string
+    /**
+     * Filter by repository name (can include org/repo format)
+     * @minLength 1
+     */
+    repository?: string
+    /**
+     * Filter by task run stage
+     * @minLength 1
+     */
+    stage?: string
+}
+
+export type TasksRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksRunsSessionLogsRetrieveParams = {
+    /**
+     * Only return events after this ISO8601 timestamp
+     */
+    after?: string
+    /**
+     * Comma-separated list of event types to include
+     * @minLength 1
+     */
+    event_types?: string
+    /**
+     * Comma-separated list of event types to exclude
+     * @minLength 1
+     */
+    exclude_types?: string
+    /**
+     * Maximum number of entries to return (default 1000, max 5000)
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number
+}
+
+export type TasksRepositoryReadinessRetrieveParams = {
+    refresh?: boolean
+    /**
+     * Repository in org/repo format
+     * @minLength 1
+     */
+    repository: string
+    /**
+     * @minimum 1
+     * @maximum 30
+     */
+    window_days?: number
+}
+
+export type UserProductListListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseModelPathsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseSavedQueriesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinkListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WebAnalyticsBreakdownRetrieveParams = {
+    /**
+     * Apply URL path cleaning
+     */
+    apply_path_cleaning?: boolean
+    /**
+ * Property to break down by
+
+* `DeviceType` - DeviceType
+* `Browser` - Browser
+* `OS` - OS
+* `Viewport` - Viewport
+* `InitialReferringDomain` - InitialReferringDomain
+* `InitialUTMSource` - InitialUTMSource
+* `InitialUTMMedium` - InitialUTMMedium
+* `InitialUTMCampaign` - InitialUTMCampaign
+* `InitialUTMTerm` - InitialUTMTerm
+* `InitialUTMContent` - InitialUTMContent
+* `Country` - Country
+* `Region` - Region
+* `City` - City
+* `InitialPage` - InitialPage
+* `Page` - Page
+* `ExitPage` - ExitPage
+* `InitialChannelType` - InitialChannelType
+ * @minLength 1
+ */
+    breakdown_by: WebAnalyticsBreakdownRetrieveBreakdownBy
+    /**
+     * Start date for the query (format: YYYY-MM-DD)
+     */
+    date_from: string
+    /**
+     * End date for the query (format: YYYY-MM-DD)
+     */
+    date_to: string
+    /**
+     * Filter out test accounts
+     */
+    filter_test_accounts?: boolean
+    /**
+     * Host to filter by (e.g. example.com)
+     * @minLength 1
+     * @nullable
+     */
+    host?: string | null
+    /**
+     * Number of results to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of results to skip
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type WebAnalyticsBreakdownRetrieveBreakdownBy =
+    (typeof WebAnalyticsBreakdownRetrieveBreakdownBy)[keyof typeof WebAnalyticsBreakdownRetrieveBreakdownBy]
+
+export const WebAnalyticsBreakdownRetrieveBreakdownBy = {
+    DeviceType: 'DeviceType',
+    Browser: 'Browser',
+    Os: 'OS',
+    Viewport: 'Viewport',
+    InitialReferringDomain: 'InitialReferringDomain',
+    InitialUTMSource: 'InitialUTMSource',
+    InitialUTMMedium: 'InitialUTMMedium',
+    InitialUTMCampaign: 'InitialUTMCampaign',
+    InitialUTMTerm: 'InitialUTMTerm',
+    InitialUTMContent: 'InitialUTMContent',
+    Country: 'Country',
+    Region: 'Region',
+    City: 'City',
+    InitialPage: 'InitialPage',
+    Page: 'Page',
+    ExitPage: 'ExitPage',
+    InitialChannelType: 'InitialChannelType',
+} as const
+
+export type WebAnalyticsOverviewRetrieveParams = {
+    /**
+     * Start date for the query (format: YYYY-MM-DD)
+     */
+    date_from: string
+    /**
+     * End date for the query (format: YYYY-MM-DD)
+     */
+    date_to: string
+    /**
+     * Filter out test accounts
+     */
+    filter_test_accounts?: boolean
+    /**
+     * Host to filter by (e.g. example.com)
+     * @minLength 1
+     * @nullable
+     */
+    host?: string | null
+}
+
+export type WebExperimentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UsersListParams = {
+    email?: string
+    is_staff?: boolean
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}

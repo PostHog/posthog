@@ -1,0 +1,174 @@
+#!/usr/bin/env node
+/**
+ * Generates full TypeScript type definitions for MCP from the OpenAPI schema.
+ *
+ * Uses Orval with client: 'fetch' over the complete (unfiltered) schema to produce
+ * flat TS interface exports, then wraps them in a Schemas namespace re-export so
+ * all existing `import type { Schemas } from '@/api/generated'` usage continues to work.
+ *
+ * Output:
+ *   src/api/generated.schemas.ts  — flat Orval TS interfaces (auto-generated)
+ *   src/api/generated.ts          — re-export barrel: `export * as Schemas from './generated.schemas'`
+ *
+ * Replaces the legacy update-openapi-client.ts which fetched from live prod via typed-openapi.
+ *
+ * Invoked by `hogli build:openapi-mcp-types`.
+ */
+/* eslint-disable no-console */
+import { execSync, spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const mcpRoot = path.resolve(__dirname, '..')
+const repoRoot = path.resolve(mcpRoot, '../..')
+
+const defaultSchemaPath = path.resolve(repoRoot, 'frontend', 'tmp', 'openapi.json')
+const schemaPath = process.env.OPENAPI_SCHEMA_PATH
+    ? path.resolve(repoRoot, process.env.OPENAPI_SCHEMA_PATH)
+    : defaultSchemaPath
+
+if (!fs.existsSync(schemaPath)) {
+    console.error(`OpenAPI schema not found at ${schemaPath}. Run \`hogli build:openapi-schema\` first.`)
+    process.exit(1)
+}
+
+// ------------------------------------------------------------------
+// Schema preprocessing (mirrors frontend/bin/generate-openapi-types.mjs)
+// ------------------------------------------------------------------
+
+const SCHEMAS_TO_INLINE = new Set(['TimezoneEnum'])
+
+function inlineSchemaRefs(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return obj
+    }
+    if (obj.$ref && SCHEMAS_TO_INLINE.has(obj.$ref.replace('#/components/schemas/', ''))) {
+        return { type: 'string' }
+    }
+    for (const [key, value] of Object.entries(obj)) {
+        obj[key] = inlineSchemaRefs(value)
+    }
+    return obj
+}
+
+function stripCollidingInlineEnums(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return
+    }
+    if (Array.isArray(obj)) {
+        obj.forEach(stripCollidingInlineEnums)
+        return
+    }
+    if (obj.type === 'string' && Array.isArray(obj.enum)) {
+        const positives = new Set(obj.enum.filter((v) => !v.startsWith('-')))
+        if (obj.enum.some((v) => v.startsWith('-') && positives.has(v.slice(1)))) {
+            delete obj.enum
+        }
+    }
+    for (const value of Object.values(obj)) {
+        stripCollidingInlineEnums(value)
+    }
+}
+
+function preprocessSchema(schema) {
+    inlineSchemaRefs(schema)
+    for (const name of SCHEMAS_TO_INLINE) {
+        delete schema.components?.schemas?.[name]
+    }
+    stripCollidingInlineEnums(schema)
+    return schema
+}
+
+// ------------------------------------------------------------------
+// Orval run
+// ------------------------------------------------------------------
+
+const schema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf-8')))
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-types-'))
+
+const tempSchemaFile = path.join(tmpDir, 'openapi.json')
+const configFile = path.join(tmpDir, 'orval.config.mjs')
+
+// Orval target — it writes functions here and schemas to generated.schemas.ts
+const targetFile = path.join(mcpRoot, 'src', 'api', 'generated.ts')
+const schemasFile = path.join(mcpRoot, 'src', 'api', 'generated.schemas.ts')
+
+fs.writeFileSync(tempSchemaFile, JSON.stringify(schema, null, 2))
+
+const config = `
+import { defineConfig } from 'orval';
+export default defineConfig({
+  api: {
+    input: '${tempSchemaFile}',
+    output: {
+      target: '${targetFile}',
+      mode: 'split',
+      client: 'fetch',
+      prettier: false,
+      override: {
+        header: (info) => [
+          'Auto-generated from the Django backend OpenAPI schema.',
+          'MCP service uses these TypeScript types for tool handler return type annotations.',
+          'To regenerate: hogli build:openapi',
+          '',
+          ...(info?.title ? [info.title] : []),
+          ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
+        ],
+        namingConvention: {
+          enum: 'PascalCase',
+        },
+        fetch: {
+          includeHttpResponseReturnType: false,
+        },
+        components: {
+          schemas: { suffix: '' },
+        },
+      },
+    },
+  },
+});
+`
+
+fs.writeFileSync(configFile, config)
+
+try {
+    execSync(`pnpm exec orval --config "${configFile}"`, { stdio: 'pipe', cwd: repoRoot })
+} catch (err) {
+    console.error(`Orval failed: ${err.message}`)
+    process.exit(1)
+} finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+}
+
+// ------------------------------------------------------------------
+// Replace generated.ts with the namespace re-export barrel.
+// Orval wrote fetch functions there — we don't want those.
+// ------------------------------------------------------------------
+
+const barrelContent = `/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * MCP service uses these TypeScript types for tool handler return type annotations.
+ * To regenerate: hogli build:openapi
+ *
+ * Do not edit this file directly. Edit the Django serializers and rerun the generator.
+ */
+
+// Re-export all types as a Schemas namespace so existing imports continue to work:
+//   import type { Schemas } from '@/api/generated'
+//   handler: (...) => Promise<Schemas.Action>
+export * as Schemas from './generated.schemas'
+`
+
+fs.writeFileSync(targetFile, barrelContent)
+
+// Format both files
+spawnSync(path.join(repoRoot, 'bin/hogli'), ['format:js', schemasFile, targetFile], {
+    stdio: 'pipe',
+    cwd: repoRoot,
+})
+
+const schemaCount = Object.keys(schema.components?.schemas ?? {}).length
+console.log(`MCP types: generated ${schemaCount} schemas → src/api/generated.schemas.ts`)
