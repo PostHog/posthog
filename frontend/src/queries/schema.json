@@ -8216,6 +8216,9 @@
                 "showLegend": {
                     "type": "boolean"
                 },
+                "showNullsAsZero": {
+                    "type": "boolean"
+                },
                 "showTotalRow": {
                     "type": "boolean"
                 },

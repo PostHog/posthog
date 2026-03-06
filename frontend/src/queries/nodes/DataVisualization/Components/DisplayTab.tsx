@@ -94,6 +94,14 @@ export const DisplayTab = (): JSX.Element => {
                                 />
                                 <LemonSwitch
                                     className="flex-1 w-full"
+                                    label="Show nulls as zero"
+                                    checked={chartSettings.showNullsAsZero ?? false}
+                                    onChange={(value) => {
+                                        updateChartSettings({ showNullsAsZero: value })
+                                    }}
+                                />
+                                <LemonSwitch
+                                    className="flex-1 w-full"
                                     label="Show X-axis labels"
                                     checked={chartSettings.showXAxisTicks ?? true}
                                     onChange={(value) => {
