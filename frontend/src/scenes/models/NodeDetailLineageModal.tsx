@@ -4,6 +4,7 @@ import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
