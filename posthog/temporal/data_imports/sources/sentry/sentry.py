@@ -182,7 +182,7 @@ def _iter_endpoint_rows(
     max_pages: int | None = None,
 ) -> Iterator[dict[str, Any]]:
     url = urljoin(f"{base_api_url}/", path.lstrip("/"))
-    current_params = params or {}
+    current_params: dict[str, Any] | None = params if params is not None else {}
     pages_read = 0
     max_pages_to_read = max_pages if max_pages and max_pages > 0 else None
 
