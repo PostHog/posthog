@@ -915,11 +915,11 @@ export interface RawPerson extends BasePerson {
     created_at: string
     version: string | null
     last_seen_at: string | null
-    group_0_key: string
-    group_1_key: string
-    group_2_key: string
-    group_3_key: string
-    group_4_key: string
+    group_0_key?: string
+    group_1_key?: string
+    group_2_key?: string
+    group_3_key?: string
+    group_4_key?: string
 }
 
 /** Usable Person model. */
@@ -927,11 +927,11 @@ export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
     last_seen_at: DateTime | null
-    group_0_key: string
-    group_1_key: string
-    group_2_key: string
-    group_3_key: string
-    group_4_key: string
+    group_0_key?: string
+    group_1_key?: string
+    group_2_key?: string
+    group_3_key?: string
+    group_4_key?: string
 }
 
 /** Mutable fields that can be updated on a Person via updatePerson. */
