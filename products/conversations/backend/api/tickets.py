@@ -204,9 +204,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if parsed:
                 queryset = queryset.filter(updated_at__lte=parsed)
 
-        distinct_id = self.request.query_params.get("distinct_id")
-        if distinct_id and len(distinct_id) <= 200:
-            queryset = queryset.filter(distinct_id__icontains=distinct_id)
+        distinct_ids_param = self.request.query_params.get("distinct_ids")
+        if distinct_ids_param:
+            ids = [id.strip() for id in distinct_ids_param.split(",") if id.strip()][:100]
+            if ids:
+                queryset = queryset.filter(distinct_id__in=ids)
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:

@@ -140,6 +140,8 @@ import {
     IntegrationType,
     JiraProjectType,
     LLMPrompt,
+    LLMPromptPublic,
+    LLMPromptResolveResponse,
     LineageGraph,
     LinearTeamType,
     LinkType,
@@ -1866,12 +1868,12 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
     }
 
-    public llmPrompt(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
-    }
-
     public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
         return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
+    }
+
+    public llmPromptArchiveByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPromptByName(name, teamId).addPathComponent('archive')
     }
 
     public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
@@ -3619,12 +3621,12 @@ const api = {
         },
 
         fingerprints: {
-            async list(issueId: ErrorTrackingIssue['id']): Promise<CountedPaginatedResponse<ErrorTrackingFingerprint>> {
-                const queryString = { issue_id: issueId }
-                return await new ApiRequest()
+            async list(issueId: ErrorTrackingIssue['id']): Promise<ErrorTrackingFingerprint[]> {
+                const url = new ApiRequest()
                     .errorTrackingIssueFingerprints()
-                    .withQueryString(toParams(queryString))
-                    .get()
+                    .withQueryString(toParams({ issue_id: issueId }))
+                    .assembleFullUrl()
+                return await api.loadPaginatedResults<ErrorTrackingFingerprint>(url)
             },
         },
 
@@ -4335,6 +4337,9 @@ const api = {
         },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
+        },
+        async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
+            return await new ApiRequest().signalReport(id).withAction('reingest').create()
         },
     },
 
@@ -5317,15 +5322,6 @@ const api = {
         async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
         },
-        async saveDraft(hogFlowId: HogFlow['id'], data: Partial<HogFlow>): Promise<HogFlow> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('draft').update({ data })
-        },
-        async publishDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create()
-        },
-        async discardDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()
-        },
     },
     hogFlowTemplates: {
         async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {
@@ -5585,7 +5581,7 @@ const api = {
         async list(
             params: {
                 status?: string
-                distinct_id?: string
+                distinct_ids?: string
                 search?: string
                 limit?: number
                 offset?: number
@@ -5639,24 +5635,30 @@ const api = {
             return new ApiRequest().llmPrompts().withQueryString(params).get()
         },
 
-        get(promptId: string): Promise<LLMPrompt> {
-            return new ApiRequest().llmPrompt(promptId).get()
+        getByName(promptName: string, params?: { version?: number }): Promise<LLMPromptPublic> {
+            return new ApiRequest().llmPromptByName(promptName).withQueryString(params).get()
         },
 
-        getByName(promptName: string): Promise<LLMPrompt> {
-            return new ApiRequest().llmPromptByName(promptName).get()
+        resolveByName(
+            promptName: string,
+            params?: { version?: number; version_id?: string; offset?: number; before_version?: number; limit?: number }
+        ): Promise<LLMPromptResolveResponse> {
+            return new ApiRequest().llmPromptResolveByName(promptName).withQueryString(params).get()
         },
 
-        resolveByName(promptName: string): Promise<LLMPrompt> {
-            return new ApiRequest().llmPromptResolveByName(promptName).get()
+        async update(
+            promptName: string,
+            data: { prompt: LLMPrompt['prompt']; base_version: number }
+        ): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPromptByName(promptName).update({ data })
         },
 
-        async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+        async archiveByName(promptName: string): Promise<void> {
+            await new ApiRequest().llmPromptArchiveByName(promptName).create({ data: {} })
+        },
+
+        async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {
             return await new ApiRequest().llmPrompts().create({ data })
-        },
-
-        async update(promptId: string, data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPrompt(promptId).update({ data })
         },
     },
 

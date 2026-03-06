@@ -920,7 +920,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
 
-        exported_data["rootClassName"] = f"export-type-'{exported_data.get('type', 'unknown')}"
+        exported_data["rootClassName"] = f"export-type-{exported_data.get('type', 'unknown')}"
         # Check if this is a JWT authenticated request with JSON Accept header
         if (
             isinstance(resource, SharingConfiguration)
