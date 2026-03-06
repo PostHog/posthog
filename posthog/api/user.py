@@ -931,14 +931,7 @@ def toolbar_oauth_callback(request):
     base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
     quoted_code = urllib.parse.quote(code, safe="")
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-    # Include redirect_uri and token_endpoint so the frontend doesn't need
-    # to derive them from ui_host. This fixes reverse proxy setups where
-    # ui_host differs from SITE_URL.
-    redirect_uri = f"{settings.SITE_URL}/toolbar_oauth/callback"
-    token_endpoint = f"{settings.SITE_URL}/oauth/token/"
-    quoted_redirect_uri = urllib.parse.quote(redirect_uri, safe="")
-    quoted_token_endpoint = urllib.parse.quote(token_endpoint, safe="")
-    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id},redirect_uri:{quoted_redirect_uri},token_endpoint:{quoted_token_endpoint}"
+    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
     if original_fragment:
         fragment = f"{original_fragment}&{toolbar_param}"
     else:

@@ -329,8 +329,6 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         assert redirect_url.startswith("https://example.com/page#")
         assert "__posthog_toolbar=code:auth_code_123" in redirect_url
         assert "client_id:" in redirect_url
-        assert "redirect_uri:" in redirect_url
-        assert "token_endpoint:" in redirect_url
 
     def test_callback_preserves_original_url_fragment(self):
         state = self._authorize_and_get_state(redirect_url="https://example.com/page#section1")
@@ -432,23 +430,15 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
             response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
         assert response.status_code == 400
 
-    def test_callback_embeds_site_url_in_token_endpoint(self):
+    def test_callback_does_not_embed_redirect_uri_or_token_endpoint(self):
         state = self._authorize_and_get_state()
         response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
         assert response.status_code == 302
         from urllib.parse import unquote
 
         location = unquote(response["Location"])
-        assert f"token_endpoint:{settings.SITE_URL}/oauth/token/" in location
-
-    def test_callback_embeds_site_url_in_redirect_uri(self):
-        state = self._authorize_and_get_state()
-        response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
-        assert response.status_code == 302
-        from urllib.parse import unquote
-
-        location = unquote(response["Location"])
-        assert f"redirect_uri:{settings.SITE_URL}/toolbar_oauth/callback" in location
+        assert "redirect_uri:" not in location
+        assert "token_endpoint:" not in location
 
     def test_callback_state_user_mismatch_returns_error(self):
         state = self._authorize_and_get_state()
