@@ -97,7 +97,7 @@ This validates inputs AND documents the endpoint for OpenAPI. Use `request.valid
 
 ### Design decisions
 
-**Why commit generated files?** Makes type changes visible in PRs, lets CI catch drift, avoids needing Django running for frontend builds.
+**Why commit generated files?** Makes OpenAPI and type changes visible in PRs, lets CI catch drift, avoids needing Django running for frontend builds.
 
 **Why `Api` suffix?** Prevents collisions with handwritten types. If you see `Api`, it came from the backend.
 

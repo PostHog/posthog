@@ -12,8 +12,8 @@ const frontendRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendRoot, '..')
 const productsDir = path.resolve(repoRoot, 'products')
 
-// Default to temp location (gitignored ephemeral artifact)
-const defaultSchemaPath = path.resolve(frontendRoot, 'tmp', 'openapi.yaml')
+// Default to tracked generated schema
+const defaultSchemaPath = path.resolve(frontendRoot, 'src', 'generated', 'openapi.yaml')
 
 const schemaPath = process.env.OPENAPI_SCHEMA_PATH
     ? path.resolve(frontendRoot, process.env.OPENAPI_SCHEMA_PATH)
@@ -603,7 +603,7 @@ if (!generateAll && generated === 0) {
     console.log('💡 To generate types for your product:')
     console.log('   1. Add @extend_schema(tags=["your_product"]) to your ViewSet methods')
     console.log('   2. Ensure products/your_product/frontend/ folder exists')
-    console.log('   3. Re-run: ./bin/build-openapi-schema.sh && node frontend/bin/generate-openapi-types.mjs')
+    console.log('   3. Re-run: hogli build:openapi-schema && node frontend/bin/generate-openapi-types.mjs')
 }
 
 if (generateAll) {

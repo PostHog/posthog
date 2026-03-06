@@ -25,7 +25,7 @@ const productsDir = path.resolve(repoRoot, 'products')
 const generatedRoot = path.resolve(mcpRoot, 'src', 'generated')
 const definitionsDir = path.resolve(mcpRoot, 'definitions')
 
-const defaultSchemaPath = path.resolve(repoRoot, 'frontend', 'tmp', 'openapi.yaml')
+const defaultSchemaPath = path.resolve(repoRoot, 'frontend', 'src', 'generated', 'openapi.yaml')
 const schemaPath = process.env.OPENAPI_SCHEMA_PATH
     ? path.resolve(repoRoot, process.env.OPENAPI_SCHEMA_PATH)
     : defaultSchemaPath

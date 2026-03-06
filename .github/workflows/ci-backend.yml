@@ -821,21 +821,22 @@ jobs:
                   ./bin/hogli build:openapi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
                   if git diff --exit-code; then
-                      echo "OpenAPI types are up to date"
+                      echo "OpenAPI generated artifacts are up to date"
                       exit 0
                   fi
 
-                  echo "OpenAPI types are out of date"
+                  echo "OpenAPI generated artifacts are out of date"
 
                   # On non-PR builds or fork PRs, fail with instructions
                   if [ "$EVENT_NAME" != "pull_request" ] || \
                      [ "$HEAD_REPO" != "PostHog/posthog" ]; then
                       echo ""
-                      echo "::error::OpenAPI types are out of date!"
+                      echo "::error::OpenAPI generated artifacts are out of date!"
                       echo ""
-                      echo "The TypeScript API types in products/*/frontend/generated/ are auto-generated"
-                      echo "from Django serializers and views. When you modify the backend API, you need"
-                      echo "to regenerate these types."
+                      echo "The OpenAPI schema (frontend/src/generated/openapi.yaml) and TypeScript API"
+                      echo "types in frontend/src/generated/ and products/*/frontend/generated/ are"
+                      echo "auto-generated from Django serializers and views."
+                      echo "When you modify the backend API, regenerate these files."
                       echo ""
                       echo "To fix, run locally:  hogli build:openapi"
                       echo "Then commit the updated generated files."
@@ -846,7 +847,7 @@ jobs:
                       exit 1
                   fi
 
-                  echo "::notice::Committing updated OpenAPI types to PR branch"
+                  echo "::notice::Committing updated OpenAPI generated artifacts to PR branch"
 
                   # Verify branch hasn't advanced since CI started
                   CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
@@ -873,7 +874,7 @@ jobs:
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 
                   if git diff --exit-code; then
-                      echo "Types already up to date on PR branch"
+                      echo "OpenAPI generated artifacts already up to date on PR branch"
                       exit 0
                   fi
 
@@ -881,7 +882,7 @@ jobs:
                   git add products/*/frontend/generated/ 2>/dev/null || true
                   git add products/*/mcp/*.yaml 2>/dev/null || true
                   git add services/mcp/definitions/*.yaml 2>/dev/null || true
-                  git commit -m "chore: update OpenAPI generated types"
+                  git commit -m "chore: update openapi generated artifacts"
                   git push origin "$BRANCH"
                   echo "::notice::Pushed updated OpenAPI types to $BRANCH"
 

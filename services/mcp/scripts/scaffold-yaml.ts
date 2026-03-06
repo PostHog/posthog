@@ -24,7 +24,7 @@ import { CategoryConfigSchema, type ToolConfig } from './yaml-config-schema'
 const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
-const DEFAULT_OPENAPI_YAML_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.yaml')
+const DEFAULT_OPENAPI_YAML_PATH = path.resolve(REPO_ROOT, 'frontend/src/generated/openapi.yaml')
 const OPENAPI_PATH = process.env.OPENAPI_SCHEMA_PATH
     ? path.resolve(REPO_ROOT, process.env.OPENAPI_SCHEMA_PATH)
     : DEFAULT_OPENAPI_YAML_PATH
