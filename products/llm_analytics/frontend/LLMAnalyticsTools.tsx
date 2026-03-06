@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconUserPaths } from '@posthog/icons'
+import { IconTrends, IconUserPaths } from '@posthog/icons'
 
 import { escapeRegex } from 'lib/actionUtils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -22,7 +22,7 @@ import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 export function LLMAnalyticsTools(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { setToolsSort } = useActions(llmAnalyticsToolsLogic)
-    const { toolsQuery, toolsSort, buildToolPathsQuery } = useValues(llmAnalyticsToolsLogic)
+    const { toolsQuery, toolsSort, buildToolPathsQuery, buildToolSequencesQuery } = useValues(llmAnalyticsToolsLogic)
     const { searchParams } = useValues(router)
 
     const { renderSortableColumnTitle } = useSortableColumns(toolsSort, setToolsSort)
@@ -78,6 +78,20 @@ export function LLMAnalyticsTools(): JSX.Element {
                                             >
                                                 {toolString}
                                             </Link>
+                                        </Tooltip>
+                                        <Tooltip title={`View tool sequences for ${toolString}`}>
+                                            <LemonButton
+                                                icon={<IconTrends />}
+                                                size="xsmall"
+                                                to={urls.insightNew({
+                                                    query: {
+                                                        kind: NodeKind.InsightVizNode,
+                                                        source: buildToolSequencesQuery(toolString),
+                                                    } as InsightVizNode,
+                                                })}
+                                                targetBlank
+                                                data-attr="llm-tools-sequences-click"
+                                            />
                                         </Tooltip>
                                         <Tooltip title={`View tool paths from ${toolString}`}>
                                             <LemonButton

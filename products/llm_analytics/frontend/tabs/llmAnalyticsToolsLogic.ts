@@ -3,8 +3,8 @@ import { actions, connect, kea, key, path, props, reducers, selectors } from 'ke
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, NodeKind, PathsQuery } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, PathType, PropertyFilterType, PropertyOperator } from '~/types'
+import { DataTableNode, NodeKind, PathsQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, ChartDisplayType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import toolsQueryTemplate from '../../backend/queries/tools.sql?raw'
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
@@ -124,6 +124,46 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                         startPoint: toolName,
                         stepLimit: 5,
                         edgeLimit: 50,
+                    },
+                })
+            },
+        ],
+        buildToolSequencesQuery: [
+            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
+            (
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[]
+            ): ((toolName: string) => TrendsQuery) => {
+                return (toolName: string): TrendsQuery => ({
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom || null,
+                        date_to: dateFilter.dateTo || null,
+                    },
+                    filterTestAccounts: shouldFilterTestAccounts,
+                    properties: propertyFilters,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_generation',
+                            properties: [
+                                {
+                                    key: '$ai_tools_called',
+                                    operator: PropertyOperator.Regex,
+                                    value: `(^|,)${toolName}(,|$)`,
+                                    type: PropertyFilterType.Event,
+                                },
+                            ],
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown: '$ai_tools_called',
+                        breakdown_type: 'event',
+                        breakdown_limit: 20,
+                    },
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsBarValue,
                     },
                 })
             },
