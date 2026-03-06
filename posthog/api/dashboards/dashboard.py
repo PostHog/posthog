@@ -1064,7 +1064,7 @@ class DashboardsViewSet(
             create_from_template(dashboard, dashboard_template, cast(User, request.user))
 
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "dashboard created",
                 {
                     **dashboard.get_analytics_metadata(),
