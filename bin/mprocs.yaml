@@ -154,6 +154,18 @@ procs:
             bin/start-rust-service batch-import-worker
         capability: batch_imports
 
+    personhog-replica:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-replica
+        capability: personhog
+
+    personhog-router:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-router
+        capability: personhog
+
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         autostart: true

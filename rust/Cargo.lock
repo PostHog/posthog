@@ -2046,6 +2046,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "metrics",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
@@ -4674,6 +4675,7 @@ dependencies = [
  "etcd-client",
  "kafka-assigner-proto",
  "prost 0.13.5",
+ "rdkafka",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

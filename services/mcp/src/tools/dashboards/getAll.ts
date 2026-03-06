@@ -7,7 +7,9 @@ const schema = DashboardGetAllSchema
 
 type Params = z.infer<typeof schema>
 
-export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = Array<{ id: number; name: string; description?: string | null }>
+
+export const getAllHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { data } = params
     const projectId = await context.stateManager.getProjectId()
     const dashboardsResult = await context.api.dashboards({ projectId }).list({ params: data ?? {} })
@@ -19,7 +21,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
     return dashboardsResult.data
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'dashboards-get-all',
     schema,
     handler: getAllHandler,
