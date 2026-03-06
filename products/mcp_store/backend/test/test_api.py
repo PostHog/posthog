@@ -6,7 +6,7 @@ from unittest.mock import patch
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from products.mcp_store.backend.models import MCPServer, MCPServerInstallation
+from products.mcp_store.backend.models import RECOMMENDED_SERVERS, MCPServer, MCPServerInstallation
 
 ALLOW_URL = patch("products.mcp_store.backend.api.is_url_allowed", return_value=(True, None))
 
@@ -16,11 +16,9 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert len(results) == 3
-        names = [s["name"] for s in results]
-        assert "Linear" in names
-        assert "Notion" in names
-        assert "GitHub" in names
+        names = {s["name"] for s in results}
+        expected_names = {s["name"] for s in RECOMMENDED_SERVERS}
+        assert names == expected_names
 
     def test_list_servers_entries_match_serializer_schema(self):
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")

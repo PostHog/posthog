@@ -2,6 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
+import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
@@ -266,9 +267,13 @@ class EventSource(StrEnum):
     WEB = "web"
     API = "api"
     POSTHOG_AI = "posthog_ai"
+    POSTHOG_CODE = "posthog_code"
     TERRAFORM = "terraform"
     MCP = "mcp"
     WIZARD = "wizard"
+
+
+_POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
 
 def get_event_source(request) -> EventSource:
@@ -278,11 +283,22 @@ def get_event_source(request) -> EventSource:
         return EventSource.TERRAFORM
     if "posthog/wizard" in user_agent:
         return EventSource.WIZARD
+    if _POSTHOG_CODE_UA_RE.search(user_agent):
+        return EventSource.POSTHOG_CODE
     if "posthog/mcp-server" in user_agent:
         return EventSource.MCP
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return EventSource.WEB
     return EventSource.API
+
+
+MAX_HEADER_VALUE_LENGTH = 1000
+
+
+def _sanitize_header_value(value: str | None) -> str | None:
+    if not value:
+        return None
+    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_HEADER_VALUE_LENGTH] or None
 
 
 def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
@@ -292,6 +308,10 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
         "$current_url": request.headers.get("Referer"),
         "$session_id": request.headers.get("X-Posthog-Session-Id"),
         "was_impersonated": is_impersonated_session(request),
+        "mcp_user_agent": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
+        "mcp_client_name": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
+        "mcp_client_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
+        "mcp_protocol_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
     }
 
 
@@ -301,6 +321,7 @@ def report_user_action(
     properties: Optional[dict] = None,
     *,
     team: Optional[Team] = None,
+    organization: Optional[Organization] = None,
     request: Optional["Request"] = None,
 ):
     if user is None or not user.distinct_id:
@@ -313,7 +334,41 @@ def report_user_action(
         distinct_id=user.distinct_id,
         event=event,
         properties=properties,
-        groups=groups(user.current_organization, team or user.current_team),
+        groups=groups(organization or user.current_organization, team or user.current_team),
+    )
+
+
+def report_user_or_team_action(
+    event: str,
+    properties: Optional[dict] = None,
+    *,
+    user: Optional[User] = None,
+    team: Optional[Team] = None,
+    organization: Optional[Organization] = None,
+    request: Optional["Request"] = None,
+):
+    if properties is None:
+        properties = {}
+    if request is not None:
+        properties = {**get_request_analytics_properties(request), **properties}
+
+    distinct_id = None
+    if user and user.distinct_id:
+        distinct_id = user.distinct_id
+    elif team:
+        distinct_id = str(team.uuid)
+
+    if not distinct_id:
+        return
+
+    org = organization or (user.current_organization if user else None)
+    tm = team or (user.current_team if user else None)
+
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event=event,
+        properties=properties,
+        groups=groups(org, tm),
     )
 
 

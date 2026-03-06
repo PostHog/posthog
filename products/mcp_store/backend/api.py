@@ -394,12 +394,24 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 existing_server.oauth_client_id = client_id
                 existing_server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
                 return existing_server
+            except ValueError as e:
+                logger.warning("DCR not supported", error=str(e))
+                return Response(
+                    {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             except Exception as e:
                 logger.exception("DCR registration failed", error=str(e))
                 return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             client_id = register_dcr_client(metadata, redirect_uri)
+        except ValueError as e:
+            logger.warning("DCR not supported", error=str(e))
+            return Response(
+                {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as e:
             logger.exception("DCR registration failed", error=str(e))
             return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
@@ -509,6 +521,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 else:
                     metadata = discover_oauth_metadata(mcp_url)
                 client_id = register_dcr_client(metadata, redirect_uri)
+            except ValueError as e:
+                logger.warning("DCR not supported", server_url=server.url, error=str(e))
+                return Response(
+                    {"detail": "This MCP server does not support automatic client registration (DCR)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             except Exception as e:
                 logger.exception("DCR registration failed", server_url=server.url, error=str(e))
                 return Response({"detail": "OAuth discovery/registration failed."}, status=status.HTTP_400_BAD_REQUEST)

@@ -56,6 +56,7 @@ from products.error_tracking.backend.api import (
 )
 from products.llm_analytics.backend.api import (
     ClusteringConfigViewSet,
+    ClusteringJobViewSet,
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
@@ -77,6 +78,10 @@ from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
+from products.visual_review.backend.presentation.views import (
+    RepoViewSet as VisualReviewRepoViewSet,
+    RunViewSet as VisualReviewRunViewSet,
+)
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
@@ -273,6 +278,9 @@ project_features_router = projects_router.register(
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+
+# PostHog Code invites (not project-scoped)
+router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
 
 # Signal reports endpoints
 projects_router.register(r"signal_reports", signals.SignalReportViewSet, "project_signal_reports", ["team_id"])
@@ -1115,6 +1123,19 @@ environments_router.register(
     ["team_id"],
 )
 
+projects_router.register(
+    r"visual_review/repos",
+    VisualReviewRepoViewSet,
+    "project_visual_review_repos",
+    ["project_id"],
+)
+projects_router.register(
+    r"visual_review/runs",
+    VisualReviewRunViewSet,
+    "project_visual_review_runs",
+    ["project_id"],
+)
+
 environments_router.register(
     r"desktop_recordings",
     DesktopRecordingViewSet,
@@ -1252,6 +1273,13 @@ environments_router.register(
     r"llm_analytics/clustering_config",
     ClusteringConfigViewSet,
     "environment_llm_analytics_clustering_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/clustering_jobs",
+    ClusteringJobViewSet,
+    "environment_llm_analytics_clustering_jobs",
     ["team_id"],
 )
 

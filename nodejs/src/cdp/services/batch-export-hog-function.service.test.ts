@@ -2,6 +2,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
+import { DateTime } from 'luxon'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -10,7 +11,7 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_
 import { insertHogFunction as _insertHogFunction, insertBatchExport } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
@@ -281,6 +282,112 @@ describe('BatchExportHogFunctionService', () => {
                     }),
                 ])
             )
+        })
+    })
+
+    describe('groups enrichment', () => {
+        beforeEach(() => {
+            // Clear cached group data between tests
+            api['batchExportHogFunctionService']['groupsManager'].clear()
+        })
+
+        const setupGroups = async () => {
+            await updateOrganizationAvailableFeatures(hub.postgres, team.organization_id, [
+                { key: 'data_pipelines', name: 'Data Pipelines' },
+                { key: 'group_analytics', name: 'Group Analytics' },
+            ])
+            // Clear cached team data so the new features are picked up
+            hub.teamManager['lazyLoader'].clear()
+
+            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'company', 0)
+
+            await hub.groupRepository.insertGroup(
+                team.id,
+                0 as any,
+                'acme-inc',
+                { name: 'Acme Inc', industry: 'Tech' },
+                DateTime.now(),
+                {},
+                {}
+            )
+        }
+
+        it('enriches globals with group properties when event has $groups', async () => {
+            await setupGroups()
+
+            clickhouseEvent.properties = JSON.stringify({
+                $lib_version: '1.0.0',
+                $groups: { company: 'acme-inc' },
+            })
+
+            mockFetch.mockImplementationOnce(() =>
+                Promise.resolve({
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    json: () => Promise.resolve({ ok: true }),
+                    text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                    dump: () => Promise.resolve(),
+                })
+            )
+
+            const res = await postInvocation({ clickhouse_event: clickhouseEvent })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+
+            const fetchBody = parseJSON(mockFetch.mock.calls[0][1].body)
+            expect(fetchBody.groups).toMatchObject({
+                company: expect.objectContaining({
+                    id: 'acme-inc',
+                    type: 'company',
+                    properties: { name: 'Acme Inc', industry: 'Tech' },
+                }),
+            })
+        })
+
+        it('returns empty groups when event has no $groups property', async () => {
+            await setupGroups()
+
+            mockFetch.mockImplementationOnce(() =>
+                Promise.resolve({
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    json: () => Promise.resolve({ ok: true }),
+                    text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                    dump: () => Promise.resolve(),
+                })
+            )
+
+            const res = await postInvocation({ clickhouse_event: clickhouseEvent })
+
+            expect(res.status).toEqual(200)
+
+            const fetchBody = parseJSON(mockFetch.mock.calls[0][1].body)
+            expect(fetchBody.groups).toEqual({})
+        })
+
+        it('returns empty groups when team lacks group_analytics feature', async () => {
+            clickhouseEvent.properties = JSON.stringify({
+                $lib_version: '1.0.0',
+                $groups: { company: 'acme-inc' },
+            })
+
+            mockFetch.mockImplementationOnce(() =>
+                Promise.resolve({
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    json: () => Promise.resolve({ ok: true }),
+                    text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                    dump: () => Promise.resolve(),
+                })
+            )
+
+            const res = await postInvocation({ clickhouse_event: clickhouseEvent })
+
+            expect(res.status).toEqual(200)
+
+            const fetchBody = parseJSON(mockFetch.mock.calls[0][1].body)
+            expect(fetchBody.groups).toEqual({})
         })
     })
 })

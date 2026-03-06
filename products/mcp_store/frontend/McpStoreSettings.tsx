@@ -10,8 +10,12 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { teamLogic } from 'scenes/teamLogic'
 
 import IconPostHogService from 'public/posthog-icon.svg'
+import IconAtlassianService from 'public/services/atlassian.svg'
+import IconAttioService from 'public/services/attio.png'
+import IconCanvaService from 'public/services/canva.svg'
 import IconGitHubService from 'public/services/github.svg'
 import IconLinearService from 'public/services/linear.svg'
+import IconMondayService from 'public/services/monday.svg'
 import IconNotionService from 'public/services/notion.svg'
 
 import { AddCustomServerModal } from './AddCustomServerModal'
@@ -23,6 +27,10 @@ const SERVER_ICONS: Record<string, string> = {
     Linear: IconLinearService,
     GitHub: IconGitHubService,
     Notion: IconNotionService,
+    Monday: IconMondayService,
+    Canva: IconCanvaService,
+    Attio: IconAttioService,
+    Atlassian: IconAtlassianService,
 }
 
 function ConnectOAuthButton({

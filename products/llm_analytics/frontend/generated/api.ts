@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BatchCheckRequestApi,
     BatchCheckResponseApi,
+    ClusteringJobApi,
     ClusteringRunRequestApi,
     DatasetApi,
     DatasetItemApi,
@@ -21,11 +22,14 @@ import type {
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
     LLMProviderKeyApi,
+    LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsProviderKeysListParams,
+    PaginatedClusteringJobListApi,
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
     PaginatedEvaluationListApi,
     PaginatedLLMProviderKeyListApi,
+    PatchedClusteringJobApi,
     PatchedDatasetApi,
     PatchedDatasetItemApi,
     PatchedLLMProviderKeyApi,
@@ -163,6 +167,137 @@ export const llmAnalyticsClusteringConfigSetEventFiltersCreate = async (
     return apiMutator<void>(getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
+export const getLlmAnalyticsClusteringJobsListUrl = (
+    projectId: string,
+    params?: LlmAnalyticsClusteringJobsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/clustering_jobs/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/clustering_jobs/`
+}
+
+export const llmAnalyticsClusteringJobsList = async (
+    projectId: string,
+    params?: LlmAnalyticsClusteringJobsListParams,
+    options?: RequestInit
+): Promise<PaginatedClusteringJobListApi> => {
+    return apiMutator<PaginatedClusteringJobListApi>(getLlmAnalyticsClusteringJobsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
+export const getLlmAnalyticsClusteringJobsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_jobs/`
+}
+
+export const llmAnalyticsClusteringJobsCreate = async (
+    projectId: string,
+    clusteringJobApi: NonReadonly<ClusteringJobApi>,
+    options?: RequestInit
+): Promise<ClusteringJobApi> => {
+    return apiMutator<ClusteringJobApi>(getLlmAnalyticsClusteringJobsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringJobApi),
+    })
+}
+
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
+export const getLlmAnalyticsClusteringJobsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_jobs/${id}/`
+}
+
+export const llmAnalyticsClusteringJobsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ClusteringJobApi> => {
+    return apiMutator<ClusteringJobApi>(getLlmAnalyticsClusteringJobsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
+export const getLlmAnalyticsClusteringJobsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_jobs/${id}/`
+}
+
+export const llmAnalyticsClusteringJobsUpdate = async (
+    projectId: string,
+    id: string,
+    clusteringJobApi: NonReadonly<ClusteringJobApi>,
+    options?: RequestInit
+): Promise<ClusteringJobApi> => {
+    return apiMutator<ClusteringJobApi>(getLlmAnalyticsClusteringJobsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringJobApi),
+    })
+}
+
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
+export const getLlmAnalyticsClusteringJobsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_jobs/${id}/`
+}
+
+export const llmAnalyticsClusteringJobsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedClusteringJobApi: NonReadonly<PatchedClusteringJobApi>,
+    options?: RequestInit
+): Promise<ClusteringJobApi> => {
+    return apiMutator<ClusteringJobApi>(getLlmAnalyticsClusteringJobsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedClusteringJobApi),
+    })
+}
+
+/**
+ * CRUD for clustering job configurations (max 5 per team).
+ */
+export const getLlmAnalyticsClusteringJobsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_jobs/${id}/`
+}
+
+export const llmAnalyticsClusteringJobsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsClusteringJobsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

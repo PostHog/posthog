@@ -10,8 +10,6 @@ import { CyclotronJobQueue, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS, getProducerMap
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
-    let mockConsumeBatch: jest.Mock
-
     const exampleHogFunction = createHogFunction({
         name: 'Test hog function',
         ...HOG_EXAMPLES.simple_fetch,
@@ -21,39 +19,18 @@ describe('CyclotronJobQueue', () => {
 
     beforeEach(() => {
         config = { ...defaultConfig }
-        mockConsumeBatch = jest.fn()
     })
 
-    describe('cyclotron', () => {
-        beforeEach(() => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'postgres'
-        })
-
-        it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
-            expect(queue).toBeDefined()
-            expect(queue['consumerMode']).toBe('postgres')
-        })
-    })
-
-    describe('kafka', () => {
-        beforeEach(() => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
-        })
-
-        it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
-            expect(queue).toBeDefined()
-            expect(queue['consumerMode']).toBe('kafka')
-        })
+    it('should initialise', () => {
+        const queue = new CyclotronJobQueue(config)
+        expect(queue).toBeDefined()
     })
 
     describe('producer setup', () => {
         const buildQueue = (mapping: string, teamMapping?: string) => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = teamMapping || ''
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
             queue['jobQueuePostgres'].queueInvocations = jest.fn()
@@ -171,11 +148,10 @@ describe('CyclotronJobQueue', () => {
 
     describe('shadow write', () => {
         const buildQueue = (shadowEnabled: boolean) => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
             config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED = shadowEnabled
             config.CYCLOTRON_SHADOW_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
             queue['jobQueuePostgres'].queueInvocations = jest.fn()
@@ -372,11 +348,11 @@ describe('getProducerMapping', () => {
     })
 
     it.each([
-        ['*:kafkatypo', 'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka'],
-        ['hog:kafkatypo', 'Invalid mapping: hog:kafkatypo - target kafkatypo must be one of postgres, kafka'],
+        ['*:kafkatypo', 'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka, shadow'],
+        ['hog:kafkatypo', 'Invalid mapping: hog:kafkatypo - target kafkatypo must be one of postgres, kafka, shadow'],
         [
             'hog:kafka,hogflow:postgres,*:kafkatypo',
-            'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka',
+            'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka, shadow',
         ],
         [
             'wrong_queue:kafka',

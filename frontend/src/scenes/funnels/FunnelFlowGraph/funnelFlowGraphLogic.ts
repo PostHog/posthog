@@ -13,6 +13,18 @@ import type { funnelFlowGraphLogicType } from './funnelFlowGraphLogicType'
 
 export const NODE_HEIGHT = 160
 export const NODE_WIDTH = 300
+export const FIT_VIEW_OPTIONS = {
+    padding: 0.2,
+    maxZoom: 1,
+}
+
+export const PROFILE_NODE_HEIGHT = 80
+export const PROFILE_NODE_WIDTH = 180
+export const PROFILE_FIT_VIEW_OPTIONS = {
+    padding: 0.1,
+    maxZoom: 2,
+}
+
 export const ELK_OPTIONS = {
     'elk.algorithm': 'layered',
     'elk.direction': 'RIGHT',
@@ -41,18 +53,23 @@ const elk = new ELK()
 
 const DEFAULT_LOGIC_KEY = 'default_funnel_flow_graph'
 
-async function layoutNodes(nodes: Node<FunnelFlowNodeData>[], edges: Edge[]): Promise<Node<FunnelFlowNodeData>[]> {
+async function layoutNodes(
+    nodes: Node<FunnelFlowNodeData>[],
+    edges: Edge[],
+    elkOptionsOverride?: Record<string, string>,
+    elkNodeSize?: { width: number; height: number }
+): Promise<Node<FunnelFlowNodeData>[]> {
     if (nodes.length === 0) {
         return []
     }
 
     const graph: ElkNode = {
         id: 'root',
-        layoutOptions: ELK_OPTIONS,
+        layoutOptions: { ...ELK_OPTIONS, ...elkOptionsOverride },
         children: nodes.map((node) => ({
             id: node.id,
-            width: NODE_WIDTH,
-            height: NODE_HEIGHT,
+            width: elkNodeSize?.width ?? NODE_WIDTH,
+            height: elkNodeSize?.height ?? NODE_HEIGHT,
             ports: [
                 { id: `${node.id}-target`, properties: { side: 'WEST' } },
                 { id: `${node.id}-source`, properties: { side: 'EAST' } },
@@ -80,13 +97,18 @@ async function layoutNodes(nodes: Node<FunnelFlowNodeData>[], edges: Edge[]): Pr
     }))
 }
 
+export interface FunnelFlowLogicProps extends InsightLogicProps {
+    /**Whether the funnel is being displayed in a customer profile (person or group profile canvas) */
+    isProfileMode: boolean
+}
+
 export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
     path((key) => ['scenes', 'funnels', 'FunnelFlowGraph', 'funnelFlowGraphLogic', key]),
-    props({} as InsightLogicProps),
+    props({} as FunnelFlowLogicProps),
     key(keyForInsightLogicProps(DEFAULT_LOGIC_KEY)),
 
     connect((props: InsightLogicProps) => ({
-        values: [funnelDataLogic(props), ['visibleStepsWithConversionMetrics', 'isStepOptional']],
+        values: [funnelDataLogic(props), ['visibleStepsWithConversionMetrics', 'stepNames', 'isStepOptional']],
     })),
 
     actions({
@@ -103,39 +125,84 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
     }),
 
     selectors({
+        nodeType: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode): string => (isProfileMode ? 'profile' : 'journey'),
+        ],
+        nodeWidth: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode): number => (isProfileMode ? PROFILE_NODE_WIDTH : NODE_WIDTH),
+        ],
+        nodeHeight: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode): number => (isProfileMode ? PROFILE_NODE_HEIGHT : NODE_HEIGHT),
+        ],
+        fitViewOptions: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode) => (isProfileMode ? PROFILE_FIT_VIEW_OPTIONS : FIT_VIEW_OPTIONS),
+        ],
+
         nodes: [
-            (s) => [s.visibleStepsWithConversionMetrics, s.isStepOptional],
-            (steps, isStepOptional): Node<FunnelFlowNodeData>[] =>
-                steps.map((step, index) => {
+            (s) => [
+                s.visibleStepsWithConversionMetrics,
+                s.stepNames,
+                s.isStepOptional,
+                s.nodeType,
+                s.nodeWidth,
+                s.nodeHeight,
+            ],
+            (steps, stepNames, isStepOptional, nodeType, nodeWidth, nodeHeight): Node<FunnelFlowNodeData>[] => {
+                const stepsToMap: FunnelStepWithConversionMetrics[] =
+                    steps.length > 0
+                        ? steps
+                        : stepNames.map(({ nested_breakdown: _, ...s }) => ({
+                              ...s,
+                              droppedOffFromPrevious: 0,
+                              conversionRates: { fromPrevious: 0, total: 0, fromBasisStep: 0 },
+                          }))
+                return stepsToMap.map((step, index) => {
                     const optional = isStepOptional(index + 1)
                     return {
                         id: `step-${index}`,
-                        type: optional ? 'optional' : 'mandatory',
+                        type: nodeType,
                         data: { step, stepIndex: index, isOptional: optional },
                         position: { x: 0, y: 0 },
-                        width: NODE_WIDTH,
-                        height: NODE_HEIGHT,
+                        width: nodeWidth,
+                        height: nodeHeight,
                         draggable: false,
                         connectable: false,
                     }
-                }),
+                })
+            },
         ],
         edges: [
-            (s) => [s.nodes],
-            (nodes): Edge[] =>
+            (s) => [s.nodes, s.nodeType],
+            (nodes, nodeType): Edge[] =>
                 nodes.slice(0, -1).map((node, index) => {
                     const targetNode = nodes[index + 1]
                     const touchesOptionalStep = targetNode.data.isOptional
+
+                    const isProfileMode = nodeType === 'profile'
+
                     return {
                         id: `edge-${index}`,
                         source: node.id,
                         target: targetNode.id,
-                        type: 'funnelFlow',
+                        type: nodeType,
                         sourceHandle: `${node.id}-source`,
                         targetHandle: `${targetNode.id}-target`,
-                        markerEnd: { type: MarkerType.ArrowClosed },
+                        markerEnd: {
+                            type: MarkerType.ArrowClosed,
+                            ...(isProfileMode && { color: 'var(--color-border-secondary)' }),
+                        },
                         deletable: false,
-                        style: touchesOptionalStep ? { strokeDasharray: '5 5' } : undefined,
+                        style: {
+                            ...(isProfileMode && {
+                                stroke: 'var(--color-border-secondary)',
+                                strokeWidth: 2,
+                            }),
+                            ...(touchesOptionalStep && { strokeDasharray: '5 5' }),
+                        },
                         data: {
                             step: targetNode.data.step,
                             stepIndex: targetNode.data.stepIndex,
@@ -145,9 +212,14 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
         ],
     }),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, props }) => ({
         nodes: async () => {
-            const positioned = await layoutNodes(values.nodes, values.edges)
+            const elkOverrides = props.isProfileMode ? { 'elk.layered.spacing.nodeNodeBetweenLayers': '40' } : undefined
+            const elkNodeSize = {
+                width: values.nodeWidth,
+                height: values.nodeHeight,
+            }
+            const positioned = await layoutNodes(values.nodes, values.edges, elkOverrides, elkNodeSize)
             actions.setLaidOutNodes(positioned)
         },
     })),

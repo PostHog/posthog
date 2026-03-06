@@ -44,7 +44,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                 feature={AvailableFeature.SUBSCRIPTIONS}
                 handleSubmit={closeModal}
                 background={false}
-                className="py-8"
+                className="py-8 flex-1 min-h-0 flex flex-col"
                 docsLink="https://posthog.com/docs/user-guides/subscriptions"
             >
                 {!subscriptionId ? (

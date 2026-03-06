@@ -191,19 +191,9 @@ type SceneMainTitleProps = {
     forceBackTo?: Breadcrumb
 
     /**
-     * If true, disables the sticky behavior of the title section
-     */
-    noSticky?: boolean
-
-    /**
      * Additional class name for the title section
      */
     className?: string
-
-    /**
-     * Additional class name for the description wrapper
-     */
-    descriptionClassName?: string
 
     /**
      * Optional callback to generate a name using AI
@@ -236,11 +226,9 @@ export function SceneTitleSection({
     saveOnBlur = false,
     noBorder = false,
     noPadding = false,
-    noSticky = false,
     actions,
     forceBackTo,
     className,
-    descriptionClassName,
     onGenerateName,
     isGeneratingName,
     maxToolProps,
@@ -302,12 +290,10 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'group/scene-title-section bg-primary duration-300',
-                    !noSticky && '@2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-10',
-                    noPadding ? '' : '-mx-4 px-4 -mt-4 -mb-4',
+                    'group/scene-title-section bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
+                    noPadding ? '' : '-mx-4 px-4 -mt-4',
                     noBorder ? '' : 'border-b border-transparent transition-border',
-                    isScrolled &&
-                        'z-30 @2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
+                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     'pl-4 pr-2',
                     className
                 )}
@@ -353,7 +339,7 @@ export function SceneTitleSection({
                                         hasDescription ? (
                                             <ButtonPrimitive
                                                 className={cn(
-                                                    'size-[var(--button-height-sm)] shrink-0 -ml-2',
+                                                    'size-[var(--button-height-sm)] shrink-0',
                                                     isScrolled
                                                         ? 'animate-fade-out-subtle pointer-events-none'
                                                         : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
@@ -391,7 +377,7 @@ export function SceneTitleSection({
                 {/* Border is handled by the outer container's border-b */}
             </div>
             {hasDescription && (showDescription || forceEdit) && (
-                <div className="[&_svg]:size-6">
+                <div className="[&_svg]:size-6 -mt-4">
                     <SceneDescription
                         description={effectiveDescription}
                         markdown={markdown}
@@ -401,7 +387,6 @@ export function SceneTitleSection({
                         forceEdit={forceEdit}
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
-                        className={descriptionClassName}
                         maxLength={descriptionMaxLength}
                     />
                 </div>
@@ -423,7 +408,7 @@ type SceneNameProps = {
     suffix?: React.ReactNode
 }
 
-function SceneName({
+export function SceneName({
     name: initialName,
     isLoading = false,
     onChange,
@@ -600,7 +585,6 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
-    className?: string
     maxLength?: number
 }
 
@@ -613,7 +597,6 @@ function SceneDescription({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
-    className: descriptionClassName,
     maxLength,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
@@ -745,7 +728,7 @@ function SceneDescription({
     }
 
     return (
-        <div className={cn('scene-description relative focus-within:z-50', descriptionClassName)}>
+        <div className="scene-description relative focus-within:z-50">
             <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-0">{Element}</div>
         </div>
     )

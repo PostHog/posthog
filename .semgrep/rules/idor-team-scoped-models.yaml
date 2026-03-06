@@ -66,6 +66,7 @@ rules:
                               |BatchImport
                               |ChangeRequest
                               |ClusteringConfig
+                              |ClusteringJob
                               |Cohort
                               |Comment
                               |Conversation
@@ -113,6 +114,7 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSource
                               |FeatureFlag
+                              |TeamFeatureFlagDefaultsConfig
                               |FileSystem
                               |HealthIssue
                               |HogFlow
@@ -142,6 +144,7 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
                               |SavedHeatmap
@@ -231,6 +234,7 @@ rules:
                         |BatchImport
                         |ChangeRequest
                         |ClusteringConfig
+                        |ClusteringJob
                         |Cohort
                         |Comment
                         |Conversation
@@ -278,6 +282,7 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSource
                         |FeatureFlag
+                        |TeamFeatureFlagDefaultsConfig
                         |FileSystem
                         |HealthIssue
                         |HogFlow
@@ -307,6 +312,7 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
                         |SavedHeatmap
