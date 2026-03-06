@@ -7,7 +7,7 @@ from django.test import override_settings
 
 from rest_framework.test import APIClient
 
-from ee.api.stripe_provisioning.signature import compute_signature
+from ee.api.agentic_provisioning.signature import compute_signature
 
 HMAC_SECRET = "test_hmac_secret"
 

@@ -2,8 +2,8 @@ import time
 
 from django.test import override_settings
 
-from ee.api.stripe_provisioning.signature import compute_signature
-from ee.api.stripe_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.signature import compute_signature
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)

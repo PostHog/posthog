@@ -2,7 +2,7 @@ from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 
-from ee.api.stripe_provisioning.signature import _parse_signature_header, compute_signature
+from ee.api.agentic_provisioning.signature import _parse_signature_header, compute_signature
 
 HMAC_SECRET = "test_hmac_secret"
 
