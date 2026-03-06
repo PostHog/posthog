@@ -393,15 +393,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             }}
                                                             to={item.to}
                                                             tooltip={tooltip}
-                                                            tooltipPlacement="right"
-                                                            tooltipDocLink={item.documentationUrl}
-                                                        >
-                                                            <span className={iconClassName}>{item.icon}</span>
-                                                            {!isLayoutNavCollapsed && (
+
+                                                                hasSideActionRight: isHomePage && !isLayoutNavCollapsed,
+                                                            }}
+                                                            to={item.to}
+                                                            tooltip={tooltip}
                                                                 <span className="truncate">{item.label}</span>
                                                             )}
                                                         </Link>
-                                                        {isHomePage && (
+                                                        {isHomePage && !isLayoutNavCollapsed && (
                                                             <ButtonPrimitive
                                                                 iconOnly
                                                                 isSideActionRight
@@ -416,6 +416,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 <IconGear className="size-3 text-tertiary" />
                                                             </ButtonPrimitive>
                                                         )}
+
                                                     </ButtonGroupPrimitive>
                                                 )}
                                             </ListBox.Item>
