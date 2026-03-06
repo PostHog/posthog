@@ -81,7 +81,7 @@ interface SurveyEventSelectorProps {
     showRepeatedActivation?: boolean
 }
 
-function SurveyEventSelector({
+export function SurveyEventSelector({
     conditionField,
     label,
     info,
