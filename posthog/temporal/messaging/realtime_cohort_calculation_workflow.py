@@ -223,18 +223,15 @@ def _get_percentile_bucket_label(inputs: RealtimeCohortCalculationWorkflowInputs
 @database_sync_to_async
 def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> None:
     """Batch update cohort durations and last calculation timestamps."""
-    from django.db import transaction
-
     if not cohort_durations:
         return
 
     now = dt.datetime.now(dt.UTC)
-    with transaction.atomic():
-        for cohort_id, duration_ms in cohort_durations.items():
-            Cohort.objects.filter(id=cohort_id).update(
-                last_calculation_duration_ms=duration_ms,
-                last_calculation=now,
-            )
+    cohorts_to_update = list(Cohort.objects.filter(id__in=cohort_durations.keys()))
+    for cohort in cohorts_to_update:
+        cohort.last_calculation_duration_ms = cohort_durations[cohort.pk]
+        cohort.last_calculation = now
+    Cohort.objects.bulk_update(cohorts_to_update, ["last_calculation_duration_ms", "last_calculation"])
 
 
 @temporalio.activity.defn
