@@ -7,7 +7,7 @@ if system not in ("Darwin", "Linux"):
     raise Exception("Only Linux and macOS are supported by hogql_parser")
 
 is_macos = system == "Darwin"
-homebrew_location = "/usr/local" if platform.machine() == "arm64" else "/usr/local"
+homebrew_location = "/opt/homebrew" if platform.machine() == "arm64" else "/usr/local"
 
 module = Extension(
     "hogql_parser",
@@ -36,7 +36,7 @@ module = Extension(
 
 setup(
     name="hogql_parser",
-    version="1.3.23",
+    version="1.3.24",
     url="https://github.com/PostHog/posthog/tree/master/common/hogql_parser",
     description="HogQL parser for internal PostHog use",
     author="PostHog Inc.",
