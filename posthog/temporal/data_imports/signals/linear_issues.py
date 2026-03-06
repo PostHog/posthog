@@ -18,7 +18,9 @@ Strip raw logs, full stack traces, and large code blocks — but keep specific e
 Keep the total output under {max_length} characters. Respond with only the title and summary, nothing else.
 
 <issue>
+<untrusted_content>
 {description}
+</untrusted_content>
 </issue>
 """
 
@@ -41,7 +43,9 @@ An issue is NOT_ACTIONABLE if it is:
 When in doubt, classify as ACTIONABLE. Linear issues are filed intentionally, so err on the side of capturing the signal.
 
 <issue>
+<untrusted_content>
 {description}
+</untrusted_content>
 </issue>
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""

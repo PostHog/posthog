@@ -140,12 +140,18 @@ def render_signal_to_text(
     signal: SignalData,
     index: Optional[int] = None,
 ) -> str:
-    """Render a single signal to a text block for LLM consumption."""
+    """Render a single signal to a text block for LLM consumption.
+
+    The description is wrapped in <untrusted_content> tags because it originates
+    from external sources (GitHub issues, Zendesk tickets, Linear issues, session
+    replay analysis, LLM evaluation reasoning, etc.) and could contain prompt
+    injection attempts.
+    """
     lines = [f"Signal {index}:" if index is not None else "Signal:"]
     lines.append(f"- Source: {signal.source_product} / {signal.source_type}")
     lines.append(f"- Weight: {signal.weight}")
     lines.append(f"- Timestamp: {signal.timestamp}")
-    lines.append(f"- Description: {signal.content}")
+    lines.append(f"- Description:\n<untrusted_content>\n{signal.content}\n</untrusted_content>")
     return "\n".join(lines)
 
 

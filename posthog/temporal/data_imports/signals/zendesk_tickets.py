@@ -19,7 +19,9 @@ Strip email signatures, legal disclaimers, and system-generated footers — but 
 Keep the total output under {max_length} characters. Respond with only the title and summary, nothing else.
 
 <ticket>
+<untrusted_content>
 {description}
+</untrusted_content>
 </ticket>
 """
 
@@ -44,7 +46,9 @@ A ticket is NOT_ACTIONABLE if it is:
 When in doubt, classify as ACTIONABLE. It is worse to miss real feedback than to let some noise through.
 
 <ticket>
+<untrusted_content>
 {description}
+</untrusted_content>
 </ticket>
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
