@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useMemo, useState } from 'react'
 
 import { IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
@@ -145,6 +146,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
         [eventSchemas]
     )
 
+    const hasSchemaEnforcementReject = useFeatureFlag('SCHEMA_ENFORCEMENT_REJECT')
     const isEnforcementEnabled = schemaEnforcementMode === SchemaEnforcementMode.Reject
 
     const hasPropertyGroups = eventSchemas.length > 0
@@ -155,28 +157,32 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
             description="Define which property groups this event should have. Property groups establish a schema that helps document expected properties."
             actions={
                 <>
-                    <LemonCheckbox
-                        label={
-                            <span className="flex items-center gap-1">
-                                Reject invalid events
-                                <Tooltip title="When enabled, events missing required properties or with wrong types will be rejected at ingestion time">
-                                    <IconInfo className="text-lg text-secondary" />
-                                </Tooltip>
-                            </span>
-                        }
-                        bordered
-                        size="small"
-                        checked={isEnforcementEnabled}
-                        onChange={(checked) =>
-                            updateSchemaEnforcementMode(
-                                checked ? SchemaEnforcementMode.Reject : SchemaEnforcementMode.Allow
-                            )
-                        }
-                        disabled={!hasPropertyGroups || schemaEnforcementModeUpdating}
-                        disabledReason={
-                            !hasPropertyGroups ? 'Define a schema before enabling schema enforcement' : undefined
-                        }
-                    />
+                    {hasSchemaEnforcementReject && (
+                        <LemonCheckbox
+                            label={
+                                <span className="flex items-center gap-1">
+                                    Reject invalid events
+                                    <Tooltip title="When enabled, events missing required properties or with wrong types will be rejected at ingestion time">
+                                        <IconInfo className="text-lg text-secondary" />
+                                    </Tooltip>
+                                </span>
+                            }
+                            bordered
+                            size="small"
+                            checked={isEnforcementEnabled}
+                            onChange={(checked) =>
+                                updateSchemaEnforcementMode(
+                                    checked ? SchemaEnforcementMode.Reject : SchemaEnforcementMode.Allow
+                                )
+                            }
+                            disabled={!hasPropertyGroups || schemaEnforcementModeUpdating}
+                            disabledReason={
+                                !hasPropertyGroups
+                                    ? 'Define a schema before enabling schema enforcement'
+                                    : undefined
+                            }
+                        />
+                    )}
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}

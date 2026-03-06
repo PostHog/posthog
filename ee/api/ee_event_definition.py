@@ -100,6 +100,24 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             if validated_data["hidden"] and validated_data["verified"]:
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
 
+        if validated_data.get("enforcement_mode") == "reject":
+            request = self.context.get("request")
+            if request and request.user:
+                user = request.user
+                org = getattr(user, "organization", None)
+                org_id = str(org.id) if org else ""
+                flag_enabled = posthoganalytics.feature_enabled(
+                    "schema-enforcement-reject",
+                    str(user.distinct_id),
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    only_evaluate_locally=False,
+                )
+                if not flag_enabled:
+                    raise serializers.ValidationError(
+                        'Setting schema enforcement mode to "reject" requires the schema-enforcement-reject feature flag'
+                    )
+
         # Set verified metadata when verifying
         if "verified" in validated_data:
             user = self.context["request"].user

@@ -12,6 +12,8 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
+import posthoganalytics
+
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
@@ -129,6 +131,24 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         if "hidden" in validated_data and "verified" in validated_data:
             if validated_data["hidden"] and validated_data["verified"]:
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
+
+        if validated_data.get("enforcement_mode") == "reject":
+            request = self.context.get("request")
+            if request and request.user:
+                user = request.user
+                org = getattr(user, "organization", None)
+                org_id = str(org.id) if org else ""
+                flag_enabled = posthoganalytics.feature_enabled(
+                    "schema-enforcement-reject",
+                    str(user.distinct_id),
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    only_evaluate_locally=False,
+                )
+                if not flag_enabled:
+                    raise serializers.ValidationError(
+                        'Setting schema enforcement mode to "reject" requires the schema-enforcement-reject feature flag'
+                    )
 
         return validated_data
 
