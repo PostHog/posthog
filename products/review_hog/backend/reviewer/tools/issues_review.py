@@ -67,9 +67,9 @@ async def review_chunks_pass(
     # Validate pass number
     if pass_number not in PASS_ENUM_MAP:
         raise ValueError(f"Invalid pass number: {pass_number}. Must be in {PASS_ENUM_MAP.keys()}")
-    logger.info(
-        f"Starting Pass {pass_number} ({PASS_ENUM_MAP[pass_number]}) review for PR {pr_id} with {len(chunks_data.chunks)} chunks"
-    )
+    pass_name = PASS_ENUM_MAP[pass_number]
+    chunks_count = len(chunks_data.chunks)
+    logger.info(f"Starting Pass {pass_number} ({pass_name}) review for PR {pr_id} with {chunks_count} chunks")
 
     # Create pass-specific directories
     results_dir = review_dir / f"pass{pass_number}_results"
@@ -92,7 +92,7 @@ async def review_chunks_pass(
         )
         logger.info(f"Generated {len(prompt_paths)} prompts for Pass {pass_number}")
     except Exception as e:
-        logger.error(f"Failed to generate chunk review prompts for pass {pass_number}: {e}")
+        logger.exception(f"Failed to generate chunk review prompts for pass {pass_number}: {e}")
         raise
 
     # Prepare tasks for async processing
@@ -272,14 +272,16 @@ async def process_chunk(
     with prompt_path.open() as f:
         prompt = f.read()
     # Prepare system prompt for issues review
-    system_prompt = """You are a senior code reviewer focused on identifying and documenting issues in a GitHub PR chunk.
-Focus on:
-- Identifying real issues that impact code quality, security, or performance
-- Providing specific, actionable suggestions for each issue
-- Categorizing issues by priority (must_fix, should_fix, consider)
-- Understanding the context and avoiding duplicate issues from previous passes
-- Following the specific output format requirements for IssuesReview
-IMPORTANT: Return ONLY valid JSON output without any markdown formatting or explanatory text."""
+    system_prompt = (
+        "You are a senior code reviewer focused on identifying and documenting issues in a GitHub PR chunk.\n"
+        "Focus on:\n"
+        "- Identifying real issues that impact code quality, security, or performance\n"
+        "- Providing specific, actionable suggestions for each issue\n"
+        "- Categorizing issues by priority (must_fix, should_fix, consider)\n"
+        "- Understanding the context and avoiding duplicate issues from previous passes\n"
+        "- Following the specific output format requirements for IssuesReview\n"
+        "IMPORTANT: Return ONLY valid JSON output without any markdown formatting or explanatory text."
+    )
     try:
         success = await run_sandbox_review(
             prompt=prompt,
@@ -292,7 +294,7 @@ IMPORTANT: Return ONLY valid JSON output without any markdown formatting or expl
             logger.error(f"Failed to review chunk {chunk_id} using sandbox")
             return False
     except Exception as e:
-        logger.error(f"Failed to review chunk {chunk_id} using sandbox: {e}")
+        logger.exception(f"Failed to review chunk {chunk_id} using sandbox: {e}")
         return False
     # Final success message
     logger.info(f"Chunk {chunk_id} reviewed successfully!")

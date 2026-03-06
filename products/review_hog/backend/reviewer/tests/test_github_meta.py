@@ -1,19 +1,15 @@
-import json
 import os
+import json
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
+from unittest.mock import MagicMock, Mock, call, patch
+
 from github import GithubException
 
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
-from products.review_hog.backend.reviewer.tools.github_meta import (
-    PRFetcher,
-    PRFilter,
-    PRParser,
-    switch_to_pr_branch,
-)
+from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRFilter, PRParser, switch_to_pr_branch
 
 
 class TestParseGithubPrUrl:
@@ -579,7 +575,8 @@ class TestFetchPrData:
 
         with pr_comments_path.open("w") as f:
             f.write(
-                '{"path":"existing.py","line":null,"start_line":null,"body":"existing comment","diff_hunk":"@@ -1,3 +1,3 @@","user":"test-user","created_at":"2024-01-01T00:00:00"}\n'
+                '{"path":"existing.py","line":null,"start_line":null,"body":"existing comment",'
+                '"diff_hunk":"@@ -1,3 +1,3 @@","user":"test-user","created_at":"2024-01-01T00:00:00"}\n'
             )
 
         with pr_files_path.open("w") as f:

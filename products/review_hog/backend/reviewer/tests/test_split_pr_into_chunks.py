@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from pytest import MonkeyPatch
+from unittest.mock import AsyncMock, patch
 
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_code
@@ -116,9 +116,7 @@ class TestSplitPrIntoChunks:
         expected_chunks: ChunksList,
     ) -> None:
         """Test successful PR chunking."""
-        with patch(
-            "app.tools.split_pr_into_chunks.generate_chunking_prompt"
-        ) as mock_prompt:
+        with patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt:
             mock_prompt.return_value = "Test prompt"
 
             with patch(
@@ -139,10 +137,7 @@ class TestSplitPrIntoChunks:
                 with chunks_file.open() as f:
                     saved_chunks: ChunksList = ChunksList.model_validate_json(f.read())
                 assert len(saved_chunks.chunks) == len(expected_chunks.chunks)
-                assert (
-                    saved_chunks.chunks[0].chunk_id
-                    == expected_chunks.chunks[0].chunk_id
-                )
+                assert saved_chunks.chunks[0].chunk_id == expected_chunks.chunks[0].chunk_id
 
     @pytest.mark.asyncio
     async def test_split_pr_into_chunks_existing_file(
@@ -155,16 +150,12 @@ class TestSplitPrIntoChunks:
     ) -> None:
         """Test that chunking is skipped when chunks.json already exists."""
         chunks_file: Path = temp_review_dir / "chunks.json"
-        existing_content: dict[str, Any] = {
-            "chunks": [{"chunk_id": 999, "description": "Existing"}]
-        }
+        existing_content: dict[str, Any] = {"chunks": [{"chunk_id": 999, "description": "Existing"}]}
         with chunks_file.open("w") as f:
             json.dump(existing_content, f)
 
         with (
-            patch(
-                "app.tools.split_pr_into_chunks.generate_chunking_prompt"
-            ) as mock_prompt,
+            patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt,
             patch(
                 "app.tools.split_pr_into_chunks.CodeExecutor.run_code",
             ) as mock_run_code_executor,
@@ -198,9 +189,7 @@ class TestSplitPrIntoChunks:
         chunks_file: Path = temp_review_dir / "chunks.json"
         chunks_file.touch()
 
-        with patch(
-            "app.tools.split_pr_into_chunks.generate_chunking_prompt"
-        ) as mock_prompt:
+        with patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt:
             mock_prompt.return_value = "Test prompt"
 
             with patch(
@@ -232,9 +221,7 @@ class TestSplitPrIntoChunks:
         mock_run_claude_code_failure: AsyncMock,
     ) -> None:
         """Test handling of LLM failure."""
-        with patch(
-            "app.tools.split_pr_into_chunks.generate_chunking_prompt"
-        ) as mock_prompt:
+        with patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt:
             mock_prompt.return_value = "Test prompt"
 
             with (
@@ -242,9 +229,7 @@ class TestSplitPrIntoChunks:
                     "app.tools.split_pr_into_chunks.CodeExecutor.run_code",
                     mock_run_claude_code_failure,
                 ),
-                pytest.raises(
-                    RuntimeError, match="Failed to generate chunks using Claude Code"
-                ),
+                pytest.raises(RuntimeError, match="Failed to generate chunks using Claude Code"),
             ):
                 await split_pr_into_chunks(
                     pr_metadata=pr_metadata,
@@ -264,9 +249,7 @@ class TestSplitPrIntoChunks:
         temp_project_dir: Path,
     ) -> None:
         """Test handling of prompt generation error."""
-        with patch(
-            "app.tools.split_pr_into_chunks.generate_chunking_prompt"
-        ) as mock_prompt:
+        with patch("app.tools.split_pr_into_chunks.generate_chunking_prompt") as mock_prompt:
             mock_prompt.side_effect = FileNotFoundError("Schema file not found")
 
             with pytest.raises(FileNotFoundError, match="Schema file not found"):

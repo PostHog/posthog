@@ -4,9 +4,10 @@ import json
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock, patch
 
 import pytest
+from unittest.mock import Mock, patch
+
 from pydantic import ValidationError
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
@@ -44,7 +45,7 @@ def mock_tool_functions() -> Generator[dict[str, Mock], None, None]:
             "clean": mock_clean,
             "deduplicate": mock_deduplicate,
             "validate": mock_validate,
-            "prepare_validation": mock_prepare_validation
+            "prepare_validation": mock_prepare_validation,
         }
 
 
@@ -85,9 +86,7 @@ class TestArgumentParsing:
             pytest.raises(ValueError, match="Invalid GitHub PR URL format"),
         ):
             mock_parser = Mock()
-            mock_parser.parse_github_pr_url.side_effect = ValueError(
-                "Invalid GitHub PR URL format"
-            )
+            mock_parser.parse_github_pr_url.side_effect = ValueError("Invalid GitHub PR URL format")
             mock_parser_class.return_value = mock_parser
             await main()
 
@@ -285,10 +284,7 @@ class TestMainWorkflow:
             assert review_call_args is not None
             review_chunks_arg = review_call_args.kwargs["chunks_data"]
             assert len(review_chunks_arg.chunks) == len(expected_chunks.chunks)
-            assert (
-                review_chunks_arg.chunks[0].chunk_id
-                == expected_chunks.chunks[0].chunk_id
-            )
+            assert review_chunks_arg.chunks[0].chunk_id == expected_chunks.chunks[0].chunk_id
 
     @pytest.mark.asyncio
     async def test_review_chunks_error_propagation(
@@ -713,9 +709,7 @@ class TestIntegrationScenarios:
 
                 with (kwargs["review_dir"] / "issues_cleaned.json").open("w") as f:
                     f.write(in_scope.model_dump_json())
-                with (kwargs["review_dir"] / "issues_outside_scope.json").open(
-                    "w"
-                ) as f:
+                with (kwargs["review_dir"] / "issues_outside_scope.json").open("w") as f:
                     f.write(out_scope.model_dump_json())
 
             mock_tool_functions["clean"].side_effect = mock_clean_func

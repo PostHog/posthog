@@ -108,7 +108,7 @@ async def prepare_validation_markdown(
                     try:
                         validation = IssueValidation.model_validate_json(issue_raw)
                     except Exception as e:
-                        logger.error(f"Error validating issue {issue.id} ({e}) ({validation_path}): {issue_raw}")
+                        logger.exception(f"Error validating issue {issue.id} ({e}) ({validation_path}): {issue_raw}")
                         raise
 
                 # Only include issues where validation is_valid is true
@@ -150,7 +150,8 @@ def _generate_header_section(pr_metadata: dict[str, Any], num_chunks: int) -> li
         "",
         "## Summary",
         "",
-        f"This report contains detailed analysis of {num_chunks} chunks with their associated issues and validation results.",
+        f"This report contains detailed analysis of {num_chunks} chunks"
+        " with their associated issues and validation results.",
         "",
     ]
 

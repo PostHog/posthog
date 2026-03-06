@@ -1,26 +1,20 @@
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pytest import MonkeyPatch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_code
-from products.review_hog.backend.reviewer.tools.chunk_analysis import (
-    analyze_chunks,
-    generate_prompts,
-    process_chunk,
-)
+from products.review_hog.backend.reviewer.tools.chunk_analysis import analyze_chunks, generate_prompts, process_chunk
 
 
 @pytest.fixture
-def mock_run_claude_code_chunk_analysis_failure() -> (
-    Callable[[Any], Coroutine[Any, Any, bool]]
-):
+def mock_run_claude_code_chunk_analysis_failure() -> Callable[[Any], Coroutine[Any, Any, bool]]:
     """Create a mock for CodeExecutor.run_code that fails."""
 
     async def mock_func(_self: Any) -> bool:
@@ -161,9 +155,7 @@ class TestProcessChunk:
         assert analysis.chunk_meta is not None
 
     @pytest.mark.asyncio
-    async def test_process_chunk_missing_prompt(
-        self, temp_review_dir: Path, temp_project_dir: Path
-    ) -> None:
+    async def test_process_chunk_missing_prompt(self, temp_review_dir: Path, temp_project_dir: Path) -> None:
         """Test error when prompt file is missing."""
         prompt_path = temp_review_dir / "nonexistent-prompt.md"
         output_path = temp_review_dir / "output.json"
@@ -262,9 +254,7 @@ class TestAnalyzeChunks:
         existing_result = temp_review_dir / "chunk-1-analysis.json"
         existing_result.write_text(sample_chunk_analysis_simple.model_dump_json())
 
-        mock_run_claude = MagicMock(
-            wraps=create_mock_run_code(sample_chunk_analysis_simple)
-        )
+        mock_run_claude = MagicMock(wraps=create_mock_run_code(sample_chunk_analysis_simple))
         with patch("app.llm.code.CodeExecutor.run_code", mock_run_claude):
             await analyze_chunks(
                 chunks_data=expected_chunks,
@@ -319,9 +309,7 @@ class TestAnalyzeChunks:
 
         # Check prompts were generated
         for chunk in expected_chunks.chunks:
-            prompt_file = (
-                temp_review_dir / "prompts" / f"chunk-{chunk.chunk_id}-prompt.md"
-            )
+            prompt_file = temp_review_dir / "prompts" / f"chunk-{chunk.chunk_id}-prompt.md"
             assert prompt_file.exists()
 
 
@@ -395,9 +383,7 @@ class TestEndToEnd:
             assert analysis.chunk_meta.chunk_id == chunk.chunk_id
 
             # Check prompts were generated
-            prompt_file = (
-                temp_review_dir / "prompts" / f"chunk-{chunk.chunk_id}-prompt.md"
-            )
+            prompt_file = temp_review_dir / "prompts" / f"chunk-{chunk.chunk_id}-prompt.md"
             assert prompt_file.exists()
 
             # Verify prompt contains necessary information

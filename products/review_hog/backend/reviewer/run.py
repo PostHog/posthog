@@ -28,7 +28,7 @@ async def main(pr_url: str) -> None:
     try:
         pr_info = PRParser().parse_github_pr_url(pr_url)
     except ValueError as e:
-        logger.error(f"Error: {e}")
+        logger.exception(f"Error: {e}")
         raise
     owner = str(pr_info["owner"])
     repo = str(pr_info["repo"])
@@ -45,7 +45,7 @@ async def main(pr_url: str) -> None:
             owner=owner, repo=repo, pr_number=pr_number, review_dir=str(review_dir)
         ).fetch_pr_data()
     except Exception as e:
-        logger.error(f"Unexpected error while fetching PR data: {e}")
+        logger.exception(f"Unexpected error while fetching PR data: {e}")
         raise
 
     branch = pr_metadata.head_branch

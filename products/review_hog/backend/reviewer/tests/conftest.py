@@ -4,18 +4,13 @@ import json
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
+from unittest.mock import AsyncMock
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import (
-    Issue,
-    IssuePriority,
-    IssuesReview,
-    LineRange,
-)
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.tools.github_meta import PRComment, PRFile, PRMetadata
 
@@ -137,9 +132,7 @@ def sample_chunk_analysis_complex(
     # Update for complex test cases
     complex_analysis.goal = "Fix authentication logic and improve security architecture"
     complex_analysis.chunk_meta.chunk_id = 1
-    complex_analysis.chunk_meta.files_in_this_chunk.extend(
-        ["src/config.py", "src/analyzer.py"]
-    )
+    complex_analysis.chunk_meta.files_in_this_chunk.extend(["src/config.py", "src/analyzer.py"])
 
     # Update other fields
     return complex_analysis

@@ -31,7 +31,11 @@ class Issue(BaseModel):
     """Represents a code review issue."""
 
     id: str = Field(
-        description="Unique issue ID in format '{pass_number}-{chunk_id}-{issue_number}' where pass_number is from the current pass, chunk_id is from the current chunk, and issue_number is sequential (1, 2, 3...) within the chunk"
+        description=(
+            "Unique issue ID in format '{pass_number}-{chunk_id}-{issue_number}' where pass_number is"
+            " from the current pass, chunk_id is from the current chunk, and issue_number is sequential"
+            " (1, 2, 3...) within the chunk"
+        )
     )
     title: str = Field(description="Issue title")
     file: str = Field(description="Path to the file containing the issue")
@@ -40,7 +44,9 @@ class Issue(BaseModel):
     suggestion: str = Field(description="Specific fix or improvement")
     priority: IssuePriority = Field(description="Priority level of the issue")
     is_directy_related_to_changes: bool = Field(
-        description="Whether the issue is directly caused by the changes in the PR or was noticed just because of the same file",
+        description=(
+            "Whether the issue is directly caused by the changes in the PR or was noticed just because of the same file"
+        ),
         default=False,
     )
 

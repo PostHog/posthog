@@ -72,7 +72,7 @@ async def split_pr_into_chunks(
             review_dir=review_dir,
         )
     except (FileNotFoundError, RuntimeError) as e:
-        logger.error(f"Error generating prompt: {e}")
+        logger.exception(f"Error generating prompt: {e}")
         raise
 
     system_prompt = """You are a code review assistant analyzing GitHub PRs and organizing them into logical chunks.
