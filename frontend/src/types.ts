@@ -6065,6 +6065,7 @@ export type CyclotronJobInputSchemaType = {
         | 'integration_field'
         | 'email'
         | 'native_email'
+        | 'posthog_assignee'
     key: string
     label: string
     choices?: { value: string; label: string }[]
