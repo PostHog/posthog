@@ -1,7 +1,7 @@
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import {
     IconApps,
@@ -45,9 +45,9 @@ import { urls } from 'scenes/urls'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
-import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { navigationLogic } from '../navigation/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 
 const navBarStyles = cva({
@@ -66,7 +66,7 @@ const navBarStyles = cva({
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
+    const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
     const {
         showLayoutPanel,
         setActivePanelIdentifier,
@@ -405,15 +405,64 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         )
 
                                         if (item.identifier === 'ProjectHomepage') {
+                                            const homeListItem = !isLayoutNavCollapsed ? (
+                                                <ListBox.Item
+                                                    key={item.identifier}
+                                                    asChild
+                                                    onClick={() => item.onClick?.()}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            item.onClick?.(e)
+                                                        }
+                                                    }}
+                                                >
+                                                    <ButtonGroupPrimitive
+                                                        fullWidth
+                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+                                                    >
+                                                        <Link
+                                                            data-attr={`menu-item-${item.identifier
+                                                                .toString()
+                                                                .toLowerCase()}`}
+                                                            buttonProps={{
+                                                                menuItem: true,
+                                                                className: 'group',
+                                                                active: isStaticNavItemActive(item.identifier),
+                                                                hasSideActionRight: true,
+                                                            }}
+                                                            to={item.to}
+                                                            tooltip={tooltip}
+                                                            tooltipPlacement="right"
+                                                        >
+                                                            <span className={iconClassName}>{item.icon}</span>
+                                                            <span className="truncate">{item.label}</span>
+                                                        </Link>
+                                                        <ButtonPrimitive
+                                                            iconOnly
+                                                            isSideActionRight
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                showConfigurePinnedTabsModal()
+                                                            }}
+                                                            tooltip="Configure tabs & home"
+                                                            tooltipPlacement="right"
+                                                        >
+                                                            <IconGear className="text-tertiary" />
+                                                        </ButtonPrimitive>
+                                                    </ButtonGroupPrimitive>
+                                                </ListBox.Item>
+                                            ) : (
+                                                listItem
+                                            )
                                             return (
                                                 <ContextMenu key={item.identifier}>
-                                                    <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
+                                                    <ContextMenuTrigger asChild>{homeListItem}</ContextMenuTrigger>
                                                     <ContextMenuContent className="max-w-[300px]">
                                                         <ContextMenuGroup>
                                                             <ContextMenuItem asChild>
                                                                 <ButtonPrimitive
                                                                     menuItem
-                                                                    onClick={() => setIsConfigurePinnedTabsOpen(true)}
+                                                                    onClick={() => showConfigurePinnedTabsModal()}
                                                                 >
                                                                     <IconGear /> Configure tabs & home
                                                                 </ButtonPrimitive>
@@ -502,10 +551,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     />
                 )}
             </div>
-            <ConfigurePinnedTabsModal
-                isOpen={isConfigurePinnedTabsOpen}
-                onClose={() => setIsConfigurePinnedTabsOpen(false)}
-            />
         </>
     )
 }

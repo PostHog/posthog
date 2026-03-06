@@ -1,13 +1,16 @@
 import type { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import { FeatureFlagGetDefinitionSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
+
+type TResult = Schemas.FeatureFlag | { error: string }
 
 const schema = FeatureFlagGetDefinitionSchema
 
 type Params = z.infer<typeof schema>
 
-export const getDefinitionHandler: ToolBase<typeof schema>['handler'] = async (
+export const getDefinitionHandler: ToolBase<typeof schema, TResult>['handler'] = async (
     context: Context,
     { flagId, flagKey }: Params
 ) => {
@@ -40,7 +43,7 @@ export const getDefinitionHandler: ToolBase<typeof schema>['handler'] = async (
     return { error: 'Could not determine or find the feature flag.' }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, TResult> => ({
     name: 'feature-flag-get-definition',
     schema,
     handler: getDefinitionHandler,

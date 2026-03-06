@@ -192,7 +192,8 @@
          "posthog_taggeditem"."property_definition_id",
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id"
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -207,7 +208,8 @@
          "posthog_taggeditem"."property_definition_id",
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id"
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -891,7 +893,8 @@
          "posthog_taggeditem"."property_definition_id",
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id"
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -906,7 +909,8 @@
          "posthog_taggeditem"."property_definition_id",
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id"
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''

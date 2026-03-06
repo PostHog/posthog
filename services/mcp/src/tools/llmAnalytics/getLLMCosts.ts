@@ -7,7 +7,10 @@ const schema = LLMAnalyticsGetCostsSchema
 
 type Params = z.infer<typeof schema>
 
-export const getLLMCostsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const getLLMCostsHandler: ToolBase<typeof schema, unknown>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const { projectId, days } = params
 
     const trendsQuery = {

@@ -190,7 +190,7 @@ function DashboardScene(): JSX.Element {
                     )}
 
                     <SceneStickyBar showBorderBottom={false}>
-                        <div className="flex gap-2 justify-between">
+                        <div className="flex flex-col md:flex-row gap-2 justify-between">
                             {![
                                 DashboardPlacement.Public,
                                 DashboardPlacement.Export,
