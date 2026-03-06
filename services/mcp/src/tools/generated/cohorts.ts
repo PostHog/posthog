@@ -168,20 +168,16 @@ const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
     },
 })
 
-const CohortsRemovePersonFromStaticCohortPartialUpdateSchema =
-    CohortsRemovePersonFromStaticCohortPartialUpdateParams.omit({ project_id: true }).extend(
-        CohortsRemovePersonFromStaticCohortPartialUpdateBody.shape
-    )
+const CohortsRmPersonFromStaticCohortPartialUpdateSchema = CohortsRemovePersonFromStaticCohortPartialUpdateParams.omit({
+    project_id: true,
+}).extend(CohortsRemovePersonFromStaticCohortPartialUpdateBody.shape)
 
-const cohortsRemovePersonFromStaticCohortPartialUpdate = (): ToolBase<
-    typeof CohortsRemovePersonFromStaticCohortPartialUpdateSchema
+const cohortsRmPersonFromStaticCohortPartialUpdate = (): ToolBase<
+    typeof CohortsRmPersonFromStaticCohortPartialUpdateSchema
 > => ({
     name: 'cohorts-rm-person-from-static-cohort-partial-update',
-    schema: CohortsRemovePersonFromStaticCohortPartialUpdateSchema,
-    handler: async (
-        context: Context,
-        params: z.infer<typeof CohortsRemovePersonFromStaticCohortPartialUpdateSchema>
-    ) => {
+    schema: CohortsRmPersonFromStaticCohortPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CohortsRmPersonFromStaticCohortPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.person_id !== undefined) {
@@ -205,5 +201,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cohorts-retrieve': cohortsRetrieve,
     'cohorts-partial-update': cohortsPartialUpdate,
     'cohorts-add-persons-to-static-cohort-partial-update': cohortsAddPersonsToStaticCohortPartialUpdate,
-    'cohorts-rm-person-from-static-cohort-partial-update': cohortsRemovePersonFromStaticCohortPartialUpdate,
+    'cohorts-rm-person-from-static-cohort-partial-update': cohortsRmPersonFromStaticCohortPartialUpdate,
 }
