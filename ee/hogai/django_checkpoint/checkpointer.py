@@ -93,10 +93,10 @@ def _json_default(serde: JsonPlusSerializer, obj: Any) -> str | dict[str, Any]:
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
-    jsonplus_serde = JsonPlusSerializer(allowed_msgpack_modules=None, allowed_json_modules=True)
+    jsonplus_serde = JsonPlusSerializer(allowed_json_modules=True)
 
     def __init__(self, **kwargs: Any) -> None:
-        super().__init__(serde=JsonPlusSerializer(allowed_msgpack_modules=None, allowed_json_modules=True), **kwargs)
+        super().__init__(serde=JsonPlusSerializer(allowed_json_modules=True), **kwargs)
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
