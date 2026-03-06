@@ -185,6 +185,7 @@ dependencies = [
     "botocore[crt]~=1.40.49",
     "defusedxml>=0.7.1",
     "confluent-kafka>=2.13.0",
+    "pygithub==2.7.0",
 ]
 
 [dependency-groups]
