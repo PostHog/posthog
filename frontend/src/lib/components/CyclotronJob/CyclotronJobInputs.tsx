@@ -27,6 +27,8 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter, objectsEqual, uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
@@ -473,6 +475,17 @@ function CyclotronJobInputRenderer({
                     value={input.value}
                     onChange={onValueChange}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
+            )
+        case 'hogql':
+            return (
+                <HogQLQueryEditor
+                    query={{ kind: NodeKind.HogQLQuery, query: input.value ?? '' }}
+                    onChange={(query) => onChange?.({ ...input, value: query })}
+                    embedded
+                    editorFooter={(hasErrors, error) =>
+                        hasErrors && error ? <div className="text-danger text-sm p-1">{error}</div> : <></>
+                    }
                 />
             )
         default:

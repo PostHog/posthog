@@ -16,6 +16,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'dictionary',
         'choice',
         'json',
+        'hogql',
         'integration',
         'integration_field',
         'email',
