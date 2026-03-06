@@ -49,21 +49,23 @@ def _get_defaults() -> tuple[int, int, int, str]:
     return _CLOUD_TEAM_ID, _CLOUD_USER_ID, _CLOUD_GITHUB_INTEGRATION_ID, _CLOUD_REPOSITORY
 
 
-async def run_review(prompt: str, branch: str = "master") -> str:
-    """Spawn a sandbox agent with the given prompt and return its last response.
+async def run_review(prompt: str, branch: str = "master") -> tuple[str, str]:
+    """Spawn a sandbox agent with the given prompt and return its last response and full logs.
 
     Creates a Task + TaskRun, triggers the existing Temporal workflow,
     polls until completion, then reads the S3 logs and extracts the last
     agent message.
+
+    Returns (last_agent_message, full_log_content).
     """
     full_description = _build_description(prompt, branch)
     task, task_run = await _create_task_and_trigger(full_description)
     logger.info("review_hog: started task=%s run=%s", task.id, task_run.id)
-    final_status, last_message = await _poll_until_done(task_run)
+    final_status, last_message, full_log = await _poll_until_done(task_run)
     logger.info("review_hog: finished run=%s status=%s", task_run.id, final_status)
     if not last_message:
-        return f"[review_hog] Run completed with status={final_status} but no agent message found."
-    return last_message
+        last_message = f"[review_hog] Run completed with status={final_status} but no agent message found."
+    return last_message, full_log or ""
 
 
 def _build_description(prompt: str, branch: str) -> str:
@@ -104,12 +106,12 @@ async def _create_task_and_trigger(description: str):
     return task, task_run
 
 
-async def _poll_until_done(task_run) -> tuple[str, str | None]:
+async def _poll_until_done(task_run) -> tuple[str, str | None, str | None]:
     """Poll logs for agent completion, fall back to TaskRun status.
 
-    Returns (status, last_agent_message). The agent emits a log entry with
-    stopReason=end_turn when it finishes — we detect that instead of waiting
-    for the Temporal workflow's 5-min inactivity timeout.
+    Returns (status, last_agent_message, full_log_content). The agent emits a
+    log entry with stopReason=end_turn when it finishes — we detect that
+    instead of waiting for the Temporal workflow's 5-min inactivity timeout.
     """
     from products.tasks.backend.models import TaskRun
 
@@ -118,9 +120,9 @@ async def _poll_until_done(task_run) -> tuple[str, str | None]:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
 
-        finished, last_message = await sync_to_async(_check_logs)(task_run)
+        finished, last_message, full_log = await sync_to_async(_check_logs)(task_run)
         if finished:
-            return "completed", last_message
+            return "completed", last_message, full_log
 
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
@@ -128,19 +130,19 @@ async def _poll_until_done(task_run) -> tuple[str, str | None]:
             TaskRun.Status.FAILED,
             TaskRun.Status.CANCELLED,
         }:
-            _, last_message = await sync_to_async(_check_logs)(task_run)
-            return refreshed.status, last_message
+            _, last_message, full_log = await sync_to_async(_check_logs)(task_run)
+            return refreshed.status, last_message, full_log
 
-    return "timeout", None
+    return "timeout", None, None
 
 
-def _check_logs(task_run) -> tuple[bool, str | None]:
-    """Parse S3 logs. Returns (agent_finished, last_agent_message)."""
+def _check_logs(task_run) -> tuple[bool, str | None, str | None]:
+    """Parse S3 logs. Returns (agent_finished, last_agent_message, full_log_content)."""
     from posthog.storage import object_storage
 
     log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
     if not log_content.strip():
-        return False, None
+        return False, None, None
 
     latest_text: str | None = None
     agent_finished = False
@@ -177,7 +179,7 @@ def _check_logs(task_run) -> tuple[bool, str | None]:
         if text:
             latest_text = text
 
-    return agent_finished, latest_text
+    return agent_finished, latest_text, log_content
 
 
 def _extract_text(update: dict) -> str | None:

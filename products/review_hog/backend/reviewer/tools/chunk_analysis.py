@@ -1,14 +1,15 @@
-import asyncio
 import json
+import asyncio
 import logging
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from products.review_hog.backend.reviewer.llm.code import CodeExecutor, prepare_code_context
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.sandbox.code_context import prepare_code_context
+from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -20,13 +21,11 @@ async def analyze_chunks(
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
     review_dir: Path,
-    project_dir: str,
+    branch: str,
 ) -> None:
     """Analyze all chunks to understand their purpose and architecture."""
     pr_id = str(pr_metadata.number)
-    logger.info(
-        f"Starting chunk analysis for PR {pr_id} with {len(chunks_data.chunks)} chunks"
-    )
+    logger.info(f"Starting chunk analysis for PR {pr_id} with {len(chunks_data.chunks)} chunks")
 
     # Generate prompts for all chunks
     try:
@@ -59,7 +58,7 @@ async def analyze_chunks(
             chunk_id=chunk_id,
             prompt_path=prompt_path,
             output_path=result_path,
-            project_dir=project_dir,
+            branch=branch,
         )
         tasks.append(task)
         chunks_to_process.append(chunk_id)
@@ -124,26 +123,18 @@ async def generate_prompts(
         # Get files for the chunk
         chunk_files = [f.filename for f in chunk.files]
         # Filter comments and files related to chunk files
-        pr_chunk_comments = [
-            comment for comment in pr_comments if comment.path in chunk_files
-        ]
+        pr_chunk_comments = [comment for comment in pr_comments if comment.path in chunk_files]
         pr_chunk_files = [file for file in pr_files if file.filename in chunk_files]
 
         # Generate Claude Code context with specific line ranges for changes
-        claude_code_context = prepare_code_context(
-            [x.filename for x in chunk.files], pr_chunk_files
-        )
+        claude_code_context = prepare_code_context([x.filename for x in chunk.files], pr_chunk_files)
         # Render template with all variables
         prompt = template.render(
             CLAUDE_CODE_CONTEXT=claude_code_context,
             CURRENT_CHUNK=json.dumps(chunk.model_dump(by_alias=True), indent=2),
             PR_METADATA=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
-            PR_COMMENTS=json.dumps(
-                [c.model_dump(mode="json") for c in pr_chunk_comments], indent=2
-            ),
-            PR_FILE_CHANGES=json.dumps(
-                [c.model_dump(mode="json") for c in pr_chunk_files], indent=2
-            ),
+            PR_COMMENTS=json.dumps([c.model_dump(mode="json") for c in pr_chunk_comments], indent=2),
+            PR_FILE_CHANGES=json.dumps([c.model_dump(mode="json") for c in pr_chunk_files], indent=2),
             OUTPUT_SCHEMA=output_schema,
         )
         # Save rendered file
@@ -158,9 +149,9 @@ async def process_chunk(
     chunk_id: int,
     prompt_path: Path,
     output_path: Path,
-    project_dir: str,
+    branch: str,
 ) -> bool:
-    """Process a single chunk through Claude Code SDK query()."""
+    """Process a single chunk through a sandbox agent."""
     # Read prompt content
     if not prompt_path.exists():
         raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
@@ -175,19 +166,18 @@ Focus on:
 - Providing technical insights about the implementation
 IMPORTANT: Return ONLY valid JSON output without any markdown formatting or explanatory text."""
     try:
-        code_executor = CodeExecutor(
+        success = await run_sandbox_review(
             prompt=prompt,
             system_prompt=system_prompt,
-            project_dir=project_dir,
+            branch=branch,
             output_path=str(output_path),
             model_to_validate=ChunkAnalysis,
         )
-        success = await code_executor.run_code()
         if not success:
-            logger.error(f"Failed to analyze chunk {chunk_id} using Claude Code")
+            logger.error(f"Failed to analyze chunk {chunk_id} using sandbox")
             return False
     except Exception as e:
-        logger.error(f"Failed to analyze chunk {chunk_id} using Claude Code: {e}")
+        logger.error(f"Failed to analyze chunk {chunk_id} using sandbox: {e}")
         return False
     # Final success message
     logger.info(f"Chunk {chunk_id} analyzed successfully!")

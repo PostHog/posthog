@@ -1,19 +1,16 @@
-import asyncio
 import json
+import asyncio
 import logging
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from products.review_hog.backend.reviewer.llm.code import CodeExecutor, prepare_code_context
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import (
-    IssuesReview,
-    PassContext,
-    PassType,
-)
+from products.review_hog.backend.reviewer.models.issues_review import IssuesReview, PassContext, PassType
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.sandbox.code_context import prepare_code_context
+from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -31,7 +28,7 @@ async def review_chunks(
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
     review_dir: Path,
-    project_dir: str,
+    branch: str,
 ) -> None:
     passes_count = len(PASS_ENUM_MAP)
     for i in range(passes_count):
@@ -48,7 +45,7 @@ async def review_chunks(
             pr_comments=pr_comments,
             pr_files=pr_files,
             review_dir=review_dir,
-            project_dir=project_dir,
+            branch=branch,
             pass_number=pass_number,
             previous_passes_context=previous_passes_context,
         )
@@ -61,7 +58,7 @@ async def review_chunks_pass(
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
     review_dir: Path,
-    project_dir: str,
+    branch: str,
     pass_number: int,
     previous_passes_context: list[PassContext],
 ) -> None:
@@ -115,7 +112,7 @@ async def review_chunks_pass(
             chunk_id=chunk_id,
             prompt_path=prompt_path,
             output_path=results_dir / f"chunk-{chunk_id}-issues-review.json",
-            project_dir=project_dir,
+            branch=branch,
         )
         tasks.append(task)
         chunks_to_process.append(chunk_id)
@@ -266,9 +263,9 @@ async def process_chunk(
     chunk_id: int,
     prompt_path: Path,
     output_path: Path,
-    project_dir: str,
+    branch: str,
 ) -> bool:
-    """Process a single chunk through Claude Code SDK query()."""
+    """Process a single chunk through a sandbox agent."""
     # Read prompt content
     if not prompt_path.exists():
         raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
@@ -284,19 +281,18 @@ Focus on:
 - Following the specific output format requirements for IssuesReview
 IMPORTANT: Return ONLY valid JSON output without any markdown formatting or explanatory text."""
     try:
-        code_executor = CodeExecutor(
+        success = await run_sandbox_review(
             prompt=prompt,
             system_prompt=system_prompt,
-            project_dir=project_dir,
+            branch=branch,
             output_path=str(output_path),
             model_to_validate=IssuesReview,
         )
-        success = await code_executor.run_code()
         if not success:
-            logger.error(f"Failed to review chunk {chunk_id} using Claude Code")
+            logger.error(f"Failed to review chunk {chunk_id} using sandbox")
             return False
     except Exception as e:
-        logger.error(f"Failed to review chunk {chunk_id} using Claude Code: {e}")
+        logger.error(f"Failed to review chunk {chunk_id} using sandbox: {e}")
         return False
     # Final success message
     logger.info(f"Chunk {chunk_id} reviewed successfully!")

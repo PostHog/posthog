@@ -4,13 +4,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from products.review_hog.backend.reviewer.llm.code import CodeExecutor
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.tools.github_meta import (
-    PRComment,
-    PRFile,
-    PRMetadata,
-)
+from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
+from products.review_hog.backend.reviewer.tools.github_meta import PRComment, PRFile, PRMetadata
 
 # Load environment variables
 load_dotenv()
@@ -56,13 +52,9 @@ async def split_pr_into_chunks(
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
     review_dir: Path,
-    project_dir: str,
+    branch: str,
 ) -> None:
-    """Split a GitHub PR into logical chunks for review.
-
-    Args:
-        pr_url: GitHub PR URL (e.g., https://github.com/PostHog/posthog/pull/34633)
-    """
+    """Split a GitHub PR into logical chunks for review."""
     # Define output path for chunks.json
     output_path = review_dir / "chunks.json"
 
@@ -83,9 +75,6 @@ async def split_pr_into_chunks(
         logger.error(f"Error generating prompt: {e}")
         raise
 
-    # Run Claude Code SDK with the prompt
-    # TODO: Move system prompt to a separate file
-    # Create a system prompt for the chunking task
     system_prompt = """You are a code review assistant analyzing GitHub PRs and organizing them into logical chunks.
 Focus on:
 - Understanding file relationships and dependencies
@@ -95,16 +84,15 @@ Focus on:
 
 IMPORTANT: Return ONLY valid JSON output without any markdown formatting or explanatory text."""
 
-    code_executor = CodeExecutor(
+    success = await run_sandbox_review(
         prompt=prompt,
         system_prompt=system_prompt,
-        project_dir=project_dir,
+        branch=branch,
         output_path=str(output_path),
         model_to_validate=ChunksList,
     )
-    success = await code_executor.run_code()
     if not success:
-        logger.error("Failed to generate chunks using Claude Code")
-        raise RuntimeError("Failed to generate chunks using Claude Code")
+        logger.error("Failed to generate chunks using sandbox")
+        raise RuntimeError("Failed to generate chunks using sandbox")
     # Final success message
     logger.info("Chunking completed successfully!")

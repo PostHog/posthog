@@ -1,17 +1,10 @@
-import argparse
 import logging
 from pathlib import Path
-
-import anyio
 
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.tools.chunk_analysis import analyze_chunks
-from products.review_hog.backend.reviewer.tools.github_meta import (
-    PRFetcher,
-    PRParser,
-    switch_to_pr_branch,
-)
+from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRParser
 from products.review_hog.backend.reviewer.tools.issue_cleaner import clean_issues
 from products.review_hog.backend.reviewer.tools.issue_combination import combine_issues
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import deduplicate_issues
@@ -24,35 +17,16 @@ logger = logging.getLogger(__name__)
 # Configure logging to output to console
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
+# Review output directory relative to the review_hog product
+_REVIEW_HOG_DIR = Path(__file__).parent.parent.parent
 
-async def main() -> None:
+
+async def main(pr_url: str) -> None:
     """Main entry point for running PR review tools."""
-
-    # Process input arguments
-    parser = argparse.ArgumentParser(description="Run PR review tools on a GitHub pull request")
-    parser.add_argument(
-        "--pr-url",
-        help="GitHub PR URL (e.g., https://github.com/PostHog/posthog/pull/34633)",
-        required=True,
-        type=str,
-    )
-    parser.add_argument(
-        "--project-dir",
-        help="Directory of the project to review (absolute path)",
-        required=True,
-        type=str,
-    )
-    args = parser.parse_args()
-
-    # Validate project directory exists
-    project_dir = Path(args.project_dir)
-    if not project_dir.exists() or not project_dir.is_dir():
-        logger.error(f"Project directory does not exist: {args.project_dir}")
-        raise ValueError(f"Project directory does not exist: {args.project_dir}")
 
     # Parse PR URL into PR metadata
     try:
-        pr_info = PRParser().parse_github_pr_url(args.pr_url)
+        pr_info = PRParser().parse_github_pr_url(pr_url)
     except ValueError as e:
         logger.error(f"Error: {e}")
         raise
@@ -62,7 +36,7 @@ async def main() -> None:
     logger.info(f"Processing PR #{pr_number} from {owner}/{repo}")
 
     # Create output directory (if doesn't exist)
-    review_dir = Path.cwd() / "reviews" / str(pr_number)
+    review_dir = _REVIEW_HOG_DIR / "reviews" / str(pr_number)
     review_dir.mkdir(parents=True, exist_ok=True)
 
     # Fetch PR data from GitHub
@@ -74,8 +48,7 @@ async def main() -> None:
         logger.error(f"Unexpected error while fetching PR data: {e}")
         raise
 
-    # Switch to the proper PR branch
-    switch_to_pr_branch(pr_metadata=pr_metadata, project_dir=args.project_dir)
+    branch = pr_metadata.head_branch
 
     # Generate schemas
     logger.info("Generating schemas...")
@@ -88,7 +61,7 @@ async def main() -> None:
         pr_comments=pr_comments,
         pr_files=pr_files,
         review_dir=review_dir,
-        project_dir=args.project_dir,
+        branch=branch,
     )
 
     # Load chunks
@@ -104,7 +77,7 @@ async def main() -> None:
         pr_comments=pr_comments,
         pr_files=pr_files,
         review_dir=review_dir,
-        project_dir=args.project_dir,
+        branch=branch,
     )
 
     # Find issues in each chunk in multiple passes
@@ -115,7 +88,7 @@ async def main() -> None:
         pr_comments=pr_comments,
         pr_files=pr_files,
         review_dir=review_dir,
-        project_dir=args.project_dir,
+        branch=branch,
     )
     logger.info("Issues review completed successfully!")
 
@@ -132,7 +105,7 @@ async def main() -> None:
     await deduplicate_issues(
         pr_metadata=pr_metadata,
         review_dir=review_dir,
-        project_dir=args.project_dir,
+        branch=branch,
     )
     logger.info("Issue deduplication completed successfully!")
 
@@ -143,7 +116,7 @@ async def main() -> None:
         pr_metadata=pr_metadata,
         pr_files=pr_files,
         review_dir=review_dir,
-        project_dir=args.project_dir,
+        branch=branch,
     )
     logger.info("Issue validation completed successfully!")
 
@@ -155,7 +128,3 @@ async def main() -> None:
         pr_metadata=pr_metadata.model_dump(),
     )
     logger.info("Validation markdown preparation completed successfully!")
-
-
-if __name__ == "__main__":
-    anyio.run(main)
