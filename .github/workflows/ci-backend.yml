@@ -118,6 +118,32 @@ jobs:
                         - bin/wait-for-docker
                         - frontend/public/email/*
                         - docker/clickhouse
+                      legacy:
+                        # Non-product backend code — when only products/ change,
+                        # turbo contract-check decides whether Django tests run.
+                        # Everything from backend: EXCEPT products/**/backend/**/*
+                        - 'ee/**/*'
+                        - 'common/**/*'
+                        - 'posthog/**/*'
+                        - 'bin/*.py'
+                        - pyproject.toml
+                        - uv.lock
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        - .test_durations
+                        - frontend/src/queries/schema.json
+                        - rust/feature-flags/src/properties/property_models.rs
+                        - common/plugin_transpiler/src
+                        - .github/workflows/ci-backend.yml
+                        - .github/clickhouse-versions.json
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
+                        - docker-compose.base.yml
+                        - bin/wait-for-docker
+                        - frontend/public/email/*
+                        - docker/clickhouse
                       migrations:
                         - docker/clickhouse
                         - 'posthog/migrations/*.py'
