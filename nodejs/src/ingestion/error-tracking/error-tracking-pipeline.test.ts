@@ -247,7 +247,7 @@ describe('ErrorTrackingPipeline', () => {
         } as unknown as jest.Mocked<CymbalClient>
 
         mockGroupTypeManager = {
-            fetchGroupTypes: jest.fn(),
+            fetchGroupTypes: jest.fn().mockResolvedValue({}),
             fetchGroupTypeIndex: jest.fn(),
             insertGroupType: jest.fn(),
         } as unknown as jest.Mocked<GroupTypeManager>
@@ -397,9 +397,11 @@ describe('ErrorTrackingPipeline', () => {
         it('handles events with group types', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
-            mockGroupTypeManager.fetchGroupTypeIndex
-                .mockResolvedValueOnce(0) // company -> 0
-                .mockResolvedValueOnce(1) // project -> 1
+            // Mock fetchGroupTypes to return the group type to index mapping
+            mockGroupTypeManager.fetchGroupTypes.mockResolvedValue({
+                company: 0,
+                project: 1,
+            })
 
             // Cymbal receives enriched properties (including $group_*) and returns them
             const cymbalResponse = createCymbalResponseWithEnrichedProperties({

@@ -243,22 +243,25 @@ describe('createErrorTrackingPrepareEventStep', () => {
             expect((result.value as any).message).toEqual({ topic: 'test-topic', partition: 0 })
             expect((result.value as any).customField).toBe('should-be-preserved')
 
-            // Original fields should be transformed/removed
+            // event should be removed, team should be preserved for downstream steps
             expect((result.value as any).event).toBeUndefined()
-            expect((result.value as any).team).toBeUndefined()
+            expect((result.value as any).team).toBeDefined()
         }
     })
 
-    it('removes event and team from output but adds preparedEvent', async () => {
+    it('removes event from output but preserves team and adds preparedEvent', async () => {
         const event = createTestPluginEvent({ event: '$exception' })
 
         const result = await step({ event, team, person: null, headers: createTestHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
-            // These should not be in output
+            // event should not be in output
             expect('event' in result.value).toBe(false)
-            expect('team' in result.value).toBe(false)
+
+            // team should be preserved for downstream steps (e.g., read-only process groups)
+            expect('team' in result.value).toBe(true)
+            expect(result.value.team).toEqual(team)
 
             // These should be in output
             expect(result.value.preparedEvent).toBeDefined()
