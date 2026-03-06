@@ -88,18 +88,9 @@ export enum ConversionRateInputType {
     AUTOMATIC = 'automatic',
 }
 
-// Type alias for number to be reflected as integer in json-schema.
+/** Type alias for number to be reflected as integer in json-schema. */
 /** @asType integer */
 type integer = number
-
-export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
-
-/** Make all keys of T required except those in K */
-export type RequiredExcept<T, K extends keyof T> = {
-    [P in Exclude<keyof T, K>]-?: T[P]
-} & {
-    [P in K]?: T[P]
-}
 
 // Keep this in sync with backend constants/features/{product_name}.yml
 
@@ -4980,7 +4971,10 @@ export type ExportContext = (
     | QueryExportContext
     | ReplayExportContext
     | HeatmapExportContext
-) & { row_limit?: number } // Some exports have different row limits, e.g. logs
+) & {
+    row_limit?: number // Some exports have different row limits, e.g. logs
+    columns?: string[]
+}
 
 export interface ExportedAssetType {
     id: number
@@ -5427,7 +5421,7 @@ export interface ExternalDataSource {
     id: string
     source_id: string
     connection_id: string
-    status: string
+    status: ExternalDataJobStatus
     source_type: ExternalDataSourceType
     prefix: string | null
     description: string | null
@@ -6065,6 +6059,8 @@ export type CyclotronJobInputSchemaType = {
         | 'integration_field'
         | 'email'
         | 'native_email'
+        | 'posthog_assignee'
+        | 'posthog_ticket_tags'
     key: string
     label: string
     choices?: { value: string; label: string }[]

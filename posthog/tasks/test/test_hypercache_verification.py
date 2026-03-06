@@ -142,6 +142,32 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
         cache_types = [call[1]["cache_type"] for call in mock_run_verification.call_args_list]
         assert cache_types == ["flag_definitions_with-cohorts", "flag_definitions_without-cohorts"]
 
+    @patch("posthog.tasks.hypercache_verification.verify_team_flag_definitions")
+    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
+    def test_each_variant_captures_correct_include_cohorts(
+        self, mock_run_verification: MagicMock, mock_verify_team: MagicMock
+    ) -> None:
+        """Guard against the closure-in-loop bug: each verify_fn must capture its own include_cohorts value."""
+        mock_run_verification.return_value = MagicMock()
+        mock_verify_team.return_value = {"status": "match", "issue": None}
+
+        verify_and_fix_flag_definitions_cache_task()
+
+        verify_fn_with = mock_run_verification.call_args_list[0][1]["verify_team_fn"]
+        verify_fn_without = mock_run_verification.call_args_list[1][1]["verify_team_fn"]
+
+        mock_team = MagicMock()
+        verify_fn_with(mock_team)
+        mock_verify_team.assert_called_with(
+            mock_team, db_batch_data=None, cache_batch_data=None, include_cohorts=True, verbose=False
+        )
+
+        mock_verify_team.reset_mock()
+        verify_fn_without(mock_team)
+        mock_verify_team.assert_called_with(
+            mock_team, db_batch_data=None, cache_batch_data=None, include_cohorts=False, verbose=False
+        )
+
     @patch("posthog.tasks.hypercache_verification.capture_exception")
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_captures_error_continues_to_next_variant_then_reraises(

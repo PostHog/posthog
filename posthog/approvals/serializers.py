@@ -180,6 +180,12 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
 
+    def validate_approver_config(self, value):
+        quorum = value.get("quorum", 0)
+        if quorum < 1:
+            raise serializers.ValidationError("Quorum must be at least 1")
+        return value
+
     def validate_bypass_org_membership_levels(self, value):
         if not value:
             return value

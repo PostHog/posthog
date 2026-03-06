@@ -21,6 +21,7 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
@@ -343,10 +344,21 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                           value: 'device',
                                           label: (
                                               <div>
-                                                  <div className="font-medium">Device</div>
+                                                  <div className="font-medium">
+                                                      Device{' '}
+                                                      <LemonTag type="warning" size="small">
+                                                          BETA
+                                                      </LemonTag>
+                                                  </div>
                                                   <div className="text-xs text-muted">
                                                       Stable assignment per device. Good fit for experiments on
-                                                      anonymous users.
+                                                      anonymous users.{' '}
+                                                      <Link
+                                                          to="https://posthog.com/docs/feature-flags/device-bucketing"
+                                                          target="_blank"
+                                                      >
+                                                          Learn more
+                                                      </Link>
                                                   </div>
                                               </div>
                                           ),

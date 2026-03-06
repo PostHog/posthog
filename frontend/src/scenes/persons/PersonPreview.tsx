@@ -26,8 +26,9 @@ export type PersonPreviewProps = {
 }
 
 export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
-    const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
-    const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
+    const logicProps = { syncWithUrl: false, urlId: props.distinctId || props.personId }
+    const { loadPerson, loadPersonUUID } = useActions(personsLogic(logicProps))
+    const { person, personLoading } = useValues(personsLogic(logicProps))
 
     useEffect(() => {
         if (props.distinctId) {
