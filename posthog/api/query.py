@@ -172,22 +172,25 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 result = result.model_dump(by_alias=True)
 
             total_time_ms = round((perf_counter() - start_time) * 1000, 2)
-            response_bytes = len(orjson.dumps(result))
-            report_user_or_team_action(
-                "query api response",
-                {
-                    "query_type": getattr(query, "kind", "Other"),
-                    "is_cached": result.get("is_cached", False),
-                    "execution_mode": execution_mode.value,
-                    "total_time_ms": total_time_ms,
-                    "response_bytes": response_bytes,
-                    "client_query_id": client_query_id,
-                },
-                user=request.user if hasattr(request.user, "distinct_id") else None,
-                team=self.team,
-                organization=self.team.organization,
-                request=request,
-            )
+            try:
+                response_bytes = len(orjson.dumps(result))
+                report_user_or_team_action(
+                    "query api response",
+                    {
+                        "query_type": getattr(query, "kind", "Other"),
+                        "is_cached": result.get("is_cached", False),
+                        "execution_mode": execution_mode.value,
+                        "total_time_ms": total_time_ms,
+                        "response_bytes": response_bytes,
+                        "client_query_id": client_query_id,
+                    },
+                    user=request.user if hasattr(request.user, "distinct_id") else None,
+                    team=self.team,
+                    organization=self.team.organization,
+                    request=request,
+                )
+            except Exception:
+                pass
 
             response_status = (
                 status.HTTP_202_ACCEPTED
