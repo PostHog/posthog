@@ -155,6 +155,19 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                                 right=ast.Field(chain=["issues", "id"]),
                             ),
                         ),
+                        next_join=ast.JoinExpr(
+                            join_type="LEFT JOIN",
+                            table=ast.Field(chain=["system", "error_tracking_issue_assignments"]),
+                            alias="assignment",
+                            constraint=ast.JoinConstraint(
+                                constraint_type="ON",
+                                expr=ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Field(chain=["assignment", "issue_id"]),
+                                    right=ast.Field(chain=["issues", "id"]),
+                                ),
+                            ),
+                        ),
                     ),
                 ),
             ),
@@ -165,6 +178,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 ast.Field(chain=["issues", "name"]),
                 ast.Field(chain=["issues", "description"]),
                 ast.Field(chain=["fp", "first_seen"]),
+                ast.Field(chain=["assignment", "user_id"]),
+                ast.Field(chain=["assignment", "role_id"]),
             ],
             order_by=[ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=self.order_direction)],
         )
@@ -183,7 +198,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     def select_expressions(self):
         exprs: list[ast.Expr] = [
-            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
+            ast.Alias(alias="id", expr=ast.Field(chain=["e", "issue_id"])),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="function", expr=self.innermost_frame_attribute("$exception_functions")),
@@ -302,6 +317,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             ast.Alias(alias="description", expr=ast.Field(chain=["issues", "description"])),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Field(chain=["fp", "first_seen"])),
+            ast.Alias(alias="assignee_user_id", expr=ast.Field(chain=["assignment", "user_id"])),
+            ast.Alias(alias="assignee_role_id", expr=ast.Field(chain=["assignment", "role_id"])),
             ast.Alias(alias="function", expr=self.innermost_frame_attribute("$exception_functions")),
             ast.Alias(alias="source", expr=self.innermost_frame_attribute("$exception_sources")),
         ]
@@ -545,7 +562,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             ),
             ast.Call(
                 name="isNotNull",
-                args=[ast.Field(chain=["issue_id"])],
+                args=[ast.Field(chain=["e", "issue_id"])],
             ),
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
@@ -578,7 +595,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["issue_id"]),
+                    left=ast.Field(chain=["e", "issue_id"]),
                     right=ast.Constant(value=self.query.issueId),
                 )
             )
@@ -666,7 +683,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["issue_id"]),
+                    left=ast.Field(chain=["e", "issue_id"]),
                     right=ast.Constant(value=prefetched_ids),
                 )
             )
@@ -678,7 +695,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         """WHERE clause for v2: filters applied directly, no Postgres prefetch needed."""
         exprs = self._base_where_exprs()
 
-        # Status filter pushed to the postgres side via the JOIN condition on issues.status
+        # Status filter — simple predicate, pushed to Postgres via the issues JOIN
         if self.query.status and self.query.status != "all":
             exprs.append(
                 ast.CompareOperation(
@@ -687,6 +704,25 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                     right=ast.Constant(value=self.query.status),
                 )
             )
+
+        # Assignee filter — pushed to Postgres via the assignment LEFT JOIN
+        if self.query.assignee:
+            if self.query.assignee.type == "user":
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["assignment", "user_id"]),
+                        right=ast.Constant(value=self.query.assignee.id),
+                    )
+                )
+            else:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["assignment", "role_id"]),
+                        right=ast.Constant(value=str(self.query.assignee.id)),
+                    )
+                )
 
         return ast.And(exprs=exprs)
 
@@ -771,8 +807,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                     "name": result_dict.get("name"),
                     "description": result_dict.get("description"),
                     "first_seen": result_dict.get("first_seen"),
-                    # assignee data not available in v2 (no assignment table join)
-                    "assignee": None,
+                    "assignee": self._extract_assignee_v2(result_dict),
                     "last_seen": result_dict.get("last_seen"),
                     "library": result_dict.get("library"),
                     "function": result_dict.get("function"),
@@ -787,6 +822,15 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 }
             )
         return results
+
+    def _extract_assignee_v2(self, result_dict: dict) -> dict | None:
+        user_id = result_dict.get("assignee_user_id")
+        role_id = result_dict.get("assignee_role_id")
+        if user_id:
+            return {"id": user_id, "type": "user"}
+        if role_id:
+            return {"id": str(role_id), "type": "role"}
+        return None
 
     def extract_event(self, event_tuple):
         if event_tuple is None:
