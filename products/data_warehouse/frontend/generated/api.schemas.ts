@@ -462,8 +462,11 @@ export interface ExternalDataSourceSerializersApi {
     account_id: string
     readonly source_type: SourceTypeE09EnumApi
     readonly latest_error: string
-    /** @nullable */
-    readonly prefix: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
@@ -503,8 +506,11 @@ export interface PatchedExternalDataSourceSerializersApi {
     account_id?: string
     readonly source_type?: SourceTypeE09EnumApi
     readonly latest_error?: string
-    /** @nullable */
-    readonly prefix?: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
