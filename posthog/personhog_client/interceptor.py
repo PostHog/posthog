@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import time
+from collections import namedtuple
 from collections.abc import Sequence
 from typing import Any
 
 import grpc
 from prometheus_client import Counter, Histogram
+
+_ClientCallDetails = namedtuple(
+    "_ClientCallDetails",
+    ["method", "timeout", "metadata", "credentials", "wait_for_ready", "compression"],
+)
+
+
+class _MutableClientCallDetails(_ClientCallDetails, grpc.ClientCallDetails):
+    pass
+
 
 PERSONHOG_REQUEST_DURATION = Histogram(
     "personhog_grpc_request_duration_seconds",
@@ -31,12 +42,11 @@ def _with_metadata(
     client_call_details: grpc.ClientCallDetails,
     extra: Sequence[tuple[str, str]],
 ) -> grpc.ClientCallDetails:
-    existing = list(client_call_details.metadata) if client_call_details.metadata else []
-    existing.extend(extra)
-    return grpc.ClientCallDetails(
+    metadata = list(client_call_details.metadata or []) + list(extra)
+    return _MutableClientCallDetails(
         method=client_call_details.method,
         timeout=client_call_details.timeout,
-        metadata=existing,
+        metadata=metadata,
         credentials=client_call_details.credentials,
         wait_for_ready=client_call_details.wait_for_ready,
         compression=client_call_details.compression,
