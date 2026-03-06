@@ -898,7 +898,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (s) => [s.tabularColumns, s.response],
             (tabularColumns, response): TableDataCell<any>[][] => {
                 if (!response || tabularColumns === null) {
-                    return [[]]
+                    return []
                 }
 
                 const data =

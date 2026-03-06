@@ -13,8 +13,8 @@ export const mocksToHandlers = (mocks: Mocks): ReturnType<(typeof rest)['get']>[
     const response: ReturnType<(typeof rest)['get']>[] = []
     Object.entries(mocks)
         .filter((entry): entry is [keyof Mocks, Record<string, MockSignature>] => !!entry)
-        .map(([method, mockHandlers]) => {
-            Object.entries(mockHandlers).map(([path, handler]) => {
+        .forEach(([method, mockHandlers]) => {
+            Object.entries(mockHandlers).forEach(([path, handler]) => {
                 const pathWithoutTrailingSlash = path.replace(/\/$/, '')
                 response.push(
                     (rest[method] as (typeof rest)['get'])(pathWithoutTrailingSlash, async (req, res, ctx) => {
