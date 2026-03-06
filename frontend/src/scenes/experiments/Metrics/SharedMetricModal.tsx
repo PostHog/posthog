@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -53,6 +53,7 @@ export function SharedMetricModal({
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
+    const [searchTerm, setSearchTerm] = useState<string>('')
 
     if (!compatibleSharedMetrics) {
         return null
@@ -66,13 +67,26 @@ export function SharedMetricModal({
 
     const closeModal = (): void => {
         setSelectedMetricIds([])
+        setSearchTerm('')
         closeSharedMetricModal()
     }
 
-    const availableSharedMetrics = compatibleSharedMetrics.filter(
-        (metric: SharedMetric) =>
-            !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
-    )
+    const availableSharedMetrics = compatibleSharedMetrics
+        .filter(
+            (metric: SharedMetric) =>
+                !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
+        )
+        .filter((metric: SharedMetric) => {
+            if (!searchTerm) {
+                return true
+            }
+            const searchLower = searchTerm.toLowerCase()
+            return (
+                metric.name.toLowerCase().includes(searchLower) ||
+                metric.description?.toLowerCase().includes(searchLower) ||
+                metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower))
+            )
+        })
 
     const availableTags = Array.from(
         new Set(
@@ -146,6 +160,13 @@ export function SharedMetricModal({
                                     } already in use with this experiment.`}
                                 </LemonBanner>
                             )}
+                            <LemonInput
+                                type="search"
+                                placeholder="Search metrics by name, description, or tag..."
+                                value={searchTerm}
+                                onChange={setSearchTerm}
+                                fullWidth
+                            />
                             <div className="flex flex-wrap gap-2">
                                 <LemonLabel>Quick select:</LemonLabel>
                                 <LemonButton
@@ -213,6 +234,7 @@ export function SharedMetricModal({
                                         title: 'Name',
                                         dataIndex: 'name',
                                         key: 'name',
+                                        sorter: (a, b) => a.name.localeCompare(b.name),
                                     },
                                     {
                                         title: 'Description',
