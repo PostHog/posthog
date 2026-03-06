@@ -76,22 +76,22 @@
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.12
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at"
-  FROM "posthog_featureflagevaluationtag"
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at"
+  FROM "posthog_featureflagevaluationcontext"
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.13
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at"
-  FROM "posthog_featureflagevaluationtag"
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at"
+  FROM "posthog_featureflagevaluationcontext"
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.14
@@ -778,22 +778,22 @@
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.31
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at"
-  FROM "posthog_featureflagevaluationtag"
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at"
+  FROM "posthog_featureflagevaluationcontext"
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.32
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at"
-  FROM "posthog_featureflagevaluationtag"
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at"
+  FROM "posthog_featureflagevaluationcontext"
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.33

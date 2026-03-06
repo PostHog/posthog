@@ -2515,22 +2515,22 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.62
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at"
-  FROM "posthog_featureflagevaluationtag"
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at"
+  FROM "posthog_featureflagevaluationcontext"
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.63
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at"
-  FROM "posthog_featureflagevaluationtag"
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at"
+  FROM "posthog_featureflagevaluationcontext"
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.64
@@ -2938,16 +2938,17 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.77
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" = 99999
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at",
+         "posthog_evaluationcontext"."id",
+         "posthog_evaluationcontext"."name",
+         "posthog_evaluationcontext"."team_id",
+         "posthog_evaluationcontext"."created_at"
+  FROM "posthog_featureflagevaluationcontext"
+  INNER JOIN "posthog_evaluationcontext" ON ("posthog_featureflagevaluationcontext"."evaluation_context_id" = "posthog_evaluationcontext"."id")
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.78
