@@ -346,16 +346,8 @@ pub async fn ai_handler(
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
-    let (accepted_parts, processed_event) = build_kafka_event(
-        parsed,
-        token,
-        &client_ip,
-        &state,
-        applied_restrictions.force_overflow(),
-        applied_restrictions.skip_person_processing(),
-        applied_restrictions.redirect_to_dlq(),
-        applied_restrictions.redirect_to_topic().map(|s| s.to_string()),
-    )?;
+    let (accepted_parts, processed_event) =
+        build_kafka_event(parsed, token, &client_ip, &state, &applied_restrictions)?;
 
     // Step 9: Send event to Kafka
     state.sink.send(processed_event).await.map_err(|e| {
@@ -473,10 +465,7 @@ fn build_kafka_event(
     token: &str,
     client_ip: &str,
     state: &AppState,
-    force_overflow: bool,
-    skip_person_processing: bool,
-    redirect_to_dlq: bool,
-    redirect_to_topic: Option<String>,
+    restrictions: &AppliedRestrictions,
 ) -> Result<(Vec<PartInfo>, ProcessedEvent), CaptureError> {
     // Get current time
     let now = state.timesource.current_time();
@@ -548,10 +537,10 @@ fn build_kafka_event(
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,
-        force_overflow,
-        skip_person_processing,
-        redirect_to_dlq,
-        redirect_to_topic,
+        force_overflow: restrictions.force_overflow(),
+        skip_person_processing: restrictions.skip_person_processing(),
+        redirect_to_dlq: restrictions.redirect_to_dlq(),
+        redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
     };
 
     // Create ProcessedEvent

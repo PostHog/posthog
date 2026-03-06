@@ -14,7 +14,9 @@ use tracing::{error, info, warn};
 use crate::config::CaptureMode;
 
 use super::repository::EventRestrictionsRepository;
-use super::types::{AppliedRestrictions, EventContext, Restriction, RestrictionSet, RestrictionType};
+use super::types::{
+    AppliedRestrictions, EventContext, Restriction, RestrictionSet, RestrictionType,
+};
 
 /// Manages restrictions by token.
 #[derive(Debug, Clone, Default)]
