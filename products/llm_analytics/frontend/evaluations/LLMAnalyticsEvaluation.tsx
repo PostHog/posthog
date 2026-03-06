@@ -123,7 +123,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
                                     {evaluation.enabled ? 'Enabled' : 'Disabled'}
                                 </LemonTag>
-                                {hasUnsavedChanges && <LemonTag type="warning">Unsaved Changes</LemonTag>}
+                                {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
                             </>
                         )}
                     </div>
@@ -152,7 +152,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             disabled={saveButtonDisabled}
                             loading={evaluationFormSubmitting}
                         >
-                            {isNewEvaluation ? 'Create Evaluation' : 'Save Changes'}
+                            {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
                         </LemonButton>
                     </AccessControlAction>
                 </div>

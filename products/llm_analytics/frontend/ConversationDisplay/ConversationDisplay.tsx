@@ -29,7 +29,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
         output: rawOutput,
     })
 
-    const handleTryInPlayground = (): void => {
+    const handleOpenInPlayground = (): void => {
         setupPlaygroundFromEvent({
             model: eventProperties.$ai_model,
             provider: eventProperties.$ai_provider,
@@ -77,7 +77,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                         type="secondary"
                         size="small"
                         icon={<IconPlay />}
-                        onClick={handleTryInPlayground}
+                        onClick={handleOpenInPlayground}
                         tooltip="Open in Playground"
                         data-attr="llma-playground-open-from-conversation"
                     >

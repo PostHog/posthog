@@ -204,6 +204,15 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
         setSourceSetupLoading: (isLoading: boolean) => ({ isLoading }),
+        saveToLinkedPrompt: true,
+        saveToLinkedEvaluation: (
+            modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
+        ) => ({ modelConfig }),
+        saveAsNewPrompt: (name: string) => ({ name }),
+        saveAsNewEvaluation: (
+            name: string,
+            modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
+        ) => ({ name, modelConfig }),
     }),
 
     reducers({
@@ -643,6 +652,93 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 router.actions.push(urls.llmAnalyticsPlayground())
             } finally {
                 actions.setSourceSetupLoading(false)
+            }
+        },
+
+        saveToLinkedPrompt: async () => {
+            const { linkedSource, promptConfigs } = values
+            if (!linkedSource.promptId) {
+                return
+            }
+            const prompt = promptConfigs[0]
+            if (!prompt) {
+                return
+            }
+            const label = linkedSource.promptName ?? 'linked prompt'
+            try {
+                await api.llmPrompts.update(linkedSource.promptId, { prompt: prompt.systemPrompt })
+                lemonToast.success(`Prompt "${label}" updated`)
+            } catch {
+                lemonToast.error('Failed to update prompt')
+            }
+        },
+
+        saveToLinkedEvaluation: async ({ modelConfig }) => {
+            const { linkedSource, promptConfigs } = values
+            if (!linkedSource.evaluationId) {
+                return
+            }
+            const prompt = promptConfigs[0]
+            if (!prompt) {
+                return
+            }
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                lemonToast.error('Could not determine team')
+                return
+            }
+            try {
+                await api.update(`/api/environments/${teamId}/evaluations/${linkedSource.evaluationId}/`, {
+                    evaluation_config: { prompt: prompt.systemPrompt },
+                    ...(modelConfig ? { model_configuration: modelConfig } : {}),
+                })
+                const label = linkedSource.evaluationName
+                    ? `Evaluation "${linkedSource.evaluationName}"`
+                    : linkedSource.evaluationId
+                      ? `Evaluation ${linkedSource.evaluationId.slice(0, 8)}`
+                      : 'Linked evaluation'
+                lemonToast.success(`${label} updated`)
+            } catch {
+                lemonToast.error('Failed to update evaluation')
+            }
+        },
+
+        saveAsNewPrompt: async ({ name }) => {
+            const prompt = values.promptConfigs[0]
+            if (!prompt) {
+                return
+            }
+            try {
+                await api.llmPrompts.create({ name, prompt: prompt.systemPrompt })
+                lemonToast.success('Prompt saved')
+            } catch {
+                lemonToast.error('Failed to save prompt')
+            }
+        },
+
+        saveAsNewEvaluation: async ({ name, modelConfig }) => {
+            const prompt = values.promptConfigs[0]
+            if (!prompt) {
+                return
+            }
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                lemonToast.error('Could not determine team')
+                return
+            }
+            try {
+                await api.create(`/api/environments/${teamId}/evaluations/`, {
+                    name,
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: { prompt: prompt.systemPrompt },
+                    model_configuration: modelConfig,
+                    output_type: 'boolean',
+                    conditions: [],
+                    enabled: false,
+                })
+                lemonToast.success('Evaluation saved')
+            } catch {
+                lemonToast.error('Failed to save evaluation')
             }
         },
     })),
