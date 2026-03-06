@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0987_add_column_configuration_constraints"),
+        ("posthog", "1035_llm_prompt_versioning"),
     ]
 
     operations = [
