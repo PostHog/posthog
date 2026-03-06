@@ -27,15 +27,23 @@ describe('definitionPopoverLogic', () => {
     const mockDataWarehouseTable: DataWarehouseTableForInsight = {
         id: 'warehouse-table-id',
         name: 'warehouse_table',
+        type: 'data_warehouse',
+        format: 'Parquet',
+        url_pattern: '',
         fields: {
-            id: { key: 'id', name: 'id', type: 'integer' },
-            distinct_id: { key: 'distinct_id', name: 'distinct_id', type: 'string' },
-            created_at: { key: 'created_at', name: 'created_at', type: 'datetime' },
-            user_uuid: { key: 'user_uuid', name: 'user_uuid', type: 'string' },
-            event_timestamp: { key: 'event_timestamp', name: 'event_timestamp', type: 'datetime' },
-            row_uuid: { key: 'row_uuid', name: 'row_uuid', type: 'string' },
+            id: { name: 'id', hogql_value: 'id', type: 'integer', schema_valid: true },
+            distinct_id: { name: 'distinct_id', hogql_value: 'distinct_id', type: 'string', schema_valid: true },
+            created_at: { name: 'created_at', hogql_value: 'created_at', type: 'datetime', schema_valid: true },
+            user_uuid: { name: 'user_uuid', hogql_value: 'user_uuid', type: 'string', schema_valid: true },
+            event_timestamp: {
+                name: 'event_timestamp',
+                hogql_value: 'event_timestamp',
+                type: 'datetime',
+                schema_valid: true,
+            },
+            row_uuid: { name: 'row_uuid', hogql_value: 'row_uuid', type: 'string', schema_valid: true },
         },
-    } as DataWarehouseTableForInsight
+    }
 
     beforeEach(() => {
         useMocks({
