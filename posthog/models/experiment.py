@@ -117,6 +117,16 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         )
 
 
+def holdout_filters_for_flag(holdout: "ExperimentHoldout | None") -> dict:
+    """Return both legacy `holdout_groups` and new `holdout` fields for a feature flag's filters."""
+    if holdout is None:
+        return {"holdout_groups": None, "holdout": None}
+    return {
+        "holdout_groups": holdout.filters,
+        "holdout": {"id": holdout.id, "exclusion_percentage": holdout.filters[0]["rollout_percentage"]},
+    }
+
+
 class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)

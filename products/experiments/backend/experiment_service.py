@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, holdout_filters_for_flag
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 
@@ -165,7 +165,6 @@ class ExperimentService:
             variants = parameters.get("feature_flag_variants", [])
             aggregation_group_type_index = parameters.get("aggregation_group_type_index")
 
-        holdout_groups = holdout.filters if holdout else None
         params = parameters or {}
         experiment_rollout_percentage = params.get("rollout_percentage", DEFAULT_ROLLOUT_PERCENTAGE)
 
@@ -173,7 +172,7 @@ class ExperimentService:
             "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
             "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
             "aggregation_group_type_index": aggregation_group_type_index,
-            "holdout_groups": holdout_groups,
+            **holdout_filters_for_flag(holdout),
         }
 
         feature_flag_data: dict[str, Any] = {

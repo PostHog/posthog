@@ -33,6 +33,7 @@ from posthog.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    holdout_filters_for_flag,
 )
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.filters.filter import Filter
@@ -442,9 +443,9 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         if instance.is_draft:
             # if feature flag variants or holdout have changed, update the feature flag.
-            holdout_groups = instance.holdout.filters if instance.holdout else None
+            holdout = instance.holdout
             if "holdout" in validated_data:
-                holdout_groups = validated_data["holdout"].filters if validated_data["holdout"] else None
+                holdout = validated_data["holdout"]
 
             if validated_data.get("parameters"):
                 variants = validated_data["parameters"].get("feature_flag_variants", [])
@@ -478,7 +479,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 feature_flag_filters["groups"] = existing_groups
                 feature_flag_filters["multivariate"] = {"variants": variants or default_variants}
                 feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
-                feature_flag_filters["holdout_groups"] = holdout_groups
+                feature_flag_filters.update(holdout_filters_for_flag(holdout))
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
@@ -493,7 +494,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 if "holdout" in validated_data:
                     existing_flag_serializer = FeatureFlagSerializer(
                         feature_flag,
-                        data={"filters": {**feature_flag.filters, "holdout_groups": holdout_groups}},
+                        data={"filters": {**feature_flag.filters, **holdout_filters_for_flag(holdout)}},
                         partial=True,
                         context=self.context,
                     )

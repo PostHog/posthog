@@ -120,6 +120,7 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
             "groups": [{"properties": [], "rollout_percentage": 50}],
             "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout_groups": [{"properties": [], "rollout_percentage": 70}],
+            "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
         }
         flag = self._create_flag(old_filters)
@@ -128,6 +129,7 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
             "groups": [{"properties": [], "rollout_percentage": 80}],
             "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout_groups": [{"properties": [], "rollout_percentage": 70}],
+            "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 60}]},
         }
         request = self._mock_request("PATCH", {"filters": new_filters})

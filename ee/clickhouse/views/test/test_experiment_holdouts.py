@@ -71,6 +71,10 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
             created_ff.filters["holdout_groups"],
             [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
         )
+        self.assertEqual(
+            created_ff.filters["holdout"],
+            {"id": holdout_id, "exclusion_percentage": 20},
+        )
 
         exp_id = response.json()["id"]
         # Now try updating holdout
@@ -101,6 +105,10 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
             created_ff.filters["holdout_groups"],
             [{"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}],
         )
+        self.assertEqual(
+            created_ff.filters["holdout"],
+            {"id": holdout_id, "exclusion_percentage": 30},
+        )
 
         # now delete holdout
         response = self.client.delete(f"/api/projects/{self.team.id}/experiment_holdouts/{holdout_id}")
@@ -109,6 +117,7 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         # make sure flag for experiment in question was updated as well
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(created_ff.filters["holdout_groups"], None)
+        self.assertEqual(created_ff.filters["holdout"], None)
 
         # and same for experiment
         exp = Experiment.objects.get(pk=exp_id)

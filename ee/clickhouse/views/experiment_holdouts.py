@@ -80,13 +80,23 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
             # update flags on all experiments in this holdout group
             new_filters = self._get_filters_with_holdout_id(instance.id, filters)
             validated_data["filters"] = new_filters
+            # Can't use holdout_filters_for_flag() here because instance.filters
+            # is stale — the new filters are in validated_data but not yet saved.
+            # TODO: refactor so the helper can accept raw filters instead of the model instance.
             with transaction.atomic():
                 for experiment in instance.experiment_set.all():
                     flag = experiment.feature_flag
                     existing_flag_serializer = FeatureFlagSerializer(
                         flag,
                         data={
-                            "filters": {**flag.filters, "holdout_groups": validated_data["filters"]},
+                            "filters": {
+                                **flag.filters,
+                                "holdout_groups": validated_data["filters"],
+                                "holdout": {
+                                    "id": instance.id,
+                                    "exclusion_percentage": validated_data["filters"][0]["rollout_percentage"],
+                                },
+                            },
                         },
                         partial=True,
                         context=self.context,
@@ -107,6 +117,7 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
 
+        # Inline rather than holdout_filters_for_flag(None) to keep it explicit at the deletion boundary.
         with transaction.atomic():
             for experiment in instance.experiment_set.all():
                 flag = experiment.feature_flag
@@ -116,6 +127,7 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "filters": {
                             **flag.filters,
                             "holdout_groups": None,
+                            "holdout": None,
                         }
                     },
                     partial=True,
