@@ -97,6 +97,20 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
         res = self._post_token(body)
         assert res.status_code == 400
 
+    def test_refresh_token_is_single_use(self):
+        self._store_auth_code("code_for_replay")
+        body = self._token_request_body(code="code_for_replay")
+        first_res = self._post_token(body)
+        refresh_token = first_res.json()["refresh_token"]
+
+        refresh_body = urlencode({"grant_type": "refresh_token", "refresh_token": refresh_token}).encode()
+        res1 = self._post_token(refresh_body)
+        assert res1.status_code == 200
+
+        res2 = self._post_token(refresh_body)
+        assert res2.status_code == 400
+        assert res2.json()["error"] == "invalid_grant"
+
     def test_missing_signature_returns_401(self):
         body = self._token_request_body()
         res = self.client.post(

@@ -10,7 +10,11 @@ from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
-from ee.api.agentic_provisioning.region_proxy import _should_proxy_body_region, _should_proxy_token_lookup
+from ee.api.agentic_provisioning.region_proxy import (
+    _proxy_to_region,
+    _should_proxy_body_region,
+    _should_proxy_token_lookup,
+)
 from ee.api.agentic_provisioning.test.base import StripeProvisioningTestBase
 
 factory = APIRequestFactory()
@@ -80,6 +84,38 @@ class TestShouldProxyTokenLookup(BaseTest):
     def test_skips_unsupported_grant_type(self):
         request = _make_drf_request({"grant_type": "client_credentials"})
         assert _should_proxy_token_lookup(request, "US") is False
+
+
+class TestProxyHeaderAllowlist(BaseTest):
+    @patch("ee.api.agentic_provisioning.region_proxy.external_requests")
+    def test_strips_cookies_and_forwarded_headers(self, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"status": "ok"}'
+        mock_response.json.return_value = {"status": "ok"}
+        mock_requests.request.return_value = mock_response
+
+        raw = factory.post(
+            "/api/agentic/provisioning/health",
+            data={},
+            format="json",
+            HTTP_COOKIE="sessionid=secret123",
+            HTTP_X_FORWARDED_FOR="10.0.0.1",
+            HTTP_STRIPE_SIGNATURE="t=123,v1=abc",
+            HTTP_AUTHORIZATION="Bearer pha_test",
+        )
+        request = Request(raw, parsers=[JSONParser()])
+
+        _proxy_to_region(request, "eu.posthog.com")
+
+        call_kwargs = mock_requests.request.call_args
+        forwarded_headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers", {})
+        header_keys_lower = {k.lower() for k in forwarded_headers}
+
+        assert "cookie" not in header_keys_lower
+        assert "x-forwarded-for" not in header_keys_lower
+        assert "host" in header_keys_lower
+        assert forwarded_headers["Host"] == "eu.posthog.com"
 
 
 class TestDecoratorIntegration(StripeProvisioningTestBase):

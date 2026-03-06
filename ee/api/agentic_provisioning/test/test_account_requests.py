@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from unittest.mock import patch
 
+from django.db import IntegrityError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -131,3 +132,18 @@ class TestAccountRequests(StripeProvisioningTestBase):
         payload = self._account_request_payload()
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
+
+    @patch("ee.api.agentic_provisioning.views.User.objects.bootstrap", side_effect=IntegrityError)
+    def test_integrity_error_with_existing_user_falls_back(self, _mock_bootstrap):
+        User.objects.create_user(email="race@example.com", password="testpass", first_name="Race")
+        payload = self._account_request_payload(email="race@example.com")
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+        assert res.json()["type"] == "requires_auth"
+
+    @patch("ee.api.agentic_provisioning.views.User.objects.bootstrap", side_effect=IntegrityError)
+    def test_integrity_error_without_existing_user_returns_500(self, _mock_bootstrap):
+        payload = self._account_request_payload(email="ghost@example.com")
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 500
+        assert res.json()["error"]["code"] == "account_creation_failed"

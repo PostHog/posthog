@@ -422,7 +422,10 @@ def _get_stripe_oauth_app():
         try:
             return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
         except OAuthApplication.DoesNotExist:
-            pass
+            logger.warning(
+                "stripe_app.oauth_app.client_id_not_found",
+                client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
+            )
 
     existing = OAuthApplication.objects.filter(name=STRIPE_APP_NAME).first()
     if existing:

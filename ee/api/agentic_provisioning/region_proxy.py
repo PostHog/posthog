@@ -23,6 +23,17 @@ PROXY_TIMEOUT = 10
 US_DOMAIN = "us.posthog.com"
 EU_DOMAIN = "eu.posthog.com"
 
+PROXY_HEADER_ALLOWLIST = frozenset(
+    {
+        "content-type",
+        "accept",
+        "stripe-signature",
+        "api-version",
+        "authorization",
+        "user-agent",
+    }
+)
+
 
 def _current_region() -> str | None:
     region = get_instance_region()
@@ -41,7 +52,7 @@ def _proxy_to_region(request: Request, target_domain: str) -> Response:
     parsed_url = urlparse(request.build_absolute_uri())
     target_url = urlunparse(parsed_url._replace(netloc=target_domain))
 
-    headers = dict(request.headers)
+    headers = {k: v for k, v in request.headers.items() if k.lower() in PROXY_HEADER_ALLOWLIST}
     headers["Host"] = target_domain
 
     try:
