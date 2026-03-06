@@ -3,7 +3,7 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconGear, IconLock, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import {
@@ -30,7 +30,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
-import { CyclotronJobInputAssignee } from './CyclotronJobInputAssignee'
+import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
@@ -476,14 +476,21 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
-        case 'posthog_assignee':
-            return <CyclotronJobInputAssignee value={input.value} onChange={onValueChange} />
-        default:
+        default: {
+            const CustomRenderer = CUSTOM_INPUT_RENDERERS[schema.type]
+            if (CustomRenderer) {
+                return (
+                    <Suspense>
+                        <CustomRenderer schema={schema} value={input.value} onChange={onValueChange} />
+                    </Suspense>
+                )
+            }
             return (
                 <strong className="text-danger">
                     Unknown field type "<code>{schema.type}</code>".
                 </strong>
             )
+        }
     }
 }
 

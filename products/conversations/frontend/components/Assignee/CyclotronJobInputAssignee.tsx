@@ -4,20 +4,11 @@ import { useEffect, useState } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
-import {
-    AssigneeDropdown,
-    AssigneeIconDisplay,
-    AssigneeLabelDisplay,
-    assigneeSelectLogic,
-    TicketAssignee,
-} from 'products/conversations/frontend/components/Assignee'
+import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
 
-export interface CyclotronJobInputAssigneeProps {
-    value: TicketAssignee
-    onChange: (value: TicketAssignee) => void
-}
+import { AssigneeDropdown, AssigneeIconDisplay, AssigneeLabelDisplay, assigneeSelectLogic, TicketAssignee } from '.'
 
-export function CyclotronJobInputAssignee({ value, onChange }: CyclotronJobInputAssigneeProps): JSX.Element {
+export default function CyclotronJobInputAssignee({ value, onChange }: CustomInputRendererProps): JSX.Element {
     const { ensureAssigneeTypesLoaded, setSearch } = useActions(assigneeSelectLogic)
     const { resolveAssignee } = useValues(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
