@@ -127,6 +127,14 @@ To check your product structure follows conventions:
 bin/hogli product:lint your_product_name
 ```
 
+To lint all products at once (this is run in CI):
+
+```bash
+bin/hogli product:lint --all
+```
+
+This shows a summary with strict/lenient mode per product and exits with code 1 if any product fails.
+
 ### Manual setup
 
 - Create a new folder `products/your_product_name`, keep it underscore-cased.
