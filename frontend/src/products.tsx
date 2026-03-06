@@ -55,6 +55,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
     DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
+    NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -125,6 +126,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
     '/models': ['Models', 'models'],
+    '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -292,6 +294,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Create and manage views and materialized views for transforming and organizing your data.',
         iconType: 'sql_editor',
     },
+    NodeDetail: { name: 'Model detail', projectBased: true, defaultDocsPath: '/docs/data-warehouse' },
     SQLEditor: {
         projectBased: true,
         name: 'SQL editor',
@@ -571,8 +574,9 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dataWarehouse: (): string => '/data-warehouse',
+    dataWarehouse: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-warehouse'),
     models: (): string => '/models',
+    nodeDetail: (id: string): string => `/models/${id}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -1240,7 +1244,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         sceneKey: 'DataWarehouse',
-        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
+        sceneKeys: ['DataWarehouse', 'Models', 'NodeDetail', 'SQLEditor'],
     },
     {
         path: 'Datasets',
@@ -1783,7 +1787,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
+        sceneKeys: ['DataWarehouse', 'Models', 'NodeDetail', 'SQLEditor'],
     },
     {
         path: 'Models',
