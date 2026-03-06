@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import temporalio.activity
 import temporalio.workflow
+from prometheus_client import Histogram
 from structlog.contextvars import bind_contextvars
 
 from posthog.hogql.constants import LimitContext
@@ -16,11 +17,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
-from posthog.metrics.cohorts import (
-    COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM,
-    COHORT_DURATION_UPDATE_HISTOGRAM,
-    COHORT_QUERY_EXECUTION_DURATION_HISTOGRAM,
-)
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -30,6 +26,28 @@ from posthog.temporal.common.logger import get_logger
 
 if TYPE_CHECKING:
     from posthog.kafka_client.client import _KafkaProducer
+
+# Cohort calculation timing histograms
+COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM = Histogram(
+    "cohort_calculation_total_duration_seconds",
+    "Total duration of cohort calculation from start to finish",
+    ["percentile_bucket"],
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, float("inf")),
+)
+
+COHORT_QUERY_EXECUTION_DURATION_HISTOGRAM = Histogram(
+    "cohort_query_execution_duration_seconds",
+    "Duration of ClickHouse query execution for cohort calculation",
+    ["percentile_bucket"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")),
+)
+
+COHORT_DURATION_UPDATE_HISTOGRAM = Histogram(
+    "cohort_duration_update_seconds",
+    "Duration of updating cohort duration in database",
+    ["percentile_bucket"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, float("inf")),
+)
 
 LOGGER = get_logger(__name__)
 
