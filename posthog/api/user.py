@@ -865,6 +865,11 @@ def toolbar_oauth_authorize(request):
     return redirect(authorization_url)
 
 
+@require_http_methods(["GET", "HEAD"])
+def toolbar_oauth_check(request):
+    return HttpResponse("ok", status=200)
+
+
 @require_http_methods(["GET"])
 def toolbar_oauth_callback(request):
     """

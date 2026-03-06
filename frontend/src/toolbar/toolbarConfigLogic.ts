@@ -27,6 +27,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             refreshToken,
             clientId,
         }),
+        setUiHostCheckStatus: (status: 'idle' | 'checking' | 'ok' | 'error') => ({ status }),
+        openUiHostConfigModal: true,
+        closeUiHostConfigModal: true,
     }),
 
     reducers(({ props }) => ({
@@ -61,6 +64,12 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
+        // Start as 'ok' when uiHost is explicit (passed from the PostHog app) — no check needed.
+        uiHostCheckStatus: [
+            (props.uiHost ? 'ok' : 'idle') as 'idle' | 'checking' | 'ok' | 'error',
+            { setUiHostCheckStatus: (_, { status }) => status },
+        ],
+        uiHostConfigModalVisible: [false, { openUiHostConfigModal: () => true, closeUiHostConfigModal: () => false }],
     })),
 
     selectors({
@@ -118,6 +127,17 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     listeners(({ values, actions }) => ({
         authenticate: async () => {
+            // If the uiHost check found a problem, open the config modal instead of proceeding.
+            if (values.uiHostCheckStatus === 'error') {
+                toolbarPosthogJS.capture('toolbar ui host config modal opened', { ui_host: values.uiHost })
+                actions.openUiHostConfigModal()
+                return
+            }
+            // Don't start OAuth while the reachability check is still in flight.
+            if (values.uiHostCheckStatus === 'checking') {
+                return
+            }
+
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             actions.persistConfig()
 
@@ -251,7 +271,72 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             }
         }
 
-        toolbarPosthogJS.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
+        toolbarPosthogJS.capture('toolbar loaded', {
+            is_authenticated: values.isAuthenticated,
+            ui_host: values.uiHost,
+            api_host: values.apiHost,
+            ui_host_explicit: !!props.uiHost,
+            ui_host_matches_api_host: values.uiHost === values.apiHost,
+        })
+
+        // Proactively verify uiHost when it was not explicitly set by the PostHog app.
+        // Reverse-proxy customers who haven't configured ui_host end up with a uiHost
+        // that points at their proxy rather than the PostHog app. We check at load time
+        // so they see the misconfiguration before their session expires and re-auth fails.
+        // /toolbar_oauth/check is CORS-enabled — a successful CORS HEAD confirms we can reach
+        // the PostHog app. Skip during a code exchange since the OAuth round-trip already
+        // proved connectivity.
+        if (!pendingCodeExchange) {
+            actions.setUiHostCheckStatus('checking')
+
+            // Determine how uiHost was resolved so we can attribute errors to the right config path.
+            const uiHostSource = props.uiHost
+                ? 'props'
+                : (props.posthog as any)?.requestRouter?.uiHost
+                  ? 'request_router'
+                  : props.posthog?.config?.ui_host
+                    ? 'posthog_config'
+                    : props.posthog?.config?.api_host
+                      ? 'posthog_api_host'
+                      : 'window_origin'
+
+            const checkBaseProps = {
+                ui_host: values.uiHost,
+                api_host: values.apiHost,
+                ui_host_source: uiHostSource,
+                is_authenticated: values.isAuthenticated,
+            }
+
+            const checkStart = Date.now()
+            void fetch(`${values.uiHost}/toolbar_oauth/check`, {
+                method: 'HEAD',
+                mode: 'cors',
+                signal: AbortSignal.timeout(5000),
+            })
+                .then(() => {
+                    actions.setUiHostCheckStatus('ok')
+                    toolbarPosthogJS.capture('toolbar ui host check', {
+                        ...checkBaseProps,
+                        status: 'ok',
+                        duration_ms: Date.now() - checkStart,
+                    })
+                })
+                .catch((error: unknown) => {
+                    actions.setUiHostCheckStatus('error')
+                    const errorType =
+                        error instanceof DOMException && error.name === 'AbortError'
+                            ? 'timeout'
+                            : error instanceof TypeError
+                              ? 'network_or_cors'
+                              : 'unknown'
+                    toolbarPosthogJS.capture('toolbar ui host check', {
+                        ...checkBaseProps,
+                        status: 'error',
+                        error_type: errorType,
+                        duration_ms: Date.now() - checkStart,
+                    })
+                })
+        }
     }),
 
     beforeUnmount(({ cache }) => {

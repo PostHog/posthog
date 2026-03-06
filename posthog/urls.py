@@ -207,6 +207,7 @@ urlpatterns = [
     opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
     path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
     path("toolbar_oauth/callback", user.toolbar_oauth_callback),
+    path("toolbar_oauth/check", user.toolbar_oauth_check),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),

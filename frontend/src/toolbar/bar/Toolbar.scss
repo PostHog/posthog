@@ -167,3 +167,107 @@
         }
     }
 }
+
+.UiHostConfigModal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+
+    &__content {
+        position: relative;
+        background: #fff;
+        color: #1d1f27;
+        border-radius: 0.75rem;
+        padding: 2rem;
+        max-width: 36rem;
+        width: calc(100vw - 2rem);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+        font-size: 0.9375rem;
+        line-height: 1.6;
+        user-select: text;
+    }
+
+    &__branding {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 1.25rem;
+
+        svg {
+            height: 2rem;
+            width: auto;
+        }
+    }
+
+    &__header {
+        margin-bottom: 0.75rem;
+        text-align: center;
+
+        strong {
+            font-size: 1.0625rem;
+        }
+    }
+
+    &__close {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0.25rem;
+        color: inherit;
+        opacity: 0.6;
+        display: flex;
+        align-items: center;
+
+        &:hover {
+            opacity: 1;
+        }
+    }
+
+    &__code {
+        background: #f5f5f5;
+        border-radius: 0.25rem;
+        padding: 0.75rem;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        word-break: break-all;
+        margin: 0.5rem 0;
+    }
+
+    &__hint {
+        margin-top: 0.5rem;
+        opacity: 0.7;
+        font-size: 0.8rem;
+    }
+
+    p {
+        margin: 0.5rem 0;
+    }
+
+    code {
+        background: #f5f5f5;
+        border-radius: 0.2rem;
+        padding: 0.1em 0.3em;
+        font-size: 0.85em;
+    }
+}
+
+[theme='dark'] .UiHostConfigModal {
+    &__content {
+        background: #2c2d35;
+        color: #e0e0e8;
+    }
+
+    &__code {
+        background: #1d1f27;
+    }
+
+    code {
+        background: #1d1f27;
+    }
+}
