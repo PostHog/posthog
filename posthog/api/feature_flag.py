@@ -2536,9 +2536,14 @@ class FeatureFlagViewSet(
         start_time = time.time()
         logger = logging.getLogger(__name__)
 
-        # Track if secret_api_key was passed in request body (migration observability)
-        if request.data.get("secret_api_key") and isinstance(
-            request.successful_authenticator, ProjectSecretAPIKeyAuthentication
+        # Track if secret_api_key was passed in request body AND was the actual auth mechanism.
+        # If the header also has a phs_ token, the header wins and the body value is ignored,
+        # so Rust (header-only) would still authenticate fine — no need to count those.
+        auth_header = request.headers.get("authorization", "")
+        if (
+            request.data.get("secret_api_key")
+            and isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
+            and not re.match(r"^Bearer\s+phs_[a-zA-Z0-9]+$", auth_header)
         ):
             LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER.inc()
 
