@@ -249,7 +249,7 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
                             className={cn(
                                 'absolute inset-0 flex flex-col',
                                 'transition-[opacity,transform] duration-200 ease-in-out',
-                                'data-[hidden]:opacity-0 data-[hidden]:-translate-x-2 data-[hidden]:pointer-events-none'
+                                'data-[hidden]:opacity-0 data-[hidden]:-translate-x-2 data-[hidden]:pointer-events-none data-[hidden]:invisible'
                             )}
                             keepMounted
                         >
@@ -427,7 +427,7 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
                             className={cn(
                                 'absolute inset-0 flex flex-col',
                                 'transition-[opacity,transform] duration-200 ease-in-out',
-                                'data-[hidden]:opacity-0 data-[hidden]:translate-x-2 data-[hidden]:pointer-events-none'
+                                'data-[hidden]:opacity-0 data-[hidden]:translate-x-2 data-[hidden]:pointer-events-none data-[hidden]:invisible'
                             )}
                             keepMounted
                         >
@@ -438,7 +438,7 @@ export function AiFirstNavBar({ children }: { children?: React.ReactNode }): JSX
                             className={cn(
                                 'absolute inset-0 flex flex-col',
                                 'transition-[opacity,transform] duration-200 ease-in-out',
-                                'data-[hidden]:opacity-0 data-[hidden]:translate-x-2 data-[hidden]:pointer-events-none'
+                                'data-[hidden]:opacity-0 data-[hidden]:translate-x-2 data-[hidden]:pointer-events-none data-[hidden]:invisible'
                             )}
                             keepMounted
                         >
