@@ -91,3 +91,29 @@ class TestAccountRequests(StripeProvisioningTestBase):
         self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         user = User.objects.get(email="jane@example.com")
         assert user.first_name == "Jane"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_region_mismatch_returns_400(self):
+        payload = self._account_request_payload(configuration={"region": "EU"})
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "region_mismatch"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_matching_region_succeeds(self):
+        payload = self._account_request_payload(configuration={"region": "US"})
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+        assert res.json()["type"] == "oauth"
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    def test_eu_instance_rejects_us_region(self):
+        payload = self._account_request_payload(configuration={"region": "US"})
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "region_mismatch"
+
+    def test_no_region_defaults_to_us_and_succeeds(self):
+        payload = self._account_request_payload()
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
