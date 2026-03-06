@@ -143,7 +143,7 @@ class RemoteConfig(UUIDTModel):
         config = {
             "token": team.api_token,
             "supportedCompression": ["gzip", "gzip-js"],
-            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True, deleted=False).count() > 0,
+            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).count() > 0,
             "captureDeadClicks": bool(team.capture_dead_clicks),
             "capturePerformance": (
                 {

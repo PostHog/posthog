@@ -49,6 +49,7 @@
       <excludeFolder url="file://$MODULE_DIR$/staticfiles/rest_framework" />
       <excludeFolder url="file://$MODULE_DIR$/staticfiles/services" />
       <excludeFolder url="file://$MODULE_DIR$/staticfiles/transformations" />
+      <excludeFolder url="file://$MODULE_DIR$/.claude/worktrees" />
       <excludePattern pattern="*node_modules*" />
     </content>
     <orderEntry type="inheritedJdk" />

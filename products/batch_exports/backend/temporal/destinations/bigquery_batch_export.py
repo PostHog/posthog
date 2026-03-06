@@ -721,7 +721,13 @@ class BigQueryClient:
         while True:
             try:
                 result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
-            except (TooManyRequests, ServiceUnavailable, GatewayTimeout, InternalServerError) as err:
+            except (
+                TooManyRequests,
+                ServiceUnavailable,
+                GatewayTimeout,
+                InternalServerError,
+                BigQueryQuotaExceededError,
+            ) as err:
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
                 self.logger.exception(
                     "LoadJob transient error encountered", attempt=attempt, backoff=backoff, error_code=err.code
@@ -778,6 +784,8 @@ class BigQueryQuotaExceededError(Exception):
     This error indicates that we have been exporting too much data and need to
     slow down. This error is retryable.
     """
+
+    code = 403  # BigQuery reports quota errors as 403 Forbidden.
 
     def __init__(self, message: str):
         super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")

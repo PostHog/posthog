@@ -18,12 +18,13 @@ export interface SelectedQuickFilter {
 
 export interface QuickFiltersSectionLogicProps {
     context: QuickFilterContext
+    logicKey?: string
 }
 
 export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
     path(['lib', 'components', 'QuickFilters', 'quickFiltersSectionLogic']),
     props({} as QuickFiltersSectionLogicProps),
-    key((props) => props.context),
+    key((props) => (props.logicKey ? `${props.context}-${props.logicKey}` : props.context)),
 
     connect((props: QuickFiltersSectionLogicProps) => ({
         values: [quickFiltersLogic({ context: props.context }), ['quickFilters']],

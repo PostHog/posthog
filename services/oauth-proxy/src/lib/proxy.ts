@@ -26,7 +26,9 @@ export async function proxyPostWithClientId(
     region: Region,
     path: string,
     proxyClientId: string,
-    regionalClientId: string
+    regionalClientId: string,
+    redirectUriRewrite?: { from: string; to: string },
+    clientSecretRewrite?: { from: string; to: string }
 ): Promise<Response> {
     const contentType = request.headers.get('content-type') || ''
     let body: string
@@ -36,6 +38,12 @@ export async function proxyPostWithClientId(
         if (json.client_id === proxyClientId) {
             json.client_id = regionalClientId
         }
+        if (redirectUriRewrite && json.redirect_uri === redirectUriRewrite.from) {
+            json.redirect_uri = redirectUriRewrite.to
+        }
+        if (clientSecretRewrite && json.client_secret === clientSecretRewrite.from) {
+            json.client_secret = clientSecretRewrite.to
+        }
         body = JSON.stringify(json)
     } else {
         // form-urlencoded
@@ -43,6 +51,12 @@ export async function proxyPostWithClientId(
         const params = new URLSearchParams(text)
         if (params.get('client_id') === proxyClientId) {
             params.set('client_id', regionalClientId)
+        }
+        if (redirectUriRewrite && params.get('redirect_uri') === redirectUriRewrite.from) {
+            params.set('redirect_uri', redirectUriRewrite.to)
+        }
+        if (clientSecretRewrite && params.get('client_secret') === clientSecretRewrite.from) {
+            params.set('client_secret', clientSecretRewrite.to)
         }
         body = params.toString()
     }

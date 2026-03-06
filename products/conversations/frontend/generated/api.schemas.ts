@@ -298,6 +298,8 @@ export const PriorityEnumApi = {
 export interface TicketAssignmentApi {
     readonly id: string
     readonly type: string
+    readonly user: string
+    readonly role: string
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
@@ -314,6 +316,9 @@ export interface TicketPersonApi {
     readonly is_identified: boolean
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
@@ -347,6 +352,7 @@ export interface TicketApi {
     /** @nullable */
     readonly slack_team_id: string | null
     readonly person: TicketPersonApi | null
+    tags?: unknown[]
 }
 
 export interface PaginatedTicketListApi {
@@ -358,6 +364,9 @@ export interface PaginatedTicketListApi {
     results: TicketApi[]
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
@@ -391,6 +400,7 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly slack_team_id?: string | null
     readonly person?: TicketPersonApi | null
+    tags?: unknown[]
 }
 
 export interface SuggestReplyResponseApi {

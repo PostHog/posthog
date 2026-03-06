@@ -235,7 +235,7 @@ test.describe('Funnel insights', () => {
             await expect(modal).not.toBeVisible()
         })
 
-        await test.step('session aggregation disables persons modal on step counts', async () => {
+        await test.step('session aggregation allows opening sessions modal on step counts', async () => {
             await insight.edit()
             await insight.funnels.selectAggregation('Unique sessions')
             await insight.funnels.waitForChart()
@@ -245,8 +245,17 @@ test.describe('Funnel insights', () => {
             const step2 = insight.funnels.stepLegend(1)
             await expect(step2).toBeVisible()
 
-            await expect(step2.getByTestId('funnel-inspect-converted')).toHaveCount(0)
-            await expect(step2.getByTestId('funnel-inspect-dropped-off')).toHaveCount(0)
+            await expect(step2.getByTestId('funnel-inspect-converted')).toHaveCount(1)
+            await expect(step2.getByTestId('funnel-inspect-dropped-off')).toHaveCount(1)
+
+            const droppedOffButton = step2.getByTestId('funnel-inspect-dropped-off')
+            await droppedOffButton.click()
+
+            const modal = page.getByTestId('persons-modal')
+            await expect(modal).toBeVisible({ timeout: 10000 })
+
+            await modal.getByRole('button', { name: 'close' }).click()
+            await expect(modal).not.toBeVisible()
         })
 
         await test.step('revert seeded insight to unique users', async () => {

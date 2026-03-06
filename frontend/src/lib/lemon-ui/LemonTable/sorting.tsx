@@ -14,16 +14,18 @@ export interface Sorting {
 export function getNextSorting(
     currentSorting: Sorting | null,
     selectedColumnKey: string,
-    disableSortingCancellation: boolean
+    disableSortingCancellation: boolean,
+    defaultOrder: 1 | -1 = 1
 ): Sorting | null {
+    const oppositeOrder = (defaultOrder === 1 ? -1 : 1) as 1 | -1
     if (
         !currentSorting ||
         currentSorting.columnKey !== selectedColumnKey ||
-        (currentSorting.order === -1 && disableSortingCancellation)
+        (currentSorting.order === oppositeOrder && disableSortingCancellation)
     ) {
-        return { columnKey: selectedColumnKey, order: 1 }
-    } else if (currentSorting.order === 1) {
-        return { columnKey: selectedColumnKey, order: -1 }
+        return { columnKey: selectedColumnKey, order: defaultOrder }
+    } else if (currentSorting.order === defaultOrder) {
+        return { columnKey: selectedColumnKey, order: oppositeOrder }
     }
     return null
 }

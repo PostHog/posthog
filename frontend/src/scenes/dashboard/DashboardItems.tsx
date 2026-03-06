@@ -9,6 +9,7 @@ import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -93,6 +94,12 @@ export function DashboardItems(): JSX.Element {
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
+            {dashboardMode === DashboardMode.Edit && isMobileView && (
+                <LemonBanner type="warning" className="mb-4">
+                    Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
+                    resize tiles.
+                </LemonBanner>
+            )}
             {gridWrapperWidth && (
                 <ReactGridLayout
                     width={gridWrapperWidth}
