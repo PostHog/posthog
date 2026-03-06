@@ -36,7 +36,7 @@ graph TB
 - stateful API that caches person data on pods
 - API can receive a list of property updates and only update/writes the changed property fields, doesn't replace the entire property field
 
-TODOS:
+TBD:
 
 - what technology to use for the cache? how does a pod recover from a crash/restore its cache? how long does that take? does every pod crash result in service disruption? for how long?
 
@@ -50,8 +50,36 @@ TODOS:
 - this offset is the boundary:
 - below the offset: state is durably in Postgres
 - at or above the offset: state is PG + the changes in our distributed log (the kafka topic)
-- new pods can warm their caches/materialize state by seeding from PG then applying messages from kafka changelog past the indicated offset O_pg_writer(P)
+TBD:
+- new pods can warm their caches/materialize state by seeding from PG then applying messages from kafka changelog past the indicated offset O_pg_writer(P) (could change depending on caching/embedded store choice)
 
-#### vNode assignment/ownership/handoff supporting deployments, scaling, irrecoverable pod crashes
+#### vNode ownership
 
-<TODO>
+#### Request Path
+
+```mermaid
+graph TB
+    C[Client] -->|"UPDATE /persons/<id>"| R
+
+    subgraph R[Router]
+        direction TB
+        PARSE[Parse request] --> DECIDE{Consistent Read/Write?}
+        DECIDE -->|"Yes"| HASH["Hash person_id → vnode"]
+        HASH --> LOOKUP["Lookup vnode → pod(from metadata store cache)"]
+    end
+
+    LOOKUP -->|"cache miss"| MS[(Metadata Store)]
+    MS -->|"vnode assignments"| LOOKUP
+
+    LOOKUP --> POD
+
+    subgraph POD[PersonHog Leader BE]
+        direction TB
+        VALIDATE[Validate ownership] --> COMPUTE[Compute write]
+        COMPUTE --> CACHE[Update in-memory cache]
+        CACHE --> KAFKA[Durably store to Kafka]
+    end
+
+    KAFKA --> ACK[Ack to client]
+
+```

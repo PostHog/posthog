@@ -4,7 +4,7 @@ A living document to provide context around the architecture of the Personhog cl
 
 This document lays out the overall cluster architecture and defines the responsibilities of each piece of the architecture. It should avoid getting into the implementation details of the different services.
 
-Context for the implementation details and current state of each piece should live in the README.md in the root of the respective service's folder, e.g more context on personhog-replica will live at posthog/rust/personhog-replica/README.md
+Context for the implementation details and current state of each service lives in the README.md in the root of the respective service's folder, e.g more context on personhog-replica lives at posthog/rust/personhog-replica/README.md
 
 ## Personhog Cluster
 
@@ -59,9 +59,9 @@ graph TB
 ### Coordinator + Metadata store
 
 - responsible for handling vNode ownership:
-- implements a handoff protocol that will facilitate the following system changes:
+- implements a handoff protocol that facilitates the following system changes:
 - N + 1 pods in system (scaling up)
 - N - 1 pods in system (scaling down)
 - N -> M pods (deployment handoff)
 - crashed pods/corrupted disks
-- ensures handoffs do not introduce split brain invariant or cause service interruptions amongst the multiple Actors in the distributed system
+- ensures handoffs do not introduce split brain invariant or cause service interruptions amongst the different actors in the distributed system
