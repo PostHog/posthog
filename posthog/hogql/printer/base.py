@@ -391,7 +391,7 @@ class HogQLPrinter(Visitor[str]):
             alias_str = f"AS {self._print_identifier(node.alias)}"
             if node.alias_columns:
                 col_names = ", ".join(self._print_identifier(c) for c in node.alias_columns)
-                alias_str += f"({col_names})"
+                alias_str += f" ({col_names})"
             join_strings.append(alias_str)
 
         elif isinstance(node.type, ast.LazyTableType):
