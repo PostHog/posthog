@@ -487,6 +487,24 @@ class TestQueryRunner(BaseTest):
         assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get() == before_failure
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
 
+    @mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action")
+    def test_run_emits_query_executed_with_has_error_on_exception(self, mock_report):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch.object(runner, "_call_with_rate_limits", side_effect=Exception("ClickHouse timeout")):
+            with self.assertRaises(Exception, msg="ClickHouse timeout"):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        mock_report.assert_called_once()
+        call_args = mock_report.call_args
+        self.assertEqual(call_args[0][0], "query executed")
+        props = call_args[0][1]
+        self.assertTrue(props["has_error"])
+        self.assertFalse(props["cache_hit"])
+        self.assertEqual(props["query_type"], "TestQuery")
+        self.assertIsInstance(props["response_time_ms"], float)
+
 
 class TestSeriesCustomNameCaching(BaseTest):
     @parameterized.expand(
