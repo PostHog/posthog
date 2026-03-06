@@ -1035,8 +1035,9 @@ class DashboardsViewSet(
             id=request.data["tile"]["id"],
             dashboard__team__project_id=self.team.project_id,
         )
-        get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
-        tile.dashboard_id = to_dashboard
+        to_dashboard_obj = get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
+        self.check_object_permissions(request, to_dashboard_obj)
+        tile.dashboard_id = to_dashboard_obj.pk
         tile.save(update_fields=["dashboard_id"])
 
         serializer = DashboardSerializer(
