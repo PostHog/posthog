@@ -1048,9 +1048,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
-                description: 'Connect error tracking with external services like Sentry or PagerDuty.',
+                description: 'Connect error tracking with external services like GitHub or Linear.',
                 component: <ErrorTrackingIntegrations />,
-                keywords: ['sentry', 'pagerduty', 'integration', 'connect'],
+                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
             },
             {
                 id: 'error-tracking-symbol-sets',
