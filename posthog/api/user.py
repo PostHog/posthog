@@ -908,9 +908,15 @@ def toolbar_oauth_callback(request):
     except ToolbarOAuthError as exc:
         return HttpResponse(exc.detail, status=exc.status_code)
 
-    # app_url is safe: it comes from a cryptographically signed state that was
-    # validated against the team's app_urls allowlist by validate_and_consume_toolbar_oauth_state.
-    app_url = state_payload["app_url"]
+    # Re-validate app_url from the signed state against the team's allowlist.
+    # validate_and_consume_toolbar_oauth_state already does this, but repeating
+    # the call here makes the sanitisation visible at the point of use, which
+    # satisfies static-analysis tools that trace the taint from request.GET.
+    try:
+        app_url = normalize_and_validate_app_url(team, state_payload["app_url"])
+    except ToolbarOAuthError as exc:
+        return HttpResponse(exc.detail, status=exc.status_code)
+
     parsed = urllib.parse.urlparse(app_url)
     original_fragment = parsed.fragment
     base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
@@ -928,7 +934,7 @@ def toolbar_oauth_callback(request):
         fragment = f"{original_fragment}&{toolbar_param}"
     else:
         fragment = toolbar_param
-    return redirect(f"{base_url}#{fragment}")  # nosemgrep: open-redirect
+    return redirect(f"{base_url}#{fragment}")
 
 
 class ToolbarOAuthRefreshView(APIView):
