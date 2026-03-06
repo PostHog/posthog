@@ -21,6 +21,7 @@ import (
 	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -30,6 +31,15 @@ func main() {
 	if err != nil {
 		// TODO capture error to PostHog
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	var redisClient *redis.Client
+	if config.Redis.URL != "" {
+		opts, err := redis.ParseURL(config.Redis.URL)
+		if err != nil {
+			log.Fatalf("Failed to parse Redis URL: %v", err)
+		}
+		redisClient = redis.NewClient(opts)
 	}
 
 	geolocator, err := geo.NewMaxMindGeoLocator(config.MMDB.Path)
@@ -181,6 +191,10 @@ func main() {
 	e.GET("/stats", handlers.StatsHandler(stats, sessionStats))
 
 	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
+
+	if redisClient != nil {
+		e.GET("/notifications", handlers.NotificationsHandler(redisClient))
+	}
 
 	if config.Debug {
 		e.GET("/served", handlers.ServedHandler(stats))

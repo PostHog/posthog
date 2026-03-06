@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/events"
+	"github.com/redis/go-redis/v9"
 )
 
 func Index(c echo.Context) error {
@@ -62,6 +64,67 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c
 			siteStats.ActiveRecordings = sessionCount
 		}
 		return c.JSON(http.StatusOK, siteStats)
+	}
+}
+
+func NotificationsHandler(redisClient *redis.Client) func(c echo.Context) error {
+	return func(c echo.Context) error {
+		teamID, userID, _, err := auth.GetAuthClaimsWithUserID(c.Request().Header)
+		if err != nil || teamID == 0 || userID == 0 {
+			return echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
+		}
+
+		ctx := c.Request().Context()
+		channel := fmt.Sprintf("notifications:%d:%d", teamID, userID)
+		bufferKey := fmt.Sprintf("notification_buffer:%d:%d", teamID, userID)
+
+		pubsub := redisClient.Subscribe(ctx, channel)
+		defer pubsub.Close()
+
+		w := c.Response()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		buffered, err := redisClient.LRange(ctx, bufferKey, 0, 49).Result()
+		if err == nil && len(buffered) > 0 {
+			for i := len(buffered) - 1; i >= 0; i-- {
+				event := Event{Data: []byte(buffered[i])}
+				if err := event.WriteTo(w); err != nil {
+					return err
+				}
+			}
+			w.Flush()
+		}
+
+		msgCh := pubsub.Channel()
+		heartbeat := time.NewTicker(15 * time.Second)
+		defer heartbeat.Stop()
+		timeout := time.After(30 * time.Minute)
+
+		for {
+			select {
+			case <-timeout:
+				return nil
+			case <-ctx.Done():
+				return nil
+			case msg := <-msgCh:
+				if msg == nil {
+					continue
+				}
+				event := Event{Data: []byte(msg.Payload)}
+				if err := event.WriteTo(w); err != nil {
+					return err
+				}
+				w.Flush()
+			case <-heartbeat.C:
+				event := Event{Comment: []byte("heartbeat")}
+				if err := event.WriteTo(w); err != nil {
+					return err
+				}
+				w.Flush()
+			}
+		}
 	}
 }
 

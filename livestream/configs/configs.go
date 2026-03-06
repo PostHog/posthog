@@ -24,6 +24,10 @@ type SessionRecordingConfig struct {
 	MaxLRUEntries int `mapstructure:"max_lru_entries"`
 }
 
+type RedisConfig struct {
+	URL string `mapstructure:"url"`
+}
+
 type Config struct {
 	Debug            bool `mapstructure:"debug"`
 	MMDB             MMDBConfig
@@ -32,6 +36,7 @@ type Config struct {
 	CORSAllowOrigins []string `mapstructure:"cors_allow_origins"`
 	Postgres         PostgresConfig
 	JWT              JWTConfig
+	Redis            RedisConfig
 	SessionRecording SessionRecordingConfig `mapstructure:"session_recording"`
 }
 
@@ -95,6 +100,9 @@ func InitConfigs(filename, configPath string) {
 
 	// JWT settings
 	_ = viper.BindEnv("jwt.secret") // LIVESTREAM_JWT_SECRET
+
+	// Redis settings
+	_ = viper.BindEnv("redis.url") // LIVESTREAM_REDIS_URL
 
 	// Session recording settings
 	_ = viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
