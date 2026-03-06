@@ -418,13 +418,6 @@ export const SurveyView: Story = {
     },
 }
 
-export const SurveyTemplates: Story = {
-    tags: ['test-skip'],
-    parameters: {
-        pageUrl: urls.surveyTemplates(),
-    },
-}
-
 export const SurveyNotFound: Story = {
     tags: ['test-skip'],
     parameters: {

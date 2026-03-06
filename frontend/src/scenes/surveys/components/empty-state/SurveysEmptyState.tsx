@@ -248,7 +248,7 @@ export function SurveysEmptyState(): JSX.Element {
 
     useEffect(() => {
         reportSurveyEmptyStateViewed()
-    }, [])
+    }, [reportSurveyEmptyStateViewed])
 
     if (featureFlags[FEATURE_FLAGS.SURVEYS_AI_FIRST_EMPTY_STATE] === 'test') {
         return <SurveysEmptyStateAIContent />

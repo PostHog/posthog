@@ -275,6 +275,13 @@ function SearchRoot({
     const { updateUser } = useActions(userLogic)
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
+
+    useEffect(() => {
+        if (defaultSearchValue) {
+            setSearchValue(defaultSearchValue)
+        }
+    }, [defaultSearchValue])
+
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
     const highlightedItemRef = useRef<SearchItem | null>(null)
@@ -844,6 +851,11 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut shift enter /> to open in new tab
                     </span>
+                    {searchValue.trim() && (
+                        <span>
+                            <KeyboardShortcut tab /> to ask AI
+                        </span>
+                    )}
                     <span>
                         <KeyboardShortcut escape /> to close
                     </span>

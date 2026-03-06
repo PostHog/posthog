@@ -29,6 +29,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "task_number",
             "slug",
             "title",
+            "title_manually_set",
             "description",
             "origin_product",
             "repository",
@@ -84,12 +85,19 @@ class TaskSerializer(serializers.ModelSerializer):
             if default_integration:
                 validated_data["github_integration"] = default_integration
 
-        # Auto-generate title from description if not provided or empty
         title = validated_data.get("title", "").strip()
         if not title and validated_data.get("description"):
             validated_data["title"] = generate_task_title(validated_data["description"])
+            validated_data.setdefault("title_manually_set", False)
+        elif title:
+            validated_data.setdefault("title_manually_set", True)
 
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if "title" in validated_data and "title_manually_set" not in validated_data:
+            validated_data["title_manually_set"] = True
+        return super().update(instance, validated_data)
 
 
 class AgentDefinitionSerializer(serializers.Serializer):

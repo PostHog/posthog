@@ -29,8 +29,10 @@ from posthog.tasks.alerts.utils import (
     calculation_interval_to_order,
     next_check_time,
     send_notifications_for_breaches,
+    send_notifications_for_disabled,
     send_notifications_for_errors,
     skip_because_of_weekend,
+    validate_alert_config,
 )
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_from_dict_or_attr
@@ -251,6 +253,17 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             alert.snoozed_until = None
             alert.state = AlertState.NOT_FIRING
 
+    try:
+        insight = alert.insight
+        with upgrade_query(insight):
+            if insight.query is None:
+                raise ValueError("Alert's insight has no valid query")
+            threshold_config = alert.threshold.configuration if alert.threshold else None
+            validate_alert_config(insight.query, alert.condition, alert.config, threshold_config)
+    except ValueError as e:
+        _disable_invalid_alert(alert, str(e))
+        return
+
     # we will attempt to check alert
     logger.info("check_alert", alert_id=alert.id)
     alert.last_checked_at = datetime.now(UTC)
@@ -378,6 +391,28 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         # so we raise again as @transaction.atomic decorator won't commit db updates
         # TODO: later should have a way just to retry notification mechanism
         raise
+
+
+def _disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:
+    logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
+    AlertConfiguration.objects.filter(pk=alert.pk).update(
+        enabled=False,
+        state=AlertState.ERRORED,
+        last_checked_at=datetime.now(UTC),
+    )
+    alert.refresh_from_db()
+
+    targets_to_notify = alert.get_subscribed_users_emails()
+    AlertCheck.objects.create(
+        alert_configuration=alert,
+        calculated_value=None,
+        condition=alert.condition,
+        targets_notified={"users": targets_to_notify} if targets_to_notify else {},
+        state=AlertState.ERRORED,
+        error={"message": reason},
+    )
+    if targets_to_notify:
+        send_notifications_for_disabled(alert, reason, targets_to_notify)
 
 
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:

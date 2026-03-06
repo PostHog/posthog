@@ -2,10 +2,19 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconChevronDown, IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonCheckbox,
+    LemonDropdown,
+    LemonInputSelect,
+    LemonTable,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -16,6 +25,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
@@ -53,6 +63,7 @@ export function SupportTicketsScene(): JSX.Element {
         channelFilter,
         slaFilter,
         assigneeFilter,
+        tagsFilter,
         dateFrom,
         dateTo,
         ticketsLoading,
@@ -65,10 +76,12 @@ export function SupportTicketsScene(): JSX.Element {
         setChannelFilter,
         setSlaFilter,
         setAssigneeFilter,
+        setTagsFilter,
         setDateRange,
         setCurrentPage,
         loadTickets,
     } = useActions(logic)
+    const { tags: tagsAvailable } = useValues(tagsModel)
     const { push } = useActions(router)
 
     return (
@@ -79,7 +92,6 @@ export function SupportTicketsScene(): JSX.Element {
                 resourceType={{
                     type: 'conversation',
                 }}
-                className="mb-4"
             />
             <ScenesTabs />
             <div className="flex flex-wrap gap-3 items-center justify-between">
@@ -209,6 +221,39 @@ export function SupportTicketsScene(): JSX.Element {
                             {slaOptions.find((o) => o.value === slaFilter)?.label ?? 'All SLA states'}
                         </LemonButton>
                     </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        overlay={
+                            <div className="p-2 min-w-64">
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    value={tagsFilter}
+                                    options={tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []}
+                                    onChange={setTagsFilter}
+                                    placeholder="Select or type tags..."
+                                    data-attr="tags-filter-input"
+                                />
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {tagsFilter.length === 0
+                                ? 'All tags'
+                                : tagsFilter.length === 1
+                                  ? tagsFilter[0]
+                                  : `${tagsFilter.length} tags`}
+                        </LemonButton>
+                    </LemonDropdown>
+                    {tagsFilter.length > 0 && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconX />}
+                            onClick={() => setTagsFilter([])}
+                            tooltip="Clear tag filter"
+                        />
+                    )}
                     <AssigneeSelect
                         assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
                         onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
@@ -418,6 +463,16 @@ export function SupportTicketsScene(): JSX.Element {
                         title: 'Channel',
                         key: 'channel',
                         render: (_, ticket) => <ChannelsTag channel={ticket.channel_source} />,
+                    },
+                    {
+                        title: 'Tags',
+                        key: 'tags',
+                        render: (_, ticket) =>
+                            ticket.tags && ticket.tags.length > 0 ? (
+                                <ObjectTags tags={ticket.tags} staticOnly />
+                            ) : (
+                                <span className="text-muted-alt text-xs">—</span>
+                            ),
                     },
                     {
                         title: 'Created',

@@ -137,7 +137,7 @@ export const actionFilterGroupLogic = kea<actionFilterGroupLogicType>([
 
                 let mathProps: Record<string, any>
                 if (selectedMath) {
-                    const mathDef = (values.mathDefinitions as Record<string, any>)[selectedMath]
+                    const mathDef = values.mathDefinitions[selectedMath]
                     const apiValues = mathTypeToApiValues(selectedMath)
                     mathProps = {
                         ...apiValues,

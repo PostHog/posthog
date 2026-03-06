@@ -12,9 +12,11 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -50,6 +52,7 @@ import {
 
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
+import { InsightMoveToDashboardMenu } from './InsightMoveToDashboardMenu'
 
 interface InsightMetaProps extends Pick<
     InsightCardProps,
@@ -134,6 +137,8 @@ export function InsightMeta({
         resolvedDateRange: insightData?.resolved_date_range,
     }
 
+    const summary = useSummarizeInsight()(insight.query)
+
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
     const canViewInsight = insight.user_access_level
@@ -157,8 +162,6 @@ export function InsightMeta({
               AccessControlLevel.Editor
           )
         : true
-
-    const summary = useSummarizeInsight()(insight.query)
 
     // Feedback buttons for Customer Analytics
     const feedbackButtons =
@@ -282,7 +285,9 @@ export function InsightMeta({
                     : undefined
             }
             metaDetails={
-                <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+                showDetailsControls ? (
+                    <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+                ) : null
             }
             samplingFactor={samplingFactor}
             moreButtons={
@@ -345,61 +350,59 @@ export function InsightMeta({
                                 </LemonButton>
                             )}
                             {updateColor && (
-                                <LemonButtonWithDropdown
-                                    dropdown={{
-                                        overlay: Object.values(InsightColor).map((availableColor) => (
-                                            <LemonButton
-                                                key={availableColor}
-                                                active={availableColor === (ribbonColor || InsightColor.White)}
-                                                onClick={() => updateColor(availableColor)}
-                                                icon={
-                                                    availableColor !== InsightColor.White ? (
-                                                        <Splotch color={availableColor as string as SplotchColor} />
-                                                    ) : null
-                                                }
-                                                fullWidth
-                                            >
-                                                {availableColor !== InsightColor.White
-                                                    ? capitalizeFirstLetter(availableColor)
-                                                    : 'No color'}
-                                            </LemonButton>
-                                        )),
-                                        placement: 'right-start',
-                                        fallbackPlacements: ['left-start'],
-                                        actionable: true,
-                                        closeParentPopoverOnClickInside: true,
-                                    }}
-                                    fullWidth
+                                <LemonMenu
+                                    items={Object.values(InsightColor).map((availableColor) => ({
+                                        label: (
+                                            <span className="flex items-center gap-2">
+                                                {availableColor !== InsightColor.White ? (
+                                                    <Splotch color={availableColor as string as SplotchColor} />
+                                                ) : null}
+                                                <span>
+                                                    {availableColor !== InsightColor.White
+                                                        ? capitalizeFirstLetter(availableColor)
+                                                        : 'No color'}
+                                                </span>
+                                            </span>
+                                        ),
+                                        key: availableColor,
+                                        active: availableColor === (ribbonColor || InsightColor.White),
+                                        onClick: () => {
+                                            updateColor?.(availableColor)
+                                        },
+                                    }))}
+                                    placement="right-start"
+                                    fallbackPlacements={['left-start']}
+                                    closeParentPopoverOnClickInside
                                 >
-                                    Set color
-                                </LemonButtonWithDropdown>
+                                    <LemonButton fullWidth>Set color</LemonButton>
+                                </LemonMenu>
                             )}
                             {moveToDashboard && otherDashboards.length > 0 && (
-                                <LemonButtonWithDropdown
-                                    dropdown={{
-                                        overlay: otherDashboards.map((otherDashboard) => (
-                                            <LemonButton
-                                                key={otherDashboard.id}
-                                                onClick={() => {
-                                                    moveToDashboard(otherDashboard)
-                                                }}
-                                                fullWidth
-                                            >
-                                                {otherDashboard.name || <i>Untitled</i>}
-                                            </LemonButton>
-                                        )),
-                                        placement: 'right-start',
-                                        fallbackPlacements: ['left-start'],
-                                        actionable: true,
-                                        closeParentPopoverOnClickInside: true,
-                                    }}
-                                    fullWidth
-                                >
-                                    Move to
-                                </LemonButtonWithDropdown>
+                                <InsightMoveToDashboardMenu
+                                    otherDashboards={otherDashboards}
+                                    onMoveToDashboard={moveToDashboard}
+                                />
                             )}
                             {removeFromDashboard && (
-                                <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: 'Remove from dashboard',
+                                            description:
+                                                'Are you sure you want to remove this insight from the dashboard?',
+                                            primaryButton: {
+                                                children: 'Remove from dashboard',
+                                                status: 'danger',
+                                                onClick: removeFromDashboard,
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    }
+                                    fullWidth
+                                >
                                     Remove from dashboard
                                 </LemonButton>
                             )}

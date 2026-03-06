@@ -817,6 +817,7 @@ class DashboardsViewSet(
                     query,
                     execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                     user=request.user if request.user.is_authenticated else None,
+                    request=request,
                 )
 
                 result_data = None
@@ -1063,7 +1064,7 @@ class DashboardsViewSet(
             create_from_template(dashboard, dashboard_template, cast(User, request.user))
 
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "dashboard created",
                 {
                     **dashboard.get_analytics_metadata(),
