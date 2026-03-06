@@ -8,6 +8,121 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
+ * `gt` - gt
+ * `lt` - lt
+ * `gte` - gte
+ * `lte` - lte
+ * `is_set` - is_set
+ * `is_not_set` - is_not_set
+ * `is_date_exact` - is_date_exact
+ * `is_date_after` - is_date_after
+ * `is_date_before` - is_date_before
+ * `in` - in
+ * `not_in` - not_in
+ */
+export type OperatorEnumApi = (typeof OperatorEnumApi)[keyof typeof OperatorEnumApi]
+
+export const OperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Lt: 'lt',
+    Gte: 'gte',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateAfter: 'is_date_after',
+    IsDateBefore: 'is_date_before',
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
+ * * `event` - event
+ * `event_metadata` - event_metadata
+ * `feature` - feature
+ * `person` - person
+ * `cohort` - cohort
+ * `element` - element
+ * `static-cohort` - static-cohort
+ * `dynamic-cohort` - dynamic-cohort
+ * `precalculated-cohort` - precalculated-cohort
+ * `group` - group
+ * `recording` - recording
+ * `log_entry` - log_entry
+ * `behavioral` - behavioral
+ * `session` - session
+ * `hogql` - hogql
+ * `data_warehouse` - data_warehouse
+ * `data_warehouse_person_property` - data_warehouse_person_property
+ * `error_tracking_issue` - error_tracking_issue
+ * `log` - log
+ * `log_attribute` - log_attribute
+ * `log_resource_attribute` - log_resource_attribute
+ * `revenue_analytics` - revenue_analytics
+ * `flag` - flag
+ * `workflow_variable` - workflow_variable
+ */
+export type PropertyItemTypeEnumApi = (typeof PropertyItemTypeEnumApi)[keyof typeof PropertyItemTypeEnumApi]
+
+export const PropertyItemTypeEnumApi = {
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Feature: 'feature',
+    Person: 'person',
+    Cohort: 'cohort',
+    Element: 'element',
+    StaticCohort: 'static-cohort',
+    DynamicCohort: 'dynamic-cohort',
+    PrecalculatedCohort: 'precalculated-cohort',
+    Group: 'group',
+    Recording: 'recording',
+    LogEntry: 'log_entry',
+    Behavioral: 'behavioral',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+    RevenueAnalytics: 'revenue_analytics',
+    Flag: 'flag',
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+export interface PropertyItemApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url` */
+    key: string
+    /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
+    value: string
+    operator?: OperatorEnumApi | BlankEnumApi | NullEnumApi | null
+    type?: PropertyItemTypeEnumApi | BlankEnumApi
+}
+
+/**
  * * `contains` - contains
  * `regex` - regex
  * `exact` - exact
@@ -20,31 +135,61 @@ export const UrlMatchingEnumApi = {
     Exact: 'exact',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
-export type ActionStepJSONApiPropertiesItem = { [key: string]: unknown }
-
 export interface ActionStepJSONApi {
-    /** @nullable */
+    /**
+     * Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).
+     * @nullable
+     */
     event?: string | null
-    /** @nullable */
-    properties?: ActionStepJSONApiPropertiesItem[] | null
-    /** @nullable */
+    /**
+     * Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person).
+     * @nullable
+     */
+    properties?: PropertyItemApi[] | null
+    /**
+     * CSS selector to match the target element (e.g. 'div > button.cta').
+     * @nullable
+     */
     selector?: string | null
     /** @nullable */
     readonly selector_regex: string | null
-    /** @nullable */
+    /**
+     * HTML tag name to match (e.g. "button", "a", "input").
+     * @nullable
+     */
     tag_name?: string | null
-    /** @nullable */
+    /**
+     * Element text content to match.
+     * @nullable
+     */
     text?: string | null
+    /** How to match the text value. Defaults to exact.
+
+* `contains` - contains
+* `regex` - regex
+* `exact` - exact */
     text_matching?: UrlMatchingEnumApi | NullEnumApi | null
-    /** @nullable */
+    /**
+     * Link href attribute to match.
+     * @nullable
+     */
     href?: string | null
+    /** How to match the href value. Defaults to exact.
+
+* `contains` - contains
+* `regex` - regex
+* `exact` - exact */
     href_matching?: UrlMatchingEnumApi | NullEnumApi | null
-    /** @nullable */
+    /**
+     * Page URL to match.
+     * @nullable
+     */
     url?: string | null
+    /** How to match the URL value. Defaults to contains.
+
+* `contains` - contains
+* `regex` - regex
+* `exact` - exact */
     url_matching?: UrlMatchingEnumApi | NullEnumApi | null
 }
 
@@ -69,12 +214,6 @@ export const RoleAtOrganizationEnumApi = {
     Marketing: 'marketing',
     Sales: 'sales',
     Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
 } as const
 
 /**
@@ -109,15 +248,22 @@ export interface UserBasicApi {
 export interface ActionApi {
     readonly id: number
     /**
+     * Name of the action (must be unique within the project).
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Human-readable description of what this action represents. */
     description?: string
     tags?: unknown[]
+    /** Whether to post a notification to Slack when this action is triggered. */
     post_to_slack?: boolean
-    /** @maxLength 1200 */
+    /**
+     * Custom Slack message format. Supports templates with event properties.
+     * @maxLength 1200
+     */
     slack_message_format?: string
+    /** Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together. */
     steps?: ActionStepJSONApi[]
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -128,7 +274,10 @@ export interface ActionApi {
     readonly is_action: boolean
     /** @nullable */
     readonly bytecode_error: string | null
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
+     * @nullable
+     */
     pinned_at?: string | null
     readonly creation_context: string
     _create_in_folder?: string
@@ -154,15 +303,22 @@ export interface PaginatedActionListApi {
 export interface PatchedActionApi {
     readonly id?: number
     /**
+     * Name of the action (must be unique within the project).
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Human-readable description of what this action represents. */
     description?: string
     tags?: unknown[]
+    /** Whether to post a notification to Slack when this action is triggered. */
     post_to_slack?: boolean
-    /** @maxLength 1200 */
+    /**
+     * Custom Slack message format. Supports templates with event properties.
+     * @maxLength 1200
+     */
     slack_message_format?: string
+    /** Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together. */
     steps?: ActionStepJSONApi[]
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -173,7 +329,10 @@ export interface PatchedActionApi {
     readonly is_action?: boolean
     /** @nullable */
     readonly bytecode_error?: string | null
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
+     * @nullable
+     */
     pinned_at?: string | null
     readonly creation_context?: string
     _create_in_folder?: string
