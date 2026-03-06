@@ -1,6 +1,9 @@
 import random
 import string
+from datetime import datetime
 from typing import Optional, cast
+
+from django.core.cache import cache
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
@@ -16,6 +19,8 @@ from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_ex
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 SESSION_BUFFER_DAYS = 3
+DEFAULT_SESSION_LOOKBACK_DAYS = 30
+DEFAULT_SESSION_LOOKBACK_CACHE_TTL_SECONDS = 60
 
 
 class WhereClauseExtractor(CloningVisitor):
@@ -257,6 +262,70 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
 
     def __init__(self, context: HogQLContext):
         super().__init__(context)
+
+    def should_apply_default_limit_bound(self, select_query: ast.SelectQuery) -> bool:
+        if (
+            select_query.limit is None
+            or select_query.order_by
+            or select_query.where is not None
+            or select_query.prewhere is not None
+        ):
+            return False
+        if len(select_query.select) != 1:
+            return False
+        selected = select_query.select[0]
+        return isinstance(selected, ast.Field) and selected.chain == ["*"]
+
+    def get_default_limit_bound(self) -> ast.Expr:
+        team_id = self.context.team_id
+        if team_id is None:
+            return ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Call(name="now", args=[]),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=DEFAULT_SESSION_LOOKBACK_DAYS)]),
+            )
+
+        cache_key = f"sessions_default_limit_bound:last_seen_at:{team_id}"
+        cache_miss = object()
+        cached_last_seen_at = cache.get(cache_key, cache_miss)
+        if cached_last_seen_at is cache_miss:
+            from products.event_definitions.backend.models.event_definition import EventDefinition
+
+            latest_event_last_seen_at = (
+                EventDefinition.objects.filter(team_id=team_id, last_seen_at__isnull=False)
+                .values_list("last_seen_at", flat=True)
+                .order_by("-last_seen_at")
+                .first()
+            )
+            cache.set(cache_key, latest_event_last_seen_at, timeout=DEFAULT_SESSION_LOOKBACK_CACHE_TTL_SECONDS)
+        else:
+            latest_event_last_seen_at = cast(Optional[datetime], cached_last_seen_at)
+
+        if latest_event_last_seen_at is None:
+            reference_time: ast.Expr = ast.Call(name="now", args=[])
+        else:
+            reference_time = ast.Call(
+                name="toDateTime",
+                args=[ast.Constant(value=latest_event_last_seen_at.strftime("%Y-%m-%d %H:%M:%S"))],
+            )
+
+        return ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=reference_time,
+            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=DEFAULT_SESSION_LOOKBACK_DAYS)]),
+        )
+
+    def get_inner_where(self, select_query: ast.SelectQuery) -> Optional[ast.Expr]:
+        result = super().get_inner_where(select_query)
+        if result is not None:
+            return result
+        if self.should_apply_default_limit_bound(select_query):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=clone_expr(self.timestamp_field),
+                right=self.get_default_limit_bound(),
+            )
+        return None
 
     def handle_timestamp_comparison(
         self, node: ast.CompareOperation, is_left_constant: bool, is_right_constant: bool

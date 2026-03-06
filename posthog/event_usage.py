@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from rest_framework.request import Request
 
+from django.contrib.auth.models import AnonymousUser
+
 import posthoganalytics
 from rest_framework.authentication import SessionAuthentication
 
@@ -292,13 +294,13 @@ def get_event_source(request) -> EventSource:
     return EventSource.API
 
 
-MAX_USER_AGENT_LENGTH = 1000
+MAX_HEADER_VALUE_LENGTH = 1000
 
 
-def _sanitize_user_agent(value: str | None) -> str | None:
+def _sanitize_header_value(value: str | None) -> str | None:
     if not value:
         return None
-    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_USER_AGENT_LENGTH] or None
+    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_HEADER_VALUE_LENGTH] or None
 
 
 def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
@@ -308,19 +310,24 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
         "$current_url": request.headers.get("Referer"),
         "$session_id": request.headers.get("X-Posthog-Session-Id"),
         "was_impersonated": is_impersonated_session(request),
-        "mcp_user_agent": _sanitize_user_agent(request.headers.get("X-Posthog-Mcp-User-Agent")),
+        "mcp_user_agent": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
+        "mcp_client_name": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
+        "mcp_client_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
+        "mcp_protocol_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
     }
 
 
 def report_user_action(
-    user: User,
+    user: User | AnonymousUser,
     event: str,
     properties: Optional[dict] = None,
     *,
     team: Optional[Team] = None,
+    organization: Optional[Organization] = None,
     request: Optional["Request"] = None,
 ):
-    if user is None or not user.distinct_id:
+    # isinstance works through Django's SimpleLazyObject because it proxies __class__
+    if not isinstance(user, User) or not user.distinct_id:
         return
     if properties is None:
         properties = {}
@@ -330,7 +337,44 @@ def report_user_action(
         distinct_id=user.distinct_id,
         event=event,
         properties=properties,
-        groups=groups(user.current_organization, team or user.current_team),
+        groups=groups(organization or user.current_organization, team or user.current_team),
+    )
+
+
+def report_user_or_team_action(
+    event: str,
+    properties: Optional[dict] = None,
+    *,
+    user: Optional[User | AnonymousUser] = None,
+    team: Optional[Team] = None,
+    organization: Optional[Organization] = None,
+    request: Optional["Request"] = None,
+):
+    if properties is None:
+        properties = {}
+    if request is not None:
+        properties = {**get_request_analytics_properties(request), **properties}
+
+    # isinstance works through Django's SimpleLazyObject because it proxies __class__
+    real_user = user if isinstance(user, User) else None
+
+    distinct_id = None
+    if real_user and real_user.distinct_id:
+        distinct_id = real_user.distinct_id
+    elif team:
+        distinct_id = str(team.uuid)
+
+    if not distinct_id:
+        return
+
+    org = organization or (real_user.current_organization if real_user else None)
+    tm = team or (real_user.current_team if real_user else None)
+
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event=event,
+        properties=properties,
+        groups=groups(org, tm),
     )
 
 

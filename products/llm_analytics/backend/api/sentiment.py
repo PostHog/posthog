@@ -1,4 +1,4 @@
-"""On-demand sentiment analysis for LLM traces.
+"""On-demand sentiment analysis for LLM traces and generations.
 
 Triggers a Temporal workflow to classify sentiment on $ai_generation user messages
 and returns the result synchronously (blocks until Temporal completes).
@@ -26,6 +26,7 @@ from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import LLMAnalyticsSentimentBurstThrottle, LLMAnalyticsSentimentSustainedThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.sentiment.constants import (
+    BATCH_MAX_GENERATION_IDS,
     BATCH_MAX_TRACE_IDS,
     CACHE_KEY_PREFIX,
     MAX_RETRY_ATTEMPTS,
@@ -38,13 +39,24 @@ from products.llm_analytics.backend.api.metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
 
+ANALYSIS_LEVEL_CHOICES = ["trace", "generation"]
+BATCH_MAX_BY_LEVEL = {
+    "trace": BATCH_MAX_TRACE_IDS,
+    "generation": BATCH_MAX_GENERATION_IDS,
+}
+
 
 class SentimentRequestSerializer(serializers.Serializer):
-    trace_ids = serializers.ListField(
+    ids = serializers.ListField(
         child=serializers.CharField(),
         min_length=1,
-        max_length=BATCH_MAX_TRACE_IDS,
+        max_length=BATCH_MAX_GENERATION_IDS,
         required=True,
+    )
+    analysis_level = serializers.ChoiceField(
+        choices=ANALYSIS_LEVEL_CHOICES,
+        default="trace",
+        required=False,
     )
     force_refresh = serializers.BooleanField(default=False, required=False)
     date_from = serializers.CharField(required=False, default=None, allow_null=True)
@@ -57,25 +69,16 @@ class MessageSentimentSerializer(serializers.Serializer):
     scores = serializers.DictField(child=serializers.FloatField())
 
 
-class GenerationSentimentSerializer(serializers.Serializer):
+class SentimentResultSerializer(serializers.Serializer):
     label = serializers.CharField()  # type: ignore[assignment]
     score = serializers.FloatField()
     scores = serializers.DictField(child=serializers.FloatField())
     messages = serializers.DictField(child=MessageSentimentSerializer())
-
-
-class SentimentResponseSerializer(serializers.Serializer):
-    trace_id = serializers.CharField()
-    label = serializers.CharField()  # type: ignore[assignment]
-    score = serializers.FloatField()
-    scores = serializers.DictField(child=serializers.FloatField())
-    generations = serializers.DictField(child=GenerationSentimentSerializer())
-    generation_count = serializers.IntegerField()
     message_count = serializers.IntegerField()
 
 
 class SentimentBatchResponseSerializer(serializers.Serializer):
-    results = serializers.DictField(child=SentimentResponseSerializer())
+    results = serializers.DictField(child=SentimentResultSerializer())
 
 
 class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -86,19 +89,21 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         LLMAnalyticsSentimentSustainedThrottle,
     ]
 
-    def _get_cache_key(self, trace_id: str) -> str:
-        return f"{CACHE_KEY_PREFIX}:{self.team_id}:{trace_id}"
+    def _cache_key(self, level: str, id_: str) -> str:
+        return f"{CACHE_KEY_PREFIX}:{level}:{self.team_id}:{id_}"
 
     def _execute_workflow(
         self,
         client,
-        trace_ids: list[str],
+        ids: list[str],
+        analysis_level: str = "trace",
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> dict[str, dict]:
         workflow_input = ClassifySentimentInput(
             team_id=self.team_id,
-            trace_ids=trace_ids,
+            ids=ids,
+            analysis_level=analysis_level,
             date_from=date_from,
             date_to=date_to,
         )
@@ -132,26 +137,34 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        trace_ids: list[str] = serializer.validated_data["trace_ids"]
+        ids: list[str] = serializer.validated_data["ids"]
+        analysis_level: str = serializer.validated_data["analysis_level"]
         force_refresh: bool = serializer.validated_data["force_refresh"]
         date_from: str | None = serializer.validated_data.get("date_from")
         date_to: str | None = serializer.validated_data.get("date_to")
+
+        max_size = BATCH_MAX_BY_LEVEL[analysis_level]
+        if len(ids) > max_size:
+            return Response(
+                {"ids": [f"Ensure this field has no more than {max_size} elements."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         results: dict[str, dict] = {}
         misses: list[str] = []
 
         if not force_refresh:
-            cache_keys = {tid: self._get_cache_key(tid) for tid in trace_ids}
+            cache_keys = {id_: self._cache_key(analysis_level, id_) for id_ in ids}
             cached_values = cache.get_many(list(cache_keys.values()))
 
-            for tid in trace_ids:
-                cached = cached_values.get(cache_keys[tid])
+            for id_ in ids:
+                cached = cached_values.get(cache_keys[id_])
                 if cached is not None:
-                    results[tid] = cached
+                    results[id_] = cached
                 else:
-                    misses.append(tid)
+                    misses.append(id_)
         else:
-            misses = list(trace_ids)
+            misses = list(ids)
 
         if misses:
             try:
@@ -159,22 +172,24 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 batch_results = self._execute_workflow(
                     client,
                     misses,
+                    analysis_level=analysis_level,
                     date_from=date_from,
                     date_to=date_to,
                 )
 
-                for tid in misses:
-                    trace_result = batch_results.get(tid)
-                    if trace_result:
-                        results[tid] = trace_result
+                for id_ in misses:
+                    result = batch_results.get(id_)
+                    if result:
+                        results[id_] = result
                     else:
-                        results[tid] = {"error": "Failed to compute sentiment"}
+                        results[id_] = {"error": "Failed to compute sentiment"}
 
             except Exception as e:
                 logger.exception(
                     "Failed to compute sentiment",
                     team_id=self.team_id,
-                    trace_ids=misses,
+                    analysis_level=analysis_level,
+                    ids=misses,
                     error=str(e),
                 )
                 return Response(

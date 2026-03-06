@@ -1,4 +1,4 @@
-use crate::log_record::KafkaLogRow;
+use crate::log_record::{override_timestamp, KafkaLogRow};
 use crate::service::Service;
 use axum::{
     extract::State,
@@ -123,18 +123,24 @@ pub fn extract_trace_span_ids(extra: &HashMap<String, serde_json::Value>) -> (St
     (trace_id, span_id)
 }
 
-pub fn datadog_log_to_kafka_row(log: DatadogLog, query_params: &DatadogQueryParams) -> KafkaLogRow {
+pub fn datadog_log_to_kafka_row(
+    log: DatadogLog,
+    query_params: &DatadogQueryParams,
+) -> (KafkaLogRow, bool) {
     // Body values take precedence over query params
     let status = log.status.as_deref().or(query_params.status.as_deref());
     let (severity_text, severity_number) = normalize_datadog_severity(status);
 
-    let timestamp = log
+    let raw_timestamp = log
         .timestamp
         .and_then(|ts| {
             // Datadog uses milliseconds since epoch
             Utc.timestamp_millis_opt(ts).single()
         })
         .unwrap_or_else(Utc::now);
+
+    let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
+    let was_overridden = original_timestamp.is_some();
 
     let service = log.service.or_else(|| query_params.service.clone());
     let hostname = log.hostname.or_else(|| query_params.hostname.clone());
@@ -190,22 +196,29 @@ pub fn datadog_log_to_kafka_row(log: DatadogLog, query_params: &DatadogQueryPara
         attributes.insert(key.clone(), value.to_string());
     }
 
-    KafkaLogRow {
-        uuid: Uuid::now_v7().to_string(),
-        trace_id,
-        span_id,
-        trace_flags: 0,
-        timestamp,
-        observed_timestamp: Utc::now(),
-        body: message.unwrap_or_default(),
-        severity_text,
-        severity_number,
-        service_name: service.unwrap_or_default(),
-        resource_attributes,
-        instrumentation_scope,
-        event_name,
-        attributes,
+    if let Some(original) = original_timestamp {
+        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
     }
+
+    (
+        KafkaLogRow {
+            uuid: Uuid::now_v7().to_string(),
+            trace_id,
+            span_id,
+            trace_flags: 0,
+            timestamp,
+            observed_timestamp: Utc::now(),
+            body: message.unwrap_or_default(),
+            severity_text,
+            severity_number,
+            service_name: service.unwrap_or_default(),
+            resource_attributes,
+            instrumentation_scope,
+            event_name,
+            attributes,
+        },
+        was_overridden,
+    )
 }
 
 #[derive(Deserialize, Debug)]
@@ -284,13 +297,19 @@ pub async fn export_datadog_logs_http(
         },
     };
 
-    let rows: Vec<KafkaLogRow> = logs
+    let results: Vec<(KafkaLogRow, bool)> = logs
         .into_iter()
         .map(|log| datadog_log_to_kafka_row(log, &query_params))
         .collect();
 
-    let row_count = rows.len();
-    if let Err(e) = service.sink.write(&token, rows, body.len() as u64).await {
+    let row_count = results.len();
+    let timestamps_overridden = results.iter().filter(|(_, overridden)| *overridden).count() as u64;
+    let rows: Vec<KafkaLogRow> = results.into_iter().map(|(row, _)| row).collect();
+    if let Err(e) = service
+        .sink
+        .write(&token, rows, body.len() as u64, timestamps_overridden)
+        .await
+    {
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,

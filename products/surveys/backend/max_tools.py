@@ -150,6 +150,10 @@ SURVEY_CREATION_TOOL_DESCRIPTION = dedent("""
     - "single_choice": pick one from choices
     - "multiple_choice": pick many from choices
     - "link": call-to-action link
+
+    # After creation
+    Always share the survey link with the user so they can view and configure it.
+    The link is included in the tool response.
     """).strip()
 
 
@@ -269,7 +273,12 @@ class CreateSurveyTool(MaxTool):
             created_survey = await Survey.objects.acreate(team=self._team, created_by=self._user, **survey_data)
 
             launch_msg = " and launched" if should_launch else ""
-            return f"Survey '{created_survey.name}' created{launch_msg} successfully!", {
+            survey_id = str(created_survey.id)
+            if survey_type == "popover":
+                survey_url = f"/surveys/guided/{survey_id}"
+            else:
+                survey_url = f"/surveys/{survey_id}?edit=true"
+            return f"Survey '{created_survey.name}' created{launch_msg} successfully! [View survey]({survey_url})", {
                 "survey_id": created_survey.id,
                 "survey_name": created_survey.name,
                 "survey_type": survey_type,

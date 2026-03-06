@@ -86,7 +86,7 @@
         "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
         "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
-        "!(posthog/hogql/grammar/*)*.{py,pyi}": [
+        "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
             "bin/hogli format:python"
         ],

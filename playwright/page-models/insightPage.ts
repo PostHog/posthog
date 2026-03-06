@@ -128,14 +128,22 @@ export class InsightPage {
     }
 
     async openInfoPanel(): Promise<void> {
-        const inlineButton = this.page.getByTestId('info-actions-panel')
         const sidePanelButton = this.page.locator('#main-content').getByTestId('open-context-panel-button')
-        await inlineButton.or(sidePanelButton).click()
-        await this.page.locator('.scene-panel-actions-section').first().waitFor({ state: 'visible' })
+        await sidePanelButton.click()
+        // The side panel is lazy-loaded via React.lazy + Suspense. Wait for the
+        // panel container to be visible so callers know the panel has mounted and
+        // the portal target is registered.
+        await this.page.locator('#side-panel').waitFor({ state: 'visible' })
     }
 
     async clickDeleteInsight(): Promise<void> {
-        await this.page.getByTestId('insight-delete').click()
+        // The delete button lives inside InsightPanelDangerZone which only
+        // renders once insight data has loaded (isSavedInsight check). After
+        // opening the info panel the button may not be in the DOM yet, so
+        // explicitly wait for it to become visible before clicking.
+        const deleteButton = this.page.getByTestId('insight-delete')
+        await deleteButton.waitFor({ state: 'visible' })
+        await deleteButton.click()
     }
 
     async confirmDeleteDialog(): Promise<void> {

@@ -39,6 +39,7 @@ from posthog.temporal.ai.twig_slack_interactivity import TwigSlackInteractivityI
 from posthog.temporal.ai.twig_slack_mention import TwigSlackMentionWorkflow, TwigSlackMentionWorkflowInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_instance_region
 
 from ee.models.assistant import Conversation
 
@@ -232,6 +233,10 @@ def resolve_slack_user(
                 prefer_thread_message=True,
             )
             return None
+
+        if get_instance_region() == "DEV":
+            # Dev region override for testing on any workspace (for Slack review team)
+            slack_email = "twixes3d+slacktest@gmail.com"
 
         # Trust model: Slack signature validation proves the payload is authentic.
         # The email comes from Slack's `users.info` API via `users:read.email` scope, not from

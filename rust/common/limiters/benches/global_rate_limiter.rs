@@ -83,6 +83,7 @@ fn bench_config() -> GlobalRateLimiterConfig {
         custom_keys: HashMap::new(),
         global_read_timeout: Duration::from_millis(50),
         global_write_timeout: Duration::from_millis(50),
+        metrics_scope: "bench".to_string(),
     }
 }
 
