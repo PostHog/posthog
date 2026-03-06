@@ -1552,7 +1552,7 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         @parameterized.expand(
             [
-                ("union by name", "UNION BY NAME"),
+                ("union by name", "UNION DISTINCT BY NAME"),
                 ("union all by name", "UNION ALL BY NAME"),
                 ("union distinct by name", "UNION DISTINCT BY NAME"),
             ]

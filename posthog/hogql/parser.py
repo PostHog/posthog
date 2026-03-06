@@ -350,11 +350,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         for subsequent in ctx.subsequentSelectSetClause():
             if subsequent.UNION():
-                union_type = "UNION"
                 if subsequent.ALL():
-                    union_type += " ALL"
+                    union_type = "UNION ALL"
                 elif subsequent.DISTINCT():
-                    union_type += " DISTINCT"
+                    union_type = "UNION DISTINCT"
+                else:
+                    union_type = "UNION DISTINCT"
                 if subsequent.BY() and subsequent.NAME():
                     union_type += " BY NAME"
             elif subsequent.INTERSECT() and subsequent.ALL():
