@@ -25,3 +25,7 @@
 <!-- If publishing, you must provide changelog details in the #changelog Slack channel. You will receive a follow-up PR comment or notification. -->
 
 <!-- If not, write "no" or "do not publish to changelog" to explicitly opt-out of posting to #changelog. Removing this entire section will not prevent posting. -->
+
+<!-- ## 🤖 LLM context -->
+
+<!-- If an LLM agent co-authored or authored this PR, uncomment this section and leave any relevant context about the session, tools used, link to the session, or anything else that may help reviewers. -->

@@ -56,10 +56,10 @@ export interface LlmEvaluationSignalInput {
 
 export interface ZendeskTicketSignalExtra {
     url: string
-    type: string
+    type: string | null
     tags: string[]
     created_at: string
-    priority: string
+    priority: string | null
     status: string
 }
 
@@ -93,11 +93,37 @@ export interface GithubIssueSignalInput {
     extra: GithubIssueSignalExtra
 }
 
+// Linear issue
+
+export interface LinearIssueSignalExtra {
+    url: string
+    identifier: string
+    number: number
+    priority: number
+    priority_label: string
+    labels: string[]
+    state_name: string | null
+    state_type: string | null
+    team_name: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface LinearIssueSignalInput {
+    source_type: 'issue'
+    source_product: 'linear'
+    source_id: string
+    description: string
+    weight: number
+    extra: LinearIssueSignalExtra
+}
+
 // Discriminated union over all signal variants
 
-/** @discriminator source_type */
+/** @discriminator source_product */
 export type SignalInput =
     | SessionSegmentClusterSignalInput
     | LlmEvaluationSignalInput
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
+    | LinearIssueSignalInput

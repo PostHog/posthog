@@ -107,6 +107,29 @@ export function asDisplay(
     return display ? midEllipsis(display, maxLength || 40) : 'Anonymous'
 }
 
+// Property editor inputs are always strings — coerce to native types before persisting
+export function coercePropertyValue(value: string | number | boolean | null): string | number | boolean | null {
+    if (value === null || value === '') {
+        return value
+    }
+
+    let result: string | number | boolean | null = value
+
+    const attemptedParsedNumber = Number(value)
+    if (Number.isFinite(attemptedParsedNumber) && typeof value !== 'boolean') {
+        result = attemptedParsedNumber
+    }
+
+    if (typeof result === 'string') {
+        const lowercaseValue = result.toLowerCase()
+        if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
+            result = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+        }
+    }
+
+    return result
+}
+
 export const asLink = (person?: PersonPropType | null): string | undefined =>
     person?.distinct_id
         ? urls.personByDistinctId(person.distinct_id)

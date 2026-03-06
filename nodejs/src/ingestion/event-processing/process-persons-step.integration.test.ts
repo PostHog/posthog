@@ -14,8 +14,9 @@ import {
 } from '../../../tests/helpers/sql'
 import { Hub, Person, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
 import { UUIDT } from '../../utils/utils'
-import { normalizeEventStep } from '../../worker/ingestion/event-pipeline/normalizeEventStep'
+import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 import { ProcessPersonsInput, createProcessPersonsStep } from './process-persons-step'
 
@@ -133,7 +134,8 @@ describe('createProcessPersonsStep', () => {
         }
 
         const processPerson = true
-        const [normalizedEvent, normalizedTimestamp] = await normalizeEventStep(event, processPerson)
+        const normalizedEvent = normalizeProcessPerson(normalizeEvent(event), processPerson)
+        const normalizedTimestamp = parseEventTimestamp(normalizedEvent)
 
         const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
         const result = await step(createInput({ normalizedEvent, timestamp: normalizedTimestamp }))
