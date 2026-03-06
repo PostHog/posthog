@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -237,7 +238,11 @@ func (p *Process) readLoop(r io.Reader, send func(bubbletea.Msg)) {
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
 
 	for scanner.Scan() {
-		line := scanner.Text()
+		// PTY output uses \r\n line endings. bufio.Scanner strips \n but
+		// leaves the \r, which causes carriage-return to overwrite the start
+		// of the line when rendered in the viewport — making all output appear
+		// blank. Strip it here so the viewport receives clean lines.
+		line := strings.TrimRight(scanner.Text(), "\r")
 		p.mu.Lock()
 		if len(p.lines) >= maxLines {
 			// Discard oldest line to keep the buffer bounded.

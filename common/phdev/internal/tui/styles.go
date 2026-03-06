@@ -2,6 +2,17 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
+// Process status icon runes — plain Unicode, no embedded ANSI so they can be
+// safely composed inside a larger lipgloss-styled container without resetting
+// the enclosing background or foreground colour.
+const (
+	iconCharRunning = "●"
+	iconCharPending = "◌"
+	iconCharStopped = "○"
+	iconCharDone    = "✓"
+	iconCharCrashed = "✗"
+)
+
 // PostHog brand palette.
 const (
 	colorOrange   = lipgloss.Color("#F54E00")
@@ -51,13 +62,6 @@ var (
 	procInactiveStyle = lipgloss.NewStyle().
 				PaddingLeft(1).
 				Foreground(colorGrey)
-
-	// Process status icons (with colour)
-	iconRunning = lipgloss.NewStyle().Foreground(colorGreen).Render("●")
-	iconPending = lipgloss.NewStyle().Foreground(colorYellow).Render("◌")
-	iconStopped = lipgloss.NewStyle().Foreground(colorGrey).Render("○")
-	iconDone    = lipgloss.NewStyle().Foreground(colorGrey).Render("✓")
-	iconCrashed = lipgloss.NewStyle().Foreground(colorRed).Render("✗")
 
 	// Footer
 	footerStyle = lipgloss.NewStyle().

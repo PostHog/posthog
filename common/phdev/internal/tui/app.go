@@ -15,6 +15,7 @@ package tui
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -50,10 +51,14 @@ type Model struct {
 	width  int
 	height int
 	ready  bool
+
+	// log is non-nil when --debug is active; writes go to /tmp/phdev-debug.log.
+	log *log.Logger
 }
 
-// New creates a Model backed by mgr. Call tea.NewProgram(New(mgr)) to run it.
-func New(mgr *process.Manager) Model {
+// New creates a Model backed by mgr. Call tea.NewProgram(New(mgr, nil)) to run it.
+// Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.).
+func New(mgr *process.Manager, logger *log.Logger) Model {
 	return Model{
 		mgr:      mgr,
 		procs:    mgr.Procs(),
@@ -61,6 +66,14 @@ func New(mgr *process.Manager) Model {
 		atBottom: true,
 		keys:     defaultKeyMap(),
 		help:     help.New(),
+		log:      logger,
+	}
+}
+
+// dbg writes a formatted debug message when debug logging is active.
+func (m Model) dbg(format string, args ...any) {
+	if m.log != nil {
+		m.log.Printf(format, args...)
 	}
 }
 
@@ -76,6 +89,7 @@ func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
 	switch msg := msg.(type) {
 
 	case bubbletea.WindowSizeMsg:
+		m.dbg("resize: %dx%d", msg.Width, msg.Height)
 		m.width = msg.Width
 		m.height = msg.Height
 		m = m.applySize()
@@ -90,10 +104,12 @@ func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
 		}
 
 	case process.StatusMsg:
+		m.dbg("status: proc=%s status=%s", msg.Name, msg.Status)
 		// Re-fetch the process slice so status icons refresh on the next render.
 		m.procs = m.mgr.Procs()
 
 	case bubbletea.KeyMsg:
+		m.dbg("key: %q (type=%v)", msg.String(), msg.Type)
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			m.mgr.StopAll()
@@ -101,31 +117,39 @@ func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
 
 		case key.Matches(msg, m.keys.Help):
 			m.showHelp = !m.showHelp
+			m.dbg("help toggled: showHelp=%v", m.showHelp)
 			// Recompute sizes since footer height may change.
 			m = m.applySize()
 
 		case key.Matches(msg, m.keys.NextProc):
 			if m.cursor < len(m.procs)-1 {
+				prev := m.cursor
 				m.cursor++
+				m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
 				m = m.loadActiveProc()
 			}
 
 		case key.Matches(msg, m.keys.PrevProc):
 			if m.cursor > 0 {
+				prev := m.cursor
 				m.cursor--
+				m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
 				m = m.loadActiveProc()
 			}
 
 		case key.Matches(msg, m.keys.GotoTop):
+			m.dbg("viewport: goto top")
 			m.viewport.GotoTop()
 			m.atBottom = false
 
 		case key.Matches(msg, m.keys.GotoBottom):
+			m.dbg("viewport: goto bottom")
 			m.viewport.GotoBottom()
 			m.atBottom = true
 
 		case key.Matches(msg, m.keys.Restart):
 			if p := m.activeProc(); p != nil {
+				m.dbg("restart: proc=%s", p.Name)
 				send := m.mgr.Send()
 				go p.Restart(send)
 			}
@@ -262,21 +286,34 @@ func (m Model) renderSidebar() string {
 		h = 1
 	}
 
-	innerW := sidebarWidth - 1 // subtract the right border
+	// innerW is the usable column width inside the border.
+	innerW := sidebarWidth - 1
+
 	var sb strings.Builder
 	for i, p := range m.procs {
-		icon := statusIcon(p.Status())
-		// Truncate name to leave room for "icon + space" prefix (3 chars).
-		name := truncate(p.Name, innerW-3)
-		line := fmt.Sprintf("%s %s", icon, name)
+		iconChar := statusIconChar(p.Status())
+		iconColor := statusIconColor(p.Status())
 
-		var style lipgloss.Style
+		// Reserve 3 visible chars for left-padding (1) + icon (1) + space (1).
+		name := truncate(p.Name, innerW-3)
+
+		// Render icon and name as *separate* lipgloss segments that share the
+		// same background colour.  This avoids embedding pre-rendered ANSI
+		// strings (which carry their own \033[m reset) inside an outer style,
+		// which would silently terminate the background highlight after the icon
+		// and make the active-row cursor invisible.
 		if i == m.cursor {
-			style = procActiveStyle.Width(innerW)
+			base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
+			iconSeg := base.Copy().PaddingLeft(1).Foreground(iconColor).Render(iconChar)
+			// Width covers the remaining columns: innerW minus the 2 chars
+			// already consumed by PaddingLeft + icon.
+			nameSeg := base.Copy().Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
+			sb.WriteString(iconSeg + nameSeg)
 		} else {
-			style = procInactiveStyle.Width(innerW)
+			iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(iconChar)
+			nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
+			sb.WriteString(iconSeg + nameSeg)
 		}
-		sb.WriteString(style.Render(line))
 		sb.WriteByte('\n')
 	}
 
@@ -305,20 +342,37 @@ func (m Model) renderFooter() string {
 
 // ── utility ───────────────────────────────────────────────────────────────────
 
-func statusIcon(s process.Status) string {
+// statusIconChar returns the plain Unicode character for the given status.
+func statusIconChar(s process.Status) string {
 	switch s {
 	case process.StatusRunning:
-		return iconRunning
+		return iconCharRunning
 	case process.StatusPending:
-		return iconPending
+		return iconCharPending
 	case process.StatusStopped:
-		return iconStopped
+		return iconCharStopped
 	case process.StatusDone:
-		return iconDone
+		return iconCharDone
 	case process.StatusCrashed:
-		return iconCrashed
+		return iconCharCrashed
 	default:
-		return iconPending
+		return iconCharPending
+	}
+}
+
+// statusIconColor returns the lipgloss colour associated with the given status.
+func statusIconColor(s process.Status) lipgloss.Color {
+	switch s {
+	case process.StatusRunning:
+		return colorGreen
+	case process.StatusPending:
+		return colorYellow
+	case process.StatusStopped, process.StatusDone:
+		return colorGrey
+	case process.StatusCrashed:
+		return colorRed
+	default:
+		return colorYellow
 	}
 }
 
