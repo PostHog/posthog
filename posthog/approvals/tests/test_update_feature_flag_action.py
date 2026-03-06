@@ -171,6 +171,84 @@ class TestUpdateFeatureFlagActionDisplayData(APIBaseTest):
         assert "rollout percentage" in display_data["description"].lower()
 
 
+class TestCheckStaleness(APIBaseTest):
+    def _create_flag(self) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [
+            ("matching_version", 1, 1, False),
+            ("mismatched_version", 1, 2, True),
+        ]
+    )
+    def test_staleness_by_version(self, _name, stored_version, current_version, expected_stale):
+        flag = self._create_flag()
+        flag.version = current_version
+
+        intent = {"preconditions": {"version": stored_version}}
+        context = {"instance": flag}
+
+        from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
+
+        result = EnableFeatureFlagAction.check_staleness(intent, context)
+
+        assert result is expected_stale
+
+    def test_stale_when_no_instance_in_context(self):
+        from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
+
+        intent = {"preconditions": {"version": 1}}
+        result = EnableFeatureFlagAction.check_staleness(intent, {})
+
+        assert result is True
+
+    def test_not_stale_when_no_stored_version(self):
+        from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
+
+        flag = self._create_flag()
+        intent: dict[str, Any] = {"preconditions": {}}
+        context = {"instance": flag}
+
+        result = EnableFeatureFlagAction.check_staleness(intent, context)
+
+        assert result is False
+
+    @parameterized.expand(
+        [
+            ("matching_version", 1, 1, False),
+            ("mismatched_version", 1, 2, True),
+        ]
+    )
+    def test_update_action_staleness_by_version(self, _name, stored_version, current_version, expected_stale):
+        flag = self._create_flag()
+        flag.version = current_version
+
+        intent = {"preconditions": {"version": stored_version}}
+        context = {"instance": flag}
+
+        result = UpdateFeatureFlagAction.check_staleness(intent, context)
+
+        assert result is expected_stale
+
+    def test_update_action_stale_when_no_instance(self):
+        intent = {"preconditions": {"version": 1}}
+        result = UpdateFeatureFlagAction.check_staleness(intent, {})
+
+        assert result is True
+
+    def test_base_action_check_staleness_always_returns_false(self):
+        from posthog.approvals.actions.base import BaseAction
+
+        result = BaseAction.check_staleness({"preconditions": {"version": 1}}, {})
+
+        assert result is False
+
+
 class TestPolicyConditionEvaluation(APIBaseTest):
     def _create_policy_with_conditions(self, conditions: dict[str, Any]) -> ApprovalPolicy:
         return ApprovalPolicy.objects.create(

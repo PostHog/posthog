@@ -265,7 +265,8 @@ const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayT
 const hasTimeSeriesData = (columns: Column[], response: AnyResponseType | null): boolean => {
     const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
     const hasNumericColumn = columns.some((column) => column.type.isNumerical)
-    const results = response?.['results'] ?? response?.['result'] ?? []
+    const results =
+        response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
 
     return hasDateColumn && hasNumericColumn && results.length > 1
 }
@@ -713,8 +714,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return []
                 }
 
-                const columns: string[] = response['columns'] ?? []
-                const types: string[][] = response['types'] ?? []
+                const columns: string[] =
+                    'columns' in response && Array.isArray(response.columns) ? response.columns : []
+                const types: string[][] = 'types' in response && Array.isArray(response.types) ? response.types : []
 
                 return columns.map((column, index) => {
                     const type = types[index]?.[1]
@@ -793,7 +795,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
 
                 const showNullsAsZero = chartSettings.showNullsAsZero ?? false
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const data =
+                    'results' in response && Array.isArray(response.results)
+                        ? response.results
+                        : 'result' in response && Array.isArray(response.result)
+                          ? response.result
+                          : []
 
                 return ySeries
                     .map((series): AxisSeries<number | null> | null => {
@@ -860,7 +867,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                 }
 
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const data = 'results' in response ? response.results : 'result' in response ? response.result : []
 
                 if (xSeries === null) {
                     return {
@@ -884,7 +891,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return {
                     column,
-                    data: data.map((n) => n[column.dataIndex]),
+                    data: data.map((n: any) => n[column.dataIndex]),
                 }
             },
         ],
@@ -896,7 +903,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
 
                 const showNullsAsZero = chartSettings.showNullsAsZero ?? false
-                const data: (string | number | null)[][] = response?.['results'] ?? response?.['result'] ?? []
+                const data =
+                    'results' in response && Array.isArray(response.results)
+                        ? response.results
+                        : 'result' in response && Array.isArray(response.result)
+                          ? response.result
+                          : []
 
                 return data.map((row): TableDataCell<any>[] => {
                     return tabularColumns.map((column): TableDataCell<any> => {

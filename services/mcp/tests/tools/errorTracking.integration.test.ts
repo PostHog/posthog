@@ -130,10 +130,10 @@ describe('Error Tracking', { concurrent: false }, () => {
                 return
             }
 
-            const result = await updateTool.handler(context, {
+            const result = (await updateTool.handler(context, {
                 issueId,
                 status: IssueStatus.Resolved,
-            })
+            })) as { status: string }
 
             expect(result).toBeTruthy()
             expect(result.status).toBe(IssueStatus.Resolved)
@@ -145,10 +145,10 @@ describe('Error Tracking', { concurrent: false }, () => {
                 return
             }
 
-            const result = await updateTool.handler(context, {
+            const result = (await updateTool.handler(context, {
                 issueId,
                 status: IssueStatus.Active,
-            })
+            })) as { status: string }
 
             expect(result).toBeTruthy()
             expect(result.status).toBe(IssueStatus.Active)
@@ -204,10 +204,10 @@ describe('Error Tracking', { concurrent: false }, () => {
             const errorDetails = parseToolResponse(detailsResult)
             expect(Array.isArray(errorDetails)).toBe(true)
 
-            const updateResult = await updateTool.handler(context, {
+            const updateResult = (await updateTool.handler(context, {
                 issueId,
                 status: IssueStatus.Resolved,
-            })
+            })) as { status: string }
             expect(updateResult).toBeTruthy()
             expect(updateResult.status).toBe(IssueStatus.Resolved)
         })

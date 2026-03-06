@@ -84,9 +84,10 @@ def verify_and_fix_all_teams(
     """
     Verify caches for teams in the configured scope and auto-fix any issues.
 
-    When ``config.get_teams_queryset_fn`` is set, only teams returned by that
-    queryset are processed; otherwise all teams are verified. Processes teams
-    in chunks using seek-based pagination for memory efficiency. For each team,
+    Uses ``config.get_teams_queryset()`` to determine scope — if a queryset
+    function is configured, only those teams are processed; otherwise all teams
+    are verified, and teams are processed in chunks using seek-based pagination
+    for memory efficiency. For each team,
     calls verify_team_fn to check cache consistency. If issues are found,
     automatically fixes them using config.update_fn.
 
@@ -113,7 +114,7 @@ def verify_and_fix_all_teams(
     result = VerificationResult()
     last_id = 0
 
-    base_qs = config.get_teams_queryset_fn() if config.get_teams_queryset_fn else Team.objects.all()
+    base_qs = config.get_teams_queryset()
 
     batch_number = 0
     while True:
