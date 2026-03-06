@@ -5,6 +5,7 @@ import { allOperatorsMapping } from 'lib/utils'
 
 import {
     AccessControlLevel,
+    FeatureFlagFilters,
     Survey,
     SurveyAppearance,
     SurveyMatchType,
@@ -804,3 +805,9 @@ export const surveyThemes: SurveyTheme[] = [
         },
     },
 ]
+
+export const DEFAULT_TARGETING_FLAG_FILTERS: FeatureFlagFilters = {
+    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+    multivariate: null,
+    payloads: {},
+}
