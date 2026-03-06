@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parse as parseYaml } from 'yaml'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(__dirname, '..')
@@ -12,7 +13,7 @@ const repoRoot = path.resolve(frontendRoot, '..')
 const productsDir = path.resolve(repoRoot, 'products')
 
 // Default to temp location (gitignored ephemeral artifact)
-const defaultSchemaPath = path.resolve(frontendRoot, 'tmp', 'openapi.json')
+const defaultSchemaPath = path.resolve(frontendRoot, 'tmp', 'openapi.yaml')
 
 const schemaPath = process.env.OPENAPI_SCHEMA_PATH
     ? path.resolve(frontendRoot, process.env.OPENAPI_SCHEMA_PATH)
@@ -21,6 +22,14 @@ const schemaPath = process.env.OPENAPI_SCHEMA_PATH
 if (!fs.existsSync(schemaPath)) {
     console.error(`OpenAPI schema not found at ${schemaPath}. Generate it with \`hogli build:openapi-schema\` first.`)
     process.exit(1)
+}
+
+function loadOpenApiSchema(filePath) {
+    const raw = fs.readFileSync(filePath, 'utf8')
+    if (filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
+        return parseYaml(raw)
+    }
+    return JSON.parse(raw)
 }
 
 // --all flag: generate types for ALL endpoints (ignores tag filtering)
@@ -427,7 +436,7 @@ function preprocessSchema(schema) {
 
 // Main execution
 
-const schema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf8')))
+const schema = preprocessSchema(loadOpenApiSchema(schemaPath))
 const mappings = loadProductMappings()
 const tmpDir = createTempDir()
 

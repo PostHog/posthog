@@ -336,7 +336,8 @@
         "ts-json-schema-generator": "^v2.4.0-next.6",
         "ts-node": "^10.9.1",
         "tsconfig-paths": "^4.2.0",
-        "whatwg-fetch": "^3.6.2"
+        "whatwg-fetch": "^3.6.2",
+        "yaml": "^2.8.2"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.2"

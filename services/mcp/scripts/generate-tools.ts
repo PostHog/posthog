@@ -8,7 +8,7 @@
  *
  * Reads:
  * - services/mcp/definitions/*.yaml — tool config (operationId, scopes, annotations, etc.)
- * - frontend/tmp/openapi.json — API structure (paths, params, types)
+ * - frontend/tmp/openapi.yaml — API structure (paths, params, types)
  *
  * Produces:
  * - src/tools/generated/<category>.ts — handlers composing Orval Zod schemas
@@ -33,7 +33,10 @@ const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
-const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
+const DEFAULT_OPENAPI_YAML_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.yaml')
+const OPENAPI_PATH = process.env.OPENAPI_SCHEMA_PATH
+    ? path.resolve(REPO_ROOT, process.env.OPENAPI_SCHEMA_PATH)
+    : DEFAULT_OPENAPI_YAML_PATH
 
 interface OpenApiParam {
     in: 'path' | 'query' | 'header' | 'cookie'
@@ -93,7 +96,11 @@ function loadOpenApi(): OpenApiSpec {
         console.error(`OpenAPI schema not found at ${OPENAPI_PATH}. Run \`hogli build:openapi-schema\` first.`)
         process.exit(1)
     }
-    return JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    const raw = fs.readFileSync(OPENAPI_PATH, 'utf-8')
+    if (OPENAPI_PATH.endsWith('.yaml') || OPENAPI_PATH.endsWith('.yml')) {
+        return parseYaml(raw) as OpenApiSpec
+    }
+    return JSON.parse(raw) as OpenApiSpec
 }
 
 /**

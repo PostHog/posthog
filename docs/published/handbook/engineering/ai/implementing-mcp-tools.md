@@ -141,7 +141,7 @@ hogli build:openapi
 ### Pipeline steps
 
 ```text
-build:openapi-schema     Django → OpenAPI JSON (frontend/tmp/openapi.json)
+build:openapi-schema     Django → OpenAPI YAML (frontend/tmp/openapi.yaml)
         │
         ▼
 build:openapi-types      OpenAPI → TypeScript API types (frontend)

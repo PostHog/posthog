@@ -1338,6 +1338,9 @@ importers:
       whatwg-fetch:
         specifier: ^3.6.2
         version: 3.6.2
+      yaml:
+        specifier: ^2.8.2
+        version: 2.8.2
     optionalDependencies:
       fsevents:
         specifier: ^2.3.2
@@ -22203,11 +22206,6 @@ packages:
     resolution: {integrity: sha512-r3vXyErRCYJ7wg28yvBY5VSoAF8ZvlcW9/BwUzEtUsjvX/DKs24dIkuwjtuprwJJHsbyUbLApepYTR1BN4uHrg==}
     engines: {node: '>= 6'}
 
-  yaml@2.8.1:
-    resolution: {integrity: sha512-lcYcMxX2PO9XMGvAJkJ3OsNMw+/7FKes7/hgerGUYWIoWu5j/+YQqcZr5JnPZWzOsEBgMbSbiSTn/dv/69Mkpw==}
-    engines: {node: '>= 14.6'}
-    hasBin: true
-
   yaml@2.8.2:
     resolution: {integrity: sha512-mplynKqc1C2hTVYxd0PU2xQAc22TI1vShAYGksCCfxbn/dFwnHTNi1bvYsBTkhdUNtGIf5xNOg938rrSSYvS9A==}
     engines: {node: '>= 14.6'}
@@ -30852,7 +30850,7 @@ snapshots:
   '@scalar/json-magic@0.8.8':
     dependencies:
       '@scalar/helpers': 0.2.4
-      yaml: 2.8.1
+      yaml: 2.8.2
 
   '@scalar/openapi-parser@0.23.9':
     dependencies:
@@ -30864,7 +30862,7 @@ snapshots:
       ajv-formats: 3.0.1(ajv@8.17.1)
       jsonpointer: 5.0.1
       leven: 4.1.0
-      yaml: 2.8.1
+      yaml: 2.8.2
 
   '@scalar/openapi-types@0.5.3':
     dependencies:
@@ -46530,7 +46528,7 @@ snapshots:
       markdown-it: 14.1.0
       minimatch: 9.0.5
       typescript: 5.4.5
-      yaml: 2.8.1
+      yaml: 2.8.2
 
   typescript@5.4.5: {}
 
@@ -47457,8 +47455,6 @@ snapshots:
   yallist@5.0.0: {}
 
   yaml@1.10.2: {}
-
-  yaml@2.8.1: {}
 
   yaml@2.8.2: {}
 

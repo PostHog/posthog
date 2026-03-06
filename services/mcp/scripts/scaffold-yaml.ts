@@ -24,7 +24,10 @@ import { CategoryConfigSchema, type ToolConfig } from './yaml-config-schema'
 const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
-const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
+const DEFAULT_OPENAPI_YAML_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.yaml')
+const OPENAPI_PATH = process.env.OPENAPI_SCHEMA_PATH
+    ? path.resolve(REPO_ROOT, process.env.OPENAPI_SCHEMA_PATH)
+    : DEFAULT_OPENAPI_YAML_PATH
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 
 // ------------------------------------------------------------------
@@ -80,7 +83,11 @@ function loadOpenApi(): OpenApiSpec {
         console.error(`OpenAPI schema not found at ${OPENAPI_PATH}. Run \`hogli build:openapi-schema\` first.`)
         process.exit(1)
     }
-    return JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    const raw = fs.readFileSync(OPENAPI_PATH, 'utf-8')
+    if (OPENAPI_PATH.endsWith('.yaml') || OPENAPI_PATH.endsWith('.yml')) {
+        return parseYaml(raw) as OpenApiSpec
+    }
+    return JSON.parse(raw) as OpenApiSpec
 }
 
 function operationIdToToolName(operationId: string): string {

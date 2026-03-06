@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parse as parseYaml } from 'yaml'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const mcpRoot = path.resolve(__dirname, '..')
@@ -24,7 +25,7 @@ const productsDir = path.resolve(repoRoot, 'products')
 const generatedRoot = path.resolve(mcpRoot, 'src', 'generated')
 const definitionsDir = path.resolve(mcpRoot, 'definitions')
 
-const defaultSchemaPath = path.resolve(repoRoot, 'frontend', 'tmp', 'openapi.json')
+const defaultSchemaPath = path.resolve(repoRoot, 'frontend', 'tmp', 'openapi.yaml')
 const schemaPath = process.env.OPENAPI_SCHEMA_PATH
     ? path.resolve(repoRoot, process.env.OPENAPI_SCHEMA_PATH)
     : defaultSchemaPath
@@ -32,6 +33,14 @@ const schemaPath = process.env.OPENAPI_SCHEMA_PATH
 if (!fs.existsSync(schemaPath)) {
     console.error(`OpenAPI schema not found at ${schemaPath}. Run \`hogli build:openapi-schema\` first.`)
     process.exit(1)
+}
+
+function loadOpenApiSchema(filePath) {
+    const raw = fs.readFileSync(filePath, 'utf-8')
+    if (filePath.endsWith('.yaml') || filePath.endsWith('.yml')) {
+        return parseYaml(raw)
+    }
+    return JSON.parse(raw)
 }
 
 // ------------------------------------------------------------------
@@ -269,7 +278,7 @@ if (definitions.length === 0) {
     process.exit(0)
 }
 
-const fullSchema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
+const fullSchema = loadOpenApiSchema(schemaPath)
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-orval-'))
 const outputDirs = []
 let totalOps = 0
