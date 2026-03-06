@@ -246,9 +246,11 @@ function MinimumDurationSetting(): JSX.Element | null {
                         </>
                     }
                 >
-                    Setting a minimum session duration will ensure that only sessions that last longer than that value
-                    are collected. This helps you avoid collecting sessions that are too short to be useful.
-                    <Since web={{ version: '1.85.0' }} />
+                    <p>
+                        Setting a minimum session duration will ensure that only sessions that last longer than that
+                        value are collected. This helps you avoid collecting sessions that are too short to be useful.
+                        <Since web={{ version: '1.85.0' }} />
+                    </p>
                 </Tooltip>
             </div>
         </PayGateMini>
@@ -351,13 +353,7 @@ export function ReplayTriggers(): JSX.Element {
                             panels={[
                                 {
                                     key: 'sampling',
-                                    header: (
-                                        <TriggerPanelHeader
-                                            title="Sampling"
-                                            status={statuses.samplingStatus}
-                                            showMatchTag
-                                        />
-                                    ),
+                                    header: <TriggerPanelHeader title="Sampling" status={statuses.samplingStatus} />,
                                     content: <Sampling />,
                                 },
                                 {
