@@ -20,8 +20,8 @@ from posthog.models import Team
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
-from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
@@ -230,7 +230,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
-            .exclude(url_pattern=DIRECT_POSTGRES_URL_PATTERN)
+            .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
