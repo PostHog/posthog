@@ -1055,17 +1055,16 @@ describe('llmPlaygroundLogic', () => {
         it('should return null source when no source is set', () => {
             expect(llmPlaygroundPromptsLogic.values.linkedSource).toEqual({
                 type: null,
-                promptId: null,
                 promptName: null,
                 evaluationId: null,
                 evaluationName: null,
             })
         })
 
-        it('should reflect source after setupPlaygroundFromEvent with sourcePromptId', async () => {
+        it('should reflect source after setupPlaygroundFromEvent with sourcePromptName', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/:id/': {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-123',
                         name: 'my-prompt',
                         prompt: 'You are helpful.',
@@ -1075,14 +1074,13 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 sourceType: 'prompt',
-                sourcePromptId: 'prompt-123',
+                sourcePromptName: 'my-prompt',
             })
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
             const linked = llmPlaygroundPromptsLogic.values.linkedSource
             expect(linked.type).toBe('prompt')
-            expect(linked.promptId).toBe('prompt-123')
             expect(linked.promptName).toBe('my-prompt')
         })
 
@@ -1114,7 +1112,7 @@ describe('llmPlaygroundLogic', () => {
         it('should clear linked source', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/:id/': {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-123',
                         name: 'my-prompt',
                         prompt: 'You are helpful.',
@@ -1124,7 +1122,7 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 sourceType: 'prompt',
-                sourcePromptId: 'prompt-123',
+                sourcePromptName: 'my-prompt',
             })
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
@@ -1133,7 +1131,6 @@ describe('llmPlaygroundLogic', () => {
 
             const linked = llmPlaygroundPromptsLogic.values.linkedSource
             expect(linked.type).toBeNull()
-            expect(linked.promptId).toBeNull()
             expect(linked.promptName).toBeNull()
         })
     })
@@ -1142,7 +1139,7 @@ describe('llmPlaygroundLogic', () => {
         it('should set system prompt from fetched prompt', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/:id/': {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-1',
                         name: 'test-prompt',
                         prompt: 'Be concise.',
@@ -1152,7 +1149,7 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 sourceType: 'prompt',
-                sourcePromptId: 'prompt-1',
+                sourcePromptName: 'test-prompt',
             })
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
@@ -1187,13 +1184,13 @@ describe('llmPlaygroundLogic', () => {
         it('should show error toast when prompt fetch fails', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/:id/': () => [404, { detail: 'Not found' }],
+                    '/api/environments/:team_id/llm_prompts/name/:name/': () => [404, { detail: 'Not found' }],
                 },
             })
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 sourceType: 'prompt',
-                sourcePromptId: 'nonexistent',
+                sourcePromptName: 'nonexistent-prompt',
             })
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
@@ -1249,14 +1246,15 @@ describe('llmPlaygroundLogic', () => {
             let updatedPrompt: string | undefined
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/:id/': {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-linked',
                         name: 'linked',
                         prompt: 'Old prompt.',
+                        latest_version: 3,
                     },
                 },
                 patch: {
-                    '/api/environments/:team_id/llm_prompts/:id/': (req: any) => {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': (req: any) => {
                         updatedPrompt = req.body.prompt
                         return [200, { id: 'prompt-linked', name: 'linked', prompt: req.body.prompt }]
                     },
@@ -1265,7 +1263,7 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 sourceType: 'prompt',
-                sourcePromptId: 'prompt-linked',
+                sourcePromptName: 'linked',
             })
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
