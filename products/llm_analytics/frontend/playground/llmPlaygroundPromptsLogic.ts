@@ -588,8 +588,13 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         actions.setSourceNames(fetchedPrompt.name ?? null, null, promptId)
                         actions.setMessages([], promptId)
                         actions.setActivePromptId(promptId)
+                        const {
+                            source_prompt_id: _,
+                            source_evaluation_id: __,
+                            ...cleanParams
+                        } = router.values.searchParams
                         const url = combineUrl(urls.llmAnalyticsPlayground(), {
-                            ...router.values.searchParams,
+                            ...cleanParams,
                             source_prompt_id: payload.sourcePromptId,
                         }).url
                         router.actions.push(url)
@@ -623,8 +628,13 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         }
                         actions.setMessages([], promptId)
                         actions.setActivePromptId(promptId)
+                        const {
+                            source_prompt_id: _,
+                            source_evaluation_id: __,
+                            ...cleanParams
+                        } = router.values.searchParams
                         const url = combineUrl(urls.llmAnalyticsPlayground(), {
-                            ...router.values.searchParams,
+                            ...cleanParams,
                             source_evaluation_id: payload.sourceEvaluationId,
                         }).url
                         router.actions.push(url)
@@ -695,11 +705,13 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         saveToLinkedPrompt: async () => {
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.promptId) {
+                lemonToast.error('No linked prompt to save to')
                 actions.saveComplete()
                 return
             }
             const prompt = promptConfigs[0]
             if (!prompt) {
+                lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
                 return
             }
@@ -717,11 +729,13 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         saveToLinkedEvaluation: async ({ modelConfig }) => {
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.evaluationId) {
+                lemonToast.error('No linked evaluation to save to')
                 actions.saveComplete()
                 return
             }
             const prompt = promptConfigs[0]
             if (!prompt) {
+                lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
                 return
             }
@@ -748,6 +762,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         saveAsNewPrompt: async ({ name }) => {
             const prompt = values.promptConfigs[0]
             if (!prompt) {
+                lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
                 return
             }
@@ -764,6 +779,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         saveAsNewEvaluation: async ({ name, modelConfig }) => {
             const prompt = values.promptConfigs[0]
             if (!prompt) {
+                lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
                 return
             }
