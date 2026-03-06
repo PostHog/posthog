@@ -1,5 +1,3 @@
-from typing import cast
-
 from django.db import IntegrityError, transaction
 
 from rest_framework import serializers, status, viewsets
@@ -10,7 +8,6 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models import User
 
 from ..models.clustering_job import ClusteringJob
 from .metrics import llma_track_latency
@@ -88,7 +85,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma clustering job created",
             {
                 "job_id": instance.id,
@@ -113,7 +110,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_update(self, serializer):
         instance = serializer.save()
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma clustering job updated",
             {"job_id": instance.id, "name": instance.name},
             team=self.team,
@@ -124,7 +121,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         instance = self.get_object()
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma clustering job deleted",
             {"job_id": instance.id, "name": instance.name},
             team=self.team,
