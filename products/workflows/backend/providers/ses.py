@@ -146,6 +146,16 @@ class SESProvider:
             }
         )
 
+        dns_records.append(
+            {
+                "type": "dmarc",
+                "recordType": "TXT",
+                "recordHostname": f"_dmarc.{domain}",
+                "recordValue": "v=DMARC1; p=none;",
+                "status": "pending",
+            }
+        )
+
         # Current verification / DKIM statuses to compute overall status & per-record statuses ---
         try:
             id_attrs = self.ses_client.get_identity_verification_attributes(Identities=[domain])
