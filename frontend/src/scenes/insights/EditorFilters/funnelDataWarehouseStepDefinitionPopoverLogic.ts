@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import posthog from 'posthog-js'
 
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import type { TablePreviewExpressionColumn } from 'lib/components/TablePreview/types'
 import type {
     DataWarehousePopoverField,
     TaxonomicFilterGroup,
@@ -81,6 +82,55 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
         activeFieldValue: [
             (s) => [s.localDefinition, s.activeFieldKey],
             (localDefinition, activeFieldKey) => localDefinition[activeFieldKey],
+        ],
+        tableFieldNames: [
+            (_, props) => [props.table],
+            (table) => new Set(Object.values(table.fields).map((field) => field.name)),
+        ],
+        previewExpressionColumns: [
+            (s) => [s.dataWarehousePopoverFields, s.localDefinition, s.tableFieldNames],
+            (dataWarehousePopoverFields, localDefinition, tableFieldNames): TablePreviewExpressionColumn[] => {
+                const usedKeys = new Set(tableFieldNames)
+
+                return EDITABLE_FIELD_ORDER.flatMap((fieldKey) => {
+                    const configuredValue = localDefinition[fieldKey]
+                    if (typeof configuredValue !== 'string') {
+                        return []
+                    }
+
+                    const expression = configuredValue.trim()
+                    if (!expression || tableFieldNames.has(expression)) {
+                        return []
+                    }
+
+                    const label = dataWarehousePopoverFields.find((field) => field.key === fieldKey)?.label ?? fieldKey
+                    const keyBase = `__${fieldKey}_hogql_expression`
+                    let key = keyBase
+                    let suffix = 2
+
+                    while (usedKeys.has(key)) {
+                        key = `${keyBase}_${suffix}`
+                        suffix += 1
+                    }
+
+                    usedKeys.add(key)
+
+                    return [
+                        {
+                            key,
+                            expression,
+                            label: `${label} (SQL expression)`,
+                            type: 'SQL expression',
+                        },
+                    ]
+                })
+            },
+        ],
+        selectedPreviewKey: [
+            (s) => [s.previewExpressionColumns, s.activeFieldKey, s.activeFieldValue],
+            (previewExpressionColumns, activeFieldKey, activeFieldValue) =>
+                previewExpressionColumns.find((column) => column.key.startsWith(`__${activeFieldKey}_hogql_expression`))
+                    ?.key ?? activeFieldValue,
         ],
         activeFieldOptions: [
             (s) => [s.columnOptions, s.activeField, s.activeFieldKey],
