@@ -1430,6 +1430,8 @@ export interface SubscriptionApi {
     insight?: number | null
     target_type: TargetTypeEnumApi
     target_value: string
+    /** @nullable */
+    integration?: number | null
     frequency: FrequencyEnumApi
     /**
      * @minimum -2147483648
@@ -1488,6 +1490,8 @@ export interface PatchedSubscriptionApi {
     insight?: number | null
     target_type?: TargetTypeEnumApi
     target_value?: string
+    /** @nullable */
+    integration?: number | null
     frequency?: FrequencyEnumApi
     /**
      * @minimum -2147483648
