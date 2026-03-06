@@ -456,9 +456,7 @@ class TestUpdateExternalDataSchema:
 
         assert response.status_code == 400
 
-    def test_update_schema_change_should_sync_on_without_sync_type_for_direct_source(
-        self, team, user, client: HttpClient, temporal
-    ):
+    def test_update_schema_enables_direct_query_without_sync_type(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source = ExternalDataSource.objects.create(
             team=team,
@@ -518,9 +516,7 @@ class TestUpdateExternalDataSchema:
             mock_external_data_workflow_exists.assert_not_called()
             mock_sync_external_data_job_workflow.assert_not_called()
 
-    def test_update_schema_change_should_sync_off_soft_deletes_table_for_direct_source(
-        self, team, user, client: HttpClient, temporal
-    ):
+    def test_update_schema_disables_direct_query_and_soft_deletes_table(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source = ExternalDataSource.objects.create(
             team=team,

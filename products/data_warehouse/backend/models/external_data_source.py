@@ -70,6 +70,18 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         db_table = "posthog_externaldatasource"
 
     @property
+    def is_direct_query(self) -> bool:
+        return self.access_method == self.AccessMethod.DIRECT
+
+    @property
+    def is_direct_postgres(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.POSTGRES
+
+    @property
+    def supports_scheduled_sync(self) -> bool:
+        return not self.is_direct_query
+
+    @property
     def revenue_analytics_config_safe(self):
         """
         Safely access revenue_analytics_config with automatic creation fallback.
@@ -99,6 +111,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             trigger_external_data_workflow,
         )
         from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+        if not self.supports_scheduled_sync:
+            return
 
         for schema in (
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=self.id, should_sync=True)

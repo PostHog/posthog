@@ -45,6 +45,7 @@ from products.data_warehouse.backend.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
+from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table, upsert_direct_postgres_table
 from products.data_warehouse.backend.models import (
     DataWarehouseManagedViewSet,
     ExternalDataJob,
@@ -596,40 +597,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 team=self.team,
                 source=new_source_model,
                 should_sync=should_sync,
-                sync_type=sync_type if access_method == ExternalDataSource.AccessMethod.WAREHOUSE else None,
-                sync_time_of_day=sync_time_of_day
-                if access_method == ExternalDataSource.AccessMethod.WAREHOUSE
-                else None,
+                sync_type=sync_type if new_source_model.supports_scheduled_sync else None,
+                sync_time_of_day=sync_time_of_day if new_source_model.supports_scheduled_sync else None,
                 sync_type_config=(
                     {
                         "incremental_field": incremental_field,
                         "incremental_field_type": incremental_field_type,
                         "schema_metadata": schema_metadata,
                     }
-                    if requires_incremental_fields and access_method == ExternalDataSource.AccessMethod.WAREHOUSE
+                    if requires_incremental_fields and new_source_model.supports_scheduled_sync
                     else {"schema_metadata": schema_metadata}
                 ),
             )
 
-            if (
-                access_method == ExternalDataSource.AccessMethod.DIRECT
-                and source_type_model == ExternalDataSourceType.POSTGRES
-                and should_sync
-            ):
-                from products.data_warehouse.backend.models.table import DataWarehouseTable
-
-                table_model = DataWarehouseTable.objects.create(
-                    name=schema_name,
-                    format=DataWarehouseTable.TableFormat.Parquet,
-                    team=self.team,
-                    url_pattern="direct://postgres",
-                    external_data_source=new_source_model,
+            if new_source_model.is_direct_postgres and should_sync:
+                schema_model.table = upsert_direct_postgres_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
                     columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
                 )
-                schema_model.table = table_model
                 schema_model.save(update_fields=["table"])
 
-            if should_sync and access_method == ExternalDataSource.AccessMethod.WAREHOUSE:
+            if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
 
         try:
@@ -714,7 +704,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
 
-        if instance.access_method == ExternalDataSource.AccessMethod.DIRECT:
+        if instance.is_direct_query:
             return self.refresh_schemas(request, *args, **kwargs)
 
         if is_any_external_data_schema_paused(self.team_id):
@@ -784,12 +774,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 team_id=self.team_id,
             )
 
-            if (
-                instance.access_method == ExternalDataSource.AccessMethod.DIRECT
-                and instance.source_type == ExternalDataSourceType.POSTGRES
-            ):
-                from products.data_warehouse.backend.models.table import DataWarehouseTable
-
+            if instance.is_direct_postgres:
                 schema_models = {
                     schema.name: schema
                     for schema in ExternalDataSchema.objects.filter(
@@ -811,29 +796,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
                     table_model = schema_model.table
                     if not schema_model.should_sync:
-                        if table_model is not None and not table_model.deleted:
-                            table_model.soft_delete()
+                        hide_direct_postgres_table(table_model)
                         continue
 
-                    if table_model is None or table_model.deleted:
-                        table_model = DataWarehouseTable.objects.create(
-                            name=source_schema.name,
-                            format=DataWarehouseTable.TableFormat.Parquet,
-                            team=self.team,
-                            url_pattern="direct://postgres",
-                            external_data_source=instance,
-                            columns=expected_columns,
-                        )
+                    table_model = upsert_direct_postgres_table(
+                        table_model,
+                        schema_name=source_schema.name,
+                        source=instance,
+                        columns=expected_columns,
+                    )
+                    if schema_model.table_id != table_model.id:
                         schema_model.table = table_model
                         schema_model.save(update_fields=["table"])
-                    else:
-                        table_model.name = source_schema.name
-                        table_model.url_pattern = "direct://postgres"
-                        table_model.external_data_source = instance
-                        table_model.columns = expected_columns
-                        table_model.save(
-                            update_fields=["name", "url_pattern", "external_data_source", "columns", "updated_at"]
-                        )
 
                 stale_schemas = ExternalDataSchema.objects.filter(
                     Q(team_id=self.team_id, source_id=instance.id),
@@ -842,8 +816,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 stale_count = 0
                 for stale_schema in stale_schemas:
                     stale_count += 1
-                    if stale_schema.table and not stale_schema.table.deleted:
-                        stale_schema.table.soft_delete()
+                    hide_direct_postgres_table(stale_schema.table)
                     if not stale_schema.deleted:
                         stale_schema.soft_delete()
 

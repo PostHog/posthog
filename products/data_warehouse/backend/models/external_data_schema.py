@@ -347,9 +347,12 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 
 
 def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
-    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()
+
+    if not schema.source.supports_scheduled_sync:
+        return schema
 
     schedule_exists = external_data_workflow_exists(schema_id)
 

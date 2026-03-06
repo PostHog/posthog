@@ -28,40 +28,20 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
+from products.data_warehouse.backend.direct_postgres import (
+    hide_direct_postgres_table,
+    postgres_schema_metadata_to_dwh_columns,
+    upsert_direct_postgres_table,
+)
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.util import postgres_column_to_dwh_column
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
-
-
-def postgres_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | None) -> dict[str, dict[str, str | bool]]:
-    resolved_columns: dict[str, dict[str, str | bool]] = {}
-    if not schema_metadata:
-        return resolved_columns
-
-    columns = schema_metadata.get("columns")
-    if not isinstance(columns, list):
-        return resolved_columns
-
-    for column in columns:
-        if not isinstance(column, dict):
-            continue
-        column_name = column.get("name")
-        postgres_type = column.get("data_type")
-        nullable = bool(column.get("is_nullable"))
-
-        if not isinstance(column_name, str) or not isinstance(postgres_type, str):
-            continue
-
-        resolved_columns[column_name] = postgres_column_to_dwh_column(column_name, postgres_type, nullable)
-
-    return resolved_columns
 
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
@@ -191,7 +171,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
         was_sync_time_of_day_updated = False
-        is_direct_query_source = instance.source.access_method == ExternalDataSource.AccessMethod.DIRECT
+        source = instance.source
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -217,56 +197,26 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
 
-        if should_sync is True and sync_type is None and instance.sync_type is None and not is_direct_query_source:
+        if should_sync is True and sync_type is None and instance.sync_type is None and source.supports_scheduled_sync:
             raise ValidationError("Sync type must be set up first before enabling schema")
 
-        should_enable_direct_schema = should_sync is True and instance.should_sync is False and is_direct_query_source
-        if should_enable_direct_schema and instance.source.source_type == ExternalDataSourceType.POSTGRES:
-            from products.data_warehouse.backend.models.table import DataWarehouseTable
-
+        # Direct query sources never create Temporal schedules. Toggling the schema
+        # only exposes or hides the live table definition.
+        should_expose_direct_table = should_sync is True and instance.should_sync is False and source.is_direct_query
+        if should_expose_direct_table and source.is_direct_postgres:
             expected_columns = postgres_schema_metadata_to_dwh_columns(instance.schema_metadata)
+            validated_data["table"] = upsert_direct_postgres_table(
+                instance.table,
+                schema_name=instance.name,
+                source=source,
+                columns=expected_columns,
+            )
 
-            table_model = instance.table
-            if table_model is None:
-                table_model = DataWarehouseTable.objects.create(
-                    name=instance.name,
-                    format=DataWarehouseTable.TableFormat.Parquet,
-                    team_id=instance.team_id,
-                    url_pattern="direct://postgres",
-                    external_data_source=instance.source,
-                    columns=expected_columns,
-                )
-                validated_data["table"] = table_model
-            else:
-                table_model.name = instance.name
-                table_model.url_pattern = "direct://postgres"
-                table_model.external_data_source = instance.source
-                table_model.columns = expected_columns
-                table_model.deleted = False
-                table_model.deleted_at = None
-                table_model.save(
-                    update_fields=[
-                        "name",
-                        "url_pattern",
-                        "external_data_source",
-                        "columns",
-                        "deleted",
-                        "deleted_at",
-                        "updated_at",
-                    ]
-                )
-                validated_data["table"] = table_model
+        should_hide_direct_table = should_sync is False and instance.should_sync is True and source.is_direct_query
+        if should_hide_direct_table and source.is_direct_postgres:
+            hide_direct_postgres_table(instance.table)
 
-        should_disable_direct_schema = should_sync is False and instance.should_sync is True and is_direct_query_source
-        if (
-            should_disable_direct_schema
-            and instance.source.source_type == ExternalDataSourceType.POSTGRES
-            and instance.table is not None
-            and not instance.table.deleted
-        ):
-            instance.table.soft_delete()
-
-        if not is_direct_query_source:
+        if source.supports_scheduled_sync:
             schedule_exists = external_data_workflow_exists(str(instance.id))
 
             if schedule_exists:
