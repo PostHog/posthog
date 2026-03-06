@@ -25,6 +25,12 @@ export const manifest: ProductManifest = {
             description: 'Create and manage views and materialized views for transforming and organizing your data.',
             iconType: 'sql_editor',
         },
+        NodeDetail: {
+            name: 'Model detail',
+            import: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data-warehouse',
+        },
         SQLEditor: {
             projectBased: true,
             name: 'SQL editor',
@@ -37,10 +43,12 @@ export const manifest: ProductManifest = {
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
         '/models': ['Models', 'models'],
+        '/models/:id': ['NodeDetail', 'nodeDetail'],
     },
     urls: {
-        dataOps: (): string => '/data-ops',
+        dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
         models: (): string => '/models',
+        nodeDetail: (id: string): string => `/models/${id}`,
     },
     treeItemsProducts: [
         {
