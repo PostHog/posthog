@@ -739,6 +739,17 @@ class GenerateResponseSerializer(serializers.Serializer):
 
 class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "product_tour"
+    scope_object_read_actions = ["list", "retrieve", "draft_status"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "draft",
+        "publish_draft",
+        "discard_draft",
+        "generate",
+    ]
     queryset = ProductTour.all_objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
