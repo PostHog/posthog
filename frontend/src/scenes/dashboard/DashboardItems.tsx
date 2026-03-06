@@ -251,6 +251,7 @@ export function DashboardItems(): JSX.Element {
                                     setOverride={() => setTileOverride(tile)}
                                     showDetailsControls={
                                         placement != DashboardPlacement.Export &&
+                                        placement != DashboardPlacement.Public &&
                                         !getCurrentExporterData()?.hideExtraDetails
                                     }
                                     placement={placement}
