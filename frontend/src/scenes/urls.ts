@@ -64,6 +64,7 @@ export const urls = {
         outputTab,
         endpointName,
         source,
+        connectionId,
     }: {
         query?: string
         view_id?: string
@@ -72,6 +73,7 @@ export const urls = {
         outputTab?: OutputTab
         endpointName?: string
         source?: string
+        connectionId?: string
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -98,7 +100,13 @@ export const urls = {
         }
 
         const queryString = params.toString()
-        return `/sql${queryString ? `?${queryString}` : ''}`
+        const hashParams = new URLSearchParams()
+        if (connectionId) {
+            hashParams.set('c', connectionId)
+        }
+
+        const hashString = hashParams.toString()
+        return `/sql${queryString ? `?${queryString}` : ''}${hashString ? `#${hashString}` : ''}`
     },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
