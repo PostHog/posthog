@@ -10,7 +10,13 @@ import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSo
 import { buildKeaFormDefaultFromSourceDetails, getErrorsForFields } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
-import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    ExternalDataJob,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
 import { externalDataSourcesLogic } from '../../externalDataSourcesLogic'
 import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
@@ -330,7 +336,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             // Optimistic UI updates before sending updates to the backend
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-            clonedSource.status = 'Running'
+            clonedSource.status = ExternalDataJobStatus.Running
             clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)
@@ -351,7 +357,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             // Optimistic UI updates before sending updates to the backend
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-            clonedSource.status = 'Running'
+            clonedSource.status = ExternalDataJobStatus.Running
             clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)

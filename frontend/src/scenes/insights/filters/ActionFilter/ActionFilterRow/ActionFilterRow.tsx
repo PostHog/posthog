@@ -59,6 +59,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
+    MathDefinition,
     PROPERTY_MATH_DEFINITIONS,
     apiValueToMathType,
     mathTypeToApiValues,
@@ -737,7 +738,7 @@ export function ActionFilterRow({
                                                                             Calculate{' '}
                                                                             {mathDefinitions[
                                                                                 math ?? ''
-                                                                            ].name.toLowerCase()}{' '}
+                                                                            ]?.name.toLowerCase()}{' '}
                                                                             of the session duration. This is based on
                                                                             the <code>$session_id</code> property
                                                                             associated with events. The duration is
@@ -750,7 +751,7 @@ export function ActionFilterRow({
                                                                             Calculate{' '}
                                                                             {mathDefinitions[
                                                                                 math ?? ''
-                                                                            ].name.toLowerCase()}{' '}
+                                                                            ]?.name.toLowerCase()}{' '}
                                                                             from property <code>{currentValue}</code>.
                                                                             Note that only {name} occurrences where{' '}
                                                                             <code>{currentValue}</code> is set with a
@@ -1087,6 +1088,7 @@ function useMathSelectorOptions({
     const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
+        .filter((entry): entry is [string, MathDefinition] => !!entry[1])
         .filter(([key]) => {
             const mathTypeKey = key as MathType
             if (isStickiness) {
@@ -1237,11 +1239,13 @@ function useMathSelectorOptions({
                 label: 'users',
                 'data-attr': `math-users-${index}`,
             },
-            ...Object.entries(groupsMathDefinitions).map(([key, definition]) => ({
-                value: key,
-                label: definition.shortName,
-                'data-attr': `math-${key}-${index}`,
-            })),
+            ...Object.entries(groupsMathDefinitions)
+                .filter((entry): entry is [string, MathDefinition] => !!entry[1])
+                .map(([key, definition]) => ({
+                    value: key,
+                    label: definition.shortName,
+                    'data-attr': `math-${key}-${index}`,
+                })),
         ]
 
         const uniqueUsersIndex = options.findIndex(
@@ -1253,7 +1257,7 @@ function useMathSelectorOptions({
             const label = isDau ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
             const tooltip = isDau
                 ? options[uniqueUsersIndex].tooltip
-                : groupsMathDefinitions[uniqueActorsShown].description
+                : groupsMathDefinitions[uniqueActorsShown]?.description
             options[uniqueUsersIndex] = {
                 value,
                 label,
