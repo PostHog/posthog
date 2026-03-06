@@ -28,6 +28,29 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 hogli build:openapi
 ```
 
+## Before you scaffold: fix the backend first
+
+The codegen pipeline can only generate correct tools if the Django backend exposes correct types.
+Read the [type system guide](../../../docs/published/handbook/engineering/type-system.md) for the full picture.
+
+Before scaffolding YAML, verify:
+
+1. **Serializers have explicit field types and `help_text`** —
+   these flow all the way to Zod `.describe()` in the generated tool.
+   Missing descriptions = agents guessing at parameters.
+   Use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
+   and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses to get typed Zod output
+   (see `posthog/api/alert.py` for the pattern).
+2. **Plain `ViewSet` methods have `@extend_schema(request=...)`** —
+   without it, drf-spectacular can't discover the request body
+   and the generated tool gets `z.object({})` (zero parameters).
+   `ModelViewSet` with a `serializer_class` is fine; plain `ViewSet` with manual validation is not.
+3. **Query parameters use `@validated_request`** or `@extend_schema` with a query serializer —
+   otherwise boolean and array query params may produce type mismatches in the generated code.
+
+If a generated tool has an empty or wrong schema, the fix is almost always on the Django side,
+not in the YAML config.
+
 ## When to add MCP tools
 
 When a product exposes API endpoints that agents should be able to call.

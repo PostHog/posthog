@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from copy import deepcopy
 from typing import Optional
 
@@ -7,11 +8,14 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     GroupNode,
+    HogQLQueryModifiers,
     IntervalType,
     TrendsQuery,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.utils.query_date_range import compare_interval_length
 from posthog.models.team.team import Team, WeekStartDay
@@ -63,3 +67,19 @@ def convert_active_user_math_based_on_interval(query: TrendsQuery) -> TrendsQuer
             series.math = BaseMathType.DAU
 
     return modified_query
+
+
+def get_response_hogql(
+    queries: Sequence[ast.SelectQuery | ast.SelectSetQuery],
+    *,
+    team: Team,
+    timings: HogQLTimings,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+) -> str:
+    if len(queries) == 0:
+        return ""
+
+    response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
+
+    with timings.measure("printing_hogql_for_response"):
+        return to_printed_hogql(response_hogql_query, team, modifiers)

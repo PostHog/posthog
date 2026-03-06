@@ -717,6 +717,26 @@ class MCPOAuthSustainedThrottle(UserRateThrottle):
     rate = "50/hour"
 
 
+class MCPOAuthRedirectBurstThrottle(SimpleRateThrottle):
+    """IP-based rate limit for the public oauth_redirect endpoint."""
+
+    scope = "mcp_oauth_redirect_burst"
+    rate = "5/minute"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class MCPOAuthRedirectSustainedThrottle(SimpleRateThrottle):
+    """IP-based rate limit for the public oauth_redirect endpoint."""
+
+    scope = "mcp_oauth_redirect_sustained"
+    rate = "50/hour"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
 class MCPProxyBurstThrottle(UserRateThrottle):
     scope = "mcp_proxy_burst"
     rate = "60/minute"

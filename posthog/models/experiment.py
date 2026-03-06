@@ -18,6 +18,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         WEB = "web", "web"
         PRODUCT = "product", "product"
 
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        RUNNING = "running", "Running"
+        STOPPED = "stopped", "Stopped"
+
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -66,6 +71,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     scheduling_config = models.JSONField(default=dict, null=True, blank=True)
 
     exposure_preaggregation_enabled = models.BooleanField(default=False)
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=None,
+        null=True,
+        blank=True,
+    )
 
     conclusion = models.CharField(
         max_length=30,

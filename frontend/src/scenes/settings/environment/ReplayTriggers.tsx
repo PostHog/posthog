@@ -1,21 +1,39 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonDivider, LemonLabel, LemonTab, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { isNumeric } from 'lib/utils'
+import { isNumeric, pluralize } from 'lib/utils'
 import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
-function LinkedFlagSelector(): JSX.Element | null {
-    const { selectedPlatform } = useValues(replayTriggersLogic)
+function TriggerPanelHeader({
+    title,
+    status,
+    showMatchTag = false,
+}: {
+    title: string
+    status: string
+    showMatchTag?: boolean
+}): JSX.Element {
+    return (
+        <div className="flex items-center justify-between w-full">
+            <span className="font-semibold flex items-center gap-1">
+                {showMatchTag && <IngestionControls.MatchTypeTag />}
+                {title}
+            </span>
+            <span className="text-muted text-xs font-normal">{status}</span>
+        </div>
+    )
+}
 
+function LinkedFlagSelector(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -26,24 +44,21 @@ function LinkedFlagSelector(): JSX.Element | null {
                 flag={currentTeam?.session_recording_linked_flag ?? null}
                 onChange={(v) => updateCurrentTeam({ session_recording_linked_flag: v })}
             >
-                <div className="flex flex-col deprecated-space-y-2 mt-2">
-                    <div className="flex justify-between">
-                        <LemonLabel className="text-base">
-                            {selectedPlatform === 'mobile' ? null : <IngestionControls.MatchTypeTag />} Enable
-                            recordings using feature flag
-                            <Since
-                                web={{ version: '1.110.0' }}
-                                ios={{ version: '3.11.0' }}
-                                android={{ version: '3.11.0' }}
-                                reactNative={{ version: '3.6.3' }}
-                                flutter={{ version: '4.7.0' }}
-                            />
-                        </LemonLabel>
+                <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                        <LemonLabel className="text-base">Select feature flag</LemonLabel>
                         <IngestionControls.FlagSelector />
                     </div>
 
                     <p>
                         Only record when this flag is enabled. <strong>Shared across web and mobile.</strong>
+                        <Since
+                            web={{ version: '1.110.0' }}
+                            ios={{ version: '3.11.0' }}
+                            android={{ version: '3.11.0' }}
+                            reactNative={{ version: '3.6.3' }}
+                            flutter={{ version: '4.7.0' }}
+                        />
                     </p>
                     <IngestionControls.FlagVariantSelector
                         tooltip={
@@ -150,14 +165,15 @@ function EventTriggerOptions(): JSX.Element | null {
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-2">
+        <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">
-                    <IngestionControls.MatchTypeTag /> Event emitted <Since web={{ version: '1.186.0' }} />
-                </LemonLabel>
+                <LemonLabel className="text-base">Select events</LemonLabel>
                 <IngestionControls.EventTriggerSelect events={eventTriggerConfig} onChange={updateEventTriggerConfig} />
             </div>
-            <p>Start recording when a PostHog event is queued.</p>
+            <p>
+                Start recording when a PostHog event is queued.
+                <Since web={{ version: '1.186.0' }} />
+            </p>
 
             <div className="flex gap-2 flex-wrap">
                 {eventTriggerConfig?.map((trigger) => (
@@ -178,26 +194,28 @@ function Sampling(): JSX.Element {
 
     return (
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
-            <div className="flex flex-row justify-between mt-2">
-                <LemonLabel className="text-base">
-                    <IngestionControls.MatchTypeTag /> Sampling{' '}
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-row justify-between items-center">
+                    <LemonLabel className="text-base">Sample rate</LemonLabel>
+                    <IngestionControls.SamplingTrigger
+                        initialSampleRate={
+                            typeof currentTeam?.session_recording_sample_rate === 'string'
+                                ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
+                                : 100
+                        }
+                        onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
+                    />
+                </div>
+                <p>
+                    Choose how many sessions to record. 100% = record every session, 50% = record roughly half.
                     <Since
                         web={{ version: '1.85.0' }}
                         android={{ version: '3.34.0' }}
                         ios={{ version: '3.42.0' }}
                         reactNative={{ version: '4.37.0' }}
                     />
-                </LemonLabel>
-                <IngestionControls.SamplingTrigger
-                    initialSampleRate={
-                        typeof currentTeam?.session_recording_sample_rate === 'string'
-                            ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
-                            : 100
-                    }
-                    onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
-                />
+                </p>
             </div>
-            <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
         </PayGateMini>
     )
 }
@@ -208,32 +226,63 @@ function MinimumDurationSetting(): JSX.Element | null {
 
     return (
         <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}>
-            <div className="flex flex-row justify-between">
-                <LemonLabel className="text-base">
-                    Minimum session duration (seconds) <Since web={{ version: '1.85.0' }} />
-                </LemonLabel>
-                <IngestionControls.MinDuration
-                    value={currentTeam?.session_recording_minimum_duration_milliseconds}
-                    onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}
-                />
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-row justify-between items-center">
+                    <LemonLabel className="text-base">Duration threshold</LemonLabel>
+                    <IngestionControls.MinDuration
+                        value={currentTeam?.session_recording_minimum_duration_milliseconds}
+                        onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}
+                    />
+                </div>
+                <Tooltip
+                    delayMs={200}
+                    title={
+                        <>
+                            The JS SDK has an in-memory queue. This means that for traditional web apps the minimum
+                            duration control is best effort.{' '}
+                            <Link to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations">
+                                Read more in our docs
+                            </Link>
+                        </>
+                    }
+                >
+                    <p>
+                        Setting a minimum session duration will ensure that only sessions that last longer than that
+                        value are collected. This helps you avoid collecting sessions that are too short to be useful.
+                        <Since web={{ version: '1.85.0' }} />
+                    </p>
+                </Tooltip>
             </div>
-            <Tooltip
-                delayMs={200}
-                title={
-                    <>
-                        The JS SDK has an in-memory queue. This means that for traditional web apps the minimum duration
-                        control is best effort.{' '}
-                        <Link to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations">
-                            Read more in our docs
-                        </Link>
-                    </>
-                }
-            >
-                Setting a minimum session duration will ensure that only sessions that last longer than that value are
-                collected. This helps you avoid collecting sessions that are too short to be useful.
-            </Tooltip>
         </PayGateMini>
     )
+}
+
+function useHeaderStatuses(currentTeam: TeamType | TeamPublicType | null): {
+    urlStatus: string
+    eventStatus: string
+    flagStatus: string
+    samplingStatus: string
+    minDurationStatus: string
+    blocklistStatus: string
+} {
+    const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
+
+    const urlCount = urlTriggerConfig?.length ?? 0
+    const eventCount = eventTriggerConfig?.length ?? 0
+    const flagKey = currentTeam?.session_recording_linked_flag?.key
+    const sampleRate = currentTeam?.session_recording_sample_rate
+    const numericSampleRate = sampleRate ? Math.floor(parseFloat(sampleRate) * 100) : 100
+    const minDurationMs = currentTeam?.session_recording_minimum_duration_milliseconds
+    const blocklistCount = currentTeam?.session_recording_url_blocklist_config?.length ?? 0
+
+    return {
+        urlStatus: urlCount > 0 ? pluralize(urlCount, 'pattern') : 'Not configured',
+        eventStatus: eventCount > 0 ? pluralize(eventCount, 'event') : 'Not configured',
+        flagStatus: flagKey ? flagKey : 'Not configured',
+        samplingStatus: `${numericSampleRate}%${numericSampleRate === 100 ? ' (default)' : ''}`,
+        minDurationStatus: minDurationMs ? `${minDurationMs / 1000}s` : 'No minimum',
+        blocklistStatus: blocklistCount > 0 ? pluralize(blocklistCount, 'pattern') : 'Not configured',
+    }
 }
 
 export function ReplayTriggers(): JSX.Element {
@@ -241,27 +290,101 @@ export function ReplayTriggers(): JSX.Element {
     const { selectPlatform } = useActions(replayTriggersLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const statuses = useHeaderStatuses(currentTeam)
 
     const tabs: LemonTab<'web' | 'mobile'>[] = [
         {
             key: 'web',
             label: 'Web',
             content: (
-                <div className="flex flex-col gap-y-2">
+                <div className="flex flex-col gap-y-4">
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
-                    <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
-                        <IngestionControls.MatchTypeSelect />
-                        <LemonDivider />
-                        <UrlTriggerOptions />
-                        <EventTriggerOptions />
-                        <LinkedFlagSelector />
-                        <Sampling />
+
+                    <IngestionControls.MatchTypeSelect />
+
+                    <div>
+                        <h3 className="text-sm font-semibold mb-2">Recording conditions</h3>
+                        <LemonCollapse
+                            multiple
+                            panels={[
+                                {
+                                    key: 'url',
+                                    header: (
+                                        <TriggerPanelHeader
+                                            title="URL matches"
+                                            status={statuses.urlStatus}
+                                            showMatchTag
+                                        />
+                                    ),
+                                    content: <UrlTriggerOptions />,
+                                },
+                                {
+                                    key: 'event',
+                                    header: (
+                                        <TriggerPanelHeader
+                                            title="Event emitted"
+                                            status={statuses.eventStatus}
+                                            showMatchTag
+                                        />
+                                    ),
+                                    content: <EventTriggerOptions />,
+                                },
+                                {
+                                    key: 'flag',
+                                    header: (
+                                        <TriggerPanelHeader
+                                            title="Feature flag"
+                                            status={statuses.flagStatus}
+                                            showMatchTag
+                                        />
+                                    ),
+                                    content: <LinkedFlagSelector />,
+                                },
+                            ]}
+                        />
                     </div>
-                    <MinimumDurationSetting />
-                    <LemonDivider />
-                    <UrlBlocklistOptions />
+
+                    <div>
+                        <h3 className="text-sm font-semibold mb-2">Recording limits</h3>
+                        <LemonCollapse
+                            multiple
+                            panels={[
+                                {
+                                    key: 'sampling',
+                                    header: <TriggerPanelHeader title="Sampling" status={statuses.samplingStatus} />,
+                                    content: <Sampling />,
+                                },
+                                {
+                                    key: 'min-duration',
+                                    header: (
+                                        <TriggerPanelHeader
+                                            title="Minimum duration"
+                                            status={statuses.minDurationStatus}
+                                        />
+                                    ),
+                                    content: <MinimumDurationSetting />,
+                                },
+                            ]}
+                        />
+                    </div>
+
+                    <div>
+                        <h3 className="text-sm font-semibold mb-2">Recording exclusions</h3>
+                        <LemonCollapse
+                            multiple
+                            panels={[
+                                {
+                                    key: 'blocklist',
+                                    header: (
+                                        <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />
+                                    ),
+                                    content: <UrlBlocklistOptions />,
+                                },
+                            ]}
+                        />
+                    </div>
                 </div>
             ),
         },

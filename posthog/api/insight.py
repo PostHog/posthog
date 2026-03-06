@@ -44,6 +44,7 @@ from posthog.api.insight_suggestions import generate_insight_name, get_insight_a
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -207,7 +208,7 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         }
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "legacy insight endpoint called",
             properties,
             team=team,
@@ -371,7 +372,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = serializers.PrimaryKeyRelatedField(
+    dashboards = TeamScopedPrimaryKeyRelatedField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -1084,10 +1085,14 @@ class InsightViewSet(
             InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
             .select_related("insight")
             .exclude(insight__deleted=True)
-            .only("insight")
+            .only("insight", "last_viewed_at")
         )
 
-        recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
+        recently_viewed = []
+        for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
+            insight = rv.insight
+            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
+            recently_viewed.append(insight)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)

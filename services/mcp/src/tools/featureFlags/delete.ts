@@ -3,11 +3,13 @@ import type { z } from 'zod'
 import { FeatureFlagDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
+type TResult = { success: boolean; message: string } | { message: string }
+
 const schema = FeatureFlagDeleteSchema
 
 type Params = z.infer<typeof schema>
 
-export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const deleteHandler: ToolBase<typeof schema, TResult>['handler'] = async (context: Context, params: Params) => {
     const { flagKey } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -30,7 +32,7 @@ export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context:
     return deleteResult.data
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, TResult> => ({
     name: 'delete-feature-flag',
     schema,
     handler: deleteHandler,

@@ -1048,9 +1048,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
-                description: 'Connect error tracking with external services like Sentry or PagerDuty.',
+                description: 'Connect error tracking with external services like GitHub or Linear.',
                 component: <ErrorTrackingIntegrations />,
-                keywords: ['sentry', 'pagerduty', 'integration', 'connect'],
+                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -1148,6 +1148,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Get notified about activity log events via configured destinations.',
                 component: <ActivityLogNotifications />,
                 flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['notification', 'alert', 'activity', 'webhook'],
             },
         ],
@@ -1186,6 +1187,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Integrations',
                 description: 'Configure how discussion mentions are delivered via integrations.',
                 component: <DiscussionMentionNotifications />,
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['mention', 'notification', 'comment', 'discussion'],
             },
         ],
