@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
                     ("running", "Running"),
                     ("stopped", "Stopped"),
                 ],
-                default="draft",
+                default=None,
                 max_length=20,
                 null=True,
             ),
