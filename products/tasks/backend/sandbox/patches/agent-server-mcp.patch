@@ -1,0 +1,82 @@
+Description: Pass PostHog MCP server to sandbox agent sessions.
+
+The sandbox environment provides POSTHOG_MCP_URL, POSTHOG_PERSONAL_API_KEY,
+and POSTHOG_PROJECT_ID. The agent-server reads these and constructs an MCP
+server config that is passed to the Claude session via the ACP newSession call.
+
+This patch should be applied to the @posthog/agent package in the PostHog/twig repo.
+
+--- a/packages/agent/src/server/types.ts
++++ b/packages/agent/src/server/types.ts
+@@ -11,4 +11,5 @@ export interface AgentServerConfig {
+   taskId: string;
+   runId: string;
+   version?: string;
++  mcpUrl?: string;
+ }
+
+--- a/packages/agent/src/server/bin.ts
++++ b/packages/agent/src/server/bin.ts
+@@ -59,6 +59,7 @@ program
+     const env = envResult.data;
+
+     const mode = options.mode === "background" ? "background" : "interactive";
++    const mcpUrl = process.env.POSTHOG_MCP_URL;
+
+     const server = new AgentServer({
+       port: parseInt(options.port, 10),
+@@ -69,6 +70,7 @@ program
+       mode,
+       taskId: options.taskId,
+       runId: options.runId,
++      mcpUrl,
+     });
+
+--- a/packages/agent/src/server/agent-server.ts
++++ b/packages/agent/src/server/agent-server.ts
+@@ -563,9 +563,11 @@ export class AgentServer {
+       this.detectedPrUrl = prUrl;
+     }
+
++    const mcpServers = this.buildMcpServers();
++
+     const sessionResponse = await clientConnection.newSession({
+       cwd: this.config.repositoryPath,
+-      mcpServers: [],
++      mcpServers,
+       _meta: {
+         sessionId: payload.run_id,
+         taskRunId: payload.run_id,
+@@ -780,6 +782,31 @@ export class AgentServer {
+     });
+   }
+
++  private buildMcpServers(): Array<{
++    name: string;
++    type: string;
++    url: string;
++    headers: Array<{ name: string; value: string }>;
++  }> {
++    const { mcpUrl, apiKey, projectId } = this.config;
++    if (!mcpUrl) {
++      return [];
++    }
++
++    this.logger.info("Configuring PostHog MCP server", { mcpUrl });
++
++    return [
++      {
++        name: "posthog",
++        type: "http",
++        url: mcpUrl,
++        headers: [
++          { name: "Authorization", value: `Bearer ${apiKey}` },
++          { name: "x-posthog-project-id", value: String(projectId) },
++          { name: "x-posthog-mcp-version", value: "2" },
++          { name: "x-posthog-read-only", value: "true" },
++        ],
++      },
++    ];
++  }
++
+   private createCloudClient(payload: JwtPayload) {

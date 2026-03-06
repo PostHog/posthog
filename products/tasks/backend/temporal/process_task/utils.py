@@ -1,4 +1,5 @@
 from typing import Optional
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -7,6 +8,30 @@ from posthog.models.integration import GitHubIntegration, Integration
 
 def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
+
+
+def get_sandbox_mcp_url() -> str | None:
+    """Return the MCP server URL for sandbox agents.
+
+    Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
+    - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
+    - eu.posthog.com → https://mcp-eu.posthog.com/mcp
+    - Other hosts → None (MCP not available)
+    """
+    if settings.SANDBOX_MCP_URL:
+        return settings.SANDBOX_MCP_URL
+
+    site_url = settings.SITE_URL
+    if not site_url:
+        return None
+
+    hostname = urlparse(site_url).hostname or ""
+    if hostname in ("app.posthog.com", "us.posthog.com"):
+        return "https://mcp.posthog.com/mcp"
+    if hostname == "eu.posthog.com":
+        return "https://mcp-eu.posthog.com/mcp"
+
+    return None
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:
