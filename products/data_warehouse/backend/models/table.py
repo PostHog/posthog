@@ -17,6 +17,7 @@ from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -178,6 +179,23 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return True
         except:
             return False
+
+    def _direct_postgres_table_name(self) -> str:
+        if self.external_data_source is None:
+            return self.table_name_without_prefix()
+
+        source_type = self.external_data_source.source_type.lower()
+        source_scoped_prefix = f"{source_type}_{self.external_data_source.pk.hex}_"
+        if self.name.lower().startswith(source_scoped_prefix):
+            return self.name[len(source_scoped_prefix) :]
+
+        prefix = self.external_data_source.prefix or ""
+        legacy_table_prefix = f"{prefix}_{source_type}_" if prefix else f"{source_type}_"
+
+        if self.name.lower().startswith(legacy_table_prefix):
+            return self.name[len(legacy_table_prefix) :]
+
+        return self.table_name_without_prefix()
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
@@ -368,7 +386,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLDataWarehouseTable:
+    def hogql_definition(
+        self, modifiers: Optional[HogQLQueryModifiers] = None
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -409,6 +429,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 hogql_type = STR_TO_HOGQL_MAPPING.get(type["hogql"], STR_TO_HOGQL_MAPPING["UnknownDatabaseField"])
 
             fields[column] = hogql_type(name=column, nullable=is_nullable)
+
+        if (
+            self.external_data_source
+            and self.external_data_source.source_type == "Postgres"
+            and self.external_data_source.access_method == self.external_data_source.AccessMethod.DIRECT
+        ):
+            postgres_schema = (self.external_data_source.job_inputs or {}).get("schema", "public")
+            postgres_table_name = self._direct_postgres_table_name()
+            return DirectPostgresTable(
+                name=self.name,
+                fields=fields,
+                postgres_schema=postgres_schema,
+                postgres_table_name=postgres_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+            )
 
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())

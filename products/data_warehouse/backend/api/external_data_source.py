@@ -59,6 +59,92 @@ from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKin
 logger = structlog.get_logger(__name__)
 
 
+POSTGRES_TO_CLICKHOUSE_TYPE = {
+    "smallint": "Int16",
+    "integer": "Int32",
+    "bigint": "Int64",
+    "real": "Float32",
+    "double precision": "Float64",
+    "numeric": "Float64",
+    "boolean": "Bool",
+    "date": "Date",
+    "timestamp without time zone": "DateTime64",
+    "timestamp with time zone": "DateTime64",
+    "character varying": "String",
+    "character": "String",
+    "text": "String",
+    "json": "String",
+    "jsonb": "String",
+    "uuid": "String",
+}
+
+
+HOGQL_BY_CLICKHOUSE_TYPE = {
+    "Int16": "integer",
+    "Int32": "integer",
+    "Int64": "integer",
+    "Float32": "float",
+    "Float64": "float",
+    "Bool": "boolean",
+    "Date": "date",
+    "DateTime64": "datetime",
+    "String": "string",
+}
+
+
+def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, str | bool]]:
+    resolved_columns: dict[str, dict[str, str | bool]] = {}
+
+    for column_name, postgres_type, nullable in columns:
+        normalized_type = postgres_type.lower()
+        clickhouse_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
+
+        if clickhouse_type is None:
+            if normalized_type.startswith("timestamp"):
+                clickhouse_type = "DateTime64"
+            elif normalized_type.startswith("numeric") or normalized_type.startswith("decimal"):
+                clickhouse_type = "Float64"
+            elif "int" in normalized_type:
+                clickhouse_type = "Int64"
+            else:
+                clickhouse_type = "String"
+
+        if nullable:
+            clickhouse_type = f"Nullable({clickhouse_type})"
+
+        raw_clickhouse_type = clickhouse_type.replace("Nullable(", "").replace(")", "")
+        resolved_columns[column_name] = {
+            "clickhouse": clickhouse_type,
+            "hogql": HOGQL_BY_CLICKHOUSE_TYPE.get(raw_clickhouse_type, "string"),
+            "valid": True,
+        }
+
+    return resolved_columns
+
+
+def postgres_schema_metadata(
+    columns: list[tuple[str, str, bool]], foreign_keys: list[tuple[str, str, str]] | None = None
+) -> dict[str, Any]:
+    return {
+        "columns": [
+            {"name": column_name, "data_type": postgres_type, "is_nullable": nullable}
+            for column_name, postgres_type, nullable in columns
+        ],
+        "foreign_keys": [
+            {"column": column_name, "target_table": target_table, "target_column": target_column}
+            for column_name, target_table, target_column in (foreign_keys or [])
+        ],
+    }
+
+
+def direct_postgres_table_prefix(external_data_source: ExternalDataSource) -> str:
+    return f"{external_data_source.source_type.lower()}_{external_data_source.pk.hex}_"
+
+
+def direct_postgres_table_name(external_data_source: ExternalDataSource, schema_name: str) -> str:
+    return f"{direct_postgres_table_prefix(external_data_source)}{schema_name}".lower()
+
+
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that have PASSWORD type from a source config's fields."""
     password_fields: set[str] = set()
@@ -547,7 +633,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
-            should_sync = schema.get("should_sync", False)
+            should_sync = schema.get("should_sync", access_method == ExternalDataSource.AccessMethod.DIRECT)
 
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
@@ -563,24 +649,54 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     data={"message": "Incremental schemas given do not have an incremental field type set"},
                 )
 
+            schema_name = schema.get("name")
+            source_schema = next(
+                (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
+            )
+            schema_metadata = postgres_schema_metadata(
+                source_schema.columns if source_schema else [],
+                source_schema.foreign_keys if source_schema else [],
+            )
+
             schema_model = ExternalDataSchema.objects.create(
-                name=schema.get("name"),
+                name=schema_name,
                 team=self.team,
                 source=new_source_model,
                 should_sync=should_sync,
-                sync_type=sync_type,
-                sync_time_of_day=sync_time_of_day,
+                sync_type=sync_type if access_method == ExternalDataSource.AccessMethod.WAREHOUSE else None,
+                sync_time_of_day=sync_time_of_day
+                if access_method == ExternalDataSource.AccessMethod.WAREHOUSE
+                else None,
                 sync_type_config=(
                     {
                         "incremental_field": incremental_field,
                         "incremental_field_type": incremental_field_type,
+                        "schema_metadata": schema_metadata,
                     }
-                    if requires_incremental_fields
-                    else {}
+                    if requires_incremental_fields and access_method == ExternalDataSource.AccessMethod.WAREHOUSE
+                    else {"schema_metadata": schema_metadata}
                 ),
             )
 
-            if should_sync:
+            if (
+                access_method == ExternalDataSource.AccessMethod.DIRECT
+                and source_type_model == ExternalDataSourceType.POSTGRES
+                and should_sync
+            ):
+                from products.data_warehouse.backend.models.table import DataWarehouseTable
+
+                table_model = DataWarehouseTable.objects.create(
+                    name=direct_postgres_table_name(new_source_model, schema_name),
+                    format=DataWarehouseTable.TableFormat.Parquet,
+                    team=self.team,
+                    url_pattern="direct://postgres",
+                    external_data_source=new_source_model,
+                    columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                )
+                schema_model.table = table_model
+                schema_model.save(update_fields=["table"])
+
+            if should_sync and access_method == ExternalDataSource.AccessMethod.WAREHOUSE:
                 active_schemas.append(schema_model)
 
         try:
@@ -665,6 +781,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
 
+        if instance.access_method == ExternalDataSource.AccessMethod.DIRECT:
+            return self.refresh_schemas(request, *args, **kwargs)
+
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -727,8 +846,73 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
-                schema_names, source_id=str(instance.id), team_id=self.team_id
+                schema_names,
+                source_id=str(instance.id),
+                team_id=self.team_id,
+                default_should_sync=instance.access_method == ExternalDataSource.AccessMethod.DIRECT,
             )
+
+            if (
+                instance.access_method == ExternalDataSource.AccessMethod.DIRECT
+                and instance.source_type == ExternalDataSourceType.POSTGRES
+            ):
+                from products.data_warehouse.backend.models.table import DataWarehouseTable
+
+                schema_models = {
+                    schema.name: schema
+                    for schema in ExternalDataSchema.objects.filter(
+                        team_id=self.team_id, source_id=instance.id, deleted=False
+                    )
+                }
+
+                for source_schema in schemas:
+                    schema_model = schema_models.get(source_schema.name)
+                    if schema_model is None:
+                        continue
+
+                    expected_table_name = direct_postgres_table_name(instance, source_schema.name)
+                    expected_columns = postgres_columns_to_dwh_columns(source_schema.columns)
+                    schema_metadata = postgres_schema_metadata(source_schema.columns, source_schema.foreign_keys)
+
+                    existing_sync_type_config = schema_model.sync_type_config if schema_model.sync_type_config else {}
+                    schema_model.sync_type_config = {**existing_sync_type_config, "schema_metadata": schema_metadata}
+                    schema_model.save(update_fields=["sync_type_config", "updated_at"])
+
+                    table_model = schema_model.table
+                    if table_model is None or table_model.deleted:
+                        table_model = DataWarehouseTable.objects.create(
+                            name=expected_table_name,
+                            format=DataWarehouseTable.TableFormat.Parquet,
+                            team=self.team,
+                            url_pattern="direct://postgres",
+                            external_data_source=instance,
+                            columns=expected_columns,
+                        )
+                        schema_model.table = table_model
+                        schema_model.save(update_fields=["table"])
+                    else:
+                        table_model.name = expected_table_name
+                        table_model.url_pattern = "direct://postgres"
+                        table_model.external_data_source = instance
+                        table_model.columns = expected_columns
+                        table_model.save(
+                            update_fields=["name", "url_pattern", "external_data_source", "columns", "updated_at"]
+                        )
+
+                stale_schemas = ExternalDataSchema.objects.filter(
+                    Q(team_id=self.team_id, source_id=instance.id),
+                    Q(deleted=False) | Q(table__deleted=False),
+                ).exclude(name__in=schema_names)
+                stale_count = 0
+                for stale_schema in stale_schemas:
+                    stale_count += 1
+                    if stale_schema.table and not stale_schema.table.deleted:
+                        stale_schema.table.soft_delete()
+                    if not stale_schema.deleted:
+                        stale_schema.soft_delete()
+
+                if stale_count > 0:
+                    schemas_deleted = list({*schemas_deleted, *list(stale_schemas.values_list("name", flat=True))})
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
