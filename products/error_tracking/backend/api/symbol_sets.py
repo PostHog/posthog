@@ -262,7 +262,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        chunk_id_url_map = bulk_create_symbol_sets(symbol_sets, self.team, distinct_id=str(request.user.pk))
+        chunk_id_url_map = bulk_create_symbol_sets(
+            symbol_sets, self.team, distinct_id=str(request.user.pk) if request.user.pk else None
+        )
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])

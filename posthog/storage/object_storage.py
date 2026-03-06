@@ -1,4 +1,5 @@
 import abc
+import threading
 from typing import Any, Optional, Union
 
 from django.conf import settings
@@ -424,24 +425,28 @@ def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3
 
 
 _accelerated_presigned_client = None
+_accelerated_client_lock = threading.Lock()
 
 
 def _get_accelerated_presigned_client():
     global _accelerated_presigned_client
     if _accelerated_presigned_client is None and settings.OBJECT_STORAGE_TRANSFER_ACCELERATION:
-        s3_config = Config(
-            signature_version="s3v4",
-            connect_timeout=1,
-            retries={"max_attempts": 1},
-            s3={"use_accelerate_endpoint": True},
-        )
-        _accelerated_presigned_client = client(
-            "s3",
-            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            config=s3_config,
-            region_name=settings.OBJECT_STORAGE_REGION,
-        )
+        with _accelerated_client_lock:
+            if _accelerated_presigned_client is not None:
+                return _accelerated_presigned_client
+            s3_config = Config(
+                signature_version="s3v4",
+                connect_timeout=1,
+                retries={"max_attempts": 1},
+                s3={"use_accelerate_endpoint": True},
+            )
+            _accelerated_presigned_client = client(
+                "s3",
+                aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                config=s3_config,
+                region_name=settings.OBJECT_STORAGE_REGION,
+            )
     return _accelerated_presigned_client
 
 
