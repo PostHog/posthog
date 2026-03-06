@@ -49,6 +49,7 @@ import evaluationCreate from './llmAnalytics/evaluations/create'
 import evaluationDelete from './llmAnalytics/evaluations/delete'
 import evaluationGet from './llmAnalytics/evaluations/get'
 import evaluationsGet from './llmAnalytics/evaluations/getAll'
+import evaluationResultsGet from './llmAnalytics/evaluations/getResults'
 import evaluationRun from './llmAnalytics/evaluations/run'
 import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
@@ -159,6 +160,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'evaluation-create': evaluationCreate,
     'evaluation-update': evaluationUpdate,
     'evaluation-delete': evaluationDelete,
+    'evaluation-results': evaluationResultsGet,
     'evaluation-run': evaluationRun,
 
     // Surveys
