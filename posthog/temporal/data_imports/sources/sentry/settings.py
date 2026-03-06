@@ -83,7 +83,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         path="/organizations/{organization_slug}/issues/",
         incremental_fields=ISSUES_INCREMENTAL_FIELDS,
         default_incremental_field="lastSeen",
-        partition_key="lastSeen",
+        partition_key="first_seen",
         sort_mode="desc",
     ),
     "project_events": SentryEndpointConfig(
@@ -91,8 +91,8 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         path="/projects/{organization_slug}/{project_slug}/events/",
         incremental_fields=DATE_CREATED_INCREMENTAL_FIELD,
         default_incremental_field="dateCreated",
-        partition_key="dateCreated",
-        primary_key=["project_id", "eventID"],
+        partition_key="date_created",
+        primary_key=["project_id", "event_id"],
         is_project_fanout=True,
     ),
     "project_users": SentryEndpointConfig(
@@ -121,8 +121,8 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
         path="/organizations/{organization_slug}/issues/{issue_id}/events/",
         incremental_fields=DATE_CREATED_INCREMENTAL_FIELD,
         default_incremental_field="dateCreated",
-        partition_key="dateCreated",
-        primary_key=["issue_id", "eventID"],
+        partition_key="date_created",
+        primary_key=["issue_id", "event_id"],
         is_issue_fanout=True,
     ),
     "issue_hashes": SentryEndpointConfig(
@@ -144,7 +144,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             }
         ],
         default_incremental_field="lastSeen",
-        partition_key="lastSeen",
+        partition_key="last_seen",
         sort_mode="desc",
         primary_key=["issue_id", "tag_key", "value"],
         is_issue_fanout=True,
