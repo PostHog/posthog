@@ -27,11 +27,11 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
     const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
     const isEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
-    const { promptId: linkedPromptId, promptName: linkedPromptName, evaluationId: linkedEvaluationId } = linkedSource
-    const hasLinkedSource = !!linkedPromptId || !!linkedEvaluationId
+    const { promptName: linkedPromptName, evaluationId: linkedEvaluationId } = linkedSource
+    const hasLinkedSource = !!linkedPromptName || !!linkedEvaluationId
     const linkedLabel = getLinkedSourceLabel(linkedSource)
 
-    const { source_prompt_id: _, source_evaluation_id: __, ...cleanSearchParams } = searchParams
+    const { source_prompt_name: _, source_evaluation_id: __, ...cleanSearchParams } = searchParams
 
     const modelConfig = selectedModel
         ? {
@@ -77,10 +77,10 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
         LemonDialog.open({
             title: `Save to ${linkedLabel}?`,
             description: isPrompt
-                ? 'This will overwrite the current prompt with the system prompt from the playground.'
-                : 'This will overwrite the evaluation prompt and model configuration with the current playground state.',
+                ? 'This will publish a new version of the prompt with the system prompt from the playground.'
+                : 'This will update the evaluation prompt and model configuration with the current playground state.',
             primaryButton: {
-                children: 'Save',
+                children: isPrompt ? 'Publish version' : 'Save',
                 type: 'primary',
                 onClick: () => (isPrompt ? saveToLinkedPrompt() : saveToLinkedEvaluation(modelConfig)),
             },
