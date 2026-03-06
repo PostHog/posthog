@@ -4,6 +4,7 @@ from typing import Any, cast
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, request, response, serializers, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
 
@@ -17,6 +18,7 @@ from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
 from ee.api.scim.utils import disable_scim_for_domain, enable_scim_for_domain, get_scim_base_url, regenerate_scim_token
+from ee.models.scim_request_log import SCIMRequestLog
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 
@@ -162,6 +164,30 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         return getattr(self, "_scim_plain_token", None)
 
 
+class SCIMRequestLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SCIMRequestLog
+        fields = (
+            "id",
+            "request_method",
+            "request_path",
+            "request_headers",
+            "request_body",
+            "response_status",
+            "response_body",
+            "identity_provider",
+            "duration_ms",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class SCIMRequestLogPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
 @extend_schema(tags=["core"])
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
@@ -241,3 +267,31 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 "scim_bearer_token": plain_token,
             }
         )
+
+    @action(methods=["GET"], detail=True, url_path="scim/logs")
+    def scim_logs(self, request: Request, **kwargs) -> response.Response:
+        domain: OrganizationDomain = self.get_object()
+        queryset = SCIMRequestLog.objects.filter(organization_domain=domain)
+
+        status_min = request.query_params.get("status_min")
+        status_max = request.query_params.get("status_max")
+        if status_min:
+            queryset = queryset.filter(response_status__gte=int(status_min))
+        if status_max:
+            queryset = queryset.filter(response_status__lte=int(status_max))
+
+        search = request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(request_path__icontains=search)
+
+        after = request.query_params.get("after")
+        before = request.query_params.get("before")
+        if after:
+            queryset = queryset.filter(created_at__gte=after)
+        if before:
+            queryset = queryset.filter(created_at__lte=before)
+
+        paginator = SCIMRequestLogPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = SCIMRequestLogSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
