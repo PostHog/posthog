@@ -23,6 +23,7 @@ export interface QueryLogEntry {
 
 export interface QueryLogTableLogicProps {
     key: string
+    product?: string
 }
 
 export const queryLogTableLogic = kea<queryLogTableLogicType>([
@@ -34,7 +35,7 @@ export const queryLogTableLogic = kea<queryLogTableLogicType>([
         loadQueryLogs: true,
         loadMoreQueryLogs: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         queryLogs: [
             [] as QueryLogEntry[],
             {
@@ -43,7 +44,7 @@ export const queryLogTableLogic = kea<queryLogTableLogicType>([
                         if (!values.user?.id) {
                             return []
                         }
-                        // Query the query_log_archive for the current user's queries
+                        const productFilter = props.product ? `AND product = {product}` : ''
                         const response = (await api.query({
                             kind: 'HogQLQuery',
                             query: `
@@ -62,12 +63,14 @@ export const queryLogTableLogic = kea<queryLogTableLogicType>([
                                 WHERE created_by = {user_id}
                                     AND event_date >= today() - INTERVAL 7 DAY
                                     AND query != ''
+                                    ${productFilter}
                                 ORDER BY query_start_time DESC
                                 LIMIT {limit}
                             `,
                             values: {
                                 user_id: values.user.id,
                                 limit: values.limit,
+                                ...(props.product ? { product: props.product } : {}),
                             },
                         })) as HogQLQueryResponse
 
@@ -98,7 +101,7 @@ export const queryLogTableLogic = kea<queryLogTableLogicType>([
                         if (!values.user?.id) {
                             return []
                         }
-                        // Load more query logs with offset
+                        const productFilter = props.product ? `AND product = {product}` : ''
                         const response = (await api.query({
                             kind: 'HogQLQuery',
                             query: `
@@ -117,6 +120,7 @@ export const queryLogTableLogic = kea<queryLogTableLogicType>([
                                 WHERE created_by = {user_id}
                                     AND event_date >= today() - INTERVAL 7 DAY
                                     AND query != ''
+                                    ${productFilter}
                                 ORDER BY query_start_time DESC
                                 LIMIT {limit} OFFSET {offset}
                             `,
@@ -124,6 +128,7 @@ export const queryLogTableLogic = kea<queryLogTableLogicType>([
                                 user_id: values.user.id,
                                 limit: values.limit,
                                 offset: values.queryLogs.length,
+                                ...(props.product ? { product: props.product } : {}),
                             },
                         })) as HogQLQueryResponse
 

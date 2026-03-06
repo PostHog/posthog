@@ -26,6 +26,7 @@ import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
+import { QueryLogTable } from 'scenes/debug/QueryLogTable'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -802,6 +803,16 @@ const Content = ({
         )
     }
 
+    if (activeTab === OutputTab.QueryLog) {
+        return (
+            <TabScroller>
+                <div className="px-6 py-4 border-t">
+                    <QueryLogContent tabId={tabId} />
+                </div>
+            </TabScroller>
+        )
+    }
+
     if (responseLoading || insightLoading) {
         return (
             <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
@@ -873,4 +884,17 @@ const Content = ({
         )
     }
     return null
+}
+
+function QueryLogContent({ tabId }: { tabId: string }): JSX.Element {
+    const { setQueryInput } = useActions(sqlEditorLogic)
+
+    const handleLoadQuery = useCallback(
+        (query: string) => {
+            setQueryInput(query)
+        },
+        [setQueryInput]
+    )
+
+    return <QueryLogTable queryKey={`sql-editor-${tabId}`} onLoadQuery={handleLoadQuery} product="sql_editor" />
 }

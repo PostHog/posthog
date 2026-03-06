@@ -729,6 +729,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const newSource = {
                 ...values.sourceQuery.source,
                 query,
+                tags: { productKey: 'sql_editor' },
             }
 
             actions.setSourceQuery({
@@ -750,6 +751,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 key: values.dataLogicKey,
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
+
+            actions.setActiveTab(OutputTab.Results)
 
             // Mark the first query task as complete when the query is run
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
