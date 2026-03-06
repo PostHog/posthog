@@ -203,6 +203,19 @@ export const ConclusionEnumApi = {
 } as const
 
 /**
+ * * `draft` - Draft
+ * `running` - Running
+ * `stopped` - Stopped
+ */
+export type ExperimentStatusEnumApi = (typeof ExperimentStatusEnumApi)[keyof typeof ExperimentStatusEnumApi]
+
+export const ExperimentStatusEnumApi = {
+    Draft: 'draft',
+    Running: 'running',
+    Stopped: 'stopped',
+} as const
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface ExperimentApi {
@@ -250,6 +263,7 @@ export interface ExperimentApi {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    readonly status: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -314,6 +328,7 @@ export interface PatchedExperimentApi {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
      * @nullable

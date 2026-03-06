@@ -6,8 +6,11 @@ import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import { isChristmas } from 'lib/holidays'
 import { hashCodeForString } from 'lib/utils'
 
+import { getIncidentStatus, INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
+
 import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'
+import { Link } from '../Link'
 import { Spinner } from '../Spinner'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
@@ -83,6 +86,22 @@ function ensureToastId(toastOptions: ToastOptions, type: string, message?: strin
     return { ...toastOptions, toastId }
 }
 
+function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
+    const status = getIncidentStatus()
+    if (status === 'operational') {
+        return message
+    }
+
+    return (
+        <>
+            <span className="block">{message}</span>
+            <Link className="block text-xs mt-1 opacity-75" to={INCIDENT_IO_STATUS_PAGE_BASE} target="_blank">
+                There is an ongoing incident that may be related.
+            </Link>
+        </>
+    )
+}
+
 export const lemonToast = {
     info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
         toastOptions = ensureToastId(toastOptions, 'info', message)
@@ -125,7 +144,7 @@ export const lemonToast = {
         toast.error(
             <ToastContent
                 type="error"
-                message={message}
+                message={withIncidentNote(message)}
                 // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
                 button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
                 id={toastOptions.toastId}
@@ -160,7 +179,13 @@ export const lemonToast = {
                 },
                 error: {
                     render: (({ data }: ToastifyRenderProps<Error>) => {
-                        return <ToastContent type="error" message={data?.message || messages.error} button={button} />
+                        return (
+                            <ToastContent
+                                type="error"
+                                message={withIncidentNote(data?.message || messages.error)}
+                                button={button}
+                            />
+                        )
                     }) as (props: ToastifyRenderProps<unknown>) => React.ReactNode,
                     icon: <IconErrorOutline />,
                 },

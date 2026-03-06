@@ -56,6 +56,7 @@ PRODUCTS_APPS = [
     "products.workflows.backend.apps.WorkflowsConfig",
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
+    "products.visual_review.backend.apps.VisualReviewConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
 ]
@@ -198,7 +199,9 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = (
+    r"^(/site_app/|/array/|/static/|/oauth/token/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+)
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -594,20 +597,16 @@ TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"
 TOOLBAR_OAUTH_SCOPES = [
     "openid",
     "user:read",
-    "user:write",
     "action:read",
     "action:write",
     "feature_flag:read",
-    "feature_flag:write",
     "experiment:read",
     "experiment:write",
     "query:read",
     "product_tour:read",
     "product_tour:write",
     "heatmap:read",
-    "heatmap:write",
     "element:read",
-    "uploaded_media:read",
     "uploaded_media:write",
 ]
 

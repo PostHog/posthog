@@ -19,6 +19,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
@@ -139,6 +140,8 @@ import {
     IntegrationType,
     JiraProjectType,
     LLMPrompt,
+    LLMPromptPublic,
+    LLMPromptResolveResponse,
     LineageGraph,
     LinearTeamType,
     LinkType,
@@ -1539,6 +1542,11 @@ export class ApiRequest {
         return this.organizations().current().addPathComponent('integrations')
     }
 
+    // # Organization OAuth Applications
+    public organizationOAuthApplications(): ApiRequest {
+        return this.organizations().current().addPathComponent('oauth_applications')
+    }
+
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
@@ -1860,12 +1868,12 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
     }
 
-    public llmPrompt(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
-    }
-
     public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
         return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
+    }
+
+    public llmPromptArchiveByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPromptByName(name, teamId).addPathComponent('archive')
     }
 
     public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
@@ -2325,21 +2333,11 @@ const api = {
         async get(actionId: ActionType['id']): Promise<ActionType> {
             return await new ApiRequest().actionsDetail(actionId).get()
         },
-        async create(actionData: Partial<ActionType>, temporaryToken?: string): Promise<ActionType> {
-            return await new ApiRequest()
-                .actions()
-                .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
-                .create({ data: actionData })
+        async create(actionData: Partial<ActionType>): Promise<ActionType> {
+            return await new ApiRequest().actions().create({ data: actionData })
         },
-        async update(
-            actionId: ActionType['id'],
-            actionData: Partial<ActionType>,
-            temporaryToken?: string
-        ): Promise<ActionType> {
-            return await new ApiRequest()
-                .actionsDetail(actionId)
-                .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
-                .update({ data: actionData })
+        async update(actionId: ActionType['id'], actionData: Partial<ActionType>): Promise<ActionType> {
+            return await new ApiRequest().actionsDetail(actionId).update({ data: actionData })
         },
         async migrate(id: ActionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().actionsDetail(id).withAction('migrate').create()
@@ -2406,6 +2404,7 @@ const api = {
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
+                    ActivityScope.TICKET,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2641,6 +2640,7 @@ const api = {
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
             search?: string
+            ordering?: string
         }): Promise<CountedPaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -2664,6 +2664,7 @@ const api = {
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
             search?: string
+            ordering?: string
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -3188,6 +3189,17 @@ const api = {
                     },
                 })
         },
+        async getByDistinctIds(distinctIds: string[]): Promise<Record<string, PersonType>> {
+            const response = await new ApiRequest()
+                .persons()
+                .withAction('batch_by_distinct_ids')
+                .create({
+                    data: {
+                        distinct_ids: distinctIds,
+                    },
+                })
+            return response.results
+        },
     },
 
     groups: {
@@ -3285,7 +3297,7 @@ const api = {
                 recordingId?: SessionRecordingType['id']
             },
             data: { raw_password?: string; note?: string }
-        ): Promise<{ id: string; password: string; note: string; created_at: string; created_by_email: string }> {
+        ): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharingPasswords(dashboardId).create({ data })
                 : insightId
@@ -3307,7 +3319,7 @@ const api = {
             },
             passwordId: string
         ): Promise<void> {
-            return dashboardId
+            dashboardId
                 ? new ApiRequest().dashboardSharingPassword(dashboardId, passwordId).delete()
                 : insightId
                   ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
@@ -3506,13 +3518,6 @@ const api = {
         async delete(id: string): Promise<void> {
             await new ApiRequest().mcpServerInstallation(id).delete()
         },
-        async oauthCallback(data: {
-            code: string
-            server_id: string
-            state_token?: string
-        }): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallations().withAction('oauth_callback').create({ data })
-        },
         async installCustom(data: {
             name: string
             url: string
@@ -3609,12 +3614,12 @@ const api = {
         },
 
         fingerprints: {
-            async list(issueId: ErrorTrackingIssue['id']): Promise<CountedPaginatedResponse<ErrorTrackingFingerprint>> {
-                const queryString = { issue_id: issueId }
-                return await new ApiRequest()
+            async list(issueId: ErrorTrackingIssue['id']): Promise<ErrorTrackingFingerprint[]> {
+                const url = new ApiRequest()
                     .errorTrackingIssueFingerprints()
-                    .withQueryString(toParams(queryString))
-                    .get()
+                    .withQueryString(toParams({ issue_id: issueId }))
+                    .assembleFullUrl()
+                return await api.loadPaginatedResults<ErrorTrackingFingerprint>(url)
             },
         },
 
@@ -4195,7 +4200,7 @@ const api = {
         async createBackfill(
             id: BatchExportConfiguration['id'],
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
-        ): Promise<BatchExportRun> {
+        ): Promise<{ backfill_id: string }> {
             return await new ApiRequest().batchExportBackfills(id).create({ data })
         },
         async listBackfills(
@@ -4203,6 +4208,13 @@ const api = {
             params: Record<string, any> = {}
         ): Promise<PaginatedResponse<RawBatchExportBackfill>> {
             return await new ApiRequest().batchExportBackfills(id).withQueryString(toParams(params)).get()
+        },
+        async getBackfill(
+            id: BatchExportConfiguration['id'],
+            backfillId: string,
+            teamId?: TeamType['id']
+        ): Promise<RawBatchExportBackfill> {
+            return await new ApiRequest().batchExportBackfill(id, backfillId, teamId).get()
         },
         async cancelBackfill(
             id: BatchExportConfiguration['id'],
@@ -4319,6 +4331,9 @@ const api = {
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
         },
+        async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
+            return await new ApiRequest().signalReport(id).withAction('reingest').create()
+        },
     },
 
     signalSourceConfigs: {
@@ -4387,6 +4402,7 @@ const api = {
                 limit?: number
                 offset?: number
                 search?: string
+                archived?: boolean
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }
@@ -4850,12 +4866,7 @@ const api = {
             viewId: DataWarehouseViewLink['id'],
             data: Pick<
                 DataWarehouseViewLink,
-                | 'source_table_name'
-                | 'source_table_key'
-                | 'joining_table_name'
-                | 'joining_table_key'
-                | 'field_name'
-                | 'configuration'
+                'source_table_name' | 'source_table_key' | 'joining_table_name' | 'joining_table_key' | 'field_name'
             >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
@@ -5053,6 +5064,12 @@ const api = {
     organizationIntegrations: {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().organizationIntegrations().get()
+        },
+    },
+
+    organizationOAuthApplications: {
+        async list(params?: Record<string, any>): Promise<PaginatedResponse<OrganizationOAuthApplicationApi>> {
+            return await new ApiRequest().organizationOAuthApplications().withQueryString(params).get()
         },
     },
 
@@ -5260,6 +5277,9 @@ const api = {
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).delete()
+        },
+        async bulkDeleteHogFlows(ids: string[]): Promise<{ deleted: number }> {
+            return await new ApiRequest().hogFlows().withAction('bulk_delete').create({ data: { ids } })
         },
         async createTestInvocation(
             hogFlowId: HogFlow['id'],
@@ -5554,7 +5574,7 @@ const api = {
         async list(
             params: {
                 status?: string
-                distinct_id?: string
+                distinct_ids?: string
                 search?: string
                 limit?: number
                 offset?: number
@@ -5592,6 +5612,10 @@ const api = {
         async unreadCount(): Promise<{ count: number }> {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
         },
+
+        async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
+            return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
+        },
     },
 
     llmPrompts: {
@@ -5604,24 +5628,30 @@ const api = {
             return new ApiRequest().llmPrompts().withQueryString(params).get()
         },
 
-        get(promptId: string): Promise<LLMPrompt> {
-            return new ApiRequest().llmPrompt(promptId).get()
+        getByName(promptName: string, params?: { version?: number }): Promise<LLMPromptPublic> {
+            return new ApiRequest().llmPromptByName(promptName).withQueryString(params).get()
         },
 
-        getByName(promptName: string): Promise<LLMPrompt> {
-            return new ApiRequest().llmPromptByName(promptName).get()
+        resolveByName(
+            promptName: string,
+            params?: { version?: number; version_id?: string; offset?: number; before_version?: number; limit?: number }
+        ): Promise<LLMPromptResolveResponse> {
+            return new ApiRequest().llmPromptResolveByName(promptName).withQueryString(params).get()
         },
 
-        resolveByName(promptName: string): Promise<LLMPrompt> {
-            return new ApiRequest().llmPromptResolveByName(promptName).get()
+        async update(
+            promptName: string,
+            data: { prompt: LLMPrompt['prompt']; base_version: number }
+        ): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPromptByName(promptName).update({ data })
         },
 
-        async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+        async archiveByName(promptName: string): Promise<void> {
+            await new ApiRequest().llmPromptArchiveByName(promptName).create({ data: {} })
+        },
+
+        async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {
             return await new ApiRequest().llmPrompts().create({ data })
-        },
-
-        async update(promptId: string, data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPrompt(promptId).update({ data })
         },
     },
 
@@ -5920,7 +5950,7 @@ const api = {
                 .create()
         },
     },
-}
+} as const
 
 async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
     const startTime = new Date().getTime()

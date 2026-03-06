@@ -34,7 +34,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub)
 
-        processor = new CdpBatchHogFlowRequestsConsumer(hub)
+        processor = new CdpBatchHogFlowRequestsConsumer(hub, hub)
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {

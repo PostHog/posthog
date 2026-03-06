@@ -702,13 +702,10 @@ class SessionRecordingViewSet(
         serializer.is_valid(raise_exception=True)
 
         current_url = request.headers.get("Referer")
-        session_id = request.headers.get("X-Posthog-Session-Id")
         player_metadata = serializer.validated_data.get("player_metadata", {})
 
         event_properties = {
-            "$current_url": current_url,
             "cleaned_replay_path": clean_referer_url(current_url),
-            "$session_id": session_id,
             "duration": player_metadata.get("recording_duration"),
             "recording_id": player_metadata.get("id"),
             "start_time": player_metadata.get("start_time"),
@@ -728,6 +725,7 @@ class SessionRecordingViewSet(
                     event="recording viewed",
                     properties=event_properties,
                     team=self.team,
+                    request=request,
                 )
 
             if "analyzed" in serializer.validated_data:
@@ -736,6 +734,7 @@ class SessionRecordingViewSet(
                     event="recording analyzed",
                     properties=event_properties,
                     team=self.team,
+                    request=request,
                 )
 
         return Response({"success": True})
@@ -1124,8 +1123,9 @@ class SessionRecordingViewSet(
             report_user_action(
                 user=cast(User, request.user),
                 event="recording list filters changed",
-                properties={"$current_url": current_url, "$session_id": session_id, **partial_filters},
+                properties=partial_filters,
                 team=team,
+                request=request,
             )
 
             ProductIntent.register(

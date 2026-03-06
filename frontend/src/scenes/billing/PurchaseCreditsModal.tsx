@@ -60,7 +60,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
     return (
         <LemonModal
             onClose={() => showPurchaseCreditsModal(false)}
-            width="max(44vw)"
+            width="max(80vw)"
             title="Prepay for usage credits and get a discount"
             footer={
                 <>

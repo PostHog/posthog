@@ -20,7 +20,7 @@ use crate::kafka::types::Partition;
 use crate::pipelines::timestamp_deduplicator::{
     TimestampDeduplicator, TimestampDeduplicatorConfig,
 };
-use crate::pipelines::traits::EventParser;
+use crate::pipelines::traits::{EventParser, FailOpenProcessor};
 use crate::store::DeduplicationStoreConfig;
 use crate::store_manager::StoreManager;
 
@@ -30,6 +30,8 @@ use super::parser::ClickHouseEventParser;
 #[derive(Debug, Clone)]
 pub struct ClickHouseEventsConfig {
     pub store_config: DeduplicationStoreConfig,
+    /// When true, bypass all deduplication and skip processing entirely.
+    pub fail_open: bool,
 }
 
 /// Batch processor for ClickHouse events with timestamp-based deduplication.
@@ -37,12 +39,17 @@ pub struct ClickHouseEventsConfig {
 /// This processor wraps `TimestampDeduplicator<ClickHouseEvent>` and implements
 /// the `BatchConsumerProcessor` trait for Kafka batch consumption.
 pub struct ClickHouseEventsBatchProcessor {
+    config: ClickHouseEventsConfig,
     deduplicator: TimestampDeduplicator<ClickHouseEvent>,
 }
 
 #[async_trait]
 impl BatchConsumerProcessor<ClickHouseEvent> for ClickHouseEventsBatchProcessor {
     async fn process_batch(&self, messages: Vec<KafkaMessage<ClickHouseEvent>>) -> Result<()> {
+        if self.config.fail_open {
+            return self.process_batch_fail_open(messages).await;
+        }
+
         // Organize messages by partition
         let messages_by_partition = messages
             .iter()
@@ -65,9 +72,20 @@ impl BatchConsumerProcessor<ClickHouseEvent> for ClickHouseEventsBatchProcessor 
     }
 }
 
+#[async_trait]
+impl FailOpenProcessor<ClickHouseEvent> for ClickHouseEventsBatchProcessor {
+    async fn process_batch_fail_open(
+        &self,
+        _messages: Vec<KafkaMessage<ClickHouseEvent>>,
+    ) -> Result<()> {
+        // Read-only pipeline — nothing to forward in fail-open mode
+        Ok(())
+    }
+}
+
 impl ClickHouseEventsBatchProcessor {
     /// Create a new ClickHouse events deduplication processor
-    pub fn new(_config: ClickHouseEventsConfig, store_manager: Arc<StoreManager>) -> Self {
+    pub fn new(config: ClickHouseEventsConfig, store_manager: Arc<StoreManager>) -> Self {
         let dedup_config = TimestampDeduplicatorConfig {
             pipeline_name: "clickhouse_events".to_string(),
             publisher: None, // ClickHouse events pipeline doesn't publish
@@ -76,7 +94,10 @@ impl ClickHouseEventsBatchProcessor {
 
         let deduplicator = TimestampDeduplicator::new(dedup_config, store_manager);
 
-        Self { deduplicator }
+        Self {
+            config,
+            deduplicator,
+        }
     }
 
     async fn process_partition_batch(
@@ -150,7 +171,10 @@ mod tests {
             max_capacity: 1000,
         };
 
-        let config = ClickHouseEventsConfig { store_config };
+        let config = ClickHouseEventsConfig {
+            store_config,
+            fail_open: false,
+        };
         (config, temp_dir)
     }
 

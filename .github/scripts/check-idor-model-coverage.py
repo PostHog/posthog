@@ -110,6 +110,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "TOTPDevice",
         "UserSocialAuth",
         "MCPServer",
+        "MCPOAuthState",
         # --- Internal infra (audit, async, caching, scheduling) ---
         "ActivityLog",
         "AsyncDeletion",
@@ -122,10 +123,15 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "AlertSubscription",
         "Approval",
         "ApprovalRequest",
+        "Artifact",
         "BatchExportLogEntry",
         "BatchExportRun",
+        "CodeInvite",
+        "CodeInviteRedemption",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
+        "Run",
+        "RunSnapshot",
         "TicketAssignment",
         # --- Internal config / OneToOne settings ---
         "DuckLakeCatalog",

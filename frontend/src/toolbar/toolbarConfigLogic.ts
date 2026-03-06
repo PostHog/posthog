@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, encodeParams } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -6,8 +6,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
+import { withTokenRefresh } from './toolbarAuth'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
-import { LOCALSTORAGE_KEY } from './utils'
+import { cleanToolbarAuthHash, generatePKCE, LOCALSTORAGE_KEY, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from './utils'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -21,14 +22,39 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         showButton: true,
         hideButton: true,
         persistConfig: true,
+        setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => ({
+            accessToken,
+            refreshToken,
+            clientId,
+        }),
     }),
 
     reducers(({ props }) => ({
         // TRICKY: We cache a copy of the props. This allows us to connect the logic without passing the props in - only the top level caller has to do this.
         props: [props],
-        temporaryToken: [
-            props.temporaryToken || null,
-            { logout: () => null, tokenExpired: () => null, authenticate: () => null },
+        accessToken: [
+            props.accessToken || null,
+            {
+                setOAuthTokens: (_, { accessToken }) => accessToken,
+                logout: () => null,
+                tokenExpired: () => null,
+            },
+        ],
+        refreshToken: [
+            props.refreshToken || null,
+            {
+                setOAuthTokens: (_, { refreshToken }) => refreshToken,
+                logout: () => null,
+                tokenExpired: () => null,
+            },
+        ],
+        clientId: [
+            props.clientId || null,
+            {
+                setOAuthTokens: (_, { clientId }) => clientId,
+                logout: () => null,
+                tokenExpired: () => null,
+            },
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
@@ -39,21 +65,27 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     selectors({
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
-        // UI host for navigation links (actions, feature flags, experiments, etc.) and API requests
-        // Uses posthog.config.ui_host if available, otherwise falls back to props.apiURL for backwards compatibility
+        // PostHog server URL for API requests, OAuth, and navigation links.
+        // For PostHog Cloud, always use the canonical cloud URL directly —
+        // this bypasses any reverse proxy or misconfigured ui_host.
         uiHost: [
             (s) => [s.props],
             (props: ToolbarProps): string => {
+                const region = (props.posthog as any)?.requestRouter?.region
+                if (region === 'us') {
+                    return 'https://us.posthog.com'
+                }
+                if (region === 'eu') {
+                    return 'https://eu.posthog.com'
+                }
+
+                // Self-hosted: prefer explicit ui_host, then apiURL
                 if (props.posthog?.config?.ui_host) {
                     return props.posthog.config.ui_host.replace(/\/+$/, '')
                 }
-
-                // Fallback: if apiURL prop is set, use it (backwards compatibility)
                 if (props.apiURL) {
                     return props.apiURL.replace(/\/+$/, '')
                 }
-
-                // Final fallback: current origin
                 return window.location.origin
             },
         ],
@@ -76,36 +108,67 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             },
         ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
-        isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
+        isAuthenticated: [(s) => [s.accessToken], (accessToken) => !!accessToken],
         toolbarFlagsKey: [(s) => [s.props], (props): string | undefined => props.toolbarFlagsKey],
     }),
 
     listeners(({ values, actions }) => ({
-        authenticate: () => {
+        authenticate: async () => {
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
-            const encodedUrl = encodeURIComponent(window.location.href)
             actions.persistConfig()
-            // Use UI host for auth redirects (SSO/login)
-            window.location.href = `${values.uiHost}/authorize_and_redirect/?redirect=${encodedUrl}`
+
+            let verifier: string
+            let challenge: string
+            try {
+                const pkce = await generatePKCE()
+                verifier = pkce.verifier
+                challenge = pkce.challenge
+            } catch {
+                lemonToast.error('Failed to start authentication. Ensure you are on a secure (HTTPS) page.')
+                return
+            }
+            const pkcePayload = JSON.stringify({ verifier, ts: Date.now() })
+            localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
+
+            // Strip __posthog hash params before building the redirect URL.
+            // posthog-js reads these at load time but never cleans them from the URL.
+            // Including them would cause a re-initialization loop after OAuth callback.
+            const hash = window.location.hash
+                .replace(/[#&]__posthog=[^&]*/g, '')
+                .replace(/^&/, '#')
+                .replace(/^#$/, '')
+            const redirect = encodeURIComponent(
+                window.location.origin + window.location.pathname + window.location.search + hash
+            )
+            const codeChallenge = encodeURIComponent(challenge)
+            window.location.href = `${values.uiHost}/toolbar_oauth/authorize/?redirect=${redirect}&code_challenge=${codeChallenge}`
         },
         logout: () => {
             toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
+            localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+            localStorage.removeItem(PKCE_STORAGE_KEY)
+            cleanToolbarAuthHash()
         },
         tokenExpired: () => {
             toolbarPosthogJS.capture('toolbar token expired')
-            console.warn('PostHog Toolbar API token expired. Clearing session.')
+            console.warn('PostHog Toolbar session expired. Clearing session.')
             if (values.props.source !== 'localstorage') {
-                lemonToast.error('PostHog Toolbar API token expired.')
+                lemonToast.error('Please re-authenticate to continue using the toolbar.')
             }
+            localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
             actions.persistConfig()
         },
-
+        setOAuthTokens: () => {
+            actions.persistConfig()
+        },
         persistConfig: () => {
             // Most params we don't change, only those that we may have modified during the session
             const toolbarParams: ToolbarProps = {
                 ...values.props,
-                temporaryToken: values.temporaryToken ?? undefined,
+                accessToken: values.accessToken ?? undefined,
+                refreshToken: values.refreshToken ?? undefined,
+                clientId: values.clientId ?? undefined,
                 actionId: values.actionId ?? undefined,
                 experimentId: values.experimentId ?? undefined,
                 productTourId: values.productTourId ?? undefined,
@@ -114,10 +177,66 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             }
 
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
+
+            // Persist OAuth tokens separately so they survive posthog-js overwriting LOCALSTORAGE_KEY
+            // when re-launching from a URL hash
+            if (values.accessToken) {
+                localStorage.setItem(
+                    OAUTH_LOCALSTORAGE_KEY,
+                    JSON.stringify({
+                        accessToken: values.accessToken,
+                        refreshToken: values.refreshToken,
+                        clientId: values.clientId,
+                    })
+                )
+            } else {
+                localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+            }
         },
     })),
 
-    afterMount(({ props, values }) => {
+    afterMount(({ props, values, actions, cache }) => {
+        // Extract authorization code from URL hash and clean it immediately.
+        const authParams = cleanToolbarAuthHash()
+        const pendingCodeExchange = !!authParams
+        if (authParams) {
+            exchangeCodeForTokens(
+                authParams.tokenEndpoint || `${values.uiHost}/oauth/token/`,
+                authParams.redirectUri || `${values.uiHost}/toolbar_oauth/callback`,
+                authParams.code,
+                authParams.clientId,
+                actions
+            )
+            // Defensive retry: some SPAs re-apply the original URL on initial render,
+            // undoing the replaceState above. Re-clean after a short delay.
+            cache.hashRetryTimeout = setTimeout(cleanToolbarAuthHash, 500)
+        }
+
+        // Restore OAuth tokens from separate storage.
+        // posthog-js overwrites LOCALSTORAGE_KEY with hash params on each launch,
+        // losing the OAuth tokens. This separate key survives that overwrite.
+        if (!values.accessToken && !pendingCodeExchange) {
+            try {
+                const stored = localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)
+                if (stored) {
+                    const { accessToken, refreshToken, clientId } = JSON.parse(stored)
+                    if (accessToken && refreshToken && clientId) {
+                        actions.setOAuthTokens(accessToken, refreshToken, clientId)
+                    }
+                }
+            } catch {
+                // ignore localStorage errors
+            }
+        }
+
+        // Migrate users from the old temporaryToken flow to OAuth.
+        // Skip if we're in the middle of a code exchange — the async token swap
+        // will set the tokens once it completes.
+        // TODO(@fcgomes): Remove after September 2026 — gives users 6 months to re-authenticate.
+        if (!values.accessToken && props.temporaryToken && !pendingCodeExchange) {
+            actions.tokenExpired()
+        }
+
         if (props.instrument) {
             const distinctId = props.distinctId
 
@@ -130,7 +249,70 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
         toolbarPosthogJS.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
+
+    beforeUnmount(({ cache }) => {
+        if (cache.hashRetryTimeout !== undefined) {
+            clearTimeout(cache.hashRetryTimeout)
+        }
+        cleanToolbarAuthHash()
+    }),
 ])
+
+const PKCE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+
+async function exchangeCodeForTokens(
+    tokenEndpoint: string,
+    redirectUri: string,
+    code: string,
+    clientId: string,
+    actions: { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
+): Promise<void> {
+    let pkceData: { verifier?: string; ts?: number } = {}
+    try {
+        const raw = localStorage.getItem(PKCE_STORAGE_KEY)
+        pkceData = JSON.parse(raw || '{}')
+    } catch {
+        // corrupted data
+    }
+    localStorage.removeItem(PKCE_STORAGE_KEY)
+
+    if (!pkceData.verifier) {
+        console.warn('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
+        lemonToast.error('Authentication failed: session data missing. Please try again.')
+        return
+    }
+    if (pkceData.ts && Date.now() - pkceData.ts > PKCE_TTL_MS) {
+        console.warn('PostHog Toolbar: PKCE verifier expired')
+        lemonToast.error('Authentication timed out. Please try again.')
+        return
+    }
+
+    const body = new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: clientId,
+        code,
+        redirect_uri: redirectUri,
+        code_verifier: pkceData.verifier,
+    })
+
+    try {
+        const res = await fetch(tokenEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+        })
+        const data = await res.json()
+        if (data.access_token && data.refresh_token) {
+            actions.setOAuthTokens(data.access_token, data.refresh_token, clientId)
+        } else {
+            console.error('PostHog Toolbar: token exchange failed', data.error || data)
+            lemonToast.error('Authentication failed. Please try again.')
+        }
+    } catch (err) {
+        console.error('PostHog Toolbar: token exchange network error', err)
+        lemonToast.error('Authentication failed due to a network error. Please try again.')
+    }
+}
 
 export async function toolbarFetch(
     url: string,
@@ -144,39 +326,54 @@ export async function toolbarFetch(
     */
     urlConstruction: 'full' | 'use-as-provided' = 'full'
 ): Promise<Response> {
-    const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
-    const host = toolbarConfigLogic.findMounted()?.values.uiHost // Use UI host for API requests since it's pointing to PostHog's UI
+    const logic = toolbarConfigLogic.findMounted()
+    const accessToken = logic?.values.accessToken
+    const host = logic?.values.uiHost
+
+    if (!accessToken) {
+        return new Response(JSON.stringify({ results: [] }), { status: 401 })
+    }
 
     let fullUrl: string
     if (urlConstruction === 'use-as-provided') {
         fullUrl = url
     } else {
         const { pathname, searchParams } = combineUrl(url)
-        const params = { ...searchParams, temporary_token: temporaryToken }
-        fullUrl = `${host}${pathname}${encodeParams(params, '?')}`
+        fullUrl = `${host}${pathname}${encodeParams(searchParams, '?')}`
     }
 
-    const payloadData = payload
-        ? {
-              body: JSON.stringify(payload),
-              headers: {
-                  'Content-Type': 'application/json',
-              },
-          }
-        : {}
+    const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` }
+    if (payload) {
+        headers['Content-Type'] = 'application/json'
+    }
 
-    const response = await fetch(fullUrl, {
+    let response = await fetch(fullUrl, {
         method,
-        ...payloadData,
+        headers,
+        ...(payload ? { body: JSON.stringify(payload) } : {}),
     })
-    if (response.status === 403) {
-        const responseData = await response.json()
-        if (responseData.detail === "You don't have access to the project.") {
-            toolbarConfigLogic.actions.authenticate()
+
+    response = await withTokenRefresh(response, async (newAccessToken) => {
+        const retryHeaders: Record<string, string> = { Authorization: `Bearer ${newAccessToken}` }
+        if (payload) {
+            retryHeaders['Content-Type'] = 'application/json'
         }
-    }
-    if (response.status == 401) {
-        toolbarConfigLogic.actions.tokenExpired()
+        return await fetch(fullUrl, {
+            method,
+            headers: retryHeaders,
+            ...(payload ? { body: JSON.stringify(payload) } : {}),
+        })
+    })
+
+    if (response.status === 403) {
+        try {
+            const responseData = await response.clone().json()
+            if (responseData.detail === "You don't have access to the project.") {
+                toolbarConfigLogic.actions.authenticate()
+            }
+        } catch {
+            // Response wasn't JSON (e.g. HTML error page) — ignore
+        }
     }
     return response
 }
@@ -187,31 +384,39 @@ export interface ToolbarMediaUploadResponse {
     name: string
 }
 
-/**
- * Upload media (images) from the toolbar using temporary token authentication.
- * This is a separate function from toolbarFetch because it needs to handle FormData
- * instead of JSON payloads.
- */
+/** Upload media (images) from the toolbar. */
 export async function toolbarUploadMedia(file: File): Promise<{ id: string; url: string; fileName: string }> {
-    const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
-    const apiHost = toolbarConfigLogic.findMounted()?.values.apiHost
+    const logic = toolbarConfigLogic.findMounted()
+    const accessToken = logic?.values.accessToken
+    const apiHost = logic?.values.apiHost
 
-    if (!temporaryToken || !apiHost) {
+    if (!accessToken || !apiHost) {
         throw new Error('Toolbar not authenticated')
     }
 
     const formData = new FormData()
     formData.append('image', file)
 
-    const url = `${apiHost}/api/projects/@current/uploaded_media/${encodeParams({ temporary_token: temporaryToken }, '?')}`
+    const url = `${apiHost}/api/projects/@current/uploaded_media/`
 
-    const response = await fetch(url, {
+    let response = await fetch(url, {
         method: 'POST',
         body: formData,
+        headers: { Authorization: `Bearer ${accessToken}` },
+    })
+
+    response = await withTokenRefresh(response, async (newAccessToken) => {
+        const retryFormData = new FormData()
+        retryFormData.append('image', file)
+        return await fetch(url, {
+            method: 'POST',
+            body: retryFormData,
+            headers: { Authorization: `Bearer ${newAccessToken}` },
+        })
     })
 
     if (response.status === 401) {
-        toolbarConfigLogic.actions.tokenExpired()
+        toolbarConfigLogic.findMounted()?.actions.tokenExpired()
         throw new Error('Authentication expired')
     }
 

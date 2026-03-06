@@ -1595,7 +1595,7 @@ def test_creating_workflows_batch_export(
     destination_data = {
         "type": "Workflows",
         "config": {
-            "topic": "my-topic",
+            "hog_function_id": "aaaa-bbbb-cccc",
         },
         "integration": None,
     }
@@ -1630,7 +1630,7 @@ def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
     destination_data = {
         "type": "Workflows",
         "config": {
-            "topic": "my-topic",
+            "hog_function_id": "aaaa-bbbb-cccc",
         },
         "integration": None,
     }

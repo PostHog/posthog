@@ -7,7 +7,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.temporal.ai.video_segment_clustering.models import GetSessionsToPrimeResult
+from posthog.temporal.ai.video_segment_clustering.models import EmitSignalsResult, GetSessionsToPrimeResult
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
@@ -50,6 +50,9 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: ClusteringWorkflowInputs) -> EmitSignalsResult | None:
         """Execute the video segment clustering workflow for a single team."""
+        return await self._run_pipeline(inputs)
+
+    async def _run_pipeline(self, inputs: ClusteringWorkflowInputs) -> EmitSignalsResult | None:
         # Step 1: Prime the document_embeddings table with analysis of latest sessions
         prime_info = None
         if inputs.skip_priming:
@@ -88,7 +91,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     lookback_hours=inputs.lookback_hours,
                 )
             ],
-            start_to_close_timeout=timedelta(minutes=10),
+            start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(
                 maximum_attempts=3,
                 initial_interval=timedelta(seconds=1),

@@ -92,6 +92,17 @@ The service includes a comprehensive checkpoint system for backup, recovery, and
 | `FULL_UPLOAD_INTERVAL` | Incremental uploads before full | `10` |
 | `MAX_LOCAL_CHECKPOINTS` | Local checkpoints to retain | `5` |
 
+## Fail-Open Mode
+
+The service includes a fail-open mechanism as an emergency kill switch when the deduplication store is causing issues:
+
+- **Bypass deduplication**: When enabled, events are forwarded directly from input to output topic without any deduplication
+- **Skip store operations**: All RocksDB reads/writes are bypassed
+- **Disable checkpoints**: Checkpoint import/export and cleanup tasks are skipped
+- **Metric tracking**: Events passed through are tracked via `fail_open_events_passed_through_total` counter
+
+Enable fail-open mode by setting `FAIL_OPEN=true`. This should only be used as a last resort when the deduplication system needs to be temporarily disabled.
+
 ## Architecture Components
 
 - **StatefulKafkaConsumer**: Main consumer orchestrating message processing
@@ -118,6 +129,12 @@ The service includes a comprehensive checkpoint system for backup, recovery, and
 |----------|-------------|---------|
 | `STORE_PATH` | Base path for RocksDB stores | `/tmp/deduplication-store` |
 | `MAX_STORE_CAPACITY` | Max storage per partition (bytes) | `0` (unlimited) |
+
+### Service Mode
+
+| Variable | Description | Default |
+|----------|-------------|--------|
+| `FAIL_OPEN` | Bypass all deduplication and forward events directly to output topic. Use as emergency kill switch. | `false` |
 
 ## Testing
 

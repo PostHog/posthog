@@ -21,11 +21,18 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
-import { AnyPropertyFilter, FeatureFlagGroupType, MultivariateFlagVariant, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagGroupType,
+    MultivariateFlagVariant,
+    PropertyFilterType,
+} from '~/types'
 
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -36,6 +43,8 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
     isDisabled?: boolean
+    bucketingIdentifier?: FeatureFlagBucketingIdentifier | null
+    onBucketingIdentifierChange?: (value: FeatureFlagBucketingIdentifier | null) => void
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -179,6 +188,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
     readOnly,
     variants,
     isDisabled,
+    bucketingIdentifier,
+    onBucketingIdentifierChange,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -288,20 +299,31 @@ export function FeatureFlagReleaseConditionsCollapsible({
             )}
 
             {/* Match by selector */}
-            {showGroupsOptions && (
+            {(showGroupsOptions || onBucketingIdentifierChange) && (
                 <div className="mb-2">
                     <LemonLabel className="mb-2">Match by</LemonLabel>
                     <LemonRadio
                         data-attr="feature-flag-aggregation-filter"
-                        value={releaseFilters.aggregation_group_type_index != null ? 'group' : 'user'}
+                        value={
+                            releaseFilters.aggregation_group_type_index != null
+                                ? 'group'
+                                : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                  ? 'device'
+                                  : 'user'
+                        }
                         onChange={(value: string) => {
                             if (value === 'user') {
                                 setAggregationGroupTypeIndex(null)
+                                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+                            } else if (value === 'device') {
+                                setAggregationGroupTypeIndex(null)
+                                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
                             } else if (value === 'group') {
                                 const firstGroupType = Array.from(groupTypes.values())[0]
                                 if (firstGroupType) {
                                     setAggregationGroupTypeIndex(firstGroupType.group_type_index)
                                 }
+                                onBucketingIdentifierChange?.(null)
                             }
                         }}
                         options={[
@@ -316,18 +338,49 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     </div>
                                 ),
                             },
-                            {
-                                value: 'group',
-                                label: (
-                                    <div>
-                                        <div className="font-medium">Group</div>
-                                        <div className="text-xs text-muted">
-                                            Stable assignment for everyone in an organization, company, or other custom
-                                            group type.
-                                        </div>
-                                    </div>
-                                ),
-                            },
+                            ...(onBucketingIdentifierChange
+                                ? [
+                                      {
+                                          value: 'device',
+                                          label: (
+                                              <div>
+                                                  <div className="font-medium">
+                                                      Device{' '}
+                                                      <LemonTag type="warning" size="small">
+                                                          BETA
+                                                      </LemonTag>
+                                                  </div>
+                                                  <div className="text-xs text-muted">
+                                                      Stable assignment per device. Good fit for experiments on
+                                                      anonymous users.{' '}
+                                                      <Link
+                                                          to="https://posthog.com/docs/feature-flags/device-bucketing"
+                                                          target="_blank"
+                                                      >
+                                                          Learn more
+                                                      </Link>
+                                                  </div>
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : []),
+                            ...(showGroupsOptions
+                                ? [
+                                      {
+                                          value: 'group',
+                                          label: (
+                                              <div>
+                                                  <div className="font-medium">Group</div>
+                                                  <div className="text-xs text-muted">
+                                                      Stable assignment for everyone in an organization, company, or
+                                                      other custom group type.
+                                                  </div>
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : []),
                         ]}
                         radioPosition="top"
                     />
@@ -500,6 +553,24 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 </>
                                                             )
                                                         })()}
+                                                        {releaseFilters.aggregation_group_type_index == null && (
+                                                            <Tooltip
+                                                                title={
+                                                                    <>
+                                                                        A user may have{' '}
+                                                                        <Link
+                                                                            to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
+                                                                            target="_blank"
+                                                                        >
+                                                                            multiple profiles
+                                                                        </Link>
+                                                                    </>
+                                                                }
+                                                                interactive
+                                                            >
+                                                                <IconInfo className="text-muted text-xs ml-0.5" />
+                                                            </Tooltip>
+                                                        )}
                                                     </div>
                                                 ) : (
                                                     <div className="text-xs text-muted mt-2 flex items-center gap-1">

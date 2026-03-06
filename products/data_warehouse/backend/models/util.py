@@ -171,6 +171,12 @@ STR_TO_HOGQL_MAPPING = {
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
+    "boolean": BooleanDatabaseField,
+    "date": DateDatabaseField,
+    "datetime": DateTimeDatabaseField,
+    "integer": IntegerDatabaseField,
+    "float": FloatDatabaseField,
+    "string": StringDatabaseField,
 }
 
 

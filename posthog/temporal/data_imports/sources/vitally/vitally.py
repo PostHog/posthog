@@ -9,7 +9,7 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from requests import JSONDecodeError
 from structlog.types import FilteringBoundLogger
 
-from posthog.security.outbound_proxy import external_requests, make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests, external_requests_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
@@ -364,7 +364,7 @@ def get_messages(
 
     logger.debug("Requesting first page")
 
-    with make_proxied_requests_session() as session:
+    with external_requests_session() as session:
         while paginator.has_next_page:
             paginator.update_request(request)
             prepared_request = session.prepare_request(request)

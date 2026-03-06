@@ -2,7 +2,7 @@ import { Locator, Page, expect } from '@playwright/test'
 
 import { urls } from 'scenes/urls'
 
-import { InsightType } from '~/types'
+import { InsightShortId, InsightType } from '~/types'
 
 import { randomString } from '../utils'
 import { FunnelsInsight } from './insights/funnelsInsight'
@@ -19,6 +19,7 @@ export class InsightPage {
     // top bar
     readonly saveButton: Locator
     readonly editButton: Locator
+    readonly cancelButton: Locator
     readonly topBarName: Locator
     readonly activeTab: Locator
 
@@ -35,8 +36,9 @@ export class InsightPage {
 
         this.saveButton = page.getByTestId('insight-save-button')
         this.editButton = page.getByTestId('insight-edit-button')
-        this.topBarName = page.locator('.scene-name')
-        this.activeTab = page.locator('.LemonTabs__tab--active')
+        this.cancelButton = page.getByTestId('insight-cancel-edit-button')
+        this.topBarName = page.getByTestId('scene-name')
+        this.activeTab = page.getByRole('tab', { selected: true })
 
         this.trends = new TrendsInsight(page)
         this.funnels = new FunnelsInsight(page)
@@ -54,7 +56,7 @@ export class InsightPage {
 
     async goToNewInsight(type: InsightType): Promise<InsightPage> {
         await this.page.goto(urls.insightNew({ type }), { waitUntil: 'domcontentloaded' })
-        await this.page.waitForSelector('.LemonTabs__tab--active')
+        await this.page.getByRole('tab', { selected: true }).waitFor({ state: 'visible' })
         return this
     }
 
@@ -67,6 +69,26 @@ export class InsightPage {
         return this
     }
 
+    async goToInsight(
+        shortId: InsightShortId,
+        options?: { edit?: boolean; queryParams?: Record<string, string | number | object> }
+    ): Promise<InsightPage> {
+        const base = options?.edit ? urls.insightEdit(shortId) : urls.insightView(shortId)
+
+        if (!options?.queryParams) {
+            await this.page.goto(base, { waitUntil: 'domcontentloaded' })
+            return this
+        }
+
+        const params = new URLSearchParams()
+        for (const [k, v] of Object.entries(options.queryParams)) {
+            params.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v))
+        }
+        const sep = base.includes('?') ? '&' : '?'
+        await this.page.goto(`${base}${sep}${params}`, { waitUntil: 'domcontentloaded' })
+        return this
+    }
+
     async save(): Promise<void> {
         await this.saveButton.click()
         await this.page.waitForURL(/^(?!.*\/new$).+$/)
@@ -75,6 +97,11 @@ export class InsightPage {
 
     async edit(): Promise<void> {
         await this.editButton.click()
+    }
+
+    async discard(): Promise<void> {
+        await this.page.getByTestId('insight-cancel-edit-button').click()
+        await expect(this.editButton).toBeVisible()
     }
 
     async editName(insightName: string = randomString('insight')): Promise<void> {
@@ -101,14 +128,22 @@ export class InsightPage {
     }
 
     async openInfoPanel(): Promise<void> {
-        const inlineButton = this.page.getByTestId('info-actions-panel')
         const sidePanelButton = this.page.locator('#main-content').getByTestId('open-context-panel-button')
-        await inlineButton.or(sidePanelButton).click()
-        await this.page.locator('.scene-panel-actions-section').first().waitFor({ state: 'visible' })
+        await sidePanelButton.click()
+        // The side panel is lazy-loaded via React.lazy + Suspense. Wait for the
+        // panel container to be visible so callers know the panel has mounted and
+        // the portal target is registered.
+        await this.page.locator('#side-panel').waitFor({ state: 'visible' })
     }
 
     async clickDeleteInsight(): Promise<void> {
-        await this.page.getByTestId('insight-delete').click()
+        // The delete button lives inside InsightPanelDangerZone which only
+        // renders once insight data has loaded (isSavedInsight check). After
+        // opening the info panel the button may not be in the DOM yet, so
+        // explicitly wait for it to become visible before clicking.
+        const deleteButton = this.page.getByTestId('insight-delete')
+        await deleteButton.waitFor({ state: 'visible' })
+        await deleteButton.click()
     }
 
     async confirmDeleteDialog(): Promise<void> {

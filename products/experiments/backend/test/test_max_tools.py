@@ -576,9 +576,7 @@ class TestExperimentSummaryTool(APIBaseTest):
         mock_context.stats_method = "bayesian"
         mock_context.variants = ["control", "test"]
 
-        with patch(
-            "products.experiments.backend.experiment_summary_data_service.ExperimentSummaryDataService"
-        ) as mock_service_class:
+        with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
             mock_service = mock_service_class.return_value
             mock_service.fetch_experiment_data = AsyncMock(return_value=(mock_context, None, False))
 
@@ -591,9 +589,7 @@ class TestExperimentSummaryTool(APIBaseTest):
     async def test_fetch_and_format_handles_nonexistent_experiment(self):
         tool = self._create_tool({})
 
-        with patch(
-            "products.experiments.backend.experiment_summary_data_service.ExperimentSummaryDataService"
-        ) as mock_service_class:
+        with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
             mock_service = mock_service_class.return_value
             mock_service.fetch_experiment_data = AsyncMock(
                 side_effect=ValueError("Experiment 99999 not found or access denied")

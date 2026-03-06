@@ -57,18 +57,35 @@ pub struct FlagEvaluationOverrides {
     pub request_hash_key_override: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum EvaluationType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvaluationType {
     Sequential,
     Parallel,
 }
 
+impl EvaluationType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            EvaluationType::Sequential => "sequential",
+            EvaluationType::Parallel => "parallel",
+        }
+    }
+
+    /// Promote evaluation type across dependency levels:
+    /// None → Sequential, None → Parallel, Sequential → Parallel.
+    /// Parallel is sticky — once set, it never demotes back to Sequential.
+    pub fn promote(current: Option<Self>, level_type: Self) -> Option<Self> {
+        match (current, level_type) {
+            (_, Self::Parallel) => Some(Self::Parallel),
+            (None, Self::Sequential) => Some(Self::Sequential),
+            (current, Self::Sequential) => current,
+        }
+    }
+}
+
 impl std::fmt::Display for EvaluationType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EvaluationType::Sequential => write!(f, "sequential"),
-            EvaluationType::Parallel => write!(f, "parallel"),
-        }
+        f.write_str(self.as_str())
     }
 }
 
@@ -816,6 +833,15 @@ impl FeatureFlagMatcher {
         } else {
             EvaluationType::Sequential
         };
+
+        // Record evaluation type in canonical log for E2E latency metrics.
+        // Skip if no flags to evaluate (all deleted or already evaluated) — lets the
+        // metric label stay None → "none" rather than incorrectly reporting Sequential.
+        if !flags_to_evaluate.is_empty() {
+            with_canonical_log(|log| {
+                log.evaluation_type = EvaluationType::promote(log.evaluation_type, eval_type);
+            });
+        }
 
         let labels = [("evaluation_type".to_string(), eval_type.to_string())];
         histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
@@ -2084,6 +2110,46 @@ impl FeatureFlagMatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_promote_evaluation_type_none_to_sequential() {
+        assert_eq!(
+            EvaluationType::promote(None, EvaluationType::Sequential),
+            Some(EvaluationType::Sequential)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_none_to_parallel() {
+        assert_eq!(
+            EvaluationType::promote(None, EvaluationType::Parallel),
+            Some(EvaluationType::Parallel)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_sequential_to_parallel() {
+        assert_eq!(
+            EvaluationType::promote(Some(EvaluationType::Sequential), EvaluationType::Parallel),
+            Some(EvaluationType::Parallel)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_parallel_stays_sticky() {
+        assert_eq!(
+            EvaluationType::promote(Some(EvaluationType::Parallel), EvaluationType::Sequential),
+            Some(EvaluationType::Parallel)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_sequential_stays_sequential() {
+        assert_eq!(
+            EvaluationType::promote(Some(EvaluationType::Sequential), EvaluationType::Sequential),
+            Some(EvaluationType::Sequential)
+        );
+    }
 
     #[test]
     fn test_panic_fallback_preserves_flag_identity() {

@@ -887,7 +887,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 key: propertyKey,
                 value: propertyValue,
                 operator: PropertyOperator.Exact,
-            }
+            } as AnyPropertyFilter
 
             // Clone the current filter group structure and add to the first nested group
             const currentGroup = values.filters.filter_group
@@ -1317,13 +1317,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         nextSessionRecording: [
             (s) => [s.activeSessionRecording, s.recordings, s.autoplayDirection],
             (activeSessionRecording, recordings, autoplayDirection): Partial<SessionRecordingType> | undefined => {
-                if (!activeSessionRecording || !autoplayDirection) {
+                if (!activeSessionRecording) {
                     return
                 }
                 const activeSessionRecordingIndex = recordings.findIndex((x) => x.id === activeSessionRecording.id)
-                return autoplayDirection === 'older'
-                    ? recordings[activeSessionRecordingIndex + 1]
-                    : recordings[activeSessionRecordingIndex - 1]
+                return autoplayDirection === 'newer'
+                    ? recordings[activeSessionRecordingIndex - 1]
+                    : recordings[activeSessionRecordingIndex + 1]
             },
         ],
 
@@ -1568,9 +1568,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions, props }) => {
-        if (!props.onlyPinned) {
-            actions.loadSessionRecordings()
+    afterMount(({ actions, props, values }) => {
+        if (props.onlyPinned) {
+            return
         }
+
+        // If updateSearchParams is enabled and URL has filters different from current state,
+        // skip the initial load here. The urlToAction handler will apply the URL filters and
+        // trigger loadSessionRecordings with the correct filters. This prevents a race condition
+        // where we load with default filters first, then load again with URL filters.
+        if (props.updateSearchParams) {
+            const searchParams = router.values.searchParams
+            if (
+                searchParams?.filters &&
+                isValidRecordingFilters(searchParams.filters) &&
+                !equal(searchParams.filters, values.filters)
+            ) {
+                // URL has valid filters different from current state - let urlToAction handle the initial load
+                return
+            }
+        }
+
+        actions.loadSessionRecordings()
     }),
 ])

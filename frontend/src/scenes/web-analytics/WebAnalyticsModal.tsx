@@ -74,7 +74,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                                 })
                             }}
                         >
-                            Open as new Insight
+                            Open as new insight
                         </LemonButton>
                     ) : null}
                 </div>

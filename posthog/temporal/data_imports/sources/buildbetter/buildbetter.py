@@ -3,7 +3,7 @@ from typing import Any
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.security.outbound_proxy import external_requests, make_proxied_requests_session
+from posthog.security.outbound_proxy import external_requests, external_requests_session
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.buildbetter.queries import QUERIES, VIEWER_QUERY
 from posthog.temporal.data_imports.sources.buildbetter.settings import BUILDBETTER_API_URL, BUILDBETTER_ENDPOINTS
@@ -30,7 +30,7 @@ def _make_paginated_request(
 
     graphql_query_name = endpoint_config.graphql_query_name or endpoint_name
 
-    sess = make_proxied_requests_session()
+    sess = external_requests_session()
     sess.headers.update(
         {
             "X-Buildbetter-API-Key": api_key,

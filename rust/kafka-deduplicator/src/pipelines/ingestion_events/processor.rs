@@ -24,13 +24,13 @@ use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
-    DUPLICATE_EVENTS_PUBLISHED_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
-    PARTITION_BATCH_PROCESSING_DURATION_MS, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
-    TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
-    TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM, TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM,
-    TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
+    DUPLICATE_EVENTS_PUBLISHED_COUNTER, EVENT_PARSING_DURATION_MS, FAIL_OPEN_EVENTS_PASSED_THROUGH,
+    KAFKA_PRODUCER_SEND_DURATION_MS, PARTITION_BATCH_PROCESSING_DURATION_MS,
+    TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
+    TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
+    TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
 };
-use crate::pipelines::traits::EventParser;
+use crate::pipelines::traits::{EventParser, FailOpenProcessor};
 use crate::pipelines::DeduplicationResult;
 use crate::pipelines::{TimestampDeduplicator, TimestampDeduplicatorConfig};
 use crate::store::DeduplicationStoreConfig;
@@ -48,6 +48,8 @@ pub struct DeduplicationConfig {
     pub store_config: DeduplicationStoreConfig,
     pub producer_send_timeout: Duration,
     pub flush_interval: Duration,
+    /// When true, bypass all deduplication and forward events directly to the output topic.
+    pub fail_open: bool,
 }
 
 #[derive(Clone)]
@@ -138,6 +140,10 @@ pub struct IngestionEventsBatchProcessor {
 #[async_trait]
 impl BatchConsumerProcessor<CapturedEvent> for IngestionEventsBatchProcessor {
     async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
+        if self.config.fail_open {
+            return self.process_batch_fail_open(messages).await;
+        }
+
         // Organize messages by partition
         let messages_by_partition = messages
             .iter()
@@ -159,6 +165,87 @@ impl BatchConsumerProcessor<CapturedEvent> for IngestionEventsBatchProcessor {
         for result in results {
             result?;
         }
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl FailOpenProcessor<CapturedEvent> for IngestionEventsBatchProcessor {
+    async fn process_batch_fail_open(
+        &self,
+        messages: Vec<KafkaMessage<CapturedEvent>>,
+    ) -> Result<()> {
+        let batch_start = Instant::now();
+        let message_count = messages.len();
+
+        let (producer, output_topic) = match (&self.producer, &self.config.output_topic) {
+            (Some(p), Some(t)) => (p.clone(), t.clone()),
+            _ => {
+                // No output topic configured — nothing to forward
+                metrics::counter!(FAIL_OPEN_EVENTS_PASSED_THROUGH).increment(message_count as u64);
+                return Ok(());
+            }
+        };
+
+        let mut publish_futures = Vec::with_capacity(message_count);
+        for msg in &messages {
+            let (payload, headers) = msg.to_original_contents();
+            let key = msg
+                .key_as_str()
+                .and_then(|r| r.ok())
+                .unwrap_or("")
+                .to_string();
+
+            publish_futures.push(Self::publish_event_static(
+                producer.clone(),
+                payload.to_vec(),
+                headers.cloned(),
+                key,
+                output_topic.clone(),
+                self.config.producer_send_timeout,
+            ));
+        }
+
+        let results = join_all(publish_futures).await;
+
+        let mut max_producer_offset: Option<i64> = None;
+        for result in results {
+            match result {
+                Ok(offset) => {
+                    max_producer_offset =
+                        Some(max_producer_offset.map_or(offset, |current| current.max(offset)));
+                }
+                Err(e) => {
+                    error!("Failed to publish event in fail-open mode: {e:#}");
+                    return Err(e);
+                }
+            }
+        }
+
+        // Record the max producer offset for checkpointing
+        if let Some(ref tracker) = self.offset_tracker {
+            if let Some(offset) = max_producer_offset {
+                // In fail-open mode, messages may span multiple partitions in this batch.
+                // Record offset per input partition for accuracy.
+                for msg in &messages {
+                    let partition = msg.get_topic_partition();
+                    tracker.mark_produced(&partition, offset);
+                }
+            }
+        }
+
+        metrics::counter!(FAIL_OPEN_EVENTS_PASSED_THROUGH).increment(message_count as u64);
+
+        let batch_duration = batch_start.elapsed();
+        metrics::histogram!(PARTITION_BATCH_PROCESSING_DURATION_MS)
+            .record(batch_duration.as_millis() as f64);
+
+        debug!(
+            message_count = message_count,
+            duration_ms = batch_duration.as_millis(),
+            "Fail-open: forwarded batch without deduplication"
+        );
 
         Ok(())
     }
@@ -527,6 +614,7 @@ mod tests {
             store_config,
             producer_send_timeout: std::time::Duration::from_secs(5),
             flush_interval: std::time::Duration::from_secs(120),
+            fail_open: false,
         };
 
         (config, temp_dir)

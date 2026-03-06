@@ -102,7 +102,7 @@ import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagForm } from './FeatureFlagForm'
-import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagOverviewV2 } from './FeatureFlagOverviewV2'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
@@ -198,7 +198,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             props.id !== 'link' &&
             featureFlag?.id
         ),
-        deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
     })
 
     if (featureFlagMissing) {
@@ -306,7 +305,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         content: <FeedbackTab featureFlag={featureFlag} />,
     })
 
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL]) {
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL] === 'test') {
         tabs.push({
             label: (
                 <div className="flex flex-row">
@@ -405,7 +404,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         <>
                                             <LemonInput
                                                 value={value}
-                                                onChange={onChange}
+                                                onChange={(v) => {
+                                                    const normalized = slugifyFeatureFlagKey(v)
+                                                    onChange(normalized)
+                                                }}
                                                 data-attr="feature-flag-key"
                                                 className="ph-ignore-input"
                                                 autoFocus
@@ -423,11 +425,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
 
                                 <LemonField name="name" label="Description">
-                                    <LemonTextArea
-                                        className="ph-ignore-input"
-                                        data-attr="feature-flag-description"
-                                        defaultValue={featureFlag.name || ''}
-                                    />
+                                    {({ value, onChange }) => (
+                                        <LemonTextArea
+                                            className="ph-ignore-input"
+                                            data-attr="feature-flag-description"
+                                            value={value || ''}
+                                            onChange={onChange}
+                                        />
+                                    )}
                                 </LemonField>
                             </div>
                             <SceneDivider />

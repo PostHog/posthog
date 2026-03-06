@@ -109,7 +109,7 @@ impl FromStr for TeamIdCollection {
 }
 
 /// Flag definitions rate limits configuration
-/// Parses JSON from FLAG_DEFINITIONS_RATE_LIMITS environment variable
+/// Parses JSON from LOCAL_EVAL_RATE_LIMITS environment variable
 /// Format: {"team_id": "rate_string", ...}
 /// Example: {"123": "1200/minute", "456": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -128,7 +128,7 @@ impl FromStr for FlagDefinitionsRateLimits {
 
         // Parse JSON into HashMap<String, String>
         let parsed: HashMap<String, String> = serde_json::from_str(s)
-            .map_err(|e| format!("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS as JSON: {e}"))?;
+            .map_err(|e| format!("Failed to parse rate limits as JSON: {e}"))?;
 
         // Convert string keys to TeamId
         let mut rate_limits = HashMap::new();
@@ -228,10 +228,16 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
-    // How long to wait for a connection from the pool before timing out
-    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
-    // - Decrease for faster failure detection (minimum 1s)
-    #[envconfig(default = "5")]
+    // Maximum time for a /flags request before the server aborts it (milliseconds).
+    // Must be below Envoy's route timeout (5s) so the server cleans up resources
+    // (connections, queries) before Envoy kills the downstream connection.
+    #[envconfig(default = "4500")]
+    pub request_timeout_ms: u64,
+
+    // How long to wait for a connection from the pool before timing out.
+    // Must be well under request_timeout_ms so there's still time for query + response.
+    // With Envoy at 5s and request_timeout at 4.5s, 2s leaves room for a query + serialization.
+    #[envconfig(default = "2")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -377,14 +383,14 @@ pub struct Config {
 
     // Flag definitions rate limiting
     // Default rate limit for all teams (requests per minute)
-    // Can be overridden per-team using FLAG_DEFINITIONS_RATE_LIMITS
+    // Can be overridden per-team using LOCAL_EVAL_RATE_LIMITS
     #[envconfig(from = "FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE", default = "600")]
     pub flag_definitions_default_rate_per_minute: u32,
 
-    // Per-team rate limit overrides for flag definitions endpoint
+    // Per-team rate limit overrides for flag definitions endpoint (shared with Django)
     // JSON format: {"team_id": "rate_string", ...}
     // Example: {"123": "1200/minute", "456": "2400/hour"}
-    #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
+    #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
     // OpenTelemetry configuration
@@ -637,7 +643,8 @@ impl Config {
             min_non_persons_writer_connections: 0,
             min_persons_reader_connections: 0,
             min_persons_writer_connections: 0,
-            acquire_timeout_secs: 3,
+            request_timeout_ms: 30_000,
+            acquire_timeout_secs: 5,
             idle_timeout_secs: 300,
             test_before_acquire: FlexBool(true),
             non_persons_reader_statement_timeout_ms: 2000,
@@ -973,9 +980,7 @@ mod tests {
     fn test_flag_definitions_rate_limits_invalid_json() {
         let result: Result<FlagDefinitionsRateLimits, _> = "not json".parse();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS"));
+        assert!(result.unwrap_err().contains("Failed to parse rate limits"));
     }
 
     #[test]
