@@ -1,6 +1,7 @@
 import re
 from typing import Any, cast
 
+import django_filters
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, request, response, serializers, status
@@ -188,6 +189,18 @@ class SCIMRequestLogPagination(PageNumberPagination):
     max_page_size = 100
 
 
+class SCIMRequestLogFilter(django_filters.FilterSet):
+    status_min = django_filters.NumberFilter(field_name="response_status", lookup_expr="gte")
+    status_max = django_filters.NumberFilter(field_name="response_status", lookup_expr="lte")
+    search = django_filters.CharFilter(field_name="request_path", lookup_expr="icontains")
+    after = django_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="gte")
+    before = django_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="lte")
+
+    class Meta:
+        model = SCIMRequestLog
+        fields: list[str] = []
+
+
 @extend_schema(tags=["core"])
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
@@ -272,24 +285,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     def scim_logs(self, request: Request, **kwargs) -> response.Response:
         domain: OrganizationDomain = self.get_object()
         queryset = SCIMRequestLog.objects.filter(organization_domain=domain)
-
-        status_min = request.query_params.get("status_min")
-        status_max = request.query_params.get("status_max")
-        if status_min:
-            queryset = queryset.filter(response_status__gte=int(status_min))
-        if status_max:
-            queryset = queryset.filter(response_status__lte=int(status_max))
-
-        search = request.query_params.get("search")
-        if search:
-            queryset = queryset.filter(request_path__icontains=search)
-
-        after = request.query_params.get("after")
-        before = request.query_params.get("before")
-        if after:
-            queryset = queryset.filter(created_at__gte=after)
-        if before:
-            queryset = queryset.filter(created_at__lte=before)
+        queryset = SCIMRequestLogFilter(request.query_params, queryset=queryset).qs
 
         paginator = SCIMRequestLogPagination()
         page = paginator.paginate_queryset(queryset, request)
