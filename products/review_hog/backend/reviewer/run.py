@@ -6,7 +6,6 @@ import anyio
 
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.tools.calculate_token_usage import calculate_token_usage
 from products.review_hog.backend.reviewer.tools.chunk_analysis import analyze_chunks
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
@@ -156,11 +155,6 @@ async def main() -> None:
         pr_metadata=pr_metadata.model_dump(),
     )
     logger.info("Validation markdown preparation completed successfully!")
-
-    # Calculate token usage metrics
-    logger.info("Calculating token usage metrics...")
-    await calculate_token_usage(review_dir=review_dir)
-    logger.info("Token usage calculation completed successfully!")
 
 
 if __name__ == "__main__":
