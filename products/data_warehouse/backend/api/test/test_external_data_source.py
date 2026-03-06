@@ -893,7 +893,13 @@ class TestExternalDataSource(APIBaseTest):
     def test_refresh_schemas_direct_postgres_keeps_disabled_schema_table_deleted(self, mock_get_source):
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
-            SourceSchema(name="Accounts", columns=[("id", "integer", False)], foreign_keys=[])
+            SourceSchema(
+                name="Accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            )
         ]
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -979,6 +985,7 @@ class TestExternalDataSource(APIBaseTest):
                 supports_incremental=False,
                 supports_append=False,
                 columns=[("id", "integer", False)],
+                foreign_keys=[],
             ),
         ]
 
@@ -1023,12 +1030,14 @@ class TestExternalDataSource(APIBaseTest):
                 supports_incremental=False,
                 supports_append=False,
                 columns=[("id", "integer", False)],
+                foreign_keys=[],
             ),
             SourceSchema(
                 name="payments",
                 supports_incremental=False,
                 supports_append=False,
                 columns=[("id", "integer", False)],
+                foreign_keys=[],
             ),
         ]
 
@@ -1278,7 +1287,16 @@ class TestExternalDataSource(APIBaseTest):
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
         return_value={"table_1": 42},
     )
-    def test_internal_postgres(self, patch_get_sql_schemas_for_source_type, patch_get_postgres_row_count):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+        return_value={},
+    )
+    def test_internal_postgres(
+        self,
+        patch_get_sql_schemas_for_source_type,
+        patch_get_postgres_row_count,
+        _patch_get_postgres_foreign_keys,
+    ):
         # This test checks handling of project ID 2 in Cloud US and project ID 1 in Cloud EU,
         # so let's make sure there are no projects with these IDs in the test DB
         Project.objects.filter(id__in=[1, 2]).delete()

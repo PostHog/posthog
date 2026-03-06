@@ -653,9 +653,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source_schema = next(
                 (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
             )
-            schema_metadata = postgres_schema_metadata(
-                source_schema.columns if source_schema else [],
-                source_schema.foreign_keys if source_schema else [],
+            schema_metadata = (
+                postgres_schema_metadata(
+                    source_schema.columns if source_schema else [],
+                    source_schema.foreign_keys if source_schema else [],
+                )
+                if source_type_model == ExternalDataSourceType.POSTGRES
+                else {}
             )
 
             schema_model = ExternalDataSchema.objects.create(
