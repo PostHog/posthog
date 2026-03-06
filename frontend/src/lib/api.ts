@@ -3518,13 +3518,6 @@ const api = {
         async delete(id: string): Promise<void> {
             await new ApiRequest().mcpServerInstallation(id).delete()
         },
-        async oauthCallback(data: {
-            code: string
-            server_id: string
-            state_token?: string
-        }): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallations().withAction('oauth_callback').create({ data })
-        },
         async installCustom(data: {
             name: string
             url: string

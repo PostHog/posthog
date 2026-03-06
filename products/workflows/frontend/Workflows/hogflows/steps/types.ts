@@ -279,6 +279,10 @@ export const isOptOutEligibleAction = (
     return ['function_email', 'function_sms'].includes(action.type)
 }
 
+export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_email' }> => {
+    return ['function_email'].includes(action.type)
+}
+
 export const isFunctionAction = (
     action: HogFlowAction
 ): action is Extract<HogFlowAction, { type: 'function' | 'function_sms' | 'function_email' }> => {
