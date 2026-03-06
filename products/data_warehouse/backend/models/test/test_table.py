@@ -99,6 +99,31 @@ class TestTable(BaseTest):
         assert isinstance(definition, DirectPostgresTable)
         assert definition.postgres_table_name == "Accounts"
 
+    def test_direct_postgres_table_name_normalization_with_legacy_mixed_case_prefix(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        table = DataWarehouseTable.objects.create(
+            name="readable name_postgres_accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectPostgresTable)
+        assert definition.postgres_table_name == "accounts"
+
     def test_get_columns(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         table = DataWarehouseTable.objects.create(

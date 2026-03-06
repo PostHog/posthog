@@ -940,6 +940,56 @@ class TestExternalDataSource(APIBaseTest):
         self.assertTrue(DataWarehouseTable.raw_objects.get(pk=table.pk).deleted)
         self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["name"], "id")
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_direct_postgres_preserves_disabled_schema_when_it_reappears(self, mock_get_source):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="Accounts",
+            should_sync=False,
+            sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
+        )
+
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = []
+        first_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        schema.refresh_from_db()
+        self.assertTrue(schema.deleted)
+
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="Accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            )
+        ]
+        second_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        schema.refresh_from_db()
+        self.assertFalse(schema.deleted)
+        self.assertFalse(schema.should_sync)
+        self.assertIsNone(schema.table)
+
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",

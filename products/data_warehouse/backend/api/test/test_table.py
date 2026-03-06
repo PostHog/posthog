@@ -436,6 +436,30 @@ class TestTable(APIBaseTest):
 
         assert table.deleted is False
 
+    def test_refresh_schema_direct_postgres_table_not_exposed_via_warehouse_tables_api(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        table = DataWarehouseTable.objects.create(
+            name=f"postgres_{source.pk.hex}_accounts",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern="direct://postgres",
+            external_data_source_id=source.pk,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}/refresh_schema")
+
+        assert response.status_code == 404
+
     def test_create_table_with_internal_bucket_url(self):
         with override_settings(DATAWAREHOUSE_BUCKET_DOMAIN="somedomain.com"):
             response = self.client.post(

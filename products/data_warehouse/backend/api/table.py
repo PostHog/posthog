@@ -229,6 +229,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
+            .exclude(url_pattern="direct://postgres")
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )

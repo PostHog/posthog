@@ -191,8 +191,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         prefix = self.external_data_source.prefix or ""
         legacy_table_prefix = f"{prefix}_{source_type}_" if prefix else f"{source_type}_"
+        normalized_legacy_table_prefix = legacy_table_prefix.lower()
 
-        if self.name.lower().startswith(legacy_table_prefix):
+        if self.name.lower().startswith(normalized_legacy_table_prefix):
             return self.name[len(legacy_table_prefix) :]
 
         return self.table_name_without_prefix()
