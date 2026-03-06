@@ -63,32 +63,17 @@ impl RayonDispatcher {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let available_before = self.available_permits();
-        gauge(
-            RAYON_DISPATCHER_AVAILABLE_PERMITS,
-            &[],
-            available_before as f64,
-        );
-
-        inc(RAYON_DISPATCHER_TOTAL_ACQUIRES, &[], 1);
-        if available_before == 0 {
-            inc(RAYON_DISPATCHER_CONTENDED_ACQUIRES, &[], 1);
-        }
-
-        let wait_start = std::time::Instant::now();
-        let permit = self.acquire().await;
-        histogram(
-            RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
-            &[],
-            wait_start.elapsed().as_secs_f64() * 1000.0,
-        );
-
+        // try_acquire(None) is infallible — no timeout means unbounded wait
+        let permit = self
+            .try_acquire(None)
+            .await
+            .expect("try_acquire(None) is infallible");
         Self::dispatch(permit, work).await
     }
 
     /// Like [`spawn`](Self::spawn), but respects the configured semaphore timeout.
     ///
-    /// - When `self.timeout` is `None`: delegates to `spawn`, wraps in `Ok`.
+    /// - When `self.timeout` is `None`: acquires without timeout, wraps in `Ok`.
     /// - When `self.timeout` is `Some(d)`: if the semaphore wait exceeds `d`,
     ///   returns `Err(SemaphoreTimeout)` so the caller can fail fast (HTTP 504).
     pub async fn try_spawn<F, R>(&self, work: F) -> Result<Option<R>, SemaphoreTimeout>
@@ -96,11 +81,23 @@ impl RayonDispatcher {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let deadline = match self.timeout {
-            None => return Ok(self.spawn(work).await),
-            Some(d) => d,
-        };
+        let permit = self.try_acquire(self.timeout).await?;
+        Ok(Self::dispatch(permit, work).await)
+    }
 
+    /// Number of permits not currently held. Useful for saturation metrics.
+    pub fn available_permits(&self) -> usize {
+        self.semaphore.available_permits()
+    }
+
+    /// Acquires a semaphore permit, recording all acquire-time metrics.
+    ///
+    /// When `timeout` is `None`, waits without limit. When `Some(d)`, fails
+    /// with `SemaphoreTimeout` if the permit isn't acquired within `d`.
+    async fn try_acquire(
+        &self,
+        timeout: Option<Duration>,
+    ) -> Result<OwnedSemaphorePermit, SemaphoreTimeout> {
         let available_before = self.available_permits();
         gauge(
             RAYON_DISPATCHER_AVAILABLE_PERMITS,
@@ -114,33 +111,26 @@ impl RayonDispatcher {
         }
 
         let wait_start = std::time::Instant::now();
-        let permit = match tokio::time::timeout(deadline, self.acquire()).await {
-            Ok(permit) => {
-                histogram(
-                    RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
-                    &[],
-                    wait_start.elapsed().as_secs_f64() * 1000.0,
-                );
-                permit
-            }
-            Err(_) => {
-                let waited = wait_start.elapsed();
-                histogram(
-                    RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
-                    &[],
-                    waited.as_secs_f64() * 1000.0,
-                );
-                inc(RAYON_DISPATCHER_SEMAPHORE_TIMEOUTS, &[], 1);
-                return Err(SemaphoreTimeout { waited });
-            }
+        let result = match timeout {
+            None => Ok(self.acquire().await),
+            Some(deadline) => tokio::time::timeout(deadline, self.acquire())
+                .await
+                .map_err(|_| wait_start.elapsed()),
         };
 
-        Ok(Self::dispatch(permit, work).await)
-    }
+        histogram(
+            RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
+            &[],
+            wait_start.elapsed().as_secs_f64() * 1000.0,
+        );
 
-    /// Number of permits not currently held. Useful for saturation metrics.
-    pub fn available_permits(&self) -> usize {
-        self.semaphore.available_permits()
+        match result {
+            Ok(permit) => Ok(permit),
+            Err(waited) => {
+                inc(RAYON_DISPATCHER_SEMAPHORE_TIMEOUTS, &[], 1);
+                Err(SemaphoreTimeout { waited })
+            }
+        }
     }
 
     async fn acquire(&self) -> OwnedSemaphorePermit {
@@ -268,21 +258,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn try_spawn_returns_ok_none_on_panic() {
+        let dispatcher = RayonDispatcher::new(2, Some(Duration::from_secs(5)));
+        let result = dispatcher
+            .try_spawn(|| {
+                panic!("intentional test panic");
+            })
+            .await;
+        assert_eq!(result.unwrap(), None::<()>);
+    }
+
+    #[tokio::test]
     async fn try_spawn_returns_err_on_timeout() {
         // 1 permit, block it with a long-running task
         let dispatcher = RayonDispatcher::new(1, Some(Duration::from_millis(10)));
 
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let (acquired_tx, acquired_rx) = tokio::sync::oneshot::channel::<()>();
         let d = dispatcher.clone();
         let _blocker = tokio::spawn(async move {
             d.spawn(move || {
+                let _ = acquired_tx.send(());
                 let _ = rx.blocking_recv();
             })
             .await
         });
 
-        // Wait for the blocker to acquire the permit
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        // Wait for the blocker to actually acquire the permit
+        acquired_rx.await.unwrap();
 
         // This should timeout because the permit is held
         let result = dispatcher.try_spawn(|| 99).await;
