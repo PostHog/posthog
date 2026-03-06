@@ -68,8 +68,6 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
     } = useValues(logic)
     const { setActiveFieldKey, selectTable, setLocalDefinition } = useActions(logic)
 
-    console.debug('linkedTables', linkedTables)
-
     return (
         <div className="flex flex-col">
             <DatabaseTablePreview
