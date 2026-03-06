@@ -72,6 +72,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "insight": self.insight.id,
             "target_type": "email",
             "target_value": "test@posthog.com",
+            "integration": None,
             "frequency": "weekly",
             "interval": 1,
             "byweekday": None,

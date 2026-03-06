@@ -13,6 +13,7 @@ from posthog.models.subscription import Subscription
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     _block_for_asset,
+    get_slack_integration_for_subscription,
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
@@ -209,7 +210,33 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
 
         assert mock_slack_integration.client.chat_postMessage.call_count == 0
 
-        # TODO: Should we perhaps save something to say the Subscription failed?
+    def test_subscription_uses_stored_integration(self, MockSlackIntegration: MagicMock) -> None:
+        mock_slack_integration = MagicMock()
+        MockSlackIntegration.return_value = mock_slack_integration
+        mock_slack_integration.client.chat_postMessage.return_value = {"ts": "1.234"}
+
+        integration_2 = Integration.objects.create(team=self.team, kind="slack")
+        self.subscription.integration = integration_2
+        self.subscription.save()
+
+        send_slack_subscription_report(self.subscription, [self.asset], 1)
+
+        assert mock_slack_integration.client.chat_postMessage.call_count == 1
+        MockSlackIntegration.assert_called_with(integration_2)
+
+    def test_get_slack_integration_for_subscription_with_stored_integration(
+        self, _MockSlackIntegration: MagicMock
+    ) -> None:
+        integration_2 = Integration.objects.create(team=self.team, kind="slack")
+        self.subscription.integration = integration_2
+        self.subscription.save()
+
+        result = get_slack_integration_for_subscription(self.subscription)
+        assert result == integration_2
+
+    def test_get_slack_integration_for_subscription_falls_back_to_first(self, _MockSlackIntegration: MagicMock) -> None:
+        result = get_slack_integration_for_subscription(self.subscription)
+        assert result == self.integration
 
 
 @patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")

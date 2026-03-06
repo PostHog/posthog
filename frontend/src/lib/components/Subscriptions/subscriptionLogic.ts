@@ -161,6 +161,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (key === 'target_type') {
                 actions.setSubscriptionValues({
                     target_value: '',
+                    integration: null,
                 })
             }
         },

@@ -39,6 +39,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "insight",
             "target_type",
             "target_value",
+            "integration",
             "frequency",
             "interval",
             "byweekday",
@@ -73,6 +74,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
+
+        if attrs.get("integration"):
+            integration = attrs["integration"]
+            if integration.team_id != self.context["team_id"]:
+                raise ValidationError({"integration": ["This integration does not belong to your team."]})
+            if integration.kind != "slack":
+                raise ValidationError({"integration": ["Only Slack integrations are supported."]})
 
         # SSRF protection for webhook subscriptions
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)

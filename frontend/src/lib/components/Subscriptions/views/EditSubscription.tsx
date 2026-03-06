@@ -65,8 +65,11 @@ export function EditSubscription({
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations } = useValues(integrationsLogic)
-    // TODO: Fix this so that we use the appropriate config...
-    const firstSlackIntegration = slackIntegrations?.[0]
+    const { setSubscriptionValue } = useActions(logic)
+
+    const hasMultipleSlackIntegrations = (slackIntegrations?.length ?? 0) > 1
+    const selectedSlackIntegration =
+        slackIntegrations?.find((i) => i.id === subscription?.integration) ?? slackIntegrations?.[0]
 
     const emailDisabled = !preflight?.email_service_available
 
@@ -206,10 +209,27 @@ export function EditSubscription({
 
                         {subscription.target_type === 'slack' ? (
                             <>
-                                {!firstSlackIntegration ? (
+                                {!selectedSlackIntegration ? (
                                     <SlackNotConfiguredBanner />
                                 ) : (
                                     <>
+                                        {hasMultipleSlackIntegrations && (
+                                            <LemonField name="integration" label="Slack workspace">
+                                                {() => (
+                                                    <LemonSelect
+                                                        options={slackIntegrations!.map((integration) => ({
+                                                            label: integration.display_name,
+                                                            value: integration.id,
+                                                        }))}
+                                                        value={selectedSlackIntegration.id}
+                                                        onChange={(value) => {
+                                                            setSubscriptionValue('integration', value)
+                                                            setSubscriptionValue('target_value', '')
+                                                        }}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
                                         <LemonField
                                             name="target_value"
                                             label="Which Slack channel to send reports to"
@@ -228,7 +248,7 @@ export function EditSubscription({
                                                 <SlackChannelPicker
                                                     value={value}
                                                     onChange={onChange}
-                                                    integration={firstSlackIntegration}
+                                                    integration={selectedSlackIntegration}
                                                 />
                                             )}
                                         </LemonField>

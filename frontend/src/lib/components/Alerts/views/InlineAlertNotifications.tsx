@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { IconExternal, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import {
@@ -52,6 +53,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         existingHogFunctionsLoading,
         pendingNotifications,
         firstSlackIntegration,
+        hasMultipleSlackIntegrations,
         selectedType,
         slackChannelValue,
         webhookUrl,
@@ -63,7 +65,9 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
+        setSelectedSlackIntegrationId,
     } = useActions(logic)
+    const { slackIntegrations } = useValues(integrationsLogic)
 
     const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
     const { slackChannels } = useValues(slackLogic)
@@ -196,11 +200,28 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                         {!firstSlackIntegration ? (
                             <SlackNotConfiguredBanner />
                         ) : (
-                            <SlackChannelPicker
-                                value={slackChannelValue ?? undefined}
-                                onChange={(value) => setSlackChannelValue(value)}
-                                integration={firstSlackIntegration}
-                            />
+                            <>
+                                {hasMultipleSlackIntegrations && slackIntegrations && (
+                                    <LemonSelect
+                                        fullWidth
+                                        options={slackIntegrations.map((integration) => ({
+                                            label: integration.display_name,
+                                            value: integration.id,
+                                        }))}
+                                        value={firstSlackIntegration.id}
+                                        onChange={(value) => {
+                                            setSelectedSlackIntegrationId(value)
+                                            setSlackChannelValue(null)
+                                        }}
+                                        placeholder="Select workspace"
+                                    />
+                                )}
+                                <SlackChannelPicker
+                                    value={slackChannelValue ?? undefined}
+                                    onChange={(value) => setSlackChannelValue(value)}
+                                    integration={firstSlackIntegration}
+                                />
+                            </>
                         )}
                     </>
                 )}

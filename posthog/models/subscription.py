@@ -71,6 +71,7 @@ class Subscription(models.Model):
     title = models.CharField(max_length=100, null=True, blank=True)
     target_type = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
     target_value = models.TextField()
+    integration = models.ForeignKey("posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True)
 
     # Subscription delivery (related to rrule)
     frequency = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)

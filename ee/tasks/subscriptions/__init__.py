@@ -13,7 +13,7 @@ from posthog.tasks.exports.failure_handler import is_user_query_error_type
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
-    get_slack_integration_for_team,
+    get_slack_integration_for_subscription,
     send_slack_message_with_integration_async,
 )
 from ee.tasks.subscriptions.subscription_utils import _has_asset_failed, generate_assets_async
@@ -88,7 +88,7 @@ async def deliver_subscription_report_async(
     # Fetch subscription asynchronously
     logger.info("deliver_subscription_report_async.loading_subscription", subscription_id=subscription_id)
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "insight", "dashboard", "team").get,
+        Subscription.objects.select_related("created_by", "insight", "dashboard", "team", "integration").get,
         thread_sensitive=False,
     )(pk=subscription_id)
 
@@ -203,8 +203,8 @@ async def deliver_subscription_report_async(
 
         try:
             logger.info("deliver_subscription_report_async.loading_slack_integration", subscription_id=subscription_id)
-            integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
-                subscription.team_id
+            integration = await database_sync_to_async(get_slack_integration_for_subscription, thread_sensitive=False)(
+                subscription
             )
 
             if not integration:

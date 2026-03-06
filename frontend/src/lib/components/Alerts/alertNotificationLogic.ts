@@ -48,6 +48,7 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         setSelectedType: (selectedType: AlertNotificationType) => ({ selectedType }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
+        setSelectedSlackIntegrationId: (id: number | null) => ({ id }),
     }),
 
     reducers({
@@ -78,6 +79,12 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 setSelectedType: (_, { selectedType }) => selectedType,
             },
         ],
+        selectedSlackIntegrationId: [
+            null as number | null,
+            {
+                setSelectedSlackIntegrationId: (_, { id }) => id,
+            },
+        ],
         existingHogFunctions: [
             [] as HogFunctionType[],
             {
@@ -88,10 +95,17 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
     }),
 
     selectors({
-        // Use first available Slack integration to determine if Slack should be the default notification type
         firstSlackIntegration: [
+            (s) => [s.slackIntegrations, s.selectedSlackIntegrationId],
+            (
+                slackIntegrations: IntegrationType[] | undefined,
+                selectedId: number | null
+            ): IntegrationType | undefined =>
+                slackIntegrations?.find((i) => i.id === selectedId) ?? slackIntegrations?.[0],
+        ],
+        hasMultipleSlackIntegrations: [
             (s) => [s.slackIntegrations],
-            (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
+            (slackIntegrations: IntegrationType[] | undefined): boolean => (slackIntegrations?.length ?? 0) > 1,
         ],
     }),
 

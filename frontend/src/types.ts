@@ -4792,6 +4792,7 @@ export interface SubscriptionType {
     dashboard?: number
     target_type: string
     target_value: string
+    integration?: number | null
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
     byweekday: WeekdayType[] | null
