@@ -105,6 +105,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         default="total_count",
     )
     filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
+    hide_zero_coordinates = serializers.BooleanField(required=False, default=True)
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -234,6 +235,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer.is_valid(raise_exception=True)
 
         aggregation = request_serializer.validated_data.pop("aggregation")
+        hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
@@ -242,6 +244,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
         exprs = self._predicate_expressions(placeholders)
+
+        if hide_zero_coordinates and not is_scrolldepth_query:
+            exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
 
         if request_serializer.validated_data.get("filter_test_accounts") is True:
             date_from: date = request_serializer.validated_data["date_from"]
@@ -361,6 +366,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         offset = validated_data.pop("offset")
         points = validated_data.pop("points")
         validated_data.pop("aggregation", None)
+        validated_data.pop("hide_zero_coordinates", None)
 
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))

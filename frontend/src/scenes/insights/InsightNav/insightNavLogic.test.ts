@@ -81,7 +81,7 @@ describe('insightNavLogic', () => {
                             {
                                 event: '$pageview',
                                 kind: 'EventsNode',
-                                name: '$pageview',
+                                name: 'Pageview',
                             },
                         ],
                     },

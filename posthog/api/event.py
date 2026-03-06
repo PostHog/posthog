@@ -475,6 +475,8 @@ class EventViewSet(
             value=request.GET.get("value"),
         )
 
+        force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
+
         if key == "custom_event":
             return self._custom_event_values(query_params)
         else:
@@ -482,11 +484,12 @@ class EventViewSet(
             if self._is_property_hidden(key, team):
                 return self._return_with_short_cache([], refreshing=False)
 
-            return self._event_property_values(query_params)
+            return self._event_property_values(query_params, force_refresh=force_refresh)
 
     def _event_property_values(
         self,
         query_params: EventValueQueryParams,
+        force_refresh: bool = False,
     ) -> response.Response:
         from posthog.hogql_queries.property_values_query_runner import (
             CachedPropertyValuesQueryResponse,
@@ -525,7 +528,12 @@ class EventViewSet(
                     event_names=query_params.event_names or None,
                 ),
             )
-            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            execution_mode = (
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                if force_refresh
+                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            result = runner.run(execution_mode)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)

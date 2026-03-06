@@ -429,7 +429,8 @@ The response includes the summary text and optional metadata.
                     "force_refresh": force_refresh,
                     "duration_seconds": duration_seconds,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
             return Response(result, status=status.HTTP_200_OK)

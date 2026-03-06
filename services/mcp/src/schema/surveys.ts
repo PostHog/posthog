@@ -33,16 +33,17 @@ const ChoiceResponseBranching = z
     .describe('For single choice questions: use choice indices as string keys ("0", "1", "2", etc.)')
 
 // NPS sentiment branching - uses sentiment categories
+const NPSSentimentValue = z.union([z.number(), z.literal('end')])
+
 const NPSSentimentBranching = z
     .object({
         type: z.literal('response_based'),
         responseValues: z
-            .record(
-                z
-                    .enum(['detractors', 'passives', 'promoters'])
-                    .describe('NPS sentiment categories: detractors (0-6), passives (7-8), promoters (9-10)'),
-                z.union([z.number(), z.literal('end')])
-            )
+            .object({
+                detractors: NPSSentimentValue.optional().describe('NPS detractors (0-6)'),
+                passives: NPSSentimentValue.optional().describe('NPS passives (7-8)'),
+                promoters: NPSSentimentValue.optional().describe('NPS promoters (9-10)'),
+            })
             .describe(
                 "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
             ),
@@ -59,18 +60,17 @@ const MatchTypeEnum = z
     )
 
 // Rating sentiment branching - uses sentiment categories
+const RatingSentimentValue = z.union([z.number(), z.literal('end')])
+
 const RatingSentimentBranching = z
     .object({
         type: z.literal('response_based'),
         responseValues: z
-            .record(
-                z
-                    .enum(['negative', 'neutral', 'positive'])
-                    .describe(
-                        'Rating sentiment categories: negative (lower third of scale), neutral (middle third), positive (upper third)'
-                    ),
-                z.union([z.number(), z.literal('end')])
-            )
+            .object({
+                negative: RatingSentimentValue.optional().describe('Lower third of scale'),
+                neutral: RatingSentimentValue.optional().describe('Middle third of scale'),
+                positive: RatingSentimentValue.optional().describe('Upper third of scale'),
+            })
             .describe(
                 "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
             ),

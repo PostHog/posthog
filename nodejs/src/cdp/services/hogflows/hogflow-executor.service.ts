@@ -609,10 +609,10 @@ export class HogFlowExecutorService {
         let triggeredForActor = ''
         if (!hasCurrentAction) {
             triggeredForActor = isWebhookTriggered
-                ? ` at request of [Actor:${invocation.state.event?.distinct_id || 'unknown'}]`
+                ? ` at request of [Actor:${invocation.state.event?.distinct_id ?? 'unknown'}]`
                 : ''
             triggeredForActor += hasAssociatedPerson
-                ? ` for [Person:${invocation.person?.id}|${invocation.person?.name}]`
+                ? ` for [Person:${invocation.person?.id}|${invocation.person?.name ?? 'unknown'}]`
                 : ''
         }
 

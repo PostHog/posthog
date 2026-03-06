@@ -1480,7 +1480,14 @@ export interface GroupActorType extends CommonActorType {
     group_type_index: integer
 }
 
-export type ActorType = PersonActorType | GroupActorType
+export interface SessionActorType extends CommonActorType {
+    type: 'session'
+    /** Session ID. */
+    id: string
+    person?: PersonActorType
+}
+
+export type ActorType = PersonActorType | GroupActorType | SessionActorType
 
 export interface CohortGroupType {
     id: string
@@ -2229,6 +2236,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     last_modified_by: UserBasicType | null
     last_viewed_at?: string | null
     viewers?: UserBasicType[]
+    view_count?: number
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
@@ -2238,6 +2246,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    is_cached?: boolean
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
@@ -2582,6 +2591,7 @@ export enum ChartDisplayType {
     WorldMap = 'WorldMap',
     CalendarHeatmap = 'CalendarHeatmap',
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
+    BoxPlot = 'BoxPlot',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -3504,6 +3514,7 @@ export interface ProductTourDisplayConditions {
     } | null
     linkedFlagVariant?: string
     seenTourWaitPeriod?: ProductTourWaitPeriod
+    deviceTypes?: string[]
 }
 
 export interface ProductTourAppearance {
@@ -4051,6 +4062,10 @@ export interface PreflightStatus {
         available: boolean
         client_id?: string
     }
+    twig_slack_service: {
+        available: boolean
+        client_id?: string
+    }
     data_warehouse_integrations: {
         hubspot: {
             client_id?: string
@@ -4139,6 +4154,7 @@ export type HotKey =
     | 'arrowup'
     | 'forwardslash'
     | 'delete'
+    | 'atsign'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export enum SchemaEnforcementMode {
@@ -4616,8 +4632,6 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Action/event filter defition */
         action?: ActionFilter | null
         yAxisID?: string
-        /** Total number of respondents for survey questions (for per-respondent percentage calculation) */
-        totalResponses?: number
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -4817,6 +4831,7 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
+    'slack-twig',
     'salesforce',
     'hubspot',
     'google-pubsub',
@@ -5070,6 +5085,7 @@ export type APIScopeObject =
     | 'ticket'
     | 'uploaded_media'
     | 'user'
+    | 'visual_review'
     | 'warehouse_table'
     | 'warehouse_view'
     | 'web_analytics'
@@ -5253,6 +5269,7 @@ export enum ActivityScope {
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     PRODUCT_TOUR = 'ProductTour',
+    TICKET = 'Ticket',
 }
 
 export type CommentType = {
@@ -5285,6 +5302,7 @@ export interface DataWarehouseTable {
     credential: DataWarehouseCredential
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
+    options?: { csv_allow_double_quotes?: boolean | null }
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
@@ -5362,11 +5380,6 @@ export interface DataWarehouseSavedQueryDraft {
     edited_history_id?: string
 }
 
-export interface DataWarehouseViewLinkConfiguration {
-    experiments_optimized?: boolean
-    experiments_timestamp_key?: string | null
-}
-
 export interface DataWarehouseViewLink {
     id: string
     source_table_name?: string
@@ -5376,7 +5389,6 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
-    configuration?: DataWarehouseViewLinkConfiguration
 }
 
 export interface DataWarehouseViewLinkValidation {
@@ -5808,6 +5820,7 @@ export type RawBatchExportBackfill = {
     start_at?: string
     end_at?: string
     last_updated_at?: string
+    total_records_count?: number
     progress?: BatchExportBackfillProgress
 }
 
@@ -5828,6 +5841,7 @@ export type BatchExportBackfill = {
     start_at?: Dayjs
     end_at?: Dayjs
     last_updated_at?: Dayjs
+    total_records_count?: number
     progress?: BatchExportBackfillProgress
 }
 
@@ -6741,6 +6755,38 @@ export interface LLMPrompt {
     created_at: string
     updated_at: string
     deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+}
+
+export interface LLMPromptPublic {
+    id: string
+    name: string
+    prompt: string
+    version: number
+    created_at: string
+    updated_at: string
+    deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+}
+
+export interface LLMPromptVersionSummary {
+    id: string
+    version: number
+    created_by: UserBasicType
+    created_at: string
+    is_latest: boolean
+}
+
+export interface LLMPromptResolveResponse {
+    prompt: LLMPrompt
+    versions: LLMPromptVersionSummary[]
+    has_more: boolean
 }
 
 // Managed viewset

@@ -17,6 +17,7 @@ import type {
     OAuthCallbackRequestApi,
     OAuthRedirectResponseApi,
     PaginatedMCPServerInstallationListApi,
+    PaginatedRecommendedServerListApi,
     PatchedMCPServerInstallationUpdateApi,
 } from './api.schemas'
 
@@ -147,6 +148,24 @@ export const mcpServerInstallationsDestroy = async (
     })
 }
 
+export const getMcpServerInstallationsProxyCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/mcp_server_installations/${id}/proxy/`
+}
+
+export const mcpServerInstallationsProxyCreate = async (
+    projectId: string,
+    id: string,
+    mCPServerInstallationApi: NonReadonly<MCPServerInstallationApi>,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getMcpServerInstallationsProxyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(mCPServerInstallationApi),
+    })
+}
+
 export const getMcpServerInstallationsAuthorizeRetrieveUrl = (
     projectId: string,
     params: McpServerInstallationsAuthorizeRetrieveParams
@@ -237,8 +256,8 @@ export const mcpServersList = async (
     projectId: string,
     params?: McpServersListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getMcpServersListUrl(projectId, params), {
+): Promise<PaginatedRecommendedServerListApi> => {
+    return apiMutator<PaginatedRecommendedServerListApi>(getMcpServersListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

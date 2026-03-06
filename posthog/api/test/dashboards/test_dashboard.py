@@ -23,6 +23,7 @@ from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.dashboard_tile import Text
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
+from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -629,9 +630,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         group_type.detail_dashboard_id = dashboard.id
         group_type.save()
 
+        cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
+        stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}"
+        cache.set(cache_key, [{"stale": True}], 300)
+        cache.set(stale_cache_key, [{"stale": True}], 300)
+
         self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
         group_type.refresh_from_db()
         self.assertIsNone(group_type.detail_dashboard_id)
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(stale_cache_key))
 
     def test_dashboard_items(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
@@ -877,18 +885,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert dashboard_json["tiles"][0]["show_description"] is False
 
     @patch("posthog.api.dashboards.dashboard.report_user_action")
-    def test_dashboard_from_template(self, mock_capture):
+    def test_dashboard_from_template(self, mock_report_user_action):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
         self.assertGreater(Insight.objects.count(), 1)
         self.assertEqual(response["creation_mode"], "template")
 
         # Assert analytics are sent
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "dashboard created",
             {
-                "$current_url": None,
-                "$session_id": mock.ANY,
                 "created_at": mock.ANY,
                 "dashboard_id": None,
                 "duplicated": False,
@@ -897,11 +903,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
-                "source": "web",
                 "tags_count": 0,
                 "template_key": "DEFAULT_APP",
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     def test_dashboard_creation_validation(self):
@@ -1544,7 +1550,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     @patch("posthog.api.dashboards.dashboard.report_user_action")
-    def test_create_from_template_json(self, mock_capture) -> None:
+    def test_create_from_template_json(self, mock_report_user_action) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
             {"template": valid_template, "creation_context": "onboarding"},
@@ -1564,12 +1570,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(dashboard["tiles"]), 1)
 
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "dashboard created",
             {
-                "$current_url": "https://posthog.com/my-referer",
-                "$session_id": "my-session-id",
                 "created_at": mock.ANY,
                 "creation_context": "onboarding",
                 "dashboard_id": dashboard["id"],
@@ -1579,11 +1583,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 1,
                 "pinned": False,
-                "source": "web",
                 "tags_count": 0,
                 "template_key": valid_template["template_name"],
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:

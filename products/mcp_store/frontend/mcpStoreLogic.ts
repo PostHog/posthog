@@ -8,30 +8,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 
+import type { MCPServerInstallationApi, RecommendedServerApi } from './generated/api.schemas'
 import type { mcpStoreLogicType } from './mcpStoreLogicType'
-
-export interface RecommendedServer {
-    name: string
-    url: string
-    description: string
-    icon_url: string
-    auth_type: 'api_key' | 'oauth'
-    oauth_provider_kind?: string
-}
-
-export interface MCPServerInstallation {
-    id: string
-    server_id: string | null
-    name: string
-    display_name: string
-    url: string
-    description: string
-    auth_type: 'api_key' | 'oauth'
-    needs_reauth: boolean
-    pending_oauth: boolean
-    created_at: string
-    updated_at: string
-}
 
 export interface CustomServerFormValues {
     name: string
@@ -113,30 +91,32 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
 
     loaders(({ values, actions }) => ({
         servers: [
-            [] as RecommendedServer[],
+            [] as RecommendedServerApi[],
             {
                 loadServers: async () => {
                     const response = await api.mcpServers.list()
-                    return response.results as RecommendedServer[]
+                    return response.results as RecommendedServerApi[]
                 },
             },
         ],
         installations: [
-            [] as MCPServerInstallation[],
+            [] as MCPServerInstallationApi[],
             {
                 loadInstallations: async () => {
                     const response = await api.mcpServerInstallations.list()
-                    return response.results as MCPServerInstallation[]
+                    return response.results as MCPServerInstallationApi[]
                 },
                 updateInstallation: async ({ id, data }: { id: string; data: Record<string, any> }) => {
-                    const updated = (await api.mcpServerInstallations.update(id, data)) as MCPServerInstallation
+                    const updated = (await api.mcpServerInstallations.update(id, data)) as MCPServerInstallationApi
                     lemonToast.success('Server updated')
-                    return values.installations.map((i: MCPServerInstallation) => (i.id === updated.id ? updated : i))
+                    return values.installations.map((i: MCPServerInstallationApi) =>
+                        i.id === updated.id ? updated : i
+                    )
                 },
                 uninstallServer: async (installationId: string) => {
                     await api.mcpServerInstallations.delete(installationId)
                     lemonToast.success('Server uninstalled')
-                    return values.installations.filter((i: MCPServerInstallation) => i.id !== installationId)
+                    return values.installations.filter((i: MCPServerInstallationApi) => i.id !== installationId)
                 },
                 completeOAuthInstall: async ({
                     code,
@@ -152,14 +132,14 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                             code,
                             server_id: serverId,
                             state_token: stateToken,
-                        })) as MCPServerInstallation
+                        })) as MCPServerInstallationApi
                         lemonToast.success('Server connected')
                         actions.loadServers()
                         const existing = values.installations.find(
-                            (i: MCPServerInstallation) => i.id === installation.id
+                            (i: MCPServerInstallationApi) => i.id === installation.id
                         )
                         if (existing) {
-                            return values.installations.map((i: MCPServerInstallation) =>
+                            return values.installations.map((i: MCPServerInstallationApi) =>
                                 i.id === installation.id ? installation : i
                             )
                         }
@@ -176,14 +156,15 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     selectors({
         installedServerIds: [
             (s) => [s.installations],
-            (installations: MCPServerInstallation[]): Set<string> =>
+            (installations: MCPServerInstallationApi[]): Set<string> =>
                 new Set(installations.filter((i) => i.server_id).map((i) => i.server_id!)),
         ],
         installedServerUrls: [
             (s) => [s.installations],
-            (installations: MCPServerInstallation[]): Set<string> => new Set(installations.map((i) => i.url)),
+            (installations: MCPServerInstallationApi[]): Set<string> =>
+                new Set(installations.map((i) => i.url).filter((url): url is string => !!url)),
         ],
-        recommendedServers: [(s) => [s.servers], (servers: RecommendedServer[]): RecommendedServer[] => servers],
+        recommendedServers: [(s) => [s.servers], (servers: RecommendedServerApi[]): RecommendedServerApi[] => servers],
     }),
 
     listeners(({ actions, values }) => ({

@@ -829,6 +829,8 @@ class PropertyDefinitionViewSet(
             cast(User, request.user),
             "property definition deleted",
             {"name": instance.name, "type": instance.get_type_display()},
+            team=self.team,
+            request=request,
         )
 
         log_activity(

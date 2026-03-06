@@ -98,6 +98,14 @@ export function HogFlowFunctionConfiguration({
             },
         }
         sampleGlobals.groups = {}
+    } else if (triggerType === 'batch') {
+        sampleGlobals.person = {
+            id: 'person123',
+            properties: {
+                email: 'user@example.com',
+                name: 'John Doe',
+            },
+        }
     }
 
     return (

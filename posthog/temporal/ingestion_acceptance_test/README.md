@@ -74,7 +74,7 @@ class TestExample(AcceptanceTest):
 - `merge_dangerously(into_id, from_id)` - Merge two persons
 - `query_event_by_uuid(uuid)` - Poll for an event by UUID
 - `query_person_by_distinct_id(distinct_id)` - Poll for a person
-- `query_events_by_person_id(person_id, expected_count)` - Poll for events by person
+- `query_events_by_person_id(person_id, expected_event_uuids)` - Poll for events by person
 
 **Available assertion methods:**
 

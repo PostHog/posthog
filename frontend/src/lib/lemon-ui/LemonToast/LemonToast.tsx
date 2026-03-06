@@ -6,10 +6,7 @@ import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import { isChristmas } from 'lib/holidays'
 import { hashCodeForString } from 'lib/utils'
 
-import {
-    INCIDENT_IO_STATUS_PAGE_BASE,
-    sidePanelStatusIncidentIoLogic,
-} from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusIncidentIoLogic'
+import { getIncidentStatus, INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
 
 import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'
@@ -90,14 +87,11 @@ function ensureToastId(toastOptions: ToastOptions, type: string, message?: strin
 }
 
 function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
-    const logic = sidePanelStatusIncidentIoLogic.findMounted()
-    if (!logic) {
-        return message
-    }
-    const status = logic.values.status
+    const status = getIncidentStatus()
     if (status === 'operational') {
         return message
     }
+
     return (
         <>
             <span className="block">{message}</span>

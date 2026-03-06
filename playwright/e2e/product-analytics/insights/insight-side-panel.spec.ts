@@ -71,8 +71,17 @@ test.describe('Insight side panel actions', () => {
         await test.step('open side panel and click favorite', async () => {
             await insight.openInfoPanel()
             const favoriteButton = page.getByTestId('insight-favorite-button')
-            await expect(favoriteButton).toBeVisible()
-            await favoriteButton.click({ force: true })
+            // After saving a new insight the URL changes and insightLogic remounts,
+            // which triggers a GET to load the insight. Until that completes,
+            // short_id is null and the button is disabled. Waiting for enabled
+            // ensures the insight is fully loaded so the click triggers the PATCH.
+            await expect(favoriteButton).toBeEnabled()
+
+            const responsePromise = page.waitForResponse(
+                (resp) => resp.url().includes('/api/environments/') && resp.request().method() === 'PATCH'
+            )
+            await favoriteButton.click()
+            await responsePromise
             await expect(favoriteButton).toHaveAttribute('data-active', 'true')
         })
 

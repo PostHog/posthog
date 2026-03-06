@@ -66,6 +66,7 @@ rules:
                               |BatchImport
                               |ChangeRequest
                               |ClusteringConfig
+                              |ClusteringJob
                               |Cohort
                               |Comment
                               |Conversation
@@ -113,6 +114,7 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSource
                               |FeatureFlag
+                              |TeamFeatureFlagDefaultsConfig
                               |FileSystem
                               |HealthIssue
                               |HogFlow
@@ -142,6 +144,8 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
+                              |RepoRoutingRule
                               |SandboxEnvironment
                               |SavedHeatmap
                               |ScheduledChange
@@ -153,6 +157,7 @@ rules:
                               |SignalReportArtefact
                               |SignalSourceConfig
                               |SingleSessionSummary
+                              |SlackThreadTaskMapping
                               |Subscription
                               |Survey
                               |SurveyResponseArchive
@@ -164,6 +169,7 @@ rules:
                               |Ticket
                               |UploadedMedia
                               |UserInterview
+                              |UserRepoPreference
                               |WebAnalyticsFilterPreset
                           )$
                 - focus-metavariable: $SINK
@@ -228,6 +234,7 @@ rules:
                         |BatchImport
                         |ChangeRequest
                         |ClusteringConfig
+                        |ClusteringJob
                         |Cohort
                         |Comment
                         |Conversation
@@ -275,6 +282,7 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSource
                         |FeatureFlag
+                        |TeamFeatureFlagDefaultsConfig
                         |FileSystem
                         |HealthIssue
                         |HogFlow
@@ -304,6 +312,8 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
+                        |RepoRoutingRule
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScheduledChange
@@ -315,6 +325,7 @@ rules:
                         |SignalReportArtefact
                         |SignalSourceConfig
                         |SingleSessionSummary
+                        |SlackThreadTaskMapping
                         |Subscription
                         |Survey
                         |SurveyResponseArchive
@@ -326,6 +337,7 @@ rules:
                         |Ticket
                         |UploadedMedia
                         |UserInterview
+                        |UserRepoPreference
                         |WebAnalyticsFilterPreset
                     )$
           # Exclude when team filter is present

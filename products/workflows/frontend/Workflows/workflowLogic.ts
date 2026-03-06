@@ -20,6 +20,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionTemplateType } from '~/types'
 
+import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
@@ -354,9 +355,17 @@ export const workflowLogic = kea<workflowLogicType>([
                         }
 
                         if (action.type === 'trigger') {
-                            // custom validation here that we can't easily express in the schema
-                            if (action.config.type === 'event') {
-                                if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
+                            const registeredTypes = getRegisteredTriggerTypes()
+                            const matchingType = registeredTypes.find((t) => t.matchConfig?.(action.config))
+
+                            if (matchingType?.validate) {
+                                const triggerValidation = matchingType.validate(action.config)
+                                if (triggerValidation && !triggerValidation.valid) {
+                                    result.valid = false
+                                    result.errors = { ...result.errors, ...triggerValidation.errors }
+                                }
+                            } else if (action.config.type === 'event') {
+                                if (!action.config.filters?.events?.length && !action.config.filters?.actions?.length) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one event or action is required',

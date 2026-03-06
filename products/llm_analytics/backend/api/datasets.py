@@ -163,7 +163,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
                 "has_description": bool(instance.description),
                 "has_metadata": bool(instance.metadata),
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -190,7 +191,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
                     "dataset_id": str(instance.id),
                     "dataset_name": instance.name,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
         elif changed_fields:
             report_user_action(
@@ -200,7 +202,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDe
                     "dataset_id": str(instance.id),
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
     @llma_track_latency("llma_datasets_list")
@@ -302,7 +305,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                 "has_ref_source_id": bool(instance.ref_source_id),
                 "source": source,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -329,7 +333,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                     "dataset_item_id": str(instance.id),
                     "dataset_id": str(instance.dataset_id),
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
         elif changed_fields:
             report_user_action(
@@ -340,7 +345,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                     "dataset_id": str(instance.dataset_id),
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
     @llma_track_latency("llma_dataset_items_retrieve")

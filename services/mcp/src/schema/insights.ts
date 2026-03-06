@@ -5,7 +5,7 @@ export const InsightSchema = z.object({
     short_id: z.string(),
     name: z.string().nullish(),
     description: z.string().nullish(),
-    filters: z.record(z.any()),
+    filters: z.record(z.string(), z.any()),
     query: z.any(),
     result: z.any().optional(),
     created_at: z.string(),
@@ -13,7 +13,7 @@ export const InsightSchema = z.object({
     created_by: z
         .object({
             id: z.number(),
-            uuid: z.string().uuid(),
+            uuid: z.string(),
             distinct_id: z.string(),
             first_name: z.string(),
             email: z.string(),
@@ -23,7 +23,7 @@ export const InsightSchema = z.object({
     favorited: z.boolean().nullish(),
     deleted: z.boolean(),
     dashboard: z.number().nullish(),
-    layouts: z.record(z.any()).nullish(),
+    layouts: z.record(z.string(), z.any()).nullish(),
     color: z.string().nullish(),
     last_refresh: z.string().nullish(),
     refreshing: z.boolean().nullish(),
@@ -60,7 +60,7 @@ export const CreateInsightInputSchema = z.object({
 export const UpdateInsightInputSchema = z.object({
     name: z.string().optional(),
     description: z.string().optional(),
-    filters: z.record(z.any()).optional(),
+    filters: z.record(z.string(), z.any()).optional(),
     query: z.object({
         kind: z.union([z.literal('InsightVizNode'), z.literal('DataVisualizationNode')]),
         source: z
@@ -90,7 +90,7 @@ export type SimpleInsight = z.infer<typeof SimpleInsightSchema>
 export const SQLInsightResponseSchema = z.array(
     z.object({
         type: z.string(),
-        data: z.record(z.any()),
+        data: z.record(z.string(), z.any()),
     })
 )
 

@@ -137,7 +137,17 @@ class TestEventDefinitionAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             distinct_id=self.user.distinct_id,
             event="event definition deleted",
-            properties={"name": "test_event"},
+            properties={
+                "source": ANY,
+                "$current_url": ANY,
+                "$session_id": ANY,
+                "was_impersonated": ANY,
+                "mcp_user_agent": ANY,
+                "mcp_client_name": ANY,
+                "mcp_client_version": ANY,
+                "mcp_protocol_version": ANY,
+                "name": "test_event",
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.organization.id),

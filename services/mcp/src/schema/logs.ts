@@ -54,8 +54,8 @@ export const LogEntrySchema = z.object({
     trace_id: z.string().optional(),
     span_id: z.string().optional(),
     service_name: z.string().optional(),
-    attributes: z.record(z.any()).optional(),
-    resource_attributes: z.record(z.any()).optional(),
+    attributes: z.record(z.string(), z.any()).optional(),
+    resource_attributes: z.record(z.string(), z.any()).optional(),
 })
 
 export type LogEntry = z.infer<typeof LogEntrySchema>

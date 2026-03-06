@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import hashlib
 from contextlib import suppress
@@ -158,13 +159,12 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
-    def allow_request(self, request, view):
+    def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
-        # Only rate limit authenticated requests made with a personal API key
         personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
-        if request.user.is_authenticated and personal_api_key is None:
+        if personal_api_key_only and request.user.is_authenticated and personal_api_key is None:
             return True
 
         try:
@@ -172,7 +172,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             if team_id is not None and self.scope == HogQLQueryThrottle.scope:
                 self.load_team_rate_limit(team_id)
 
-            request_would_be_allowed = super().allow_request(request, view)
+            request_would_be_allowed = SimpleRateThrottle.allow_request(self, request, view)
             if request_would_be_allowed:
                 return True
 
@@ -213,6 +213,10 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except Exception as e:
             capture_exception(e)
             return True
+
+    def allow_request(self, request, view):
+        # Only rate limit authenticated requests made with a personal API key
+        return self._allow_request_internal(request, view, personal_api_key_only=True)
 
     def get_cache_key(self, request, view):
         """
@@ -349,6 +353,15 @@ class SustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "4800/hour"
 
 
+class PersonalApiKeyOrUserRateThrottle(PersonalApiKeyRateThrottle):
+    """
+    Rate limit both personal API key and web-authenticated user requests.
+    """
+
+    def allow_request(self, request, view):
+        return self._allow_request_internal(request, view, personal_api_key_only=False)
+
+
 class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit ClickHouse
     # Intended to block quick bursts of requests, per project
@@ -369,7 +382,7 @@ class _AIThrottleBase(UserRateThrottle):
     def allow_request(self, request, view):
         request_allowed = super().allow_request(request, view)
         if not request_allowed and request.user.is_authenticated:
-            report_user_action(request.user, self.action_name)
+            report_user_action(request.user, self.action_name, request=request)
         return request_allowed
 
 
@@ -395,6 +408,32 @@ class AIResearchSustainedRateThrottle(_AIThrottleBase):
     scope = "ai_research_sustained"
     rate = "10/day"
     action_name = "ai research sustained rate limited"
+
+
+def is_team_exempt_from_ai_rate_limit(team_id: int) -> bool:
+    """Check if a team is exempt from AI rate limits via the posthog-ai-rate-limit-exemptions feature flag."""
+    import posthoganalytics
+
+    from posthog.utils import get_instance_region
+
+    region = get_instance_region()
+    if not region:
+        return False
+
+    raw_payload = posthoganalytics.get_feature_flag_payload("posthog-ai-rate-limit-exemptions", "internal_rate_limits")
+    if raw_payload is None:
+        return False
+
+    try:
+        payload = json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+    if not isinstance(payload, dict):
+        return False
+
+    exempt_team_ids = payload.get(region, [])
+    return team_id in exempt_team_ids
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):
@@ -509,6 +548,13 @@ class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
     rate = "500/day"
+
+
+class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Stricter burst limit for publishing prompt versions.
+    # This protects against accidental loops or scripted abuse while allowing normal usage.
+    scope = "llm_prompt_publish_burst"
+    rate = "30/minute"
 
 
 class EventValuesBurstThrottle(PersonalApiKeyRateThrottle):
@@ -671,6 +717,16 @@ class MCPOAuthSustainedThrottle(UserRateThrottle):
     rate = "50/hour"
 
 
+class MCPProxyBurstThrottle(UserRateThrottle):
+    scope = "mcp_proxy_burst"
+    rate = "60/minute"
+
+
+class MCPProxySustainedThrottle(UserRateThrottle):
+    scope = "mcp_proxy_sustained"
+    rate = "600/hour"
+
+
 class RestoreRequestThrottle(SimpleRateThrottle):
     """Rate limit restore link requests per email hash to prevent abuse."""
 
@@ -696,6 +752,11 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         # Throttle by IP
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class CodeInviteThrottle(UserRateThrottle):
+    scope = "code_invite"
+    rate = "20000/hour"
 
 
 class ToolbarOAuthRefreshThrottle(IPThrottle):

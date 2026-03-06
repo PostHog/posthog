@@ -246,7 +246,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 cast(User, request.user),
                 "llma playground completion started",
                 tracking_properties,
-                getattr(request.user, "current_team", None),
+                team=getattr(request.user, "current_team", None),
+                request=request,
             )
 
             return self._create_streaming_response(stream)
@@ -279,7 +280,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     cast(User, request.user),
                     "llma playground completion failed",
                     error_properties,
-                    getattr(request.user, "current_team", None),
+                    team=getattr(request.user, "current_team", None),
+                    request=request,
                 )
 
             return Response({"error": "An internal error occurred"}, status=500)

@@ -61,7 +61,7 @@ export function SurveysTable(): JSX.Element {
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
 
     if (shouldShowEmptyState) {
-        return <SurveysEmptyState numOfSurveys={surveys.length} />
+        return <SurveysEmptyState />
     }
 
     return (

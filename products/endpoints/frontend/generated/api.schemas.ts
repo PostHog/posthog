@@ -981,9 +981,25 @@ export interface PropertyGroupFilterApi {
     values: PropertyGroupFilterValueApi[]
 }
 
+export interface BoxPlotDatumApi {
+    day: string
+    label: string
+    max: number
+    mean: number
+    median: number
+    min: number
+    p25: number
+    p75: number
+}
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
+    /**
+     * Box plot data when display type is BoxPlot
+     * @nullable
+     */
+    boxplot_data?: BoxPlotDatumApi[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -1698,6 +1714,7 @@ export const AggregationAxisFormatApi = {
     Percentage: 'percentage',
     PercentageScaled: 'percentage_scaled',
     Currency: 'currency',
+    Short: 'short',
 } as const
 
 export type DetailedResultsAggregationTypeApi =
@@ -1726,6 +1743,7 @@ export const ChartDisplayTypeApi = {
     WorldMap: 'WorldMap',
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
+    BoxPlot: 'BoxPlot',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -1857,6 +1875,8 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     /** @nullable */
     hiddenLegendIndexes?: number[] | null
+    /** @nullable */
+    hideWeekends?: boolean | null
     /** @nullable */
     minDecimalPlaces?: number | null
     /** @nullable */

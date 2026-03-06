@@ -81,6 +81,7 @@ TWENTY_FOUR_HOURS = 24 * 60 * 60
 # Organizations with delayed data ingestion that need delayed usage report re-runs
 # This is a temporary solution until we switch event usage queries from timestamp to created_at
 DELAYED_ORGS_EU: list[str] = [
+    "018beddd-5eb1-0000-7953-5a5b982e80bf",
     "01975ab3-7ec5-0000-9751-a89cbc971419",
 ]
 DELAYED_ORGS_US: list[str] = []

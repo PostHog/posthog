@@ -13,7 +13,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -507,7 +507,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(existing_flag.name, "Beta feature 3")
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_group_type_index_feature_flag(self, mock_capture):
+    def test_group_type_index_feature_flag(self, mock_report_user_action):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -522,7 +522,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ).json()
         # Assert analytics are sent
         instance = FeatureFlag.objects.get(id=feature_flag["id"])
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "feature flag created",
             {
@@ -536,16 +536,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": True,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
-                "source": "web",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_feature_flag(self, mock_capture):
+    def test_create_feature_flag(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -561,7 +559,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "alpha-feature")
 
         # Assert analytics are sent
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "feature flag created",
             {
@@ -575,11 +573,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
-                "source": "web",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
         self.assert_feature_flag_activity(
@@ -605,7 +601,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.created_by, self.user)
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_minimal_feature_flag(self, mock_capture):
+    def test_create_minimal_feature_flag(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -622,7 +618,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.name, "")
 
         # Assert analytics are sent
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "feature flag created",
             {
@@ -636,55 +632,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
-                "source": "web",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_feature_flag_via_api_key_reports_api_source(self, mock_capture):
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
-
-        self.client.logout()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "key": "api-created-feature",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            format="json",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = FeatureFlag.objects.get(id=response.json()["id"])
-
-        mock_capture.assert_called_once_with(
-            self.user,
-            "feature flag created",
-            {
-                "groups_count": 1,
-                "has_variants": False,
-                "variants_count": 0,
-                "has_rollout_percentage": False,
-                "has_filters": False,
-                "filter_count": 0,
-                "created_at": instance.created_at,
-                "aggregating_by_groups": False,
-                "payload_count": 0,
-                "creation_context": "feature_flags",
-                "source": "api",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
-            },
-        )
-
-    @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_feature_flag_with_analytics_dashboards(self, mock_capture):
+    def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -702,7 +656,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_feature_flag_rejects_dashboard_from_other_team(self, mock_capture):
+    def test_create_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
         other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
         other_dashboard = Dashboard.objects.create(team=other_team, name="other team dashboard", created_by=self.user)
 
@@ -719,7 +673,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIn("does not exist", response.json()["detail"])
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_update_feature_flag_rejects_dashboard_from_other_team(self, mock_capture):
+    def test_update_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="flag-to-update",
@@ -756,7 +710,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(analytics_field.child_relation.queryset.count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_feature_flag_with_evaluation_runtime(self, mock_capture):
+    def test_create_feature_flag_with_evaluation_runtime(self, mock_report_user_action):
         # Test creating a feature flag with different evaluation_runtime values
 
         # Test with "server"
@@ -799,7 +753,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["evaluation_runtime"], "all")
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_update_feature_flag_evaluation_runtime(self, mock_capture):
+    def test_update_feature_flag_evaluation_runtime(self, mock_report_user_action):
         # Create a flag with default evaluation_runtime
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -824,7 +778,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.evaluation_runtime, "server")
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_multivariate_feature_flag(self, mock_capture):
+    def test_create_multivariate_feature_flag(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -860,7 +814,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "multivariate-feature")
 
         # Assert analytics are sent
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "feature flag created",
             {
@@ -874,11 +828,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
-                "source": "web",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     @parameterized.expand(
@@ -1125,7 +1077,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag(self, mock_capture):
+    def test_updating_feature_flag(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -1166,7 +1118,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 65)
 
         # Assert analytics are sent
-        mock_capture.assert_called_with(
+        mock_report_user_action.assert_called_with(
             self.user,
             "feature flag updated",
             {
@@ -1179,11 +1131,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
-                "source": "web",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
         self.assert_feature_flag_activity(
@@ -1263,7 +1213,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_partial(self, mock_capture):
+    def test_updating_feature_flag_partial(self, mock_report_user_action):
         # Test that we can update a feature flag with only some of the fields
         # And the unchanged fields are not updated
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
@@ -1312,7 +1262,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 100)
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_with_different_user(self, mock_capture):
+    def test_updating_feature_flag_with_different_user(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             # Create flag with original user
             original_user = self.user
@@ -1345,7 +1295,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.last_modified_by, different_user)
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_fails_concurrency_check_when_version_outdated(self, mock_capture):
+    def test_updating_feature_flag_fails_concurrency_check_when_version_outdated(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             # Create flag with original user: version 0
             original_user = self.user
@@ -1427,7 +1377,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.last_modified_by, different_user)
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_does_not_fail_concurrency_check_when_changing_different_fields(self, mock_capture):
+    def test_updating_feature_flag_does_not_fail_concurrency_check_when_changing_different_fields(
+        self, mock_report_user_action
+    ):
         # If another users saves changes, but my changes don't conflict with those changes,
         # then we should not fail the concurrency check
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
@@ -1537,7 +1489,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 45)
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_does_not_fail_when_version_not_in_request(self, mock_capture):
+    def test_updating_feature_flag_does_not_fail_when_version_not_in_request(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -1817,7 +1769,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(conflicts, ["name", "filters"])
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_treats_null_version_as_zero(self, mock_capture):
+    def test_updating_feature_flag_treats_null_version_as_zero(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -1843,7 +1795,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.name, "Updated name")
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_key(self, mock_capture):
+    def test_updating_feature_flag_key(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -1908,7 +1860,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 65)
 
         # Assert analytics are sent
-        mock_capture.assert_called_with(
+        mock_report_user_action.assert_called_with(
             self.user,
             "feature flag updated",
             {
@@ -1921,11 +1873,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
-                "source": "web",
-                "$current_url": None,
-                "$session_id": None,
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
         self.assert_feature_flag_activity(
@@ -2027,7 +1977,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_key_does_not_update_insight_with_changed_description(self, mock_capture):
+    def test_updating_feature_flag_key_does_not_update_insight_with_changed_description(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -2116,7 +2066,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_key_does_not_update_insight_with_changed_filter(self, mock_capture):
+    def test_updating_feature_flag_key_does_not_update_insight_with_changed_filter(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -2206,7 +2156,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_key_does_not_update_insight_with_removed_filter(self, mock_capture):
+    def test_updating_feature_flag_key_does_not_update_insight_with_removed_filter(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -2747,6 +2697,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 201
         assert response.json()["key"] == "flag1"
 
+    def test_soft_delete_can_be_reversed_by_patch(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="undo-flag")
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is True
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
+        assert flag.deleted is False
+        assert flag.key == "undo-flag"
+
+    def test_soft_delete_undo_restores_renamed_key(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="renamed-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"renamed-flag:deleted:{flag.id}"
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "renamed-flag"
+
+    def test_soft_delete_undo_suffixes_key_when_original_is_taken(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        # Soft-delete renames the key to free it up
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"taken-flag:deleted:{flag.id}"
+
+        # Another flag claims the original key
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
+
+        # Restoring falls back to a suffixed key instead of crashing
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "taken-flag-2"
+
+    def test_soft_delete_undo_suffixes_key_when_original_held_by_soft_deleted_flag(self):
+        """The unique constraint covers all rows including soft-deleted ones,
+        so restoring a flag must check against soft-deleted flags too."""
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="held-flag")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        # Soft-delete renames the key
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.key == f"held-flag:deleted:{flag.id}"
+
+        # Another flag claims the original key and is then soft-deleted itself
+        blocker = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="held-flag")
+        blocker.deleted = True
+        blocker.save()
+
+        # Restoring must still suffix because the DB constraint spans all rows
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": False})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.key == "held-flag-2"
+
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
         exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
@@ -2963,7 +2991,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # (they're survey-specific and filtered out from the main list)
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_feature_flag_usage_dashboard(self, mock_capture):
+    def test_create_feature_flag_usage_dashboard(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -3342,7 +3370,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_dashboard_enrichment_fails_if_already_enriched(self, mock_capture):
+    def test_dashboard_enrichment_fails_if_already_enriched(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -3379,7 +3407,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_dashboard_enrichment_fails_if_no_enriched_data(self, mock_capture):
+    def test_dashboard_enrichment_fails_if_no_enriched_data(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -3408,7 +3436,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_local_evaluation_for_invalid_cohorts(self, mock_capture):
+    def test_local_evaluation_for_invalid_cohorts(self, mock_report_user_action):
         FeatureFlag.objects.all().delete()
 
         self.team.app_urls = ["https://example.com"]
@@ -3609,7 +3637,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert str(cohort_with_nested_invalid.pk) in response_data["cohorts"]
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_local_evaluation_for_cohorts_with_variant_overrides(self, mock_capture):
+    def test_local_evaluation_for_cohorts_with_variant_overrides(self, mock_report_user_action):
         FeatureFlag.objects.all().delete()
 
         cohort_valid_for_ff = Cohort.objects.create(
@@ -3737,7 +3765,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_local_evaluation_for_static_cohorts(self, mock_capture):
+    def test_local_evaluation_for_static_cohorts(self, mock_report_user_action):
         FeatureFlag.objects.all().delete()
 
         cohort_valid_for_ff = Cohort.objects.create(
@@ -3852,7 +3880,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_local_evaluation_for_arbitrary_cohorts(self, mock_capture):
+    def test_local_evaluation_for_arbitrary_cohorts(self, mock_report_user_action):
         FeatureFlag.objects.all().delete()
 
         cohort_valid_for_ff = Cohort.objects.create(
@@ -5917,7 +5945,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_updating_feature_flag_key_updates_super_groups(self, mock_capture):
+    def test_updating_feature_flag_key_updates_super_groups(self, mock_report_user_action):
         # Create a feature flag with super_groups
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
@@ -6699,7 +6727,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertNotEqual(data["cohorts"], updated_data.get("cohorts", {}))
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_create_feature_flag_without_usage_dashboard(self, mock_capture):
+    def test_create_feature_flag_without_usage_dashboard(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {"key": "no-usage-dashboard", "_should_create_usage_dashboard": False},

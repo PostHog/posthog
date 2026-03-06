@@ -17,7 +17,7 @@ export const ApiPropertyDefinitionSchema = z.object({
 })
 
 export const ApiEventDefinitionSchema = z.object({
-    id: z.string().uuid(),
+    id: z.string(),
     name: z.string(),
     owner: z.string().nullish(),
     description: z.string().nullish(),
@@ -48,15 +48,15 @@ export const ApiUserSchema = z.object({
     distinct_id: z.string(),
     organizations: z.array(
         z.object({
-            id: z.string().uuid(),
+            id: z.string(),
         })
     ),
     team: z.object({
         id: z.number(),
-        organization: z.string().uuid(),
+        organization: z.string(),
     }),
     organization: z.object({
-        id: z.string().uuid(),
+        id: z.string(),
     }),
 })
 

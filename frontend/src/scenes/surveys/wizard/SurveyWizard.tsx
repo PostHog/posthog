@@ -9,6 +9,7 @@ import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -59,7 +60,18 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { nextStep, setStep, launchSurvey, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
 
     const { survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
+
+    // register tool so edits from AI will always reload the survey data on-page
+    useMaxTool({
+        identifier: 'edit_survey',
+        active: isEditing,
+        callback: (toolOutput: { survey_id?: string; error?: string }) => {
+            if (!toolOutput?.error && toolOutput?.survey_id === id) {
+                loadSurvey()
+            }
+        },
+    })
 
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -74,6 +86,10 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     useEffect(() => {
         setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
     }, [maxPreviewIndex])
+
+    const handleCustomizeMore = (): void => {
+        router.actions.push(urls.survey(id) + (isEditing ? '?edit=true' : '#fromTemplate=true'))
+    }
 
     // Show loading state while loading existing survey
     if (isEditing && surveyLoading) {
@@ -97,7 +113,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                             Surveys
                         </LemonButton>
                     </div>
-                    <TemplateStep />
+                    <TemplateStep handleCustomizeMore={handleCustomizeMore} />
                 </div>
             </div>
         )
@@ -107,10 +123,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         ...survey,
         id,
     } as NewSurvey
-
-    const handleCustomizeMore = (): void => {
-        router.actions.push(urls.survey(id) + (isEditing ? '?edit=true' : '#fromTemplate=true'))
-    }
 
     const getConditionsSummary = (): string[] => {
         const conditions = survey.conditions

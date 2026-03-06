@@ -1,0 +1,23 @@
+host: '0.0.0.0'
+port: 15432
+
+data_dir: './data'
+
+users:
+    posthog: 'posthog'
+
+extensions:
+    - ducklake
+    - postgres_scanner
+    - httpfs
+
+ducklake:
+    metadata_store: 'postgres:dbname=ducklake host=db port=5432 user=posthog password=posthog'
+    object_store: 's3://ducklake-dev/'
+    s3_provider: 'config'
+    s3_endpoint: 'objectstorage:19000'
+    s3_access_key: 'object_storage_root_user'
+    s3_secret_key: 'object_storage_root_password'
+    s3_region: 'us-east-1'
+    s3_use_ssl: false
+    s3_url_style: 'path'

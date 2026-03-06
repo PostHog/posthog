@@ -1,4 +1,5 @@
 import json
+import math
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -38,11 +39,12 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
-from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
 from posthog.models.tag import Tag
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team
@@ -69,6 +71,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_instance_realm, get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -395,14 +398,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
-        return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
+        return bool(get_group_types_for_project(team.project_id))
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return list(
-            GroupTypeMapping.objects.filter(project_id=team.project_id)
-            .order_by("group_type_index")
-            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
-        )
+        return get_group_types_for_project(team.project_id)
 
     def get_live_events_token(self, team: Team) -> str | None:
         return encode_jwt(
@@ -1094,6 +1093,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 if not non_team_config_fields:
                     return ["project:read"]
 
+        # Team-level config actions that any member should be able to edit via the UI.
+        # Only downgrade for session auth to preserve read-only API key semantics.
+        if self.action in ("default_release_conditions", "default_evaluation_tags"):
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                return ["project:read"]
+
         # Fall back to the default behavior
         return None
 
@@ -1179,7 +1185,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             detail=Detail(name=str(team_name)),
         )
         # TRICKY: We pass in `team` here as access to `user.current_team` can fail if it was deleted
-        report_user_action(user, f"team deleted", team=team)
+        report_user_action(user, "team deleted", team=team, request=self.request)
 
     @action(
         methods=["PATCH"],
@@ -1266,6 +1272,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                         cast(User, request.user),
                         "default evaluation tag added",
                         {"team_id": team.id, "tag_name": tag_name},
+                        team=team,
+                        request=request,
                     )
 
             return response.Response({"id": default_tag.id, "name": tag.name, "created": created})
@@ -1288,11 +1296,63 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                             cast(User, request.user),
                             "default evaluation tag removed",
                             {"team_id": team.id, "tag_name": tag_name},
+                            team=team,
+                            request=request,
                         )
 
                     return response.Response({"success": True})
                 except Tag.DoesNotExist:
                     return response.Response({"error": "Tag not found"}, status=404)
+
+    @action(
+        methods=["GET", "PUT"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="default_release_conditions",
+    )
+    def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage default release conditions for new feature flags in this team."""
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamFeatureFlagDefaultsConfig)
+
+        if request.method == "GET":
+            return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+        # PUT: update the config
+        enabled = request.data.get("enabled", config.enabled)
+        default_groups = request.data.get("default_groups", config.default_groups)
+
+        if not isinstance(default_groups, list):
+            return response.Response({"error": "default_groups must be a list"}, status=400)
+
+        for i, group in enumerate(default_groups):
+            if not isinstance(group, dict):
+                return response.Response({"error": f"Group at index {i} must be an object"}, status=400)
+            if "properties" not in group or not isinstance(group["properties"], list):
+                return response.Response(
+                    {"error": f"Group at index {i} must have a 'properties' list"},
+                    status=400,
+                )
+            rollout = group.get("rollout_percentage")
+            if rollout is not None and (
+                not isinstance(rollout, (int, float)) or math.isnan(rollout) or rollout < 0 or rollout > 100
+            ):
+                return response.Response(
+                    {"error": f"Group at index {i} has invalid rollout_percentage (must be 0-100 or null)"},
+                    status=400,
+                )
+
+        config.enabled = enabled
+        config.default_groups = default_groups
+        config.save()
+
+        report_user_action(
+            cast(User, request.user),
+            "default release conditions updated",
+            {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
+        )
+
+        return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
 
     @action(
         methods=["GET"],
@@ -1452,14 +1512,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 "product onboarding completed",
                 {
                     "product_key": product_type,
-                    "$current_url": current_url,
-                    "$session_id": session_id,
                     "intent_context": intent_context,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),
                 },
                 team=team,
+                request=request,
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)

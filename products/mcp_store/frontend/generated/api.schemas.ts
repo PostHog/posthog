@@ -32,6 +32,7 @@ export interface MCPServerInstallationApi {
     auth_type?: MCPServerInstallationAuthTypeEnumApi
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
+    readonly proxy_url: string
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -82,6 +83,38 @@ export interface OAuthCallbackRequestApi {
     code: string
     server_id: string
     state_token: string
+}
+
+/**
+ * * `none` - none
+ * `api_key` - api_key
+ * `oauth` - oauth
+ */
+export type RecommendedServerAuthTypeEnumApi =
+    (typeof RecommendedServerAuthTypeEnumApi)[keyof typeof RecommendedServerAuthTypeEnumApi]
+
+export const RecommendedServerAuthTypeEnumApi = {
+    None: 'none',
+    ApiKey: 'api_key',
+    Oauth: 'oauth',
+} as const
+
+export interface RecommendedServerApi {
+    name: string
+    url: string
+    description: string
+    icon_url: string
+    auth_type: RecommendedServerAuthTypeEnumApi
+    oauth_provider_kind?: string
+}
+
+export interface PaginatedRecommendedServerListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RecommendedServerApi[]
 }
 
 export type McpServerInstallationsListParams = {
