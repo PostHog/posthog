@@ -7,6 +7,7 @@ class ProductTourEventName(StrEnum):
     LAUNCHED = "product tour launched"
     STOPPED = "product tour stopped"
     DELETED = "product tour deleted"
+    AI_CONTENT_GENERATED = "product tour ai generated"
 
 
 class ProductTourEventProperties(StrEnum):
@@ -20,3 +21,7 @@ class ProductTourEventProperties(StrEnum):
     DISPLAY_FREQUENCY = "display_frequency"
     CREATION_CONTEXT = "creation_context"
     UPDATED_BY_CREATOR = "updated_by_creator"
+
+
+class ProductTourPersonProperties(StrEnum):
+    TOUR_LAST_SEEN_DATE = "$product_tour_last_seen_date"

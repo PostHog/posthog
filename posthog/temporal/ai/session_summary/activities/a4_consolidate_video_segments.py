@@ -4,7 +4,6 @@ Consolidating raw video segments into meaningful semantic segments using LLM.
 (Python modules have to start with a letter, hence the file is prefixed `a4_` instead of `4_`.)
 """
 
-import re
 import json
 
 from django.conf import settings
@@ -66,29 +65,17 @@ async def consolidate_video_segments_activity(
         json_schema_str = json.dumps(json_schema)
 
         client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
-        response = await client.models.generate_content(
-            model="models/gemini-2.5-flash",
-            contents=[CONSOLIDATION_PROMPT.format(segments_text=segments_text, json_schema=json_schema_str)],
-            config=types.GenerateContentConfig(max_output_tokens=8192),
-            posthog_distinct_id=inputs.user_distinct_id_to_log,
-            posthog_trace_id=trace_id,
-            posthog_properties={"$session_id": inputs.session_id},
-            posthog_groups={"project": str(inputs.team_id)},
+
+        prompt_parts = [
+            types.Part(text=CONSOLIDATION_PROMPT.format(segments_text=segments_text, json_schema=json_schema_str)),
+        ]
+
+        consolidated_analysis = await _call_llm_to_consolidate_segments(
+            client=client,
+            prompt_parts=prompt_parts,
+            inputs=inputs,
+            trace_id=trace_id,
         )
-
-        response_text = (response.text or "").strip()
-
-        # Extract JSON from response (handle potential Markdown code block)
-        json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", response_text)
-        if json_match:
-            json_str = json_match.group(1)
-        else:
-            json_str = response_text
-
-        parsed = json.loads(json_str)
-
-        # Parse using Pydantic model validation
-        consolidated_analysis = ConsolidatedVideoAnalysis.model_validate(parsed)
 
         logger.debug(
             f"Consolidated {len(raw_segments)} raw segments into {len(consolidated_analysis.segments)} semantic segments",
@@ -101,14 +88,62 @@ async def consolidate_video_segments_activity(
 
         return consolidated_analysis
 
-    except Exception as e:
+    except Exception:
         logger.exception(
-            f"Failed to consolidate segments for session {inputs.session_id}: {e}",
+            f"Failed to consolidate segments for session {inputs.session_id}",
             session_id=inputs.session_id,
             signals_type="session-summaries",
         )
         # Re-raise to let the workflow retry with proper retry policy
         raise
+
+
+async def _call_llm_to_consolidate_segments(
+    *,
+    client,
+    prompt_parts: list[types.Part],
+    inputs: VideoSummarySingleSessionInputs,
+    trace_id: str,
+    max_attempts: int = 3,
+) -> ConsolidatedVideoAnalysis:
+    """Call LLM to consolidate segments, with retry and error feedback."""
+    for attempt in range(max_attempts):
+        try:
+            response = await client.models.generate_content(
+                model="models/gemini-2.5-flash",
+                contents=prompt_parts,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=ConsolidatedVideoAnalysis.model_json_schema(),
+                ),
+                posthog_distinct_id=inputs.user_distinct_id_to_log,
+                posthog_trace_id=trace_id,
+                posthog_properties={"$session_id": inputs.session_id},
+                posthog_groups={"project": str(inputs.team_id)},
+            )
+
+            response_text = response.text
+            if not response_text:
+                raise ValueError("Empty response from LLM")
+
+            parsed = json.loads(response_text)
+            return ConsolidatedVideoAnalysis.model_validate(parsed)
+
+        except Exception as e:
+            if attempt == max_attempts - 1:
+                logger.exception(
+                    f"Failed to parse/validate LLM response after {max_attempts} attempts",
+                    session_id=inputs.session_id,
+                    last_error=repr(e),
+                    signals_type="session-summaries",
+                )
+                raise
+            prompt_parts.append(
+                types.Part(text=f"\n\nAttempt {attempt + 1} failed with error: {e!r}\nPlease fix your output.")
+            )
+
+    # Should never reach here, but satisfy type checker
+    raise RuntimeError("Unreachable")
 
 
 CONSOLIDATION_PROMPT = """

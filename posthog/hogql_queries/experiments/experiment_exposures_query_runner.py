@@ -21,8 +21,8 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
 from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -186,88 +186,79 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             p_value=float(p_value),
         )
 
+    @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
-        try:
-            # Adding experiment specific tags to the tag collection
-            # This will be available as labels in Prometheus
-            tag_queries(
-                experiment_id=self.query.experiment_id,
-                experiment_name=self.query.experiment_name,
-                experiment_feature_flag_key=self.feature_flag_key,
-                product=Product.EXPERIMENTS,
+        # Adding experiment specific tags to the tag collection
+        # This will be available as labels in Prometheus
+        tag_queries(
+            experiment_id=self.query.experiment_id,
+            experiment_name=self.query.experiment_name,
+            experiment_feature_flag_key=self.feature_flag_key,
+            product=Product.EXPERIMENTS,
+        )
+
+        # Set limit to avoid being cut-off by the default 100 rows limit
+        query = self._get_exposure_query()
+        query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
+
+        response = execute_hogql_query(
+            query_type="ExperimentExposuresQuery",
+            query=query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=create_default_modifiers_for_team(self.team),
+            settings=HogQLGlobalSettings(max_execution_time=600, allow_experimental_analyzer=True),
+        )
+
+        response.results = self._fill_date_gaps(response.results)
+        variant_series: dict[str, ExperimentExposureTimeSeries] = {}
+
+        # Organize results by variant
+        variant_data: dict[str, dict[str, int]] = {}
+        for result in response.results:
+            day, variant, count = result
+            if variant not in variant_data:
+                variant_data[variant] = {}
+            variant_data[variant][day.isoformat()] = count
+
+        # Create cumulative series for each variant
+        for variant, daily_counts in variant_data.items():
+            sorted_days = sorted(daily_counts.keys())
+            cumulative_counts = []
+            running_total = 0
+
+            for day in sorted_days:
+                running_total += daily_counts[day]
+                cumulative_counts.append(int(running_total))
+
+            variant_series[variant] = ExperimentExposureTimeSeries(
+                variant=variant, days=sorted_days, exposure_counts=cumulative_counts
             )
 
-            # Set limit to avoid being cut-off by the default 100 rows limit
-            query = self._get_exposure_query()
-            query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
+        # Sort timeseries by original variant order, with MULTIPLE_VARIANT_KEY last
+        ordered_timeseries = []
 
-            response = execute_hogql_query(
-                query_type="ExperimentExposuresQuery",
-                query=query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=create_default_modifiers_for_team(self.team),
-                settings=HogQLGlobalSettings(max_execution_time=600, allow_experimental_analyzer=True),
-            )
+        # Add variants in original order
+        for variant in self.variants:
+            if variant in variant_series:
+                ordered_timeseries.append(variant_series[variant])
 
-            response.results = self._fill_date_gaps(response.results)
-            variant_series: dict[str, ExperimentExposureTimeSeries] = {}
+        if MULTIPLE_VARIANT_KEY in variant_series:
+            ordered_timeseries.append(variant_series[MULTIPLE_VARIANT_KEY])
 
-            # Organize results by variant
-            variant_data: dict[str, dict[str, int]] = {}
-            for result in response.results:
-                day, variant, count = result
-                if variant not in variant_data:
-                    variant_data[variant] = {}
-                variant_data[variant][day.isoformat()] = count
+        # Calculate total exposures, excluding MULTIPLE_VARIANT_KEY for FIRST_SEEN handling
+        total_exposures = {}
+        for variant, series in variant_series.items():
+            total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
 
-            # Create cumulative series for each variant
-            for variant, daily_counts in variant_data.items():
-                sorted_days = sorted(daily_counts.keys())
-                cumulative_counts = []
-                running_total = 0
+        sample_ratio_mismatch = self._calculate_srm(total_exposures)
 
-                for day in sorted_days:
-                    running_total += daily_counts[day]
-                    cumulative_counts.append(int(running_total))
-
-                variant_series[variant] = ExperimentExposureTimeSeries(
-                    variant=variant, days=sorted_days, exposure_counts=cumulative_counts
-                )
-
-            # Sort timeseries by original variant order, with MULTIPLE_VARIANT_KEY last
-            ordered_timeseries = []
-
-            # Add variants in original order
-            for variant in self.variants:
-                if variant in variant_series:
-                    ordered_timeseries.append(variant_series[variant])
-
-            if MULTIPLE_VARIANT_KEY in variant_series:
-                ordered_timeseries.append(variant_series[MULTIPLE_VARIANT_KEY])
-
-            # Calculate total exposures, excluding MULTIPLE_VARIANT_KEY for FIRST_SEEN handling
-            total_exposures = {}
-            for variant, series in variant_series.items():
-                total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
-
-            sample_ratio_mismatch = self._calculate_srm(total_exposures)
-
-            return ExperimentExposureQueryResponse(
-                timeseries=ordered_timeseries,
-                total_exposures=total_exposures,
-                date_range=self.date_range,
-                sample_ratio_mismatch=sample_ratio_mismatch,
-            )
-        except Exception as e:
-            capture_exception(
-                e,
-                additional_properties={
-                    "query_runner": "ExperimentExposuresQueryRunner",
-                    "experiment_id": self.query.experiment_id,
-                },
-            )
-            raise
+        return ExperimentExposureQueryResponse(
+            timeseries=ordered_timeseries,
+            total_exposures=total_exposures,
+            date_range=self.date_range,
+            sample_ratio_mismatch=sample_ratio_mismatch,
+        )
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError("Cannot convert exposure query to raw query")

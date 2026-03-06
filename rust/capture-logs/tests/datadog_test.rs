@@ -196,7 +196,7 @@ fn test_datadog_log_to_kafka_row_basic() {
         extra: HashMap::new(),
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.body, "Test log message");
     assert_eq!(row.service_name, "my-service");
@@ -237,7 +237,7 @@ fn test_datadog_log_to_kafka_row_with_trace_ids() {
         extra: HashMap::new(),
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.trace_id, "q83vqg==");
     assert_eq!(row.span_id, "q83vug==");
@@ -271,7 +271,7 @@ fn test_datadog_log_to_kafka_row_query_params_override() {
         extra: extra_params,
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.body, "Query message");
     assert_eq!(row.service_name, "query-service");
@@ -310,7 +310,7 @@ fn test_datadog_log_to_kafka_row_body_takes_precedence() {
         extra: extra_params,
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.body, "Body message");
     assert_eq!(row.service_name, "body-service");
@@ -346,7 +346,7 @@ fn test_datadog_log_to_kafka_row_timestamp_default() {
         extra: HashMap::new(),
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     // Should have a timestamp (current time)
     assert!(row.timestamp.timestamp() > 0);
@@ -382,7 +382,7 @@ fn test_datadog_log_to_kafka_row_all_attributes_merged() {
         extra: query_extra,
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     // Should have all attributes from both sources
     assert!(row.attributes.contains_key("query_attr"));
@@ -420,7 +420,7 @@ fn test_datadog_log_to_kafka_row_event_name_extraction() {
         extra: HashMap::new(),
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.event_name, "user.signup");
     assert!(row.attributes.contains_key("other_field"));
@@ -454,7 +454,7 @@ fn test_datadog_log_to_kafka_row_instrumentation_scope_extraction() {
         extra: HashMap::new(),
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.instrumentation_scope, "my.service.logger");
     assert!(row.attributes.contains_key("other_field"));
@@ -489,7 +489,7 @@ fn test_datadog_log_to_kafka_row_event_name_and_scope_extraction() {
         extra: HashMap::new(),
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.event_name, "payment.processed");
     assert_eq!(row.instrumentation_scope, "payment.service");
@@ -520,7 +520,7 @@ fn test_datadog_log_to_kafka_row_missing_event_name_and_scope() {
         extra: HashMap::new(),
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.event_name, "");
     assert_eq!(row.instrumentation_scope, "");
@@ -554,8 +554,188 @@ fn test_datadog_log_to_kafka_row_non_string_event_name_and_scope() {
         extra: HashMap::new(),
     };
 
-    let row = datadog_log_to_kafka_row(log, &query_params);
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
 
     assert_eq!(row.event_name, "");
     assert_eq!(row.instrumentation_scope, "");
+}
+
+// Tests for empty request handling - verifying empty arrays produce no kafka rows
+
+#[test]
+fn test_parse_empty_datadog_logs_array() {
+    // Empty array should parse successfully
+    let json_data = r#"[]"#;
+    let logs: Vec<DatadogLog> = serde_json::from_str(json_data).unwrap();
+
+    assert_eq!(logs.len(), 0);
+}
+
+#[test]
+fn test_empty_datadog_logs_produce_no_kafka_rows() {
+    // Simulates the logic in export_datadog_logs_http
+    let logs: Vec<DatadogLog> = vec![];
+
+    let query_params = DatadogQueryParams {
+        token: Some("test_token".to_string()),
+        ddtags: None,
+        ddsource: None,
+        service: None,
+        hostname: None,
+        message: None,
+        status: None,
+        extra: HashMap::new(),
+    };
+
+    let rows: Vec<_> = logs
+        .into_iter()
+        .map(|log| datadog_log_to_kafka_row(log, &query_params))
+        .collect();
+
+    assert_eq!(rows.len(), 0);
+}
+
+#[test]
+fn test_parse_datadog_logs_single_vs_array() {
+    // Test that both single object and array formats work
+    let single_log = r#"{"message":"test"}"#;
+    let array_logs = r#"[{"message":"test"}]"#;
+    let empty_array = r#"[]"#;
+
+    // Single log parses as DatadogLog
+    let single: DatadogLog = serde_json::from_str(single_log).unwrap();
+    assert_eq!(single.message, Some("test".to_string()));
+
+    // Array parses as Vec<DatadogLog>
+    let array: Vec<DatadogLog> = serde_json::from_str(array_logs).unwrap();
+    assert_eq!(array.len(), 1);
+    assert_eq!(array[0].message, Some("test".to_string()));
+
+    // Empty array parses as empty Vec
+    let empty: Vec<DatadogLog> = serde_json::from_str(empty_array).unwrap();
+    assert_eq!(empty.len(), 0);
+}
+
+#[test]
+fn test_datadog_log_minimal_fields() {
+    // Test that a log with all optional fields missing still parses
+    let json_data = r#"{}"#;
+    let log: DatadogLog = serde_json::from_str(json_data).unwrap();
+
+    assert!(log.ddsource.is_none());
+    assert!(log.ddtags.is_none());
+    assert!(log.hostname.is_none());
+    assert!(log.message.is_none());
+    assert!(log.service.is_none());
+    assert!(log.status.is_none());
+    assert!(log.timestamp.is_none());
+    assert!(log.extra.is_empty());
+}
+
+#[test]
+fn test_empty_datadog_log_produces_valid_kafka_row() {
+    // Even an empty log should produce a valid KafkaLogRow with defaults
+    let log = DatadogLog {
+        ddsource: None,
+        ddtags: None,
+        hostname: None,
+        message: None,
+        service: None,
+        status: None,
+        timestamp: None,
+        extra: HashMap::new(),
+    };
+
+    let query_params = DatadogQueryParams {
+        token: Some("test_token".to_string()),
+        ddtags: None,
+        ddsource: None,
+        service: None,
+        hostname: None,
+        message: None,
+        status: None,
+        extra: HashMap::new(),
+    };
+
+    let (row, _) = datadog_log_to_kafka_row(log, &query_params);
+
+    // Should have default values
+    assert_eq!(row.body, "");
+    assert_eq!(row.service_name, "");
+    assert_eq!(row.severity_text, "info");
+    assert_eq!(row.severity_number, 9);
+    assert!(!row.uuid.is_empty()); // UUID should be generated
+}
+
+#[test]
+fn test_datadog_log_overridden_timestamp_tracking() {
+    use chrono::Utc;
+
+    // Test with a timestamp far in the past (should be overridden)
+    let far_past = Utc::now().timestamp_millis() - (48 * 3600 * 1000); // 48 hours ago
+    let log_overridden = DatadogLog {
+        ddsource: None,
+        ddtags: None,
+        hostname: None,
+        message: Some("Test".to_string()),
+        service: None,
+        status: None,
+        timestamp: Some(far_past),
+        extra: HashMap::new(),
+    };
+
+    let query_params = DatadogQueryParams {
+        token: Some("test-token".to_string()),
+        ddtags: None,
+        ddsource: None,
+        service: None,
+        hostname: None,
+        message: None,
+        status: None,
+        extra: HashMap::new(),
+    };
+
+    let (row_overridden, was_overridden) = datadog_log_to_kafka_row(log_overridden, &query_params);
+    assert!(was_overridden);
+    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+
+    // Test with a recent timestamp (should not be overridden)
+    let recent = Utc::now().timestamp_millis() - (3600 * 1000); // 1 hour ago
+    let log_recent = DatadogLog {
+        ddsource: None,
+        ddtags: None,
+        hostname: None,
+        message: Some("Test".to_string()),
+        service: None,
+        status: None,
+        timestamp: Some(recent),
+        extra: HashMap::new(),
+    };
+
+    let (row_recent, was_not_overridden) = datadog_log_to_kafka_row(log_recent, &query_params);
+    assert!(!was_not_overridden);
+    assert!(!row_recent.attributes.contains_key("$originalTimestamp"));
+
+    // Test with user-provided originalTimestamp attribute (should not affect override detection)
+    let mut extra = HashMap::new();
+    extra.insert(
+        "originalTimestamp".to_string(),
+        json!("2020-01-01T00:00:00Z"),
+    );
+    let log_with_user_attr = DatadogLog {
+        ddsource: None,
+        ddtags: None,
+        hostname: None,
+        message: Some("Test".to_string()),
+        service: None,
+        status: None,
+        timestamp: Some(recent),
+        extra,
+    };
+
+    let (row_user_attr, was_not_overridden_2) =
+        datadog_log_to_kafka_row(log_with_user_attr, &query_params);
+    assert!(!was_not_overridden_2);
+    // User's originalTimestamp should still be in attributes
+    assert!(row_user_attr.attributes.contains_key("originalTimestamp"));
 }

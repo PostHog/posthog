@@ -1,0 +1,226 @@
+import { Edge, MarkerType, Node } from '@xyflow/react'
+import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { InsightLogicProps } from '~/types'
+import { FunnelStepWithConversionMetrics } from '~/types'
+
+import { funnelDataLogic } from '../funnelDataLogic'
+import type { funnelFlowGraphLogicType } from './funnelFlowGraphLogicType'
+
+export const NODE_HEIGHT = 160
+export const NODE_WIDTH = 300
+export const FIT_VIEW_OPTIONS = {
+    padding: 0.2,
+    maxZoom: 1,
+}
+
+export const PROFILE_NODE_HEIGHT = 80
+export const PROFILE_NODE_WIDTH = 180
+export const PROFILE_FIT_VIEW_OPTIONS = {
+    padding: 0.1,
+    maxZoom: 2,
+}
+
+export const ELK_OPTIONS = {
+    'elk.algorithm': 'layered',
+    'elk.direction': 'RIGHT',
+    'elk.layered.spacing.nodeNodeBetweenLayers': '140',
+    'elk.spacing.nodeNode': '40',
+    'elk.spacing.edgeEdge': '30',
+    'elk.spacing.edgeNode': '30',
+    'elk.layered.nodePlacement.strategy': 'SIMPLE',
+    'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+    'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+    'elk.padding': '[left=0, top=0, right=0, bottom=0]',
+}
+
+export interface FunnelFlowNodeData extends Record<string, unknown> {
+    step: FunnelStepWithConversionMetrics
+    stepIndex: number
+    isOptional: boolean
+}
+
+export interface FunnelFlowEdgeData extends Record<string, unknown> {
+    step: FunnelStepWithConversionMetrics
+    stepIndex: number
+}
+
+const elk = new ELK()
+
+const DEFAULT_LOGIC_KEY = 'default_funnel_flow_graph'
+
+async function layoutNodes(
+    nodes: Node<FunnelFlowNodeData>[],
+    edges: Edge[],
+    elkOptionsOverride?: Record<string, string>,
+    elkNodeSize?: { width: number; height: number }
+): Promise<Node<FunnelFlowNodeData>[]> {
+    if (nodes.length === 0) {
+        return []
+    }
+
+    const graph: ElkNode = {
+        id: 'root',
+        layoutOptions: { ...ELK_OPTIONS, ...elkOptionsOverride },
+        children: nodes.map((node) => ({
+            id: node.id,
+            width: elkNodeSize?.width ?? NODE_WIDTH,
+            height: elkNodeSize?.height ?? NODE_HEIGHT,
+            ports: [
+                { id: `${node.id}-target`, properties: { side: 'WEST' } },
+                { id: `${node.id}-source`, properties: { side: 'EAST' } },
+            ],
+            properties: {
+                'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
+            },
+        })),
+        edges: edges.map((edge) => ({
+            id: edge.id,
+            sources: [edge.sourceHandle || edge.source],
+            targets: [edge.targetHandle || edge.target],
+        })) as ElkExtendedEdge[],
+    }
+
+    const laidOutGraph = await elk.layout(graph)
+    const positionMap = new Map<string, { x: number; y: number }>()
+    for (const child of laidOutGraph.children ?? []) {
+        positionMap.set(child.id, { x: child.x ?? 0, y: child.y ?? 0 })
+    }
+
+    return nodes.map((node) => ({
+        ...node,
+        position: positionMap.get(node.id) ?? { x: 0, y: 0 },
+    }))
+}
+
+export interface FunnelFlowLogicProps extends InsightLogicProps {
+    /**Whether the funnel is being displayed in a customer profile (person or group profile canvas) */
+    isProfileMode: boolean
+}
+
+export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
+    path((key) => ['scenes', 'funnels', 'FunnelFlowGraph', 'funnelFlowGraphLogic', key]),
+    props({} as FunnelFlowLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_LOGIC_KEY)),
+
+    connect((props: InsightLogicProps) => ({
+        values: [funnelDataLogic(props), ['visibleStepsWithConversionMetrics', 'stepNames', 'isStepOptional']],
+    })),
+
+    actions({
+        setLaidOutNodes: (laidOutNodes: Node<FunnelFlowNodeData>[]) => ({ laidOutNodes }),
+    }),
+
+    reducers({
+        laidOutNodes: [
+            [] as Node<FunnelFlowNodeData>[],
+            {
+                setLaidOutNodes: (_, { laidOutNodes }) => laidOutNodes,
+            },
+        ],
+    }),
+
+    selectors({
+        nodeType: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode): string => (isProfileMode ? 'profile' : 'journey'),
+        ],
+        nodeWidth: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode): number => (isProfileMode ? PROFILE_NODE_WIDTH : NODE_WIDTH),
+        ],
+        nodeHeight: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode): number => (isProfileMode ? PROFILE_NODE_HEIGHT : NODE_HEIGHT),
+        ],
+        fitViewOptions: [
+            () => [(_, props) => props.isProfileMode],
+            (isProfileMode) => (isProfileMode ? PROFILE_FIT_VIEW_OPTIONS : FIT_VIEW_OPTIONS),
+        ],
+
+        nodes: [
+            (s) => [
+                s.visibleStepsWithConversionMetrics,
+                s.stepNames,
+                s.isStepOptional,
+                s.nodeType,
+                s.nodeWidth,
+                s.nodeHeight,
+            ],
+            (steps, stepNames, isStepOptional, nodeType, nodeWidth, nodeHeight): Node<FunnelFlowNodeData>[] => {
+                const stepsToMap: FunnelStepWithConversionMetrics[] =
+                    steps.length > 0
+                        ? steps
+                        : stepNames.map(({ nested_breakdown: _, ...s }) => ({
+                              ...s,
+                              droppedOffFromPrevious: 0,
+                              conversionRates: { fromPrevious: 0, total: 0, fromBasisStep: 0 },
+                          }))
+                return stepsToMap.map((step, index) => {
+                    const optional = isStepOptional(index + 1)
+                    return {
+                        id: `step-${index}`,
+                        type: nodeType,
+                        data: { step, stepIndex: index, isOptional: optional },
+                        position: { x: 0, y: 0 },
+                        width: nodeWidth,
+                        height: nodeHeight,
+                        draggable: false,
+                        connectable: false,
+                    }
+                })
+            },
+        ],
+        edges: [
+            (s) => [s.nodes, s.nodeType],
+            (nodes, nodeType): Edge[] =>
+                nodes.slice(0, -1).map((node, index) => {
+                    const targetNode = nodes[index + 1]
+                    const touchesOptionalStep = targetNode.data.isOptional
+
+                    const isProfileMode = nodeType === 'profile'
+
+                    return {
+                        id: `edge-${index}`,
+                        source: node.id,
+                        target: targetNode.id,
+                        type: nodeType,
+                        sourceHandle: `${node.id}-source`,
+                        targetHandle: `${targetNode.id}-target`,
+                        markerEnd: {
+                            type: MarkerType.ArrowClosed,
+                            ...(isProfileMode && { color: 'var(--color-border-secondary)' }),
+                        },
+                        deletable: false,
+                        style: {
+                            ...(isProfileMode && {
+                                stroke: 'var(--color-border-secondary)',
+                                strokeWidth: 2,
+                            }),
+                            ...(touchesOptionalStep && { strokeDasharray: '5 5' }),
+                        },
+                        data: {
+                            step: targetNode.data.step,
+                            stepIndex: targetNode.data.stepIndex,
+                        },
+                    }
+                }),
+        ],
+    }),
+
+    subscriptions(({ actions, values, props }) => ({
+        nodes: async () => {
+            const elkOverrides = props.isProfileMode ? { 'elk.layered.spacing.nodeNodeBetweenLayers': '40' } : undefined
+            const elkNodeSize = {
+                width: values.nodeWidth,
+                height: values.nodeHeight,
+            }
+            const positioned = await layoutNodes(values.nodes, values.edges, elkOverrides, elkNodeSize)
+            actions.setLaidOutNodes(positioned)
+        },
+    })),
+])

@@ -52,6 +52,7 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
             <img
                 className="size-full object-cover"
                 src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
+                alt="Uploaded logo"
                 onError={() => setIsLoadingImage(false)}
                 onLoad={() => setIsLoadingImage(false)}
             />

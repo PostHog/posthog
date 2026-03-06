@@ -5,10 +5,11 @@ use envconfig::Envconfig;
 use health::HealthStrategy;
 use tracing::Level;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum CaptureMode {
     Events,
     Recordings,
+    Ai,
 }
 
 impl CaptureMode {
@@ -16,6 +17,26 @@ impl CaptureMode {
         match self {
             CaptureMode::Events => "events",
             CaptureMode::Recordings => "recordings",
+            CaptureMode::Ai => "ai",
+        }
+    }
+
+    /// Returns the pipeline name used in Redis restriction configs.
+    /// These must match the values in Django's EventIngestionRestrictionConfig.pipelines.
+    pub fn as_pipeline_name(&self) -> &'static str {
+        match self {
+            CaptureMode::Events => "analytics",
+            CaptureMode::Recordings => "session_recordings",
+            CaptureMode::Ai => "ai",
+        }
+    }
+
+    pub fn parse_pipeline_name(s: &str) -> Option<Self> {
+        match s {
+            "analytics" => Some(Self::Events),
+            "session_recordings" => Some(Self::Recordings),
+            "ai" => Some(Self::Ai),
+            _ => None,
         }
     }
 }
@@ -27,6 +48,7 @@ impl std::str::FromStr for CaptureMode {
         match s.trim().to_lowercase().as_ref() {
             "events" => Ok(CaptureMode::Events),
             "recordings" => Ok(CaptureMode::Recordings),
+            "ai" => Ok(CaptureMode::Ai),
             _ => Err(format!("Unknown Capture Type: {s}")),
         }
     }
@@ -36,6 +58,9 @@ impl std::str::FromStr for CaptureMode {
 pub struct Config {
     #[envconfig(default = "false")]
     pub print_sink: bool,
+
+    #[envconfig(default = "false")]
+    pub noop_sink: bool,
 
     #[envconfig(default = "127.0.0.1:3000")]
     pub address: SocketAddr,
@@ -51,23 +76,53 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub global_rate_limit_enabled: bool,
 
-    /// Rate limiting keys associated with this or more events
-    /// per window interval will be rate limited
-    #[envconfig(default = "1000000")]
-    pub global_rate_limit_threshold: u64,
-
     /// Sliding window interval to apply global rate limiting threshold to
     #[envconfig(default = "60")]
     pub global_rate_limit_window_interval_secs: u64,
 
-    /// CSV list of key=value pairs assigning custom global rate limit thresholds
-    /// for particular keys.
-    pub global_rate_limit_overrides_csv: Option<String>,
+    /// Max staleness before re-sync with Redis (seconds)
+    #[envconfig(default = "15")]
+    pub global_rate_limit_sync_interval_secs: u64,
+
+    /// Background task cadence for pipeline reads + writes (milliseconds)
+    #[envconfig(default = "1000")]
+    pub global_rate_limit_tick_interval_ms: u64,
+
+    // --- Token+DistinctId limiter config ---
+    /// Per-(token, distinct_id) rate limit threshold per window interval
+    /// Note: default is too high to trigger limiting in production
+    #[envconfig(default = "300000")]
+    pub global_rate_limit_token_distinctid_threshold: u64,
+
+    /// CSV list of key=value pairs for custom per-(token, distinct_id) thresholds
+    pub global_rate_limit_token_distinctid_overrides_csv: Option<String>,
+
+    /// Max local cache entries for the per-(token, distinct_id) limiter
+    #[envconfig(default = "5000000")]
+    pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
+
+    // --- Token-only limiter config ---
+    /// Per-token rate limit threshold per window interval
+    /// Note: default is too high to trigger limiting in production
+    #[envconfig(default = "5000000")]
+    pub global_rate_limit_token_threshold: u64,
+
+    /// CSV list of key=value pairs for custom per-token thresholds
+    pub global_rate_limit_token_overrides_csv: Option<String>,
+
+    /// Max local cache entries for the per-token limiter
+    #[envconfig(default = "300000")]
+    pub global_rate_limit_token_local_cache_max_entries: u64,
 
     /// Optional dedicated Redis URL for global rate limiter.
     /// If set, creates a separate Redis client for the limiter.
     /// Falls back to the shared redis_url if unset.
     pub global_rate_limit_redis_url: Option<String>,
+
+    /// Optional Redis reader URL for global rate limiter (replica).
+    /// When set alongside global_rate_limit_redis_url, creates a ReadWriteClient
+    /// that routes reads to replicas and writes to the primary.
+    pub global_rate_limit_redis_reader_url: Option<String>,
 
     /// Response timeout for dedicated global rate limiter Redis (milliseconds).
     /// Defaults to redis_response_timeout_ms if unset.
@@ -76,6 +131,19 @@ pub struct Config {
     /// Connection timeout for dedicated global rate limiter Redis (milliseconds).
     /// Defaults to redis_connection_timeout_ms if unset.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
+
+    // Event restrictions configuration (reads from Redis, synced by Django)
+    #[envconfig(default = "false")]
+    pub event_restrictions_enabled: bool,
+
+    /// Redis URL for event restrictions (separate from main redis_url)
+    pub event_restrictions_redis_url: Option<String>,
+
+    #[envconfig(default = "30")]
+    pub event_restrictions_refresh_interval_secs: u64,
+
+    #[envconfig(default = "300")]
+    pub event_restrictions_fail_open_after_secs: u64,
 
     pub otel_url: Option<String>,
 
@@ -205,6 +273,8 @@ pub struct KafkaConfig {
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "session_recording_snapshot_item_overflow")]
     pub kafka_replay_overflow_topic: String,
+    #[envconfig(default = "events_plugin_ingestion_dlq")]
+    pub kafka_dlq_topic: String,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]
@@ -221,4 +291,14 @@ pub struct KafkaConfig {
     pub kafka_metadata_max_age_ms: u32,
     #[envconfig(default = "60000")] // lib default, can tweak in env overrides
     pub kafka_socket_timeout_ms: u32,
+    #[envconfig(default = "10000")] // librdkafka default
+    pub kafka_producer_batch_num_messages: u32, // batch.num.messages - max messages per batch
+    #[envconfig(default = "1000000")] // librdkafka default
+    pub kafka_producer_batch_size: u32, // batch.size - max batch size in bytes
+    #[envconfig(default = "1000000")] // librdkafka default
+    pub kafka_producer_max_in_flight_requests: u32, // max.in.flight.requests.per.connection
+    #[envconfig(default = "10")] // librdkafka default
+    pub kafka_producer_sticky_partitioning_linger_ms: u32, // sticky.partitioning.linger.ms
+    #[envconfig(default = "false")] // librdkafka default
+    pub kafka_producer_enable_idempotence: bool, // enable.idempotence
 }

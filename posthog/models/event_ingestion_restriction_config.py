@@ -2,7 +2,7 @@ import json
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from posthog.models.utils import UUIDTModel
@@ -83,6 +83,35 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     def get_redis_key(self):
         return f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{self.restriction_type}"
 
+    def add_distinct_id(self, distinct_id: str) -> bool:
+        """Add a distinct_id to this restriction. Returns True if added, False if already present."""
+        current = self.distinct_ids or []
+        if distinct_id in current:
+            return False
+        self.distinct_ids = [*current, distinct_id]
+        self.save()
+        return True
+
+    @classmethod
+    def add_distinct_id_for_token(
+        cls, token: str, restriction_type: str, distinct_id: str
+    ) -> tuple["EventIngestionRestrictionConfig", bool, bool]:
+        """Get or create a restriction and add a distinct_id.
+
+        Returns (restriction, was_created, was_added).
+        """
+        try:
+            restriction = cls.objects.get(token=token, restriction_type=restriction_type)
+            added = restriction.add_distinct_id(distinct_id)
+            return restriction, False, added
+        except cls.DoesNotExist:
+            restriction = cls.objects.create(
+                token=token,
+                restriction_type=restriction_type,
+                distinct_ids=[distinct_id],
+            )
+            return restriction, True, True
+
 
 def regenerate_redis_for_restriction_type(restriction_type: str):
     """
@@ -121,9 +150,27 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
     redis_client.set(redis_key, json.dumps(data))
 
 
+@receiver(pre_save, sender=EventIngestionRestrictionConfig)
+def capture_old_restriction_type(sender, instance, **kwargs):
+    """Capture the old restriction_type before save to handle type changes."""
+    if instance.pk:
+        try:
+            old_instance = EventIngestionRestrictionConfig.objects.get(pk=instance.pk)
+            instance._old_restriction_type = old_instance.restriction_type
+        except EventIngestionRestrictionConfig.DoesNotExist:
+            instance._old_restriction_type = None
+    else:
+        instance._old_restriction_type = None
+
+
 @receiver(post_save, sender=EventIngestionRestrictionConfig)
 def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
     regenerate_redis_for_restriction_type(instance.restriction_type)
+
+    # If restriction_type changed, also regenerate the old type's Redis key
+    old_restriction_type = getattr(instance, "_old_restriction_type", None)
+    if old_restriction_type and old_restriction_type != instance.restriction_type:
+        regenerate_redis_for_restriction_type(old_restriction_type)
 
 
 @receiver(post_delete, sender=EventIngestionRestrictionConfig)

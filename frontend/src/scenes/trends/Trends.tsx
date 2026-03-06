@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
-import { TrendsCalendarHeatMap } from 'scenes/insights/views/CalendarHeatMap'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { WorldMap } from 'scenes/insights/views/WorldMap'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -14,6 +13,14 @@ import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
+
+// Lazy-loaded viz types that are rarely used on dashboards
+const WorldMap = lazy(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
+const RegionMap = lazy(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
+const TrendsCalendarHeatMap = lazy(() =>
+    import('scenes/insights/views/CalendarHeatMap').then((m) => ({ default: m.TrendsCalendarHeatMap }))
+)
+const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
 
 interface Props {
     view: InsightType
@@ -45,7 +52,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <ActionsLineGraph
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -55,7 +62,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <BoldNumber
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -77,7 +84,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <ActionsPie
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -87,17 +94,35 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 <ActionsHorizontalBar
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
         }
         if (display === ChartDisplayType.WorldMap) {
+            const hasSubdivisionBreakdown =
+                breakdownFilter?.breakdowns &&
+                breakdownFilter.breakdowns.length >= 2 &&
+                breakdownFilter.breakdowns.some(
+                    (b) => b.property === '$geoip_subdivision_1_code' || b.property === '$geoip_subdivision_1_name'
+                )
+
+            if (hasSubdivisionBreakdown) {
+                return (
+                    <RegionMap
+                        showPersonsModal={showPersonsModal}
+                        context={context}
+                        inCardView={embedded && !inSharedMode}
+                        inSharedMode={inSharedMode}
+                    />
+                )
+            }
+
             return (
                 <WorldMap
                     showPersonsModal={showPersonsModal}
                     context={context}
-                    inCardView={embedded}
+                    inCardView={embedded && !inSharedMode}
                     inSharedMode={inSharedMode}
                 />
             )
@@ -105,6 +130,16 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         if (display === ChartDisplayType.CalendarHeatmap) {
             return (
                 <TrendsCalendarHeatMap
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded && !inSharedMode}
+                    inSharedMode={inSharedMode}
+                />
+            )
+        }
+        if (display === ChartDisplayType.BoxPlot) {
+            return (
+                <BoxPlotChart
                     showPersonsModal={showPersonsModal}
                     context={context}
                     inCardView={embedded}
@@ -118,12 +153,13 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         <>
             {series && (
                 <div className={embedded ? 'InsightCard__viz' : `TrendsInsight TrendsInsight--${display}`}>
-                    {renderViz()}
+                    <Suspense fallback={null}>{renderViz()}</Suspense>
                 </div>
             )}
             {!embedded &&
                 display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 display !== ChartDisplayType.CalendarHeatmap && // the heatmap doesn't need this cta
+                display !== ChartDisplayType.BoxPlot && // box plot doesn't support breakdowns
                 breakdownFilter &&
                 hasBreakdownMore && (
                     <div className="p-4">

@@ -24,17 +24,19 @@ const TriggerPopover = ({
     const { workflow, variableValues, inputs, isScheduleTrigger } = useValues(logic)
     const { setInput, clearInputs, triggerManualWorkflow, triggerBatchWorkflow } = useActions(logic)
 
-    const { blastRadius } = useValues(
+    const { blastRadius, blastRadiusLoading } = useValues(
         batchTriggerLogic({
             id: props.id,
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
         })
     )
 
-    const blastRadiusSuffix = (): string =>
-        workflow?.trigger?.type === 'batch' && blastRadius
-            ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users`
-            : ''
+    const blastRadiusSuffix = (): string => {
+        if (workflow?.trigger?.type === 'batch') {
+            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users` : ' for ...'
+        }
+        return ''
+    }
 
     const getButtonText = (): string => {
         const action = isScheduleTrigger ? 'Schedule workflow' : 'Run workflow'
@@ -100,6 +102,7 @@ const TriggerPopover = ({
                 <LemonButton
                     type="primary"
                     status="alt"
+                    loading={blastRadiusLoading}
                     onClick={() => {
                         if (workflow?.trigger?.type === 'batch') {
                             triggerBatchWorkflow(

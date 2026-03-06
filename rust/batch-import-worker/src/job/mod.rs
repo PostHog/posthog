@@ -1,9 +1,11 @@
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Error};
+use uuid::Uuid;
 
 use crate::metrics as metric_emit;
 use common_types::InternallyCapturedEvent;
+use lifecycle::Handle;
 use model::{JobModel, JobState, PartState};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
@@ -12,10 +14,9 @@ use crate::{
     context::AppContext,
     emit::Emitter,
     error::{extract_retry_after_from_error, get_user_message, is_rate_limited_error, UserError},
-    job::backoff::format_backoff_messages,
+    job::{backoff::format_backoff_messages, config::SinkConfig},
     parse::{format::ParserFn, Parsed},
     source::DataSource,
-    spawn_liveness_loop,
 };
 
 pub mod backoff;
@@ -83,6 +84,15 @@ async fn reset_backoff_after_success(
 
 pub struct Job {
     pub context: Arc<AppContext>,
+    handle: Handle,
+
+    // Once created the job id doesn't change, store it on the Job struct for easy access, to avoid contention/locking on the model
+    pub job_id: Uuid,
+
+    // How many bytes to fetch from the source per iteration. Varies by sink
+    // type: the capture sink uses a smaller value to stay within the capture
+    // service's HTTP body size limit.
+    pub chunk_size: usize,
 
     // The job maintains a copy of the job state, outside of the model,
     // because process in a pipelined fashion, and to do that we need to
@@ -110,7 +120,11 @@ struct Checkpoint {
 }
 
 impl Job {
-    pub async fn new(mut model: JobModel, context: Arc<AppContext>) -> Result<Self, Error> {
+    pub async fn new(
+        mut model: JobModel,
+        context: Arc<AppContext>,
+        handle: Handle,
+    ) -> Result<Self, Error> {
         let is_restarting = model.state.is_some();
 
         let source = model
@@ -145,7 +159,7 @@ impl Job {
             .unwrap_or_else(|| JobState { parts: vec![] });
 
         if state.parts.is_empty() {
-            info!("Found job with no parts, initializing parts list");
+            info!(job_id = %model.id, "Found job with no parts, initializing parts list");
             // If we have no parts, we assume this is the first time picking up the job,
             // and populate the parts list
             let mut parts = Vec::new();
@@ -167,11 +181,20 @@ impl Job {
             }
             state.parts = parts;
             model.state = Some(state.clone());
-            info!("Initialized parts list: {:?}", state.parts);
+            info!(job_id = %model.id, "Initialized parts list: {:?}", state.parts);
         }
+
+        let job_id = model.id;
+        let chunk_size = match &model.import_config.sink {
+            SinkConfig::Capture(_) => context.config.capture_chunk_size,
+            _ => context.config.chunk_size,
+        };
 
         Ok(Self {
             context,
+            handle,
+            job_id,
+            chunk_size,
             model: Mutex::new(model),
             state: Mutex::new(state),
             source,
@@ -320,7 +343,7 @@ impl Job {
         let mut state = self.state.lock().await;
 
         let Some(next_part) = state.parts.iter_mut().find(|p| !p.is_done()) else {
-            info!("Found no next part, returning");
+            info!(job_id = %self.job_id, "Found no next part, returning");
             return Ok(None); // We're done fetching
         };
 
@@ -330,7 +353,7 @@ impl Job {
         if next_part.total_size.is_none() {
             if let Some(actual_size) = self.source.size(&key).await? {
                 next_part.total_size = Some(actual_size);
-                info!("Updated total size for key {}: {}", key, actual_size);
+                info!(job_id = %self.job_id, "Updated total size for key {}: {}", key, actual_size);
 
                 {
                     let mut model = self.model.lock().await;
@@ -345,6 +368,7 @@ impl Job {
 
                 if actual_size == 0 {
                     info!(
+                        job_id = %self.job_id,
                         "No data available for this key: {} try to get the next chunk",
                         key
                     );
@@ -360,14 +384,14 @@ impl Job {
             }
         }
 
-        info!("Fetching part chunk {:?}", next_part);
+        info!(job_id = %self.job_id, "Fetching part chunk {:?}", next_part);
 
         let next_chunk = self
             .source
             .get_chunk(
                 &next_part.key,
                 next_part.current_offset,
-                self.context.config.chunk_size as u64,
+                self.chunk_size as u64,
             )
             .await
             .context(format!("Fetching part chunk {next_part:?}"))?;
@@ -379,7 +403,7 @@ impl Job {
 
         let chunk_bytes = next_chunk.len();
 
-        info!("Fetched part chunk {:?}", next_part);
+        info!(job_id = %self.job_id, "Fetched part chunk {:?}", next_part);
         let m_tf = self.transform.clone();
         let key_for_error = key.clone();
         // This is computationally expensive, so we run it in a blocking task
@@ -394,13 +418,24 @@ impl Job {
             .context(format!("Processing part chunk {next_part:?}"))?;
 
         info!(
+            job_id = %self.job_id,
             "Parsed part chunk {:?}, consumed {} bytes",
             next_part, parsed.consumed
         );
 
-        // If this is the last chunk, and we didn't consume all of it, or we didn't manage to
-        // consume any of this chunk, we've got a bad chunk, and should pause the job with an error.
-        if parsed.consumed < chunk_bytes && is_last_chunk || parsed.data.is_empty() {
+        // If this is the last chunk and we didn't consume all of it, we have leftover unparseable data.
+        if parsed.consumed < chunk_bytes && is_last_chunk {
+            return Err(Error::msg(format!(
+                "Failed to parse data from part {} at offset {} - {} bytes left unconsumed",
+                next_part.key,
+                next_part.current_offset,
+                chunk_bytes - parsed.consumed
+            )));
+        }
+
+        // If we consumed no bytes and have no parsed data but there was data to consume, something went wrong.
+        // Note: don't error if we have no parsed data but have consumed bytes - invalid events may have been all filtered out
+        if parsed.consumed == 0 && parsed.data.is_empty() && chunk_bytes > 0 {
             return Err(Error::msg(format!(
                 "Failed to parse any data from part {} at offset {}",
                 next_part.key, next_part.current_offset
@@ -420,46 +455,43 @@ impl Job {
     }
 
     async fn do_commit(&self) -> Result<(), Error> {
-        let liveness_loop_flag = spawn_liveness_loop(self.context.worker_liveness.clone());
         self.shutdown_guard()?;
         let mut checkpoint_lock = self.checkpoint.lock().await;
 
         let Some(checkpoint) = checkpoint_lock.take() else {
-            info!("No checkpointed data to commit, returning");
-            return Ok(()); // We've got no checkpointed data to commit, so we're done
+            info!(job_id = %self.job_id, "No checkpointed data to commit, returning");
+            return Ok(());
         };
 
         let (key, parsed) = (checkpoint.key, checkpoint.data);
 
-        info!("Committing part {} consumed {} bytes", key, parsed.consumed);
-        info!("Committing {} events", parsed.data.len());
+        info!(job_id = %self.job_id, "Committing part {} consumed {} bytes", key, parsed.consumed);
+        info!(job_id = %self.job_id, "Committing {} events", parsed.data.len());
 
         let mut sink = self.sink.lock().await;
         self.shutdown_guard()?;
-        // If this fails, we just bail out, and then eventually someone else will pick up the job again and re-process this chunk
         let txn = sink.begin_write().await?;
-        info!("Writing {} events", parsed.data.len());
-        // If this fails, as above
+        info!(job_id = %self.job_id, "Writing {} events", parsed.data.len());
         self.shutdown_guard()?;
         txn.emit(&parsed.data).await?;
-        // This is where things get tricky - if we fail to commit the chunk to the sink in the next step, and we've told PG we've
-        // committed the chunk, we'll bail out, and whoever comes next will end up skipping this chunk. To prevent this, we do a two
-        // stage commit, where we pause the job before committing the chunk to the sink, and then only unpause it after the sink commit,
-        // such that if we get interrupted between the two, the job will be paused, and manual intervention will be required to resume it.
-        // This operator can then confirm whether the sink commit succeeded or not (by looking at the last event written, or by
-        // looking at logs, or both). The jobs status message is set to enable this kind of debugging.
-        self.shutdown_guard()?; // This is the last time we call this during the commit - if we get this far, we want to commit fully if at all possible
-        info!("Beginning PG part commit");
+        // Two-stage commit: pause the job in PG before committing to the sink, so that if we
+        // crash between the two, the job is paused and requires manual intervention rather than
+        // silently skipping a chunk. The operator can confirm whether the sink commit succeeded
+        // by looking at the last event written or the logs.
+        self.shutdown_guard()?;
+        info!(job_id = %self.job_id, "Beginning PG part commit");
         self.begin_part_commit(&key, parsed.consumed).await?;
-        info!("Beginning emitter part commit");
+        info!(job_id = %self.job_id, "Beginning emitter part commit");
 
         let to_sleep = txn.commit_write().await?;
-        info!("Finishing PG part commit");
+        info!(job_id = %self.job_id, "Finishing PG part commit");
         self.complete_commit().await?;
-        info!("Committed part {} consumed {} bytes", key, parsed.consumed);
-        info!("Sleeping for {:?}", to_sleep);
-        tokio::time::sleep(to_sleep).await;
-        liveness_loop_flag.store(false, Ordering::Relaxed);
+        info!(job_id = %self.job_id, "Committed part {} consumed {} bytes", key, parsed.consumed);
+        info!(job_id = %self.job_id, "Sleeping for {:?}", to_sleep);
+        tokio::select! {
+            _ = tokio::time::sleep(to_sleep) => {},
+            _ = self.handle.shutdown_recv() => {},
+        }
 
         Ok(())
     }
@@ -468,7 +500,7 @@ impl Job {
         let mut model = self.model.lock().await;
         let result = model.complete(&self.context.db).await;
         if result.is_ok() {
-            info!(job_id = %model.id, "Batch import job complete");
+            info!(job_id = %self.job_id, "Batch import job complete");
         }
         result
     }
@@ -508,13 +540,10 @@ impl Job {
         model.unpause(self.context.clone()).await
     }
 
-    // Used during the commit operations as a shorthand way to bail before an operation if we get a shutdown signal
     fn shutdown_guard(&self) -> Result<(), Error> {
-        if !self.context.is_running() {
-            warn!("Running flag set to flase during job processing, bailing");
-            Err(Error::msg(
-                "Running flag set to flase during job processing, bailing",
-            ))
+        if self.handle.is_shutting_down() {
+            warn!("Shutdown signaled during job processing, bailing");
+            Err(Error::msg("Shutdown signaled during job processing"))
         } else {
             Ok(())
         }
@@ -866,6 +895,38 @@ mod tests {
                 );
             }
             _ => panic!("Expected Pause decision"),
+        }
+    }
+
+    mod shutdown_guard_tests {
+        use tokio_util::sync::CancellationToken;
+
+        fn make_handle(token: CancellationToken) -> lifecycle::Handle {
+            let mut manager = lifecycle::Manager::builder("test")
+                .with_trap_signals(false)
+                .with_prestop_check(false)
+                .with_shutdown_token(token)
+                .build();
+            manager.register("test-component", lifecycle::ComponentOptions::new())
+        }
+
+        /// shutdown_guard delegates to handle.is_shutting_down(); verify the
+        /// underlying predicate returns false before cancellation.
+        #[test]
+        fn handle_not_shutting_down_before_cancel() {
+            let token = CancellationToken::new();
+            let handle = make_handle(token);
+            assert!(!handle.is_shutting_down());
+        }
+
+        /// After the token is cancelled, is_shutting_down() returns true --
+        /// which is what shutdown_guard uses to bail out of commit phases.
+        #[test]
+        fn handle_shutting_down_after_cancel() {
+            let token = CancellationToken::new();
+            let handle = make_handle(token.clone());
+            token.cancel();
+            assert!(handle.is_shutting_down());
         }
     }
 }

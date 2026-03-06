@@ -4,9 +4,18 @@ import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useCallback, useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconStack, IconTrash, IconWarning } from '@posthog/icons'
+import {
+    IconCopy,
+    IconEllipsis,
+    IconFilter,
+    IconGroupIntersect,
+    IconPencil,
+    IconTrash,
+    IconWarning,
+} from '@posthog/icons'
 import {
     LemonBadge,
     LemonCheckbox,
@@ -23,16 +32,22 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
+    TaxonomicFilterGroupType,
+    isQuickFilterItem,
+    quickFilterToPropertyFilters,
+} from 'lib/components/TaxonomicFilter/types'
 import {
     TaxonomicPopover,
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -40,6 +55,7 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
@@ -61,6 +77,7 @@ import {
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
+    AnyPropertyFilter,
     BaseMathType,
     ChartDisplayCategory,
     ChartDisplayType,
@@ -70,8 +87,11 @@ import {
     FunnelExclusionLegacy,
     HogQLMathType,
     InsightShortId,
+    InsightType,
+    PropertyFilterType,
     PropertyFilterValue,
     PropertyMathType,
+    PropertyOperator,
 } from '~/types'
 
 import { LocalFilter } from '../entityFilterLogic'
@@ -97,6 +117,7 @@ export enum MathAvailability {
     ActorsOnly,
     FunnelsOnly,
     CalendarHeatmapOnly,
+    BoxPlotOnly,
     None,
 }
 
@@ -124,6 +145,7 @@ export interface ActionFilterRowProps {
     hideDuplicate?: boolean // Hides the duplicate option
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     showCombine?: boolean // Show the combine inline events option
+    insightType?: InsightType // The type of insight (trends, funnels, etc.)
     propertyFiltersPopover?: boolean
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
@@ -163,8 +185,13 @@ export interface ActionFilterRowProps {
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */
     addFilterDocLink?: string
+    /** Doc link to show in the tooltip of the Combine events button */
+    inlineEventsDocLink?: string
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
+    hogQLGlobals?: Record<string, any>
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
+    operatorAllowlist?: PropertyOperator[]
 }
 
 export function ActionFilterRow({
@@ -179,6 +206,7 @@ export function ActionFilterRow({
     hideDuplicate = false,
     hideDeleteBtn = false,
     showCombine = false,
+    insightType,
     propertyFiltersPopover = false,
     onRenameClick = () => {},
     showSeriesIndicator,
@@ -201,7 +229,17 @@ export function ActionFilterRow({
     addFilterDocLink,
     excludedProperties,
     allowNonCapturedEvents,
+    hogQLGlobals,
+    inlineEventsDocLink,
+    definitionPopoverRenderer,
+    operatorAllowlist,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
+    const effectiveActionsTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        ...actionsTaxonomicGroupTypes,
+    ]
+
+    const { currentTeamId } = useValues(teamLogic)
     const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
@@ -235,10 +273,20 @@ export function ActionFilterRow({
     // Only use the funnel results when in funnel context
     const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
 
+    // DWH events are not supported in inline events yet
+    const canCombine = showCombine && !singleFilter && filter.type !== EntityTypes.DATA_WAREHOUSE
+
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
 
-    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
+    const {
+        setNodeRef,
+        attributes: { 'aria-disabled': _, ...attributes },
+        transform,
+        transition,
+        listeners,
+        isDragging,
+    } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -255,6 +303,11 @@ export function ActionFilterRow({
         removeLocalFilter({ ...filter, index })
     }
 
+    const onPropertyChange = useCallback(
+        (properties: AnyPropertyFilter[]) => updateFilterProperty({ properties, index }),
+        [updateFilterProperty, index]
+    )
+
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
         let mathProperties
         if (selectedMath) {
@@ -270,12 +323,12 @@ export function ActionFilterRow({
                 ...mathTypeToApiValues(selectedMath),
                 math_property,
                 math_hogql,
-                mathPropertyType,
+                math_property_type: mathPropertyType,
             }
         } else {
             mathProperties = {
                 math_property: undefined,
-                mathPropertyType: undefined,
+                math_property_type: undefined,
                 math_hogql: undefined,
                 math_group_type_index: undefined,
                 math: undefined,
@@ -328,10 +381,86 @@ export function ActionFilterRow({
         <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
-            groupType={filter.type as TaxonomicFilterGroupType}
+            truncate
+            groupType={TaxonomicFilterGroupType.SuggestedFilters}
             value={getValue(value, filter)}
             filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {
+                if (isQuickFilterItem(item)) {
+                    if (item.eventName) {
+                        updateFilter({
+                            type: EntityTypes.EVENTS,
+                            id: item.eventName,
+                            name: item.eventName,
+                            index,
+                        })
+                    }
+                    updateFilterProperty({
+                        index,
+                        properties: quickFilterToPropertyFilters(item),
+                    })
+                    return
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.PageviewEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$pageview',
+                        name: '$pageview',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$current_url',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.IContains,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.ScreenEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$screen',
+                        name: '$screen',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$screen_name',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$autocapture',
+                        name: '$autocapture',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$el_text',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
                 const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
                 if (groupType === EntityTypes.DATA_WAREHOUSE) {
                     const extraValues = Object.fromEntries(
@@ -356,10 +485,10 @@ export function ActionFilterRow({
             }}
             renderValue={() => (
                 <span className="text-overflow max-w-full">
-                    <EntityFilterInfo filter={filter} />
+                    <EntityFilterInfo filter={filter} showIcon />
                 </span>
             )}
-            groupTypes={actionsTaxonomicGroupTypes}
+            groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
             placeholderClass=""
             disabled={disabled || readOnly}
@@ -369,6 +498,7 @@ export function ActionFilterRow({
             }
             excludedProperties={excludedProperties}
             allowNonCapturedEvents={allowNonCapturedEvents}
+            definitionPopoverRenderer={definitionPopoverRenderer}
         />
     )
 
@@ -387,6 +517,7 @@ export function ActionFilterRow({
                         : undefined
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
+                tooltip="Show filters"
                 tooltipDocLink={addFilterDocLink}
             />
         </IconWithCount>
@@ -430,22 +561,23 @@ export function ActionFilterRow({
         </LemonButton>
     )
 
-    const combineRowButton = (
-        <Tooltip title="Count multiple events as a single event">
-            <LemonButton
-                key="combine"
-                icon={<IconStack />}
-                data-attr={`show-prop-combine-${index}`}
-                noPadding={!enablePopup}
-                onClick={() => {
-                    setIsMenuVisible(false)
-                    convertFilterToGroup(index)
-                }}
-                fullWidth={enablePopup}
-            >
-                {enablePopup ? 'Combine' : undefined}
-            </LemonButton>
-        </Tooltip>
+    const combineInlineButton = (
+        <LemonButton
+            key="combine-inline"
+            icon={<IconGroupIntersect />}
+            title="Count multiple events as a single event"
+            data-attr={`show-prop-combine-${index}`}
+            noPadding
+            onClick={() => {
+                convertFilterToGroup(index)
+                posthog.capture('combine_events', {
+                    insight_type: insightType,
+                    team_id: currentTeamId,
+                })
+            }}
+            tooltip="Combine events"
+            tooltipDocLink={inlineEventsDocLink}
+        />
     )
 
     const deleteButton = (
@@ -470,13 +602,9 @@ export function ActionFilterRow({
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
-    // Check if popup would have any menu items (excluding filter button which is always outside the menu)
+    // Check if popup would have any menu items (excluding filter and combine buttons which are always outside the menu)
     const hasMenuItems =
-        isFunnelContext ||
-        !hideRename ||
-        (!hideDuplicate && !singleFilter) ||
-        showCombine ||
-        (!hideDeleteBtn && !singleFilter)
+        isFunnelContext || !hideRename || (!hideDuplicate && !singleFilter) || (!hideDeleteBtn && !singleFilter)
     const showPopupMenu = !readOnly && enablePopup && hasMenuItems
 
     // When not using popup, show elements inline
@@ -484,9 +612,9 @@ export function ActionFilterRow({
         !readOnly && !showPopupMenu
             ? [
                   !hideFilter && propertyFiltersButton,
+                  canCombine && combineInlineButton,
                   !hideRename && renameRowButton,
                   !hideDuplicate && !singleFilter && duplicateRowButton,
-                  showCombine && combineRowButton,
                   !hideDeleteBtn && !singleFilter && deleteButton,
               ].filter(Boolean)
             : []
@@ -521,25 +649,26 @@ export function ActionFilterRow({
                         ) : null}
                         {/* central section flexible */}
                         <div className="ActionFilterRow__center">
-                            <div className="flex-auto overflow-hidden">{filterElement}</div>
+                            <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
                             {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (
                                     <>
-                                        <MathSelector
-                                            math={math}
-                                            mathGroupTypeIndex={mathGroupTypeIndex}
-                                            index={index}
-                                            onMathSelect={onMathSelect}
-                                            disabled={readOnly}
-                                            style={{ maxWidth: '100%', width: 'initial' }}
-                                            mathAvailability={mathAvailability}
-                                            trendsDisplayCategory={trendsDisplayCategory}
-                                            allowedMathTypes={allowedMathTypes}
-                                            query={query || {}}
-                                        />
-                                        {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
-                                            MathCategory.PropertyValue && (
+                                        {mathAvailability !== MathAvailability.BoxPlotOnly && (
+                                            <MathSelector
+                                                math={math}
+                                                mathGroupTypeIndex={mathGroupTypeIndex}
+                                                index={index}
+                                                onMathSelect={onMathSelect}
+                                                disabled={readOnly}
+                                                style={{ maxWidth: '100%', width: 'initial' }}
+                                                mathAvailability={mathAvailability}
+                                                trendsDisplayCategory={trendsDisplayCategory}
+                                                allowedMathTypes={allowedMathTypes}
+                                                query={query || {}}
+                                            />
+                                        )}
+                                        {mathAvailability === MathAvailability.BoxPlotOnly && (
                                             <div className="flex-auto overflow-hidden">
                                                 <TaxonomicStringPopover
                                                     groupType={
@@ -547,63 +676,100 @@ export function ActionFilterRow({
                                                         TaxonomicFilterGroupType.NumericalEventProperties
                                                     }
                                                     groupTypes={[
-                                                        TaxonomicFilterGroupType.DataWarehouseProperties,
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
                                                         TaxonomicFilterGroupType.SessionProperties,
                                                         TaxonomicFilterGroupType.PersonProperties,
-                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                                     ]}
-                                                    schemaColumns={
-                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
-                                                        filter.name
-                                                            ? Object.values(
-                                                                  dataWarehouseTablesMap[filter.name]?.fields ?? []
-                                                              )
-                                                            : []
-                                                    }
-                                                    value={mathProperty}
+                                                    value={mathProperty || undefined}
                                                     onChange={(currentValue, groupType) =>
                                                         onMathPropertySelect(index, currentValue, groupType)
                                                     }
                                                     eventNames={name ? [name] : []}
-                                                    data-attr="math-property-select"
-                                                    showNumericalPropsOnly={showNumericalPropsOnly}
+                                                    placeholder="Select numeric property"
+                                                    data-attr="box-plot-property-select"
+                                                    showNumericalPropsOnly
                                                     renderValue={(currentValue) => (
-                                                        <Tooltip
-                                                            title={
-                                                                currentValue === '$session_duration' ? (
-                                                                    <>
-                                                                        Calculate{' '}
-                                                                        {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
-                                                                        of the session duration. This is based on the{' '}
-                                                                        <code>$session_id</code> property associated
-                                                                        with events. The duration is derived from the
-                                                                        time difference between the first and last event
-                                                                        for each distinct <code>$session_id</code>.
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        Calculate{' '}
-                                                                        {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
-                                                                        from property <code>{currentValue}</code>. Note
-                                                                        that only {name} occurrences where{' '}
-                                                                        <code>{currentValue}</code> is set with a
-                                                                        numeric value will be taken into account.
-                                                                    </>
-                                                                )
-                                                            }
-                                                            placement="right"
-                                                        >
-                                                            <PropertyKeyInfo
-                                                                value={currentValue}
-                                                                disablePopover
-                                                                type={TaxonomicFilterGroupType.EventProperties}
-                                                            />
-                                                        </Tooltip>
+                                                        <PropertyKeyInfo
+                                                            value={currentValue}
+                                                            disablePopover
+                                                            type={TaxonomicFilterGroupType.EventProperties}
+                                                        />
                                                     )}
                                                 />
                                             </div>
                                         )}
+                                        {mathAvailability !== MathAvailability.BoxPlotOnly &&
+                                            mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                                MathCategory.PropertyValue && (
+                                                <div className="flex-auto overflow-hidden">
+                                                    <TaxonomicStringPopover
+                                                        groupType={
+                                                            mathPropertyType ||
+                                                            TaxonomicFilterGroupType.NumericalEventProperties
+                                                        }
+                                                        groupTypes={[
+                                                            TaxonomicFilterGroupType.DataWarehouseProperties,
+                                                            TaxonomicFilterGroupType.NumericalEventProperties,
+                                                            TaxonomicFilterGroupType.SessionProperties,
+                                                            TaxonomicFilterGroupType.PersonProperties,
+                                                            TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                        ]}
+                                                        schemaColumns={
+                                                            filter.type == TaxonomicFilterGroupType.DataWarehouse &&
+                                                            filter.name
+                                                                ? Object.values(
+                                                                      dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                                  )
+                                                                : []
+                                                        }
+                                                        value={mathProperty}
+                                                        onChange={(currentValue, groupType) =>
+                                                            onMathPropertySelect(index, currentValue, groupType)
+                                                        }
+                                                        eventNames={name ? [name] : []}
+                                                        data-attr="math-property-select"
+                                                        showNumericalPropsOnly={showNumericalPropsOnly}
+                                                        renderValue={(currentValue) => (
+                                                            <Tooltip
+                                                                title={
+                                                                    currentValue === '$session_duration' ? (
+                                                                        <>
+                                                                            Calculate{' '}
+                                                                            {mathDefinitions[
+                                                                                math ?? ''
+                                                                            ].name.toLowerCase()}{' '}
+                                                                            of the session duration. This is based on
+                                                                            the <code>$session_id</code> property
+                                                                            associated with events. The duration is
+                                                                            derived from the time difference between the
+                                                                            first and last event for each distinct{' '}
+                                                                            <code>$session_id</code>.
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            Calculate{' '}
+                                                                            {mathDefinitions[
+                                                                                math ?? ''
+                                                                            ].name.toLowerCase()}{' '}
+                                                                            from property <code>{currentValue}</code>.
+                                                                            Note that only {name} occurrences where{' '}
+                                                                            <code>{currentValue}</code> is set with a
+                                                                            numeric value will be taken into account.
+                                                                        </>
+                                                                    )
+                                                                }
+                                                                placement="right"
+                                                            >
+                                                                <PropertyKeyInfo
+                                                                    value={currentValue}
+                                                                    disablePopover
+                                                                    type={TaxonomicFilterGroupType.EventProperties}
+                                                                />
+                                                            </Tooltip>
+                                                        )}
+                                                    />
+                                                </div>
+                                            )}
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.HogQLExpression && (
                                             <div className="flex-auto overflow-hidden">
@@ -646,6 +812,7 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
+                                        {canCombine && combineInlineButton}
                                         <div className="relative">
                                             <LemonMenu
                                                 placement={isTrendsContext ? 'bottom-end' : 'bottom-start'}
@@ -724,13 +891,6 @@ export function ActionFilterRow({
                                                               },
                                                           ]
                                                         : []),
-                                                    ...(showCombine
-                                                        ? [
-                                                              {
-                                                                  label: () => combineRowButton,
-                                                              },
-                                                          ]
-                                                        : []),
                                                     ...(!hideDeleteBtn && !singleFilter
                                                         ? [
                                                               {
@@ -769,7 +929,7 @@ export function ActionFilterRow({
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
-                        onChange={(properties) => updateFilterProperty({ properties, index })}
+                        onChange={onPropertyChange}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         metadataSource={
@@ -807,6 +967,8 @@ export function ActionFilterRow({
                         }
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
+                        hogQLGlobals={hogQLGlobals}
+                        operatorAllowlist={operatorAllowlist}
                     />
                 </div>
             )}
@@ -882,6 +1044,7 @@ function useMathSelectorOptions({
         funnelMathDefinitions,
         staticActorsOnlyMathDefinitions,
         calendarHeatmapMathDefinitions,
+
         aggregationLabel,
         groupsMathDefinitions,
     } = useValues(mathsLogic)
@@ -982,42 +1145,45 @@ function useMathSelectorOptions({
     if (
         mathAvailability !== MathAvailability.ActorsOnly &&
         mathAvailability !== MathAvailability.FunnelsOnly &&
-        mathAvailability !== MathAvailability.CalendarHeatmapOnly
+        mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
+        mathAvailability !== MathAvailability.BoxPlotOnly
     ) {
-        // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
-        const shouldShowCountPerUser =
-            !allowedMathTypes || Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
+        {
+            const shouldShowCountPerUser =
+                !allowedMathTypes ||
+                Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
 
-        if (shouldShowCountPerUser) {
-            options.splice(1, 0, {
-                value: countPerActorMathTypeShown,
-                label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>Count per user</span>
-                        <LemonSelect
-                            value={countPerActorMathTypeShown}
-                            onSelect={(value) => {
-                                setCountPerActorMathTypeShown(value as CountPerActorMathType)
-                                onMathSelect(index, value)
-                            }}
-                            options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
-                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
-                                .map(([key, definition]) => ({
-                                    value: key,
-                                    label: definition.shortName,
-                                    'data-attr': `math-${key}-${index}`,
-                                }))}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                        />
-                    </div>
-                ),
-                tooltip: 'Statistical analysis of event count per user.',
-                'data-attr': `math-node-count-per-actor-${index}`,
-            })
+            if (shouldShowCountPerUser) {
+                options.splice(1, 0, {
+                    value: countPerActorMathTypeShown,
+                    label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
+                    labelInMenu: (
+                        <div className="flex items-center gap-2">
+                            <span>Count per user</span>
+                            <LemonSelect
+                                value={countPerActorMathTypeShown}
+                                onSelect={(value) => {
+                                    setCountPerActorMathTypeShown(value as CountPerActorMathType)
+                                    onMathSelect(index, value)
+                                }}
+                                options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
+                                    .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
+                                    .map(([key, definition]) => ({
+                                        value: key,
+                                        label: definition.shortName,
+                                        'data-attr': `math-${key}-${index}`,
+                                    }))}
+                                onClick={(e) => e.stopPropagation()}
+                                size="small"
+                                dropdownMatchSelectWidth={false}
+                                optionTooltipPlacement="right"
+                            />
+                        </div>
+                    ),
+                    tooltip: 'Statistical analysis of event count per user.',
+                    'data-attr': `math-node-count-per-actor-${index}`,
+                })
+            }
         }
 
         const shouldShowPropertyValue =
@@ -1064,7 +1230,7 @@ function useMathSelectorOptions({
         }
     }
 
-    if (isGroupsEnabled && !isCalendarHeatmap) {
+    if (isGroupsEnabled && !isCalendarHeatmap && mathAvailability !== MathAvailability.BoxPlotOnly) {
         const uniqueActorsOptions = [
             {
                 value: 'users',
@@ -1218,6 +1384,7 @@ function useMathSelectorOptions({
     if (
         mathAvailability !== MathAvailability.FunnelsOnly &&
         mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
+        mathAvailability !== MathAvailability.BoxPlotOnly &&
         (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
     ) {
         options.push({

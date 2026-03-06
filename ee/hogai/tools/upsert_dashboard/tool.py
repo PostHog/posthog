@@ -7,9 +7,10 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
+from posthog.event_usage import EventSource, report_user_action
 from posthog.models import Dashboard, DashboardTile, Insight
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.sync import database_sync_to_async
+from posthog.utils import pluralize
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -20,7 +21,6 @@ from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     MISSING_INSIGHT_IDS_PROMPT,
-    NO_PERMISSION_PROMPT,
     PERMISSION_REQUEST_PROMPT,
     UPDATE_NO_CHANGES_PROMPT,
     UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
@@ -115,20 +115,20 @@ class UpsertDashboardTool(MaxTool):
             return artifact.content.name or "Insight"
 
         def join(items: list[str]) -> str:
-            return "\n".join(items)
+            return "\n".join(f"- {item}" for item in items)
 
-        created_insights = join([get_artifact_name(artifact) for artifact in diff["created"]])
-        deleted_insights = join(
-            [get_insight_name(tile.insight) for tile in diff["deleted"] if tile.insight is not None]
-        )
+        created_list = [get_artifact_name(artifact) for artifact in diff["created"]]
+        deleted_list = [get_insight_name(tile.insight) for tile in diff["deleted"] if tile.insight is not None]
 
         return format_prompt_string(
             PERMISSION_REQUEST_PROMPT,
             dashboard_name=dashboard.name or f"Dashboard #{dashboard.id}",
             new_dashboard_name=action.name,
             new_dashboard_description=action.description,
-            deleted_insights=deleted_insights,
-            new_insights=created_insights,
+            deleted_insights=join(deleted_list),
+            deleted_count=pluralize(len(deleted_list), "insight"),
+            new_insights=join(created_list),
+            added_count=pluralize(len(created_list), "insight"),
         )
 
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, dict | None]:
@@ -145,12 +145,15 @@ class UpsertDashboardTool(MaxTool):
         if missing_ids:
             raise MaxToolRetryableError(format_prompt_string(MISSING_INSIGHT_IDS_PROMPT, missing_ids=missing_ids))
 
-        insights = self._resolve_insights(cast(list[VisualizationWithSourceResult], artifacts))
+        validated_artifacts = cast(list[VisualizationWithSourceResult], artifacts)
+        insights = self._resolve_insights(validated_artifacts)
 
         if not insights:
             return CREATE_NO_INSIGHTS_PROMPT, None
 
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
+        await self._report_dashboard_action(dashboard, "dashboard created")
+        await self._report_new_insights(validated_artifacts, insights)
         output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
@@ -165,17 +168,22 @@ class UpsertDashboardTool(MaxTool):
         insight_ids = action.insight_ids or []
         artifacts = await self._get_visualization_artifacts(insight_ids) if insight_ids else []
 
-        dashboard = await self._update_dashboard_with_tiles(
+        dashboard, resolved_insights = await self._update_dashboard_with_tiles(
             dashboard,
             action.name,
             action.description,
             insight_ids,
             artifacts,
         )
+        await self._report_dashboard_action(dashboard, "dashboard updated")
+
+        if artifacts:
+            await self._report_new_insights(cast(list[VisualizationWithSourceResult], artifacts), resolved_insights)
 
         # Re-fetch sorted tiles to get the latest state
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
         insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
+
         output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
@@ -214,6 +222,32 @@ class UpsertDashboardTool(MaxTool):
 
         return resolved
 
+    async def _report_dashboard_action(self, dashboard: Dashboard, event: str) -> None:
+        await database_sync_to_async(report_user_action)(
+            self._user,
+            event,
+            {
+                **await database_sync_to_async(dashboard.get_analytics_metadata)(),
+                "source": EventSource.POSTHOG_AI,
+            },
+            team=self._team,
+        )
+
+    async def _report_new_insights(
+        self, artifacts: list[VisualizationWithSourceResult], insights: list[Insight]
+    ) -> None:
+        for artifact, insight in zip(artifacts, insights):
+            if not isinstance(artifact, ModelArtifactResult):
+                await database_sync_to_async(report_user_action)(
+                    self._user,
+                    "insight created",
+                    {
+                        "insight_id": insight.short_id,
+                        "source": EventSource.POSTHOG_AI,
+                    },
+                    team=self._team,
+                )
+
     def _create_resolved_insights(self, results: list[Insight]) -> list[Insight]:
         """
         Create insights that are not yet saved.
@@ -223,13 +257,6 @@ class UpsertDashboardTool(MaxTool):
                 continue
             insight.save()
         return results
-
-    @database_sync_to_async
-    def _check_user_permissions(self, dashboard: Dashboard) -> bool | None:
-        """Check if user has permission to edit the dashboard."""
-        user_access_control = UserAccessControl(user=self._user, team=self._team)
-        access_level = user_access_control.get_user_access_level(dashboard)
-        return access_level and access_level_satisfied_for_resource("dashboard", access_level, "editor")
 
     @database_sync_to_async
     @transaction.atomic
@@ -256,7 +283,7 @@ class UpsertDashboardTool(MaxTool):
         description: str | None,
         insight_ids: list[str],
         artifacts: list[VisualizationWithSourceResult],
-    ) -> Dashboard:
+    ) -> tuple[Dashboard, list[Insight]]:
         """Update dashboard tiles based on provided insight IDs.
 
         Args:
@@ -265,6 +292,10 @@ class UpsertDashboardTool(MaxTool):
             description: New dashboard description (if provided)
             insight_ids: Ordered list of insight IDs for the dashboard
             artifacts: Resolved visualization artifacts matching insight_ids order
+
+        Returns:
+            Tuple of (dashboard, resolved_insights) where resolved_insights
+            corresponds 1:1 with artifacts in the same order.
         """
         if name is not None:
             dashboard.name = name
@@ -274,7 +305,7 @@ class UpsertDashboardTool(MaxTool):
             dashboard.save(update_fields=["name", "description"])
 
         if not insight_ids:
-            return dashboard
+            return dashboard, []
 
         # 1. Get all existing tiles including soft deleted
         all_tiles = list(
@@ -314,9 +345,12 @@ class UpsertDashboardTool(MaxTool):
                 active_tile_ids.add(new_tile.id)
                 tiles_to_update.append(new_tile)
 
-        # 3. Soft delete tiles not in the new list
-        tiles_to_delete = [t.id for t in all_tiles if t.id not in active_tile_ids and not t.deleted]
+        # 3. Soft delete insight tiles not in the new list (preserve text tiles)
+        tiles_to_delete = [
+            t.id for t in all_tiles if t.id not in active_tile_ids and not t.deleted and t.insight_id is not None
+        ]
         if tiles_to_delete:
+            # nosemgrep: idor-lookup-without-team
             DashboardTile.objects.filter(id__in=tiles_to_delete).update(deleted=True)
 
         # 4. Update coordinates based on insight_ids order, keeping original sizes
@@ -356,7 +390,7 @@ class UpsertDashboardTool(MaxTool):
             tile.save(update_fields=["layouts", "deleted"])
             xs_y += 5
 
-        return dashboard
+        return dashboard, resolved_insights
 
     async def _format_dashboard_output(
         self,
@@ -391,14 +425,17 @@ class UpsertDashboardTool(MaxTool):
 
     async def _get_dashboard(self, dashboard_id: Any) -> Dashboard:
         """Get the dashboard and sorted tiles for the given dashboard ID."""
+        # LLMs sometimes output IDs as floats (e.g., "642161.0"), so we parse to int
         try:
-            dashboard = await Dashboard.objects.aget(id=dashboard_id, team=self._team, deleted=False)
+            parsed_id = int(float(dashboard_id))
+        except (ValueError, TypeError):
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+        try:
+            dashboard = await Dashboard.objects.aget(id=parsed_id, team=self._team, deleted=False)
         except Dashboard.DoesNotExist:
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
-        permission_result = await self._check_user_permissions(dashboard)
-        if not permission_result:
-            raise MaxToolFatalError(NO_PERMISSION_PROMPT)
+        await self.check_object_access(dashboard, "editor", action="edit")
 
         return dashboard
 

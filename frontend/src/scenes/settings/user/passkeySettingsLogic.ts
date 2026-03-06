@@ -8,8 +8,8 @@ import api from 'lib/api'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import type { passkeySettingsLogicType } from './passkeySettingsLogicType'
 import { getPasskeyErrorMessage } from './passkeys/utils'
+import type { passkeySettingsLogicType } from './passkeySettingsLogicType'
 
 export interface PasskeyCredential {
     id: number
@@ -50,9 +50,9 @@ export type RegistrationStep = 'idle' | 'registering' | 'verifying' | 'complete'
 
 export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
     path(['scenes', 'settings', 'user', 'passkeySettingsLogic']),
-    connect({
+    connect(() => ({
         actions: [userLogic, ['loadUser'], twoFactorLogic, ['loadStatus']],
-    }),
+    })),
     actions({
         beginRegistration: (label: string) => ({ label }),
         setRegistrationStep: (step: RegistrationStep) => ({ step }),

@@ -1,19 +1,40 @@
-import { IconCopy, IconInfo } from '@posthog/icons'
+import { IconCopy, IconFilter, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-export type PropertiesTableProps = {
-    entries: [string, unknown][]
-    alternatingColors?: boolean
+type PropertyTableRow = {
+    key: string
+    value: unknown
+    filterKey?: string
+    filterValue?: unknown
 }
 
-export function PropertiesTable({ entries, alternatingColors = true }: PropertiesTableProps): JSX.Element {
+export type PropertiesTableProps = {
+    entries: ([string, unknown] | PropertyTableRow)[]
+    alternatingColors?: boolean
+    onFilterValue?: (key: string, value: string | number | boolean) => void
+}
+
+export function PropertiesTable({
+    entries,
+    alternatingColors = true,
+    onFilterValue,
+}: PropertiesTableProps): JSX.Element {
+    const rows: PropertyTableRow[] = entries
+        .map((entry) => {
+            if (Array.isArray(entry)) {
+                return { key: entry[0], value: entry[1], filterKey: entry[0], filterValue: entry[1] }
+            }
+            return entry
+        })
+        .filter((entry) => entry.value !== undefined)
+
     return (
         <LemonTable
             embedded
             size="small"
-            dataSource={entries.filter(([, value]) => value !== undefined).map(([key, value]) => ({ key, value }))}
+            dataSource={rows}
             showHeader={false}
             columns={[
                 {
@@ -24,19 +45,40 @@ export function PropertiesTable({ entries, alternatingColors = true }: Propertie
                     className: 'font-medium bg-inherit',
                     render: (dataValue, record) => (
                         <div className="flex gap-x-2 justify-between items-center">
-                            <div>{dataValue}</div>
-                            <LemonButton
-                                size="xsmall"
-                                tooltip="Copy value"
-                                className="invisible group-hover:visible"
-                                onClick={() =>
-                                    copyToClipboard(copyValue(record.value)).catch((error) => {
-                                        console.error('Failed to copy to clipboard:', error)
-                                    })
-                                }
-                            >
-                                <IconCopy />
-                            </LemonButton>
+                            <div>{String(dataValue)}</div>
+                            <div className="flex items-center gap-1">
+                                {onFilterValue &&
+                                    record.filterKey &&
+                                    getFilterableValue(record.filterValue ?? record.value) !== null && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            tooltip="Filter by this value"
+                                            className="invisible group-hover:visible"
+                                            onClick={() => {
+                                                const filterableValue = getFilterableValue(
+                                                    record.filterValue ?? record.value
+                                                )
+                                                if (filterableValue !== null) {
+                                                    onFilterValue(record.filterKey as string, filterableValue)
+                                                }
+                                            }}
+                                        >
+                                            <IconFilter />
+                                        </LemonButton>
+                                    )}
+                                <LemonButton
+                                    size="xsmall"
+                                    tooltip="Copy value"
+                                    className="invisible group-hover:visible"
+                                    onClick={() =>
+                                        copyToClipboard(copyValue(record.value)).catch((error) => {
+                                            console.error('Failed to copy to clipboard:', error)
+                                        })
+                                    }
+                                >
+                                    <IconCopy />
+                                </LemonButton>
+                            </div>
                         </div>
                     ),
                 },
@@ -58,12 +100,37 @@ export function PropertiesTable({ entries, alternatingColors = true }: Propertie
     )
 }
 
+const SENTINELS = {
+    Redacted: '$$_posthog_redacted_based_on_masking_rules_$$',
+    ValueTooLong: '$$_posthog_value_too_long_$$',
+}
+
+const SENTINEL_REPLACEMENTS: Record<string, string> = {
+    [SENTINELS.Redacted]: '***',
+    [SENTINELS.ValueTooLong]: '<value too long>',
+}
+
+function normalizeSentinels(str: string): string {
+    let result = str
+    for (const [sentinel, replacement] of Object.entries(SENTINEL_REPLACEMENTS)) {
+        result = result.replaceAll(sentinel, replacement)
+    }
+    return result
+}
+
 function copyValue(value: unknown): string {
     // oxlint-disable-next-line
     if (value && typeof value === 'object') {
-        return JSON.stringify(value)
+        return normalizeSentinels(JSON.stringify(value))
     }
-    return String(value)
+    return normalizeSentinels(String(value))
+}
+
+function getFilterableValue(value: unknown): string | number | boolean | null {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return value
+    }
+    return null
 }
 
 function renderValue(value: unknown): React.ReactNode {
@@ -78,7 +145,7 @@ function renderValue(value: unknown): React.ReactNode {
             '}'
         )
     } else if (typeof value === 'string') {
-        if (value === '$$_posthog_redacted_based_on_masking_rules_$$') {
+        if (value === SENTINELS.Redacted) {
             return (
                 <MaskedValue
                     value="***"
@@ -86,12 +153,27 @@ function renderValue(value: unknown): React.ReactNode {
                 />
             )
         }
-        if (value.includes('$$_posthog_redacted_based_on_masking_rules_$$')) {
-            const masked = value.replaceAll('$$_posthog_redacted_based_on_masking_rules_$$', '***')
+        if (value.includes(SENTINELS.Redacted)) {
             return (
                 <MaskedValue
-                    value={masked}
+                    value={normalizeSentinels(value)}
                     tooltip="Some values inside got redacted by SDK code variables masking configuration"
+                />
+            )
+        }
+        if (value === SENTINELS.ValueTooLong) {
+            return (
+                <MaskedValue
+                    value="<value too long>"
+                    tooltip="This value was truncated because it exceeded the maximum allowed length"
+                />
+            )
+        }
+        if (value.includes(SENTINELS.ValueTooLong)) {
+            return (
+                <MaskedValue
+                    value={normalizeSentinels(value)}
+                    tooltip="Some values inside were truncated because they exceeded the maximum allowed length"
                 />
             )
         }

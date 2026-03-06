@@ -30,7 +30,10 @@ pub async fn evaluate_feature_flags(
         context.cohort_cache,
         Some(group_type_mapping_cache),
         context.groups,
-    );
+    )
+    .with_parallel_eval_threshold(context.parallel_eval_threshold)
+    .with_rayon_dispatcher(context.rayon_dispatcher)
+    .with_skip_writes(context.skip_writes);
 
     matcher
         .evaluate_all_feature_flags(

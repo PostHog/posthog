@@ -4,6 +4,7 @@ from typing import Any
 
 from django.conf import settings
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
@@ -12,7 +13,7 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
@@ -22,6 +23,7 @@ from posthog.event_usage import groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
+from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.tasks import exporter
@@ -148,6 +150,11 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     }
                 )
 
+        if export_context and export_context.get("heatmap_url"):
+            ok, err = is_url_allowed(export_context["heatmap_url"])
+            if not ok:
+                raise ValidationError({"export_context": ["heatmap_url not allowed"]})
+
         data["team_id"] = self.context["team_id"]
         return data
 
@@ -203,11 +210,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     client = await async_connect()
                     await client.execute_workflow(
                         VideoExportWorkflow.run,
-                        VideoExportInputs(exported_asset_id=instance.id),
+                        VideoExportInputs(exported_asset_id=instance.id, use_puppeteer=False),
                         id=f"export-video-{instance.id}",
                         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                        # Keep hard limit to avoid hanging workflows
+                        execution_timeout=timedelta(hours=3),
                     )
 
                 with VIDEO_EXPORT_SEMAPHORE:
@@ -249,6 +258,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         dashboard_id = instance.dashboard_id
         if insight_id and not dashboard_id:  # we don't log dashboard activity ¯\_(ツ)_/¯
             try:
+                # nosemgrep: idor-lookup-without-team (insight_id validated as team-owned in validate())
                 insight: Insight = Insight.objects.select_related("team__organization").get(id=insight_id)
                 log_activity(
                     organization_id=insight.team.organization.id,
@@ -296,9 +306,9 @@ class ExportedAssetViewSet(
     serializer_class = ExportedAssetSerializer
 
     def safely_get_queryset(self, queryset):
-        if self.action == "list":
-            queryset = queryset.filter(created_by=self.request.user)
+        queryset = queryset.filter(created_by=self.request.user)
 
+        if self.action == "list":
             context_path_filter = self.request.query_params.get("context_path")
             if context_path_filter:
                 queryset = queryset.filter(export_context__path__icontains=context_path_filter)
@@ -309,6 +319,24 @@ class ExportedAssetViewSet(
                 queryset = queryset.filter(export_format=export_format_filter)
 
         return queryset
+
+    def safely_get_object(self, queryset):
+        instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
+
+        resource = instance.dashboard or instance.insight
+        if not resource and instance.export_context:
+            session_recording_id = instance.export_context.get("session_recording_id")
+            if session_recording_id:
+                from posthog.session_recordings.models.session_recording import SessionRecording
+
+                resource = SessionRecording.objects.filter(
+                    team_id=instance.team_id, session_id=session_recording_id
+                ).first()
+
+        if resource and not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+            raise NotFound()
+
+        return instance
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True, required_scopes=["export:read"])

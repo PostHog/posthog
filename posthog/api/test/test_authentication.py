@@ -17,6 +17,7 @@ from django.utils import timezone
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.parsers import JSONParser
@@ -637,7 +638,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Passkeys are not enabled for 2FA", response.json()["error"])
 
-    @patch("posthog.api.authentication.verify_authentication_response")
+    @patch("posthog.api.authentication.verify_passkey_authentication_response")
     def test_passkey_2fa_begin_returns_options(self, mock_verify):
         """Test that passkey 2FA begin returns authentication options"""
         from webauthn.helpers import bytes_to_base64url
@@ -743,7 +744,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No pending 2FA session", response.json()["error"])
 
-    @patch("posthog.api.authentication.verify_authentication_response")
+    @patch("posthog.api.authentication.verify_passkey_authentication_response")
     def test_passkey_2fa_complete_success(self, mock_verify):
         """Test successful passkey 2FA completion"""
         from webauthn.helpers import bytes_to_base64url
@@ -915,7 +916,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(begin_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No passkeys found", begin_response.json()["error"])
 
-    @patch("posthog.api.authentication.verify_authentication_response")
+    @patch("posthog.api.authentication.verify_passkey_authentication_response")
     def test_passkey_2fa_complete_with_multiple_passkeys(self, mock_verify):
         """Test passkey 2FA works with multiple passkeys"""
         from webauthn.helpers import bytes_to_base64url
@@ -1464,7 +1465,26 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertFalse(self.user.check_password("a12345678"))
 
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_password_change_invalidates_reset_token(self, mock_send_email):
+        token = password_reset_token_generator.make_token(self.user)
+        self.assertTrue(password_reset_token_generator.check_token(self.user, token))
+
+        # change password via account settings
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"current_password": self.CONFIG_PASSWORD, "password": VALID_TEST_PASSWORD},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertFalse(password_reset_token_generator.check_token(self.user, token))
+
     def test_e2e_test_special_handlers(self):
+        self.ensure_url_patterns_loaded()
+
         with self.settings(E2E_TESTING=True):
             response = self.client.get("/api/reset/e2e_test_user/?token=e2e_test_token")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1622,7 +1642,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }
@@ -1645,7 +1665,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }
@@ -1686,6 +1706,42 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.patch(
                 "/api/users/@me",
                 {"set_current_organization": str(self.organization.id)},
+            )
+            assert res.status_code == 200
+
+    @parameterized.expand(
+        [
+            ("set_current_team", {"set_current_team": "1"}),
+            ("events_column_config", {"events_column_config": {"active": "type"}}),
+            ("role_at_organization", {"role_at_organization": "engineering"}),
+        ]
+    )
+    def test_user_can_update_non_sensitive_fields_without_recent_authentication(self, _name, payload):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/users/@me", payload, format="json")
+            assert res.status_code != 403, f"Field update should not require re-authentication, got: {res.json()}"
+
+    def test_user_can_update_hedgehog_config_without_recent_authentication(self):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch(
+                "/api/users/@me/hedgehog_config",
+                {"enabled": True, "color": "red"},
+                format="json",
+            )
+            assert res.status_code == 200
+
+    def test_user_can_update_scene_personalisation_without_recent_authentication(self):
+        from posthog.models.dashboard import Dashboard
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test")
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.post(
+                "/api/users/@me/scene_personalisation",
+                {"scene": "Person", "dashboard": dashboard.id},
+                format="json",
             )
             assert res.status_code == 200
 
@@ -1766,7 +1822,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertIsNone(result)
 
     def test_authenticate_with_matching_project_api_key_in_body(self):
-        # Test that when project API key in body matches the secret key's team, it passes
+        # Test that when project token in body matches the secret key's team, it passes
         wsgi_request = self.factory.post(
             "/",
             data=f'{{"project_api_key": "{self.team.api_token}"}}',
@@ -1785,7 +1841,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_no_project_api_key_in_body_passes(self):
-        # Test that when there's no project API key in body, it still works normally
+        # Test that when there's no project token in body, it still works normally
         wsgi_request = self.factory.post(
             "/",
             data='{"some_other_field": "value"}',

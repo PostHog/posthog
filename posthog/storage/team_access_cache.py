@@ -43,12 +43,12 @@ class TeamAccessTokenCache:
         """
         self.ttl = ttl
 
-    def update_team_tokens(self, project_api_key: str, team_id: int, hashed_tokens: list[str]) -> None:
+    def update_team_tokens(self, project_token: str, team_id: int, hashed_tokens: list[str]) -> None:
         """
         Update a team's complete token list in cache.
 
         Args:
-            project_api_key: The team's project API key
+            project_token: The team's project token
             team_id: The team's ID
             hashed_tokens: List of hashed tokens (already in sha256$ format)
         """
@@ -58,31 +58,31 @@ class TeamAccessTokenCache:
                 "last_updated": datetime.now(UTC).isoformat(),
                 "team_id": team_id,
             }
-            team_access_tokens_hypercache.set_cache_value(project_api_key, token_data)
+            team_access_tokens_hypercache.set_cache_value(project_token, token_data)
 
             logger.info(
-                f"Updated token cache for team {project_api_key} with {len(hashed_tokens)} tokens",
-                extra={"team_project_api_key": project_api_key, "token_count": len(hashed_tokens)},
+                f"Updated token cache for team {project_token} with {len(hashed_tokens)} tokens",
+                extra={"project_token": project_token, "token_count": len(hashed_tokens)},
             )
 
         except Exception as e:
-            logger.exception(f"Error updating tokens for team {project_api_key}: {e}")
+            logger.exception(f"Error updating tokens for team {project_token}: {e}")
             raise
 
-    def invalidate_team(self, project_api_key: str) -> None:
+    def invalidate_team(self, project_token: str) -> None:
         """
         Invalidate (delete) a team's token cache.
 
         Args:
-            project_api_key: The team's project API key
+            project_token: The team's project token
         """
         try:
-            team_access_tokens_hypercache.clear_cache(project_api_key)
+            team_access_tokens_hypercache.clear_cache(project_token)
 
-            logger.info(f"Invalidated token cache for team {project_api_key}")
+            logger.info(f"Invalidated token cache for team {project_token}")
 
         except Exception as e:
-            logger.exception(f"Error invalidating cache for team {project_api_key}: {e}")
+            logger.exception(f"Error invalidating cache for team {project_token}: {e}")
             raise
 
 
@@ -173,7 +173,7 @@ def _load_team_access_tokens(team_token: KeyType) -> dict[str, Any] | HyperCache
             }
 
     except Team.DoesNotExist:
-        logger.warning(f"Team not found for project API key: {team_token}")
+        logger.warning(f"Team not found for project token: {team_token}")
         return HyperCacheStoreMissing()
 
     except Exception as e:
@@ -193,7 +193,7 @@ team_access_tokens_hypercache = HyperCache(
 team_access_cache = TeamAccessTokenCache()
 
 
-def warm_team_token_cache(project_api_key: str) -> bool:
+def warm_team_token_cache(project_token: str) -> bool:
     """
     Warm the token cache for a specific team by loading from database.
 
@@ -201,29 +201,29 @@ def warm_team_token_cache(project_api_key: str) -> bool:
     both Redis and S3 storage automatically.
 
     Args:
-        project_api_key: The team's project API key
+        project_token: The team's project token
 
     Returns:
         True if cache warming succeeded, False otherwise
     """
     # Use HyperCache to update the cache - this will call _load_team_access_tokens
     # It does not raise an exception if the cache is not updated, so we don't need to try/except
-    success = team_access_tokens_hypercache.update_cache(project_api_key)
+    success = team_access_tokens_hypercache.update_cache(project_token)
 
     if success:
         logger.info(
-            f"Warmed token cache for team {project_api_key} using HyperCache",
-            extra={"project_api_key": project_api_key},
+            f"Warmed token cache for team {project_token} using HyperCache",
+            extra={"project_token": project_token},
         )
     else:
-        logger.warning(f"Failed to warm token cache for team {project_api_key}")
+        logger.warning(f"Failed to warm token cache for team {project_token}")
 
     return success
 
 
 def get_teams_needing_cache_refresh(limit: int | None = None, offset: int = 0) -> list[str]:
     """
-    Get a list of project API keys for teams that need cache refresh.
+    Get a list of project tokens for teams that need cache refresh.
 
     This function now supports pagination to handle large datasets efficiently.
     For installations with many teams, use limit/offset to process in batches.
@@ -233,7 +233,7 @@ def get_teams_needing_cache_refresh(limit: int | None = None, offset: int = 0) -
         offset: Number of teams to skip before starting to check.
 
     Returns:
-        List of project API keys that need cache refresh
+        List of project tokens that need cache refresh
 
     Raises:
         Exception: Database connectivity or other systemic issues that should trigger retries
@@ -281,7 +281,7 @@ def get_teams_needing_cache_refresh_paginated(batch_size: int = 1000):
         batch_size: Number of teams to process per batch
 
     Yields:
-        List[str]: Batches of project API keys that need cache refresh
+        List[str]: Batches of project tokens that need cache refresh
     """
     offset = 0
 
@@ -302,7 +302,7 @@ def get_teams_needing_cache_refresh_paginated(batch_size: int = 1000):
 
 def get_teams_for_user_personal_api_keys(user_id: int) -> set[str]:
     """
-    Get all project API keys for teams that a user's PersonalAPIKeys have access to.
+    Get all project tokens for teams that a user's PersonalAPIKeys have access to.
 
     This function eliminates N+1 queries by determining all affected teams for
     a user's personal API keys in minimal database queries (1-3 queries maximum).
@@ -311,7 +311,7 @@ def get_teams_for_user_personal_api_keys(user_id: int) -> set[str]:
         user_id: The user ID whose personal API keys to analyze
 
     Returns:
-        Set of project API keys (strings) for all teams the user's keys have access to
+        Set of project tokens (strings) for all teams the user's keys have access to
     """
     # Get all personal API keys for the user
     personal_keys = list(PersonalAPIKey.objects.filter(user_id=user_id).values("id", "scoped_teams"))
@@ -333,12 +333,12 @@ def get_teams_for_user_personal_api_keys(user_id: int) -> set[str]:
             # Unscoped key - will need all teams in user's organizations
             has_unscoped_keys = True
 
-    # Get project API keys for scoped teams (if any) in one query
+    # Get project tokens for scoped teams (if any) in one query
     if scoped_team_ids:
         scoped_team_tokens = Team.objects.filter(id__in=scoped_team_ids).values_list("api_token", flat=True)
         affected_teams.update(scoped_team_tokens)
 
-    # Get project API keys for unscoped keys (if any) in two queries maximum
+    # Get project tokens for unscoped keys (if any) in two queries maximum
     if has_unscoped_keys:
         # Get user's organizations
         user_organizations = OrganizationMembership.objects.filter(user_id=user_id).values_list(
@@ -357,7 +357,7 @@ def get_teams_for_user_personal_api_keys(user_id: int) -> set[str]:
 
 def get_teams_for_single_personal_api_key(personal_api_key_instance: "PersonalAPIKey") -> list[str]:
     """
-    Get project API keys for teams that a single PersonalAPIKey has access to.
+    Get project tokens for teams that a single PersonalAPIKey has access to.
 
     This is a helper function that internally uses the optimized user-based function.
     For better performance when processing multiple keys for the same user, use
@@ -367,7 +367,7 @@ def get_teams_for_single_personal_api_key(personal_api_key_instance: "PersonalAP
         personal_api_key_instance: The PersonalAPIKey instance
 
     Returns:
-        List of project API keys (strings) for teams the key has access to
+        List of project tokens (strings) for teams the key has access to
     """
     user_id = personal_api_key_instance.user_id
     all_user_teams = get_teams_for_user_personal_api_keys(user_id)

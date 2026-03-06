@@ -44,14 +44,18 @@ export function ScenePanelDivider({ className }: { className?: string }): JSX.El
 }
 
 export function ScenePanelInfoSection({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="scene-panel-info-section pl-1 flex flex-col gap-2">{children}</div>
+    return <div className="scene-panel-info-section flex flex-col gap-2">{children}</div>
 }
 
 export function ScenePanelActionsSection({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="scene-panel-actions-section flex flex-col gap-px -ml-1 pl-1">{children}</div>
 }
 
-export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
+export function ScenePanelLabel({
+    children,
+    title,
+    ...props
+}: PropsWithChildren<Omit<LabelProps, 'title'> & { title: React.ReactNode }>): JSX.Element {
     return (
         <div className="flex flex-col gap-0">
             <Label intent="menu" {...props}>

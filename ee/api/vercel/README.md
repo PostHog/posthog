@@ -51,10 +51,9 @@ In your Vercel integration settings:
 1. **Configuration URL**: Set to your Django tunnel URL (port 8000)
    - Example: `https://abc123.ngrok-free.dev`
 
-2. **Redirect URL**: **Leave this field BLANK/EMPTY**
-   - Vercel marketplace integrations don't need a redirect URL
-   - Installation happens via API calls, not web redirects
-   - SSO flow includes the return URL in the `url` query parameter
+2. **Redirect URL**: Set to `{your_ngrok_url}/connect/vercel/callback`
+   - This enables the "Link Existing Account" connectable account flow
+   - Example: `https://abc123.ngrok-free.dev/connect/vercel/callback`
 
 ## Step 4: Start Development Servers
 
@@ -88,13 +87,18 @@ Vercel marketplace integrations have two separate flows:
    - Authenticates the user and links their PostHog account
    - Returns user back to Vercel using the `url` parameter
 
-### Why No Redirect URL?
+### Connectable Account Flow (Link Existing Account)
 
-The "Redirect URL" field in Vercel integration settings is for OAuth-style integrations. PostHog's Vercel marketplace integration doesn't need it because:
+When a user clicks "Link Existing Account" in the Vercel Marketplace:
 
-- Installation happens via direct API calls
-- SSO flow receives the return URL in the `url` query parameter from Vercel
-- No web-based OAuth callback is needed
+1. Vercel opens a popup to our **Redirect URL** (`/connect/vercel/callback`) with an OAuth code
+2. PostHog exchanges the code for an access token via `POST /v2/oauth/access_token`
+3. If the user isn't logged in, they're redirected to `/login` first
+4. The user selects which PostHog organization to link
+5. An `OrganizationIntegration` record is created with `type=connectable`
+6. The popup closes and returns the user to Vercel
+
+Billing stays with PostHog for connected accounts - no billing provider migration is needed.
 
 ## Troubleshooting
 
@@ -114,8 +118,8 @@ The "Redirect URL" field in Vercel integration settings is for OAuth-style integ
 
 **Solution**:
 
-1. Check that Redirect URL is blank/empty in Vercel settings
-2. Verify Configuration URL points to your Django ngrok tunnel (port 8000)
+1. Verify Configuration URL points to your Django ngrok tunnel (port 8000)
+2. Verify Redirect URL is set to `{ngrok_url}/connect/vercel/callback`
 3. Check Django logs for detailed error messages
 
 ### Environment variables not loaded
@@ -132,6 +136,126 @@ The "Redirect URL" field in Vercel integration settings is for OAuth-style integ
 This is normal! 1Password CLI conceals sensitive values in stdout for security. The actual values are correctly passed to your application as environment variables.
 
 ## Testing the Integration
+
+### Automated Tests
+
+Run the Vercel integration test suite:
+
+```bash
+pytest ee/vercel/test/test_integration.py -v
+```
+
+The test suite includes:
+
+- **Unit tests**: Individual function testing
+- **Regression tests**: Tests for specific bugs that were fixed (see `TestVercelInstallationRegressions`)
+- **E2E tests**: Complete installation flow simulations (see `TestVercelInstallationE2E`)
+
+### Manual Testing Checklist
+
+Before releasing changes to the Vercel integration, manually verify the following scenarios:
+
+#### Scenario 1: Brand New User Installation
+
+**Setup**: Use an email that doesn't exist in PostHog
+
+1. Start ngrok, Django, and Vite as described above
+2. In Vercel, navigate to your integration and click "Install"
+3. Complete the installation flow
+
+**Expected**:
+
+- [ ] Installation completes without errors
+- [ ] New organization is created in PostHog
+- [ ] New user is created with the email from Vercel
+- [ ] User is added as Owner of the organization
+- [ ] Click "Connect Account" → SSO works immediately (no login required)
+
+#### Scenario 2: Existing PostHog User (No Prior Vercel)
+
+**Setup**: Create a PostHog account manually with an email, then use that email in Vercel
+
+1. Create a user in PostHog: `User.objects.create_user(email="test@example.com", password="test")`
+2. In Vercel, install with the same email
+
+**Expected**:
+
+- [ ] Installation completes without errors
+- [ ] New organization is created
+- [ ] Existing user is added as Owner of the new organization
+- [ ] Click "Connect Account" → User is prompted to login (security: must prove ownership)
+- [ ] After login, SSO works
+
+#### Scenario 3: Trusted Vercel User (Second Installation)
+
+**Setup**: User who already has one Vercel installation
+
+1. Complete Scenario 1 first
+2. Install a second Vercel integration with the same email
+
+**Expected**:
+
+- [ ] Installation completes without errors
+- [ ] Second organization is created
+- [ ] Same user is added as Owner of the second organization
+- [ ] Click "Connect Account" → SSO works immediately (user is trusted)
+
+#### Scenario 4: Inactive User Reactivation
+
+**Setup**: Create an inactive user, then install with that email
+
+1. Create inactive user: `User.objects.create_user(email="inactive@example.com", password="test", is_active=False)`
+2. Install Vercel integration with that email
+
+**Expected**:
+
+- [ ] Installation completes without errors
+- [ ] User is reactivated (is_active=True)
+- [ ] User is added to the new organization
+
+#### Scenario 5: Link Existing Account (Connectable Account)
+
+**Setup**: Have an existing PostHog account with admin access to an organization
+
+1. In the Vercel Marketplace, click "Add" on the PostHog integration
+2. Choose "Link Existing Account"
+3. A popup opens — log in with your PostHog credentials
+4. Select an organization from the dropdown
+5. Click "Connect organization"
+
+**Expected**:
+
+- [ ] Popup opens to PostHog login page (if not already logged in)
+- [ ] After login, org selector is shown with orgs where user is admin/owner
+- [ ] Already-linked orgs are not available for selection
+- [ ] Clicking "Connect organization" shows success message
+- [ ] "Return to Vercel" button redirects back to Vercel
+- [ ] `OrganizationIntegration` record created with `config.type = "connectable"`
+
+#### Quick Local Verification
+
+To quickly verify the fix for existing users without Vercel mappings:
+
+```python
+# In Django shell: python manage.py shell
+from posthog.models.user import User
+from posthog.models.organization_integration import OrganizationIntegration
+
+# Create test user without any Vercel mappings
+User.objects.create_user(email="test-vercel@example.com", password="test", first_name="Test")
+
+# Verify no Vercel mappings exist
+for oi in OrganizationIntegration.objects.filter(kind="vercel"):
+    mappings = oi.config.get("user_mappings", {})
+    user_ids = list(mappings.values())
+    user = User.objects.filter(email="test-vercel@example.com").first()
+    assert user.pk not in user_ids, "User should have no mappings"
+
+# Now install via Vercel with test-vercel@example.com
+# User should be added to org without errors
+```
+
+### Basic Manual Testing
 
 1. Start ngrok, Django, and Vite as described above
 2. In Vercel, navigate to your integration and click "Install"

@@ -4,8 +4,8 @@ import { PropsWithChildren, useMemo, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
@@ -29,6 +29,10 @@ export function LinearIntegration(): JSX.Element {
 
 export function GithubIntegration(): JSX.Element {
     return <OAuthIntegration kind="github" connectText="Connect organization" />
+}
+
+export function JiraIntegration(): JSX.Element {
+    return <OAuthIntegration kind="jira" connectText="Connect site" />
 }
 
 const OAuthIntegration = ({ kind, connectText }: { kind: IntegrationKind; connectText: string }): JSX.Element => {

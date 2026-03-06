@@ -105,6 +105,7 @@ export type HogFunctionInvocationGlobals = {
     }
 
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
+    unsubscribe_url_one_click?: string // For email actions, the one-click unsubscribe URL to use
 
     actions?: HogFunctionInvocationActionVariables
     variables?: Record<string, any> // For HogFlows, workflow-level variables
@@ -247,18 +248,10 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
-    'hog',
-    'hogoverflow',
-    'hogflow',
-    'delay10m',
-    'delay60m',
-    'delay24h',
-    'datawarehouse_table',
-] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'delay'] as const
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'shadow'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
 // Agnostic job invocation type
@@ -315,6 +308,7 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
+    personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
     actionStepCount: number
     currentAction?: {
         id: string
@@ -362,6 +356,7 @@ export type HogFunctionTypeType =
     | 'transformation'
     | 'internal_destination'
     | 'source_webhook'
+    | 'warehouse_source_webhook'
     | 'site_destination'
 
 export interface HogFunctionMappingType {
@@ -389,6 +384,8 @@ export type HogFunctionType = {
     execution_order?: number
     created_at: string
     updated_at: string
+    metadata?: Record<string, any>
+    batch_export_id?: string | null
 }
 
 export type HogFunctionMappingTemplate = HogFunctionMappingType & {

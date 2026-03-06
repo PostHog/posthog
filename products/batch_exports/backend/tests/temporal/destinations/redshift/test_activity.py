@@ -12,7 +12,6 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
     ConnectionParameters,
     RedshiftInsertInputs,
     TableParameters,
-    insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,
     redshift_default_fields,
 )
@@ -33,8 +32,6 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    # While we migrate to the new workflow, we need to test both new and old activities
-    pytest.mark.parametrize("use_internal_stage", [False, True]),
 ]
 
 
@@ -55,17 +52,9 @@ async def _run_activity(
     sort_key: str = "event",
     expected_fields=None,
     expect_duplicates: bool = False,
-    use_internal_stage: bool = False,
     extra_fields=None,
 ):
-    """Helper function to run Redshift main activity and assert records are exported.
-
-    This function executes either `insert_into_redshift_activity`, or
-    `insert_into_internal_stage_activity` and `insert_into_redshift_activity_from_stage`
-    depending on the value of `use_internal_stage`.
-
-    This allows using a single function to test both versions of the pipeline.
-    """
+    """Helper function to run Redshift main activity and assert records are exported."""
     batch_export_inputs = BatchExportInsertInputs(
         team_id=team.pk,
         data_interval_start=data_interval_start.isoformat(),
@@ -99,29 +88,26 @@ async def _run_activity(
         table=table_parameters,
     )
 
-    if use_internal_stage:
-        assert insert_inputs.batch_export.batch_export_id is not None
-        # we first need to run the insert_into_internal_stage_activity so that we have data to export
-        stage_folder = await activity_environment.run(
-            insert_into_internal_stage_activity,
-            BatchExportInsertIntoInternalStageInputs(
-                team_id=insert_inputs.batch_export.team_id,
-                batch_export_id=insert_inputs.batch_export.batch_export_id,
-                data_interval_start=insert_inputs.batch_export.data_interval_start,
-                data_interval_end=insert_inputs.batch_export.data_interval_end,
-                exclude_events=insert_inputs.batch_export.exclude_events,
-                include_events=None,
-                run_id=None,
-                backfill_details=None,
-                batch_export_model=insert_inputs.batch_export.batch_export_model,
-                batch_export_schema=insert_inputs.batch_export.batch_export_schema,
-                destination_default_fields=redshift_default_fields(),
-            ),
-        )
-        insert_inputs.batch_export.stage_folder = stage_folder
-        result = await activity_environment.run(insert_into_redshift_activity_from_stage, insert_inputs)
-    else:
-        result = await activity_environment.run(insert_into_redshift_activity, insert_inputs)
+    assert insert_inputs.batch_export.batch_export_id is not None
+    # we first need to run the insert_into_internal_stage_activity so that we have data to export
+    stage_folder = await activity_environment.run(
+        insert_into_internal_stage_activity,
+        BatchExportInsertIntoInternalStageInputs(
+            team_id=insert_inputs.batch_export.team_id,
+            batch_export_id=insert_inputs.batch_export.batch_export_id,
+            data_interval_start=insert_inputs.batch_export.data_interval_start,
+            data_interval_end=insert_inputs.batch_export.data_interval_end,
+            exclude_events=insert_inputs.batch_export.exclude_events,
+            include_events=None,
+            run_id=None,
+            backfill_details=None,
+            batch_export_model=insert_inputs.batch_export.batch_export_model,
+            batch_export_schema=insert_inputs.batch_export.batch_export_schema,
+            destination_default_fields=redshift_default_fields(),
+        ),
+    )
+    insert_inputs.batch_export.stage_folder = stage_folder
+    result = await activity_environment.run(insert_into_redshift_activity_from_stage, insert_inputs)
 
     await assert_clickhouse_records_in_redshift(
         redshift_connection=redshift_connection,
@@ -156,7 +142,6 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     data_interval_end,
     properties_data_type,
     ateam,
-    use_internal_stage,
 ):
     """Test that the insert_into_redshift_activity function inserts data into a Redshift table.
 
@@ -236,7 +221,6 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         batch_export_model=batch_export_model,
         redshift_config=redshift_config,
         sort_key=sort_key,
-        use_internal_stage=use_internal_stage,
     )
 
 
@@ -249,7 +233,6 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
     """Test that the `insert_into_redshift_activity` merges new versions of rows.
 
@@ -277,7 +260,6 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
         batch_export_model=model,
         redshift_config=redshift_config,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
     persons_to_export_created = generate_test_persons_data
@@ -318,7 +300,6 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
         batch_export_model=model,
         redshift_config=redshift_config,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
     rows = []
@@ -352,7 +333,6 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
     """Test that the `insert_into_redshift_activity` merges new versions of rows.
 
@@ -380,7 +360,6 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
         redshift_config=redshift_config,
         properties_data_type=properties_data_type,
         sort_key="session_id",
-        use_internal_stage=use_internal_stage,
     )
 
     events_to_export_created, _ = generate_test_data
@@ -419,7 +398,6 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
         redshift_config=redshift_config,
         properties_data_type=properties_data_type,
         sort_key="session_id",
-        use_internal_stage=use_internal_stage,
     )
 
     rows = []
@@ -452,7 +430,6 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
     """Test that the `insert_into_redshift_activity` handles changes to the
     person schema.
@@ -494,7 +471,6 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         redshift_config=redshift_config,
         properties_data_type=properties_data_type,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
         expected_fields=expected_fields,
     )
 
@@ -545,7 +521,6 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         redshift_config=redshift_config,
         properties_data_type=properties_data_type,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
         expected_fields=expected_fields,
     )
 
@@ -565,23 +540,15 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
     data_interval_end,
     properties_data_type,
     ateam,
-    use_internal_stage,
 ):
     """Test data is inserted even in the presence of additional columns.
 
     Redshift's "MERGE" command can run in a simplified mode which performs better and
     cleans up duplicates, but this requires a matching schema. We should assert we don't
     fail when we can't use this mode.
-
-    This test only runs for `use_internal_stage=True` as we don't merge the events model
-    with the old activity. Once we clean up the old activity, this disclaimer, together
-    with the `use_internal_stage` parameter, can be deleted.
     """
     if properties_data_type == "super" and MISSING_REQUIRED_ENV_VARS:
         pytest.skip("SUPER type is only available in Redshift")
-
-    if not use_internal_stage:
-        pytest.skip("MERGE of events only happens in internal stage activity")
 
     batch_export_model = model
     table_name = f"test_insert_activity_extra_column_table__{ateam.pk}"
@@ -600,7 +567,6 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
         batch_export_model=batch_export_model,
         redshift_config=redshift_config,
         sort_key=sort_key,
-        use_internal_stage=use_internal_stage,
     )
 
     async with psycopg_connection.transaction():
@@ -624,6 +590,5 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
         batch_export_model=batch_export_model,
         redshift_config=redshift_config,
         sort_key=sort_key,
-        use_internal_stage=use_internal_stage,
         extra_fields=["test"],
     )

@@ -11,7 +11,11 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, UniversalFiltersGroup } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
+import {
+    issueFiltersLogic,
+    triggerFilterActions,
+    updateFilterSearchParams,
+} from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
 import { errorTrackingQuery } from '../../queries'
@@ -22,7 +26,7 @@ export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
 
 const DEFAULT_ACTIVE_TAB = 'issues'
 
-export type ErrorTrackingSceneActiveTab = 'issues' | 'impact'
+export type ErrorTrackingSceneActiveTab = 'issues' | 'impact' | 'insights'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
@@ -34,11 +38,18 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     connect(() => ({
         values: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-            ['dateRange', 'filterTestAccounts', 'mergedFilterGroup', 'searchQuery'],
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
             issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['assignee', 'orderBy', 'orderDirection', 'status'],
         ],
-        actions: [issueActionsLogic, ['mutationSuccess', 'mutationFailure'], bulkSelectLogic, ['setSelectedIssueIds']],
+        actions: [
+            issueActionsLogic,
+            ['mutationSuccess', 'mutationFailure'],
+            bulkSelectLogic,
+            ['setSelectedIssueIds'],
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
+            ['setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
+        ],
     })),
 
     reducers({
@@ -72,11 +83,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 searchQuery,
                 orderDirection
             ): DataTableNode => {
-                const columns =
-                    orderBy === 'revenue'
-                        ? ['error', 'volume', 'occurrences', 'sessions', 'users', 'revenue']
-                        : ['error', 'volume', 'occurrences', 'sessions', 'users']
-
                 return errorTrackingQuery({
                     orderBy,
                     status,
@@ -86,7 +92,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterGroup: mergedFilterGroup,
                     volumeResolution: ERROR_TRACKING_LISTING_RESOLUTION,
                     searchQuery,
-                    columns,
+                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
                 })
             },
@@ -125,34 +131,31 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => {
-        const buildURL = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
-                return params
-            })
-        }
-
+    urlToAction(({ actions, values }) => {
         return {
-            setActiveTab: () => buildURL(),
+            '**/error_tracking': (_, params) => {
+                if (params.activeTab && !equal(params.activeTab, values.activeTab)) {
+                    actions.setActiveTab(params.activeTab)
+                }
+                triggerFilterActions(params, values, actions)
+            },
         }
     }),
 
-    urlToAction(({ actions, values }) => {
-        const urlToAction = (_: any, params: Params): void => {
-            if (params.activeTab && !equal(params.activeTab, values.activeTab)) {
-                actions.setActiveTab(params.activeTab)
-            }
-        }
+    actionToUrl(({ values }) => {
+        const buildURL = (): ReturnType<typeof syncSearchParams> =>
+            syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
+                updateFilterSearchParams(params, values)
+                return params
+            })
+
         return {
-            '*': urlToAction,
+            setActiveTab: buildURL,
+            setDateRange: buildURL,
+            setFilterGroup: buildURL,
+            setSearchQuery: buildURL,
+            setFilterTestAccounts: buildURL,
         }
     }),
 ])

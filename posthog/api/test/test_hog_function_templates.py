@@ -3,6 +3,7 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -226,3 +227,29 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert results[0]["id"] == "template-slack"
         assert results[1]["id"] == "template-test-2"
         assert results[2]["id"] == "template-test-0"
+
+    @parameterized.expand(
+        [
+            ("put",),
+            ("patch",),
+        ]
+    )
+    def test_unauthenticated_updates_are_blocked(self, method: str):
+        self.client.logout()
+
+        payload = {
+            "name": "Updated Slack",
+            "description": "Unauthenticated update attempt",
+            "code": 'return "scary_code"',
+        }
+
+        response = getattr(self.client, method)(
+            "/api/projects/@current/hog_function_templates/template-slack",
+            data=payload,
+        )
+
+        assert response.status_code in {status.HTTP_405_METHOD_NOT_ALLOWED}, response.json()
+
+        unchanged_template = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
+
+        assert unchanged_template.json()["code"] != 'return "scary_code"'

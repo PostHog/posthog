@@ -10,12 +10,17 @@
         flex: 1;
         min-width: 33%;
         padding: 1rem;
+        overflow: hidden;
 
         .ActionsPie__chart {
             position: relative;
             width: 100%;
-            height: calc(100% - 4.5rem); // 4.5rem is the height of the number below the chart
+            height: calc(100% - 4.5rem);
             transition: height 0.5s;
+
+            &.ActionsPie__chart--full-height {
+                height: 100%;
+            }
         }
 
         h3 {

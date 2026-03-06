@@ -4,8 +4,10 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -15,6 +17,7 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geograph
 import { formatCurrency } from 'lib/utils/geography/currency'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
+import { sessionColumnRenderers } from 'scenes/sessions/sessionColumnRenderers'
 import { urls } from 'scenes/urls'
 
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -44,12 +47,13 @@ import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llm
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
-const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'session_start', 'session_end']
+const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
 
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
 const productColumnRenderers: Record<string, QueryContextColumn> = {
     ...llmAnalyticsColumnRenderers,
+    ...sessionColumnRenderers,
 }
 
 export function getContextColumn(
@@ -79,7 +83,14 @@ export function renderColumn(
     context?: QueryContext<DataTableNode>
 ): JSX.Element | string {
     const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
+    const originalKey = key
     key = isGroupsQuery(query.source) ? extractExpressionComment(key) : removeExpressionComment(key)
+
+    // Look up context/product renderers using both the stripped key and the original key,
+    // since renderers may be registered with the full expression (e.g. "'' -- Sentiment")
+    const contextColumn = context?.columns?.[key] ?? (key !== originalKey ? context?.columns?.[originalKey] : undefined)
+    const productColumn =
+        productColumnRenderers[key] ?? (key !== originalKey ? productColumnRenderers[originalKey] : undefined)
 
     if (value === loadingColumn) {
         return <Spinner />
@@ -98,9 +109,9 @@ export function renderColumn(
                 context={context}
             />
         )
-    } else if (context?.columns?.[key] && context?.columns?.[key].render) {
-        const Component = context?.columns?.[key]?.render
-        return Component ? (
+    } else if (contextColumn?.render) {
+        const Component = contextColumn.render
+        return (
             <Component
                 record={record}
                 columnName={key}
@@ -110,11 +121,9 @@ export function renderColumn(
                 rowCount={rowCount}
                 context={context}
             />
-        ) : (
-            String(value)
         )
-    } else if (productColumnRenderers[key]?.render) {
-        const Component = productColumnRenderers[key].render!
+    } else if (productColumn?.render) {
+        const Component = productColumn.render
         return (
             <Component
                 record={record}
@@ -191,6 +200,15 @@ export function renderColumn(
             </Link>
         ) : (
             content
+        )
+    } else if ((isActorsQuery(query.source) || isActorsQuery(query)) && key === 'last_seen_at') {
+        const isWithinLastHour = dayjs().diff(dayjs(value), 'hour', true) < 1
+        return (
+            <TZLabel time={value} showSeconds>
+                {isWithinLastHour ? (
+                    <span className="whitespace-nowrap align-middle border-dotted border-b">last hour</span>
+                ) : undefined}
+            </TZLabel>
         )
     } else if (DATETIME_KEYS.includes(key)) {
         return <TZLabel time={value} showSeconds />
@@ -309,7 +327,7 @@ export function renderColumn(
                 : urls.personByUUID(value.id)
         }
 
-        if (isTracesQuery(query.source)) {
+        if (isTracesQuery(query.source) && value) {
             displayProps.person = value.distinct_id ? (value as LLMTracePerson) : value
             displayProps.noPopover = false // If we are in a traces list, the popover experience is better
         }
@@ -395,8 +413,24 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
-        const key = (record as any[])[1] // 'key' is the second column in the groups query
-        return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
+        if (typeof value === 'object' && 'display_name' in value && 'key' in value) {
+            return (
+                <div className="flex flex-col min-w-40">
+                    <LemonTableLink
+                        to={urls.group(query.source.group_type_index, value.key)}
+                        title={value.display_name as string}
+                    />
+                    <CopyToClipboardInline
+                        explicitValue={value.key}
+                        iconStyle={{ color: 'var(--color-accent)' }}
+                        description="group id"
+                    >
+                        {value.key}
+                    </CopyToClipboardInline>
+                </div>
+            )
+        }
+        return String(value)
     } else if (trimQuotes(key).endsWith('$virt_mrr') || trimQuotes(key).endsWith('$virt_revenue')) {
         if (value === null || value === undefined) {
             return '—'

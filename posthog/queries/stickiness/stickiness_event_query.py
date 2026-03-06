@@ -100,7 +100,7 @@ class StickinessEventsQuery(EventQuery):
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:
             condition, params = format_action_filter(
                 team_id=self._team_id,
-                action=self._entity.get_action(),
+                action=self._entity.get_action(self._team_id),
                 person_properties_mode=get_person_properties_mode(self._team),
                 person_id_joined_alias=f"{self.aggregation_target()}",
                 hogql_context=self._filter.hogql_context,

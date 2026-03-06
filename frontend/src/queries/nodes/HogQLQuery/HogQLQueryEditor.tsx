@@ -2,7 +2,7 @@ import { Monaco } from '@monaco-editor/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import type { IDisposable, editor as importedEditor } from 'monaco-editor'
+import type { editor as importedEditor } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconMagicWand } from '@posthog/icons'
@@ -81,11 +81,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
             editor,
         })
     )
-    // Using useRef, not useState, as we don't want to reload the component when this changes.
-    const monacoDisposables = useRef([] as IDisposable[])
+
+    // Clear editor state on unmount to avoid holding references to disposed editor
     useOnMountEffect(() => {
         return () => {
-            monacoDisposables.current.forEach((d) => d?.dispose())
+            setMonacoAndEditor(null)
         }
     })
 

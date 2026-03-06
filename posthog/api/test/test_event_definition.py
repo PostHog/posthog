@@ -137,7 +137,17 @@ class TestEventDefinitionAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             distinct_id=self.user.distinct_id,
             event="event definition deleted",
-            properties={"name": "test_event"},
+            properties={
+                "source": ANY,
+                "$current_url": ANY,
+                "$session_id": ANY,
+                "was_impersonated": ANY,
+                "mcp_user_agent": ANY,
+                "mcp_client_name": ANY,
+                "mcp_client_version": ANY,
+                "mcp_protocol_version": ANY,
+                "name": "test_event",
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.organization.id),
@@ -321,6 +331,19 @@ class TestEventDefinitionAPI(APIBaseTest):
         # Tag handling is managed by TaggedItemSerializerMixin
         event_def = EventDefinition.objects.get(name="tagged_event", team=self.demo_team)
         assert event_def is not None
+
+    def test_by_name_returns_event_definition(self):
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=installed_app")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "installed_app"
+
+    def test_by_name_not_found(self):
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_by_name_missing_param(self):
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_event_definition_cross_team_isolation(self):
         """Test that manually created events are isolated by team"""

@@ -27,6 +27,8 @@ type SessionStats struct {
 
 	// Mutex for Add operations to prevent race between existence check and counter increment
 	addMu sync.Mutex
+
+	RedisStore *StatsInRedis
 }
 
 // NewSessionStatsKeeper creates a new SessionStats with the specified max LRU entries.
@@ -149,6 +151,14 @@ func (ss *SessionStats) KeepStats(ctx context.Context, statsChan chan SessionRec
 		case event := <-statsChan:
 			ss.Add(event.Token, event.SessionId)
 			metrics.SessionRecordingHandledEvents.Inc()
+
+			if ss.RedisStore != nil {
+				rCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if err := ss.RedisStore.AddSession(rCtx, event.Token, event.SessionId); err != nil {
+					log.Printf("Redis AddSession error: %v", err)
+				}
+				cancel()
+			}
 		}
 	}
 }

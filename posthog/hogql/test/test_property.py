@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
+from posthog.schema import (
+    EmptyPropertyFilter,
+    FlagPropertyFilter,
+    HogQLPropertyFilter,
+    PropertyOperator,
+    RetentionEntity,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -25,9 +31,9 @@ from posthog.hogql.visitor import clear_locations
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
-from posthog.models.property_definition import PropertyType
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -297,7 +303,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'"),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) > 0"),
         )
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
@@ -322,7 +328,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'"),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0"),
         )
         a = self._property_to_expr(
             {
@@ -404,6 +410,109 @@ class TestProperty(BaseTest):
             self._parse_expr(
                 "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "not_icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) NOT ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) > 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "not_icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+
+    def test_property_to_expr_multiSearch_edge_cases(self):
+        # Test empty array with icontains - falls back to single value logic
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": [],
+                "operator": "icontains",
+            }
+        )
+        # Empty arrays are treated as single values, converted to string representation
+        expected = self._parse_expr("toString(properties.a) ILIKE '%[]%'")
+        self.assertEqual(result, expected)
+
+        # Test single-element array with icontains - should use ILIKE, not multiSearch
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": ["single"],
+                "operator": "icontains",
+            }
+        )
+        expected = self._parse_expr("toString(properties.a) ILIKE '%single%'")
+        self.assertEqual(result, expected)
+
+        # Test single-element array with not_icontains - should use NOT ILIKE, not multiSearch
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": ["single"],
+                "operator": "not_icontains",
+            }
+        )
+        expected = self._parse_expr("toString(properties.a) NOT ILIKE '%single%'")
+        self.assertEqual(result, expected)
+
+        # Test non-string values being stringified
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "a",
+                    "value": [123, 456.78, True],
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['123', '456.78', 'True']) > 0"),
         )
 
     def test_property_to_expr_element(self):
@@ -754,15 +863,11 @@ class TestProperty(BaseTest):
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
-        result = entity_to_expr(entity, self.team)
-        expected = ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["events", "event"]),
-                    right=ast.Constant(value="event_id"),
-                )
-            ]
+        result = clear_locations(entity_to_expr(entity, self.team))
+        expected = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value="event_id"),
         )
         self.assertEqual(result, expected)
 
@@ -1177,9 +1282,13 @@ class TestProperty(BaseTest):
         )
 
     def test_property_to_expr_semver_validation(self):
-        # Test tilde requires at least major.minor
-        with self.assertRaisesMessage(QueryError, "Tilde operator requires a valid semver string"):
-            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "1"})
+        # Test tilde with bare major (~1 means >=1.0.0 <2.0.0)
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "1"}),
+            self._parse_expr(
+                "(sortableSemver(person.properties.version) >= sortableSemver('1.0.0') AND sortableSemver(person.properties.version) < sortableSemver('2.0.0'))"
+            ),
+        )
 
         # Test caret requires valid semver
         with self.assertRaisesMessage(QueryError, "Caret operator requires a valid semver string"):
@@ -1282,10 +1391,13 @@ class TestProperty(BaseTest):
             self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.-2.3')"),
         )
 
-        # Range operators with edge cases also pass through to sortableSemver
-        # Tilde with minimal version (our code handles major.minor requirement)
-        with self.assertRaisesMessage(QueryError, "Tilde operator requires a valid semver string"):
-            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "0"})
+        # Tilde with bare major zero (~0 means >=0.0.0 <1.0.0)
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "0"}),
+            self._parse_expr(
+                "(sortableSemver(person.properties.version) >= sortableSemver('0.0.0') AND sortableSemver(person.properties.version) < sortableSemver('1.0.0'))"
+            ),
+        )
 
         # Caret with leading zeros should still work (our code extracts numeric values)
         self.assertEqual(
@@ -1306,6 +1418,43 @@ class TestProperty(BaseTest):
                 "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3.0') AND sortableSemver(person.properties.app_version) < sortableSemver('1.2.4.0'))"
             ),
         )
+
+    # -- Operator coverage: every PropertyOperator must be handled by property_to_expr --
+
+    # Test values appropriate for each operator type
+    OPERATOR_TEST_VALUES: dict[PropertyOperator, Any] = {
+        PropertyOperator.IS_SET: "",
+        PropertyOperator.IS_NOT_SET: "",
+        PropertyOperator.BETWEEN: [1, 10],
+        PropertyOperator.NOT_BETWEEN: [1, 10],
+        PropertyOperator.IN_: ["a", "b"],
+        PropertyOperator.NOT_IN: ["a", "b"],
+        PropertyOperator.SEMVER_EQ: "1.2.3",
+        PropertyOperator.SEMVER_NEQ: "1.2.3",
+        PropertyOperator.SEMVER_GT: "1.2.3",
+        PropertyOperator.SEMVER_GTE: "1.2.3",
+        PropertyOperator.SEMVER_LT: "1.2.3",
+        PropertyOperator.SEMVER_LTE: "1.2.3",
+        PropertyOperator.SEMVER_TILDE: "1.2.3",
+        PropertyOperator.SEMVER_CARET: "1.2.3",
+        PropertyOperator.SEMVER_WILDCARD: "1.*",
+        PropertyOperator.ICONTAINS_MULTI: ["a", "b"],
+        PropertyOperator.NOT_ICONTAINS_MULTI: ["a", "b"],
+    }
+
+    # FLAG_EVALUATES_TO is dispatched via FlagPropertyFilter, not _expr_to_compare_op
+    @parameterized.expand([(op.value,) for op in PropertyOperator if op not in {PropertyOperator.FLAG_EVALUATES_TO}])
+    def test_operator_coverage(self, operator_value: str):
+        value = self.OPERATOR_TEST_VALUES.get(PropertyOperator(operator_value), "test_value")
+        result = self._property_to_expr(
+            {"type": "event", "key": "test_prop", "value": value, "operator": operator_value}
+        )
+        self.assertIsInstance(result, ast.Expr)
+
+    def test_flag_evaluates_to_produces_neutral_expr(self):
+        prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
+        result = property_to_expr([prop], self.team)
+        self.assertEqual(result, ast.Constant(value=1))
 
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):

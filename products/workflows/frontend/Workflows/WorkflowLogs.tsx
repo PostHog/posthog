@@ -3,9 +3,9 @@ import { useValues } from 'kea'
 import { IconClock } from '@posthog/icons'
 import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { ListHog, SleepingHog } from 'lib/components/hedgehogs'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
-import { ListHog, SleepingHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
@@ -19,7 +19,7 @@ export type WorkflowLogsProps = {
 }
 
 function WorkflowRunLogs({ id }: WorkflowLogsProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic({ id }))
+    const { workflow } = useValues(workflowLogic)
 
     return (
         <LogsViewer
@@ -67,7 +67,7 @@ function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
 }
 
 function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
-    const { workflow } = useValues(workflowLogic({ id: job.hog_flow }))
+    const { workflow } = useValues(workflowLogic)
 
     const isFutureJob = job.scheduled_at && dayjs(job.scheduled_at).isAfter(dayjs())
 
@@ -89,7 +89,7 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-2 items-start">
+            <div className="flex flex-col gap-2 items-start w-full">
                 <span className="text-muted">Job filters</span>
                 <PropertyFiltersDisplay
                     filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}
@@ -159,7 +159,7 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
 }
 
 export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic({ id }))
+    const { workflow } = useValues(workflowLogic)
 
     return workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />
 }

@@ -57,9 +57,25 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         if description:
             grouping_rule.description = description
 
+        grouping_rule.disabled_data = None
         grouping_rule.save()
 
+        posthoganalytics.capture(
+            "error_tracking_grouping_rule_edited",
+            groups=groups(self.team.organization, self.team),
+        )
+
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def destroy(self, request, *args, **kwargs) -> Response:
+        response = super().destroy(request, *args, **kwargs)
+
+        posthoganalytics.capture(
+            "error_tracking_grouping_rule_deleted",
+            groups=groups(self.team.organization, self.team),
+        )
+
+        return response
 
     def create(self, request, *args, **kwargs) -> Response:
         json_filters = request.data.get("filters")

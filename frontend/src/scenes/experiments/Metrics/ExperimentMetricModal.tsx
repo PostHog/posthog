@@ -6,7 +6,7 @@ import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/sch
 import type { Experiment } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { modalsLogic } from '../modalsLogic'
+import { exposureCriteriaModalLogic } from '../ExperimentView/exposureCriteriaModalLogic'
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
 export function ExperimentMetricModal({
@@ -22,7 +22,7 @@ export function ExperimentMetricModal({
 }): JSX.Element | null {
     const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
     const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
-    const { openExposureCriteriaModal } = useActions(modalsLogic)
+    const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
 
     if (!isModalOpen || !metric) {
         return null

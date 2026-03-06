@@ -1,21 +1,36 @@
- #!/usr/bin/env bash
-  set -euo pipefail
-  
-  cd "$(dirname "$0")/../services/llm-gateway"
-  
-  # Isolate from flox/main repo environment
-  unset VIRTUAL_ENV
-  export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
-  
-  # Create venv if it doesn't exist
-  if [ ! -d ".venv" ]; then
-      uv venv .venv
-  fi
-  
-  # Install dependencies
-  uv pip install -e . --quiet
-  
-  exec .venv/bin/uvicorn llm_gateway.main:app \
-      --host 0.0.0.0 \
-      --port "${LLM_GATEWAY_PORT:-3308}" \
-      --reload
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+provision_api_key() {
+    local max_attempts=10
+    local wait_sec=3
+    for i in $(seq 1 $max_attempts); do
+        if python "$REPO_ROOT/manage.py" setup_local_api_key --add-scopes llm_gateway:read 2>&1; then
+            return 0
+        fi
+        echo "[llm-gateway] Waiting for migrations before provisioning API key (attempt $i/$max_attempts)..."
+        sleep $wait_sec
+    done
+    echo "[llm-gateway] Warning: Could not auto-provision API key. Run manually:"
+    echo "  python manage.py setup_local_api_key --add-scopes llm_gateway:read"
+}
+
+provision_api_key &
+
+cd "$REPO_ROOT/services/llm-gateway"
+
+unset VIRTUAL_ENV
+export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
+
+if [ ! -d ".venv" ]; then
+    uv venv .venv
+fi
+
+uv pip install -e . --quiet
+
+exec .venv/bin/uvicorn llm_gateway.main:app \
+    --host 0.0.0.0 \
+    --port "${LLM_GATEWAY_PORT:-3308}" \
+    --reload

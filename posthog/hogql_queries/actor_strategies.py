@@ -7,8 +7,9 @@ import orjson as json
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
@@ -67,7 +68,7 @@ class PersonStrategy(ActorStrategy):
         with conn.cursor() as cursor:
             for i in range(0, len(actor_ids_list), self.BATCH_SIZE):
                 batch = actor_ids_list[i : i + self.BATCH_SIZE]
-                persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
+                persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at, {person_table}.last_seen_at
                     FROM {person_table}
                     WHERE {person_table}.uuid = ANY(%(uuids)s)
                     AND {person_table}.team_id = %(team_id)s"""
@@ -104,6 +105,7 @@ class PersonStrategy(ActorStrategy):
                 "properties": json.loads(person[2]),
                 "is_identified": person[3],
                 "created_at": person[4],
+                "last_seen_at": person[5],
                 "distinct_ids": distinct_ids,
             }
             for person, distinct_ids in person_id_to_raw_person_and_set.values()
@@ -125,28 +127,29 @@ class PersonStrategy(ActorStrategy):
         if self.query.fixedProperties:
             where_exprs.append(property_to_expr(self.query.fixedProperties, self.team, scope="person"))
 
-        if self.query.search is not None and self.query.search != "":
+        search = self.query.search.strip() if self.query.search else None
+        if search:
             where_exprs.append(
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         parse_expr(
                             "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
-                            {"search": ast.Constant(value=f"%{self.query.search}%")},
+                            {"search": ast.Constant(value=f"%{search}%")},
                         ),
                     ]
                 )
@@ -201,19 +204,20 @@ class GroupStrategy(ActorStrategy):
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
 
-        if self.query.search is not None and self.query.search != "":
+        search = self.query.search.strip() if self.query.search else None
+        if search:
             where_exprs.append(
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Field(chain=["properties", "name"]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                     ]
                 )
@@ -235,3 +239,37 @@ class GroupStrategy(ActorStrategy):
                 ),
             )
         ]
+
+
+class SessionStrategy(ActorStrategy):
+    """Strategy for session-based aggregation (e.g. funnels aggregated by $session_id).
+
+    The actor is a session. Person data is fetched separately using the person_id
+    column from the funnel query and nested under a "person" key.
+    """
+
+    field = "session"
+    origin = "sessions"
+    origin_id = "session_id"
+
+    def get_actors(self, actor_ids) -> dict[str, dict]:
+        session_ids = list(actor_ids)
+        if not session_ids:
+            return {}
+
+        query = parse_select(
+            "SELECT session_id, `$start_timestamp`, `$session_duration` FROM sessions WHERE session_id IN {session_ids}",
+            {"session_ids": ast.Constant(value=session_ids)},
+        )
+
+        response = execute_hogql_query(
+            query_type="SessionActorsQuery",
+            query=query,
+            team=self.team,
+        )
+
+        columns = response.columns or []
+        return {str(row[0]): {columns[i]: row[i] for i in range(len(columns))} for row in response.results}
+
+    def input_columns(self) -> list[str]:
+        return ["session"]

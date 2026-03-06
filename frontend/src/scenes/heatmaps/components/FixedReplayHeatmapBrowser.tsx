@@ -27,6 +27,7 @@ export function FixedReplayHeatmapBrowser({
                         <iframe
                             id="heatmap-iframe"
                             ref={iframeRef}
+                            title="Heatmap replay browser"
                             className="bg-white"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: widthOverride, height: heightOverride }}

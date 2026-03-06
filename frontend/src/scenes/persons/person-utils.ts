@@ -13,27 +13,16 @@ import { HogQLQueryString, hogql } from '~/queries/utils'
  * Generates a stable color index from a string using djb2 hash.
  * Used for consistent avatar colors based on person identifiers.
  */
-function hashStringToColorIndex(str: string): number {
-    let hash = 5381
-    for (let i = 0; i < str.length; i++) {
-        hash = (hash * 33) ^ str.charCodeAt(i)
-    }
-    return Math.abs(hash) % NUM_LETTERMARK_STYLES
-}
-
-/**
- * Returns a stable color index for a person based on their identifier.
- * Uses distinct_id (or first of distinct_ids) to generate consistent colors.
- */
-export function getPersonColorIndex(person: PersonPropType | null | undefined): number | undefined {
-    if (!person) {
-        return undefined
-    }
-    const identifier = person.distinct_id || person.distinct_ids?.[0]
+export function getPersonColorIndex(identifier: string | null | undefined): number | undefined {
     if (!identifier) {
         return undefined
     }
-    return hashStringToColorIndex(identifier)
+
+    let hash = 5381
+    for (let i = 0; i < identifier.length; i++) {
+        hash = (hash * 33) ^ identifier.charCodeAt(i)
+    }
+    return Math.abs(hash) % NUM_LETTERMARK_STYLES
 }
 
 export type PersonPropType =
@@ -118,6 +107,29 @@ export function asDisplay(
     return display ? midEllipsis(display, maxLength || 40) : 'Anonymous'
 }
 
+// Property editor inputs are always strings — coerce to native types before persisting
+export function coercePropertyValue(value: string | number | boolean | null): string | number | boolean | null {
+    if (value === null || value === '') {
+        return value
+    }
+
+    let result: string | number | boolean | null = value
+
+    const attemptedParsedNumber = Number(value)
+    if (Number.isFinite(attemptedParsedNumber) && typeof value !== 'boolean') {
+        result = attemptedParsedNumber
+    }
+
+    if (typeof result === 'string') {
+        const lowercaseValue = result.toLowerCase()
+        if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
+            result = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+        }
+    }
+
+    return result
+}
+
 export const asLink = (person?: PersonPropType | null): string | undefined =>
     person?.distinct_id
         ? urls.personByDistinctId(person.distinct_id)
@@ -133,7 +145,8 @@ export const getHogqlQueryStringForPersonId = (): HogQLQueryString => {
                     groupArray(101)(pdi2.distinct_id) as distinct_ids,
                     properties,
                     is_identified,
-                    created_at
+                    created_at,
+                    last_seen_at
                 FROM persons
                 LEFT JOIN (
                     SELECT
@@ -150,5 +163,5 @@ export const getHogqlQueryStringForPersonId = (): HogQLQueryString => {
                         AND argMax(pdi2.person_id, pdi2.version) = {id}
                 ) AS pdi2 ON pdi2.person_id = persons.id
                 WHERE persons.id = {id}
-                GROUP BY id, properties, is_identified, created_at`
+                GROUP BY id, properties, is_identified, created_at, last_seen_at`
 }

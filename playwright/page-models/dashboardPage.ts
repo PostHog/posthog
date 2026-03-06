@@ -8,25 +8,162 @@ export class DashboardPage {
     readonly page: Page
 
     readonly topBarName: Locator
+    readonly items: Locator
+    readonly insightCards: Locator
+    readonly textCards: Locator
+    readonly dateFilter: Locator
+    readonly overridesBanner: Locator
+    readonly variableButtons: Locator
 
     constructor(page: Page) {
         this.page = page
 
         this.topBarName = page.getByTestId('top-bar-name')
+        this.items = page.locator('.dashboard-items-wrapper')
+        this.insightCards = page.locator('.InsightCard')
+        this.textCards = page.getByTestId('text-card')
+        this.dateFilter = page.getByTestId('date-filter')
+        this.overridesBanner = page.getByText('You are viewing this dashboard with filter overrides.')
+        this.variableButtons = page.locator('.DataVizVariable_Button')
     }
 
-    async createNew(dashboardName: string = randomString('dashboard')): Promise<DashboardPage> {
+    async createNew(dashboardName?: string): Promise<DashboardPage> {
         await this.page.goto(urls.dashboards())
         await this.page.getByTestId('new-dashboard').click()
         await this.page.getByTestId('create-dashboard-blank').click()
         await expect(this.page.locator('.dashboard')).toBeVisible()
+        await this.dismissQuickStartIfVisible()
 
-        await this.editName(dashboardName)
+        if (dashboardName) {
+            const textarea = this.page.locator('.scene-title-section textarea')
+            await textarea.or(this.page.locator('.scene-title-section')).first().click()
+            await textarea.fill(dashboardName)
+        }
+
         return this
     }
 
-    /** Checks assertions, reloads and checks again. This is useful for asserting both the local state
-     * and the backend side state are persisted correctly. */
+    async createFromTemplate(): Promise<DashboardPage> {
+        await this.page.goto(urls.dashboards())
+        await this.page.getByTestId('new-dashboard').click()
+
+        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Create a dashboard' })
+        await expect(modal).toBeVisible()
+
+        const templateOption = this.page.getByTestId('create-dashboard-from-template').first()
+        await expect(templateOption).toBeVisible()
+        await templateOption.click()
+
+        await expect(this.page).toHaveURL(/\/dashboard\/\d+/)
+        return this
+    }
+
+    async addInsightToNewDashboard(insightName?: string): Promise<void> {
+        await this.page.getByRole('button', { name: 'Add insight' }).first().click()
+        const row = insightName
+            ? this.page.locator('.LemonModal .LemonTable tbody tr').filter({ hasText: insightName }).first()
+            : this.page.locator('.LemonModal .LemonTable tbody tr').first()
+        await row.click()
+        await this.page.getByRole('button', { name: 'Close' }).click()
+    }
+
+    async addTextCard(text: string): Promise<void> {
+        await this.page.getByTestId('add-text-tile-to-dashboard').click()
+
+        const modal = this.page.locator('.LemonModal')
+        await expect(modal).toBeVisible()
+
+        const textArea = modal.locator('textarea')
+        await expect(textArea).toBeVisible()
+        await textArea.fill(text)
+        await this.page.getByTestId('save-new-text-tile').click()
+
+        await expect(this.textCards.filter({ hasText: text })).toBeVisible()
+    }
+
+    async addToNewDashboardFromInsightPage(): Promise<void> {
+        await this.openInfoPanel()
+        const addButton = this.page.getByTestId('insight-add-to-dashboard-button')
+        await expect(addButton).toBeVisible()
+        await addButton.click()
+
+        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Add to dashboard' })
+        await expect(modal).toBeVisible()
+
+        await modal.getByRole('button', { name: 'Add to a new dashboard' }).click()
+        await this.page.getByTestId('create-dashboard-blank').click()
+
+        // After creating a new dashboard from the insight page, the app either:
+        // 1. Navigates directly to the dashboard (when _dashboardToNavigateTo is set), OR
+        // 2. Shows a toast "Insight added to dashboard" and stays on the insight page
+        // Wait for either signal to confirm the async API call has completed.
+        await expect(this.page.getByText('Insight added to dashboard').or(this.insightCards)).toBeVisible({
+            timeout: 30000,
+        })
+    }
+
+    async openInfoPanel(): Promise<void> {
+        await this.page.getByTestId('open-context-panel-button').first().click()
+    }
+
+    async closeInfoPanel(): Promise<void> {
+        await this.page.getByTestId('context-panel-close-button').click()
+    }
+
+    async duplicate(): Promise<void> {
+        await this.openInfoPanel()
+        await this.page.getByTestId('dashboard-duplicate-button').click()
+
+        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Duplicate dashboard' })
+        await expect(modal).toBeVisible()
+        await this.page.getByTestId('dashboard-submit-and-go').click()
+
+        await expect(this.page).toHaveURL(/\/dashboard\//)
+    }
+
+    async deleteDashboard(): Promise<void> {
+        await this.openInfoPanel()
+        await this.page.getByRole('button', { name: 'Delete dashboard' }).click()
+
+        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Delete dashboard' })
+        await expect(modal).toBeVisible()
+        await this.page.getByTestId('dashboard-delete-submit').click()
+    }
+
+    async setDateFilter(option: string): Promise<void> {
+        const dataAttr = `date-filter-${option.toLowerCase().replace(/\s+/g, '-')}`
+        await this.dateFilter.click()
+        await this.page.getByTestId(dataAttr).click()
+        await expect(this.dateFilter).toContainText(option)
+    }
+
+    async setVariable(name: string, value: string | number): Promise<void> {
+        const field = this.page.locator('.Field').filter({ hasText: name })
+        await field.locator('.DataVizVariable_Button').click()
+
+        const popover = this.page.locator('.DataVizVariable_Popover')
+        await expect(popover).toBeVisible()
+
+        const input = popover.locator('input')
+        await input.fill(String(value))
+        await popover.getByRole('button', { name: 'Update' }).click()
+
+        await expect(popover).not.toBeVisible()
+    }
+
+    async closeSidePanels(): Promise<void> {
+        await this.page.keyboard.press('Escape')
+
+        const closePanelX = this.page.locator('.scene-layout__content-panel button:has(svg)').first()
+        if (await closePanelX.isVisible({ timeout: 1000 }).catch(() => false)) {
+            await closePanelX.click()
+        }
+    }
+
+    async dismissQuickStartIfVisible(): Promise<void> {
+        await this.page.keyboard.press('Escape')
+    }
+
     async withReload(callback: () => Promise<void>, beforeFn?: () => Promise<void>): Promise<void> {
         await beforeFn?.()
         await callback()
@@ -40,20 +177,86 @@ export class DashboardPage {
         await this.topBarName.getByRole('button').getByText('Save').click()
     }
 
-    async renameFirstTile(newTileName: string): Promise<void> {
-        await this.page.locator('.CardMeta').getByTestId('more-button').click()
-        await this.page.locator('.Popover').getByText('Rename').click()
-        await this.page.locator('.LemonModal').getByTestId('insight-name').fill(newTileName)
-        await this.page.locator('.LemonModal').getByText('Submit').click()
+    async findCardByTitle(title: string): Promise<Locator> {
+        const count = await this.insightCards.count()
+
+        for (let i = 0; i < count; i++) {
+            const card = this.insightCards.nth(i)
+            await card.scrollIntoViewIfNeeded()
+            const titleText = await card
+                .locator('[data-attr="insight-card-title"]')
+                .textContent({ timeout: 5000 })
+                .catch(() => null)
+
+            if (titleText?.includes(title)) {
+                return card
+            }
+        }
+
+        throw new Error(`Could not find InsightCard with title "${title}"`)
     }
 
-    async removeFirstTile(): Promise<void> {
-        await this.page.locator('.CardMeta').getByTestId('more-button').click()
-        await this.page.locator('.Popover').getByText('Remove from dashboard').click()
+    async openFirstTileMenu(): Promise<void> {
+        const card = this.insightCards.first()
+        await card.scrollIntoViewIfNeeded()
+        await card.hover()
+        await card.getByTestId('more-button').click()
     }
 
-    async duplicateFirstTile(): Promise<void> {
-        await this.page.locator('.CardMeta').getByTestId('more-button').click()
-        await this.page.locator('.Popover').getByText('Duplicate').click()
+    async selectTileMenuOption(option: string): Promise<void> {
+        const editLink = this.page
+            .locator('.Popover')
+            .getByRole(option === 'Edit' ? 'link' : 'button', { name: option })
+        await editLink.click()
+    }
+}
+
+/**
+ * Extends DashboardPage with helpers for the compact card redesign.
+ * Requires the 'dashboard-tile-redesign' feature flag — mock it via mockFeatureFlags before use.
+ * Merge these into DashboardPage when the flag is fully rolled out.
+ */
+export class CompactDashboardPage extends DashboardPage {
+    async enterEditMode(): Promise<void> {
+        await this.page.getByTestId('dashboard-edit-mode-button').click()
+        await expect(this.page.getByTestId('dashboard-edit-mode-save')).toBeVisible()
+    }
+
+    async saveEditMode(): Promise<void> {
+        await this.page.getByTestId('dashboard-edit-mode-save').click()
+        await expect(this.page.getByTestId('dashboard-edit-mode-save')).not.toBeVisible()
+    }
+
+    async hoverFirstCard(): Promise<void> {
+        const title = this.insightCards.first().locator('[data-attr="insight-card-title"]')
+        await title.hover()
+    }
+
+    get tilePopover(): Locator {
+        return this.page.locator('.Popover')
+    }
+
+    get popoverTitleField(): Locator {
+        return this.tilePopover.locator('[data-attr="insight-card-title"]')
+    }
+
+    get popoverDescriptionField(): Locator {
+        return this.tilePopover.locator('[data-attr="insight-card-description"]')
+    }
+
+    async editPopoverTitle(newTitle: string): Promise<void> {
+        await this.popoverTitleField.click()
+        const input = this.popoverTitleField.locator('input')
+        await expect(input).toBeVisible()
+        await input.fill(newTitle)
+        await input.press('Enter')
+    }
+
+    async editPopoverDescription(description: string): Promise<void> {
+        await this.popoverDescriptionField.click()
+        const textarea = this.popoverDescriptionField.locator('textarea')
+        await expect(textarea).toBeVisible()
+        await textarea.fill(description)
+        await textarea.blur()
     }
 }

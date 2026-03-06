@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconClock } from '@posthog/icons'
@@ -16,12 +16,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
+import { workflowLogic } from './workflowLogic'
 import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
-import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
-import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
@@ -104,21 +104,23 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     return (
         <SceneContent className="h-full flex flex-col grow">
-            <WorkflowSceneHeader {...props} />
-            {/* Only show Logs and Metrics tabs if the workflow has already been created */}
-            {!props.id || props.id === 'new' ? (
-                <Workflow {...props} />
-            ) : (
-                <LemonTabs
-                    activeKey={currentTab}
-                    onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
-                    tabs={tabs}
-                    sceneInset
-                    className={clsx({
-                        'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
-                    })}
-                />
-            )}
+            <BindLogic logic={workflowLogic} props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}>
+                <WorkflowSceneHeader {...props} />
+                {/* Only show Logs and Metrics tabs if the workflow has already been created */}
+                {!props.id || props.id === 'new' ? (
+                    <Workflow {...props} />
+                ) : (
+                    <LemonTabs
+                        activeKey={currentTab}
+                        onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
+                        tabs={tabs}
+                        sceneInset
+                        className={clsx({
+                            'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
+                        })}
+                    />
+                )}
+            </BindLogic>
         </SceneContent>
     )
 }

@@ -96,9 +96,7 @@ export const AssigneeLabelDisplay = ({
 }
 
 interface AssigneeDisplayProps
-    extends AssigneeBaseDisplayProps,
-        Omit<AssigneeLabelDisplayProps, 'className'>,
-        AssigneeIconDisplayProps {
+    extends AssigneeBaseDisplayProps, Omit<AssigneeLabelDisplayProps, 'className'>, AssigneeIconDisplayProps {
     className?: string
     labelClassname?: string
 }

@@ -28,8 +28,6 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         setMode: (mode: 'create' | 'link') => ({ mode }),
         validateFeatureFlagKey: (key: string) => ({ key }),
         clearFeatureFlagKeyValidation: true,
-
-        setFeatureFlagKeyDirty: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
         setFeatureFlagKeyForAutocomplete: (key: string | null) => ({ key }),
     },
@@ -51,13 +49,6 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                     }
                     return mode
                 },
-            },
-        ],
-        featureFlagKeyDirty: [
-            false,
-            {
-                setFeatureFlagKeyDirty: () => true,
-                setMode: () => false, // Reset dirty flag when switching modes
             },
         ],
         linkedFeatureFlag: [

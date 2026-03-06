@@ -5,6 +5,7 @@ import { IconDatabase, IconRefresh } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { IconPlayCircle, IconReplay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -14,7 +15,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconPlayCircle, IconReplay } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,7 +25,6 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
-import { SettingUpdateField } from './SettingUpdateField'
 import {
     AsyncMigration,
     AsyncMigrationStatus,
@@ -33,6 +32,7 @@ import {
     asyncMigrationsLogic,
     migrationStatusNumberToMessage,
 } from './asyncMigrationsLogic'
+import { SettingUpdateField } from './SettingUpdateField'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,

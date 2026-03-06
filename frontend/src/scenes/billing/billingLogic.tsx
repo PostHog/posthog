@@ -15,8 +15,8 @@ import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -30,9 +30,9 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
-import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
-import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage } from './billing-utils'
+import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage, canAccessBilling } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
+import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -609,9 +609,9 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         showCreditCTAHero: [
-            (s) => [s.creditOverview, s.featureFlags],
-            (creditOverview, featureFlags): boolean => {
-                const isEligible = creditOverview.eligible || !!featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
+            (s) => [s.creditOverview],
+            (creditOverview): boolean => {
+                const isEligible = creditOverview.eligible
                 return isEligible && creditOverview.status !== 'paid'
             },
         ],
@@ -809,6 +809,8 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
+            const hasBillingAccess = canAccessBilling(values.currentOrganization)
+
             const trial = values.billing.trial
             if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
                 if (trial.type === 'autosubscribe' || trial.status !== 'active') {
@@ -824,12 +826,13 @@ export const billingLogic = kea<billingLogicType>([
 
                 const contactEmail = values.billing.account_owner?.email || 'sales@posthog.com'
                 const contactName = values.billing.account_owner?.name || 'sales'
+                const timeRemaining =
+                    remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
+                const planName = capitalizeFirstLetter(trial.target)
                 actions.setBillingAlert({
                     status: 'info',
-                    title: `Your free trial for the ${capitalizeFirstLetter(trial.target)} plan will end in ${
-                        remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
-                    }.`,
-                    message: `If you have any questions, please reach out to ${contactName} at ${contactEmail}.`,
+                    title: `Your free trial for the ${planName} plan ends in ${timeRemaining}. Your service will continue without interruption, and you'll be charged for the ${planName} plan.`,
+                    message: `Questions? Reach out to ${contactName} at ${contactEmail}.`,
                 })
                 return
             }
@@ -863,7 +866,7 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsOverLimit.length > 0) {
-                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit)
+                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit, hasBillingAccess)
 
                 actions.setBillingAlert({
                     status: 'error',
@@ -910,7 +913,7 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsApproachingLimit.length > 0) {
-                const { title, message } = buildUsageLimitApproachingMessage(productsApproachingLimit)
+                const { title, message } = buildUsageLimitApproachingMessage(productsApproachingLimit, hasBillingAccess)
 
                 actions.setBillingAlert({
                     status: 'info',

@@ -34,7 +34,7 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(),
+            response.json()["results"],
             [{"name": "alpha"}, {"name": "beta"}, {"name": "gamma"}, {"name": "true"}],
         )
         self.assertEqual(response["Cache-Control"], "max-age=10")

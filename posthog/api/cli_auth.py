@@ -23,27 +23,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication
-from posthog.models import PersonalAPIKey, User
+from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, mask_key_value
-
-
-class CLIAuthSessionAuthentication(SessionAuthentication):
-    """
-    Custom session authentication for CLI authorization.
-
-    The user_code serves as an additional authorization token beyond CSRF,
-    so we can safely skip CSRF validation for this specific endpoint.
-    """
-
-    def authenticate(self, request):
-        """Authenticate using session authentication."""
-        return super().authenticate(request)
-
-    def enforce_csrf(self, request):
-        """Skip CSRF enforcement - the user_code acts as the authorization token."""
-        return None
-
 
 # Device code lives for 10 minutes
 DEVICE_CODE_EXPIRY_SECONDS = 600
@@ -79,12 +61,6 @@ def get_device_cache_key(device_code: str) -> str:
 def get_user_code_cache_key(user_code: str) -> str:
     """Get cache key for user code"""
     return f"cli_user_code:{user_code}"
-
-
-class DeviceCodeRequestSerializer(serializers.Serializer):
-    """Request to initiate device authorization flow"""
-
-    pass  # No input required
 
 
 class DeviceCodeResponseSerializer(serializers.Serializer):
@@ -147,7 +123,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         # Check both action and URL path since action might not be set yet
         if action == "authorize" or (hasattr(self, "request") and "authorize" in self.request.path):
-            return [CLIAuthSessionAuthentication()]
+            return [SessionAuthentication()]
 
         return []
 
@@ -200,9 +176,6 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         Requires authenticated session. Creates a Personal API Key and marks
         the device code as authorized.
-
-        The user_code itself acts as a single-use authorization token,
-        providing additional security beyond CSRF tokens.
         """
         serializer = DeviceAuthorizationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -212,7 +185,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         scopes = serializer.validated_data.get("scopes", CLI_SCOPES)
 
         # Validate that at least one scope is provided
-        if not scopes or len(scopes) == 0:
+        if not scopes:
             return Response(
                 {"error": "invalid_request", "error_description": "At least one scope is required"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -244,7 +217,6 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         # Verify user has access to the project
         user: User = request.user
-        from posthog.models import Team
 
         try:
             team = Team.objects.get(id=project_id)

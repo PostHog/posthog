@@ -12,12 +12,14 @@ import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { PersonPreview } from './PersonPreview'
 import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from './person-utils'
+import { PersonPreview } from './PersonPreview'
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
     displayName?: string
+    /** Max display name length before mid-ellipsis truncation. Passed to `asDisplay`. */
+    maxLength?: number
     withIcon?: boolean | ProfilePictureProps['size']
     href?: string
     noLink?: boolean
@@ -50,12 +52,9 @@ export function PersonIcon({
         return typeof possibleEmail === 'string' ? possibleEmail : undefined
     }, [person?.properties?.email])
 
-    // Generate a stable color index from the person's distinct_id if not explicitly provided
-    //
-    // Don't depend on `person` for the memoization since this is only used to get an accurate color
-    // and person is a complex object that could change.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-    const colorIndex = useMemo(() => index ?? getPersonColorIndex(person), [index])
+    // Generate a stable color index from the person's distinct_id (or display name) if not explicitly provided
+    const identifier = person?.distinct_id || person?.distinct_ids?.[0] || displayName
+    const colorIndex = useMemo(() => index ?? getPersonColorIndex(identifier), [index, identifier])
 
     return (
         <ProfilePicture
@@ -72,6 +71,7 @@ export function PersonIcon({
 export function PersonDisplay({
     person,
     displayName,
+    maxLength,
     withIcon,
     noEllipsis,
     noPopover,
@@ -85,7 +85,7 @@ export function PersonDisplay({
     className,
     muted,
 }: PersonDisplayProps): JSX.Element {
-    const display = displayName || asDisplay(person)
+    const display = displayName || asDisplay(person, maxLength)
     const [visible, setVisible] = useState(false)
 
     const notebookNode = useNotebookNode()

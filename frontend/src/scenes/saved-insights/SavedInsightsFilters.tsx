@@ -1,26 +1,61 @@
-import { IconCalendar, IconFlag } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { IconFlag, IconHeart, IconStar } from '@posthog/icons'
+import { LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
+
+import { TagSelect } from 'lib/components/TagSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { fullName } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-import { SavedInsightsTabs } from '~/types'
+export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
+const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
 
 export function SavedInsightsFilters({
     filters,
     setFilters,
+    quickFilters = ALL_QUICK_FILTERS,
+    borderless = false,
 }: {
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
+    quickFilters?: QuickFilterKind[]
+    /** When true, inactive filters appear borderless. */
+    borderless?: boolean
 }): JSX.Element {
-    const { tab, createdBy, insightType, dateFrom, dateTo, search, hideFeatureFlagInsights } = filters
+    const isAIFirst = useFeatureFlag('AI_FIRST')
+    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
+    const { meFirstMembers, filteredMembers, membersLoading, search: memberSearch } = useValues(membersLogic)
+    const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
+    const quickFilterSet = new Set(quickFilters)
+    const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
+    const hasCreatedBySelection = createdBy !== 'All users' && (createdBy as number[]).length > 0
+    const currentUserId = meFirstMembers[0]?.user.id
+    const isFilteredToCurrentUser =
+        hasCreatedBySelection && (createdBy as number[]).length === 1 && (createdBy as number[])[0] === currentUserId
+
+    const handleMemberToggle = (userId: number): void => {
+        const currentUsers = createdBy !== 'All users' ? (createdBy as number[]) : []
+        const selected = new Set(currentUsers)
+        if (selected.has(userId)) {
+            selected.delete(userId)
+        } else {
+            selected.add(userId)
+        }
+        const newValue = Array.from(selected)
+        const createdByValue = newValue.length > 0 ? newValue : 'All users'
+        setFilters({ createdBy: createdByValue })
+        posthog.capture('saved insights filtered', { filter_type: 'created_by', value: createdByValue })
+    }
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
@@ -30,48 +65,159 @@ export function SavedInsightsFilters({
                 onChange={(value) => setFilters({ search: value })}
                 value={search || ''}
                 autoFocus
+                data-attr="insight-dashboard-modal-search"
             />
-            <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                    <span>Type:</span>
-                    <LemonSelect
-                        size="small"
-                        options={INSIGHT_TYPE_OPTIONS}
-                        value={insightType}
-                        onChange={(v?: string): void => setFilters({ insightType: v })}
-                        dropdownMatchSelectWidth={false}
-                        data-attr="insight-type"
-                    />
-                </div>
-                <div className="flex items-center gap-2">
-                    <span>Last modified:</span>
-                    <DateFilter
-                        disabled={false}
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(fromDate, toDate) => setFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar />
-                                <span className="hide-when-small"> {key}</span>
-                            </>
-                        )}
-                    />
-                </div>
-                {tab !== SavedInsightsTabs.Yours ? (
-                    <div className="flex items-center gap-2">
-                        <span>Created by:</span>
-                        <MemberSelect
-                            value={createdBy === 'All users' ? null : createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.id || 'All users' })}
+            {quickFilters.length > 0 && (
+                <div className="flex gap-2 items-center flex-wrap ml-auto">
+                    {quickFilterSet.has('insightType') && (
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
+                            size="small"
+                            active={hasInsightTypeSelection}
+                            status={borderless && !hasInsightTypeSelection ? 'alt' : 'default'}
+                            onChange={(value) => {
+                                setFilters({ insightType: value as string })
+                                posthog.capture('saved insights filtered', { filter_type: 'insight_type', value })
+                            }}
+                            options={INSIGHT_TYPE_OPTIONS}
+                            value={insightType || 'All types'}
                         />
-                    </div>
-                ) : null}
-                <FeatureFlagInsightsToggle
-                    hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
-                    onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
-                />
-            </div>
+                    )}
+                    {quickFilterSet.has('tags') && (
+                        <TagSelect
+                            value={tags || []}
+                            onChange={(tags) => {
+                                setFilters({ tags: tags.length > 0 ? tags : [] })
+                                posthog.capture('saved insights filtered', { filter_type: 'tags', value: tags })
+                            }}
+                        >
+                            {(selectedTags) => (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    active={selectedTags.length > 0}
+                                    status={borderless && selectedTags.length === 0 ? 'alt' : 'default'}
+                                >
+                                    {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
+                                </LemonButton>
+                            )}
+                        </TagSelect>
+                    )}
+                    {quickFilterSet.has('createdBy') && (
+                        <LemonDropdown
+                            closeOnClickInside={false}
+                            matchWidth={false}
+                            placement="bottom-end"
+                            actionable
+                            onVisibilityChange={(visible) => {
+                                if (visible) {
+                                    ensureAllMembersLoaded()
+                                    setMemberSearch('')
+                                }
+                            }}
+                            overlay={
+                                <div className="max-w-100 deprecated-space-y-2">
+                                    <LemonInput
+                                        type="search"
+                                        placeholder="Search"
+                                        autoFocus
+                                        value={memberSearch}
+                                        onChange={setMemberSearch}
+                                        fullWidth
+                                    />
+                                    <ul className="deprecated-space-y-px">
+                                        {filteredMembers.map((member) => (
+                                            <li key={member.user.uuid}>
+                                                <LemonButton
+                                                    fullWidth
+                                                    role="menuitem"
+                                                    size="small"
+                                                    icon={<ProfilePicture size="md" user={member.user} />}
+                                                    onClick={() => handleMemberToggle(member.user.id)}
+                                                >
+                                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                                        <span className="flex items-center gap-2 max-w-full">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="cursor-pointer"
+                                                                checked={
+                                                                    createdBy !== 'All users' &&
+                                                                    (createdBy as number[]).includes(member.user.id)
+                                                                }
+                                                                readOnly
+                                                            />
+                                                            <span>{fullName(member.user)}</span>
+                                                        </span>
+                                                        <span className="text-secondary">
+                                                            {meFirstMembers[0] === member && `(you)`}
+                                                        </span>
+                                                    </span>
+                                                </LemonButton>
+                                            </li>
+                                        ))}
+                                        {membersLoading ? (
+                                            <div className="p-2 text-secondary italic truncate border-t">
+                                                Loading...
+                                            </div>
+                                        ) : filteredMembers.length === 0 ? (
+                                            <div className="p-2 text-secondary italic truncate border-t">
+                                                {memberSearch ? <span>No matches</span> : <span>No users</span>}
+                                            </div>
+                                        ) : null}
+                                        {hasCreatedBySelection && (
+                                            <>
+                                                <div className="my-1 border-t" />
+                                                <li>
+                                                    <LemonButton
+                                                        fullWidth
+                                                        role="menuitem"
+                                                        size="small"
+                                                        onClick={() => setFilters({ createdBy: 'All users' })}
+                                                        type="tertiary"
+                                                    >
+                                                        Clear selection
+                                                    </LemonButton>
+                                                </li>
+                                            </>
+                                        )}
+                                    </ul>
+                                </div>
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                status={borderless && !hasCreatedBySelection ? 'alt' : 'default'}
+                                active={hasCreatedBySelection}
+                            >
+                                {isFilteredToCurrentUser
+                                    ? 'Created by you'
+                                    : hasCreatedBySelection
+                                      ? `Created by (${(createdBy as number[]).length})`
+                                      : 'Created by'}
+                            </LemonButton>
+                        </LemonDropdown>
+                    )}
+                    {quickFilterSet.has('favorites') && (
+                        <LemonButton
+                            type="secondary"
+                            status={borderless && !favorited ? 'alt' : 'default'}
+                            active={favorited || false}
+                            onClick={() => setFilters({ favorited: !favorited })}
+                            size="small"
+                            icon={isAIFirst ? <IconHeart /> : <IconStar />}
+                        >
+                            Favorites
+                        </LemonButton>
+                    )}
+                    {quickFilterSet.has('featureFlags') && (
+                        <FeatureFlagInsightsToggle
+                            hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
+                            onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
+                        />
+                    )}
+                </div>
+            )}
         </div>
     )
 }

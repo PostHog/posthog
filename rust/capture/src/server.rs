@@ -13,12 +13,15 @@ use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use hyper_util::server::graceful::GracefulShutdown;
 use limiters::redis::ServiceName;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tower::Service;
 use tracing::{debug, error, info, warn};
 
 use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
+use crate::event_restrictions::{EventRestrictionService, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
@@ -31,6 +34,7 @@ use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
 use crate::sinks::kafka::KafkaSink;
+use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
@@ -73,10 +77,7 @@ fn spawn_connection_handler(
             "stage" => stage,
         )
         .increment(1);
-        warn!(
-            "Hyper accept loop ({}): error setting TCP_NODELAY: {}",
-            stage, e
-        );
+        warn!("Hyper accept loop ({stage}): error setting TCP_NODELAY: {e:#}");
     }
 
     let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
@@ -114,6 +115,80 @@ fn spawn_connection_handler(
     });
 }
 
+type EventRestrictionState = (
+    Option<EventRestrictionService>,
+    Option<CancellationToken>,
+    Option<JoinHandle<()>>,
+);
+
+fn create_event_restriction_service(config: &Config) -> EventRestrictionState {
+    if !config.event_restrictions_enabled {
+        return (None, None, None);
+    }
+
+    let Some(ref redis_url) = config.event_restrictions_redis_url else {
+        warn!("Event restrictions enabled but EVENT_RESTRICTIONS_REDIS_URL not set");
+        return (None, None, None);
+    };
+
+    let service = EventRestrictionService::new(
+        config.capture_mode,
+        Duration::from_secs(config.event_restrictions_fail_open_after_secs),
+    );
+
+    let cancel_token = CancellationToken::new();
+
+    let service_clone = service.clone();
+    let refresh_interval = Duration::from_secs(config.event_restrictions_refresh_interval_secs);
+    let task_cancel_token = cancel_token.clone();
+
+    // Capture values needed by the repository factory
+    let redis_url = redis_url.clone();
+    let response_timeout = if config.redis_response_timeout_ms == 0 {
+        None
+    } else {
+        Some(Duration::from_millis(config.redis_response_timeout_ms))
+    };
+    let connection_timeout = if config.redis_connection_timeout_ms == 0 {
+        None
+    } else {
+        Some(Duration::from_millis(config.redis_connection_timeout_ms))
+    };
+
+    let handle = tokio::spawn(async move {
+        service_clone
+            .start_refresh_task(
+                || {
+                    let url = redis_url.clone();
+                    async move {
+                        let repo = RedisRestrictionsRepository::new(
+                            url,
+                            response_timeout,
+                            connection_timeout,
+                        )
+                        .await?;
+                        let result: Arc<
+                            dyn crate::event_restrictions::EventRestrictionsRepository,
+                        > = Arc::new(repo);
+                        Ok(result)
+                    }
+                },
+                refresh_interval,
+                task_cancel_token,
+            )
+            .await;
+    });
+
+    info!(
+        pipeline = %config.capture_mode.as_pipeline_name(),
+        refresh_interval_secs = config.event_restrictions_refresh_interval_secs,
+        fail_open_after_secs = config.event_restrictions_fail_open_after_secs,
+        "Event restrictions enabled"
+    );
+
+    (Some(service), Some(cancel_token), Some(handle))
+}
+
 async fn create_sink(
     config: &Config,
     redis_client: Arc<RedisClient>,
@@ -128,6 +203,16 @@ async fn create_sink(
             .await;
 
         Ok(Box::new(PrintSink {}))
+    } else if config.noop_sink {
+        info!("NoOpSink enabled, events will be silently dropped");
+        // NoOpSink is used for mirror traffic when we don't need to evaluate the output
+        // events and don't want to waste cost on MSK for nothing. The 12 hour period on
+        // the liveness check is unimportant as the sink does nothing. This is safer than
+        // nerfing the liveness check entirely when NoOpSink is enabled
+        let sink_liveness = liveness
+            .register("noop_sink".to_string(), Duration::from_secs(60 * 60 * 12))
+            .await;
+        Ok(Box::new(NoOpSink::new(sink_liveness).await))
     } else {
         let sink_liveness = liveness
             .register("rdkafka".to_string(), Duration::from_secs(30))
@@ -241,47 +326,16 @@ where
         .expect("failed to create redis client"),
     );
 
-    let global_rate_limiter = if config.global_rate_limit_enabled {
-        // Use dedicated Redis if configured, otherwise fall back to shared client
-        let grl_redis_client: Arc<dyn common_redis::Client + Send + Sync> =
-            if let Some(ref grl_redis_url) = config.global_rate_limit_redis_url {
-                let response_timeout = config
-                    .global_rate_limit_redis_response_timeout_ms
-                    .unwrap_or(config.redis_response_timeout_ms);
-                let connection_timeout = config
-                    .global_rate_limit_redis_connection_timeout_ms
-                    .unwrap_or(config.redis_connection_timeout_ms);
-
-                Arc::new(
-                    RedisClient::with_config(
-                        grl_redis_url.clone(),
-                        common_redis::CompressionConfig::disabled(),
-                        common_redis::RedisValueFormat::default(),
-                        if response_timeout == 0 {
-                            None
-                        } else {
-                            Some(Duration::from_millis(response_timeout))
-                        },
-                        if connection_timeout == 0 {
-                            None
-                        } else {
-                            Some(Duration::from_millis(connection_timeout))
-                        },
-                    )
+    let (global_rate_limiter_token_distinctid, global_rate_limiter_token) =
+        if config.global_rate_limit_enabled {
+            let (td_limiter, token_limiter) =
+                GlobalRateLimiter::try_from_config(&config, redis_client.clone())
                     .await
-                    .expect("failed to create global rate limiter redis client"),
-                )
-            } else {
-                redis_client.clone()
-            };
-
-        Some(Arc::new(
-            GlobalRateLimiter::new(&config, vec![grl_redis_client])
-                .expect("failed to create global rate limiter"),
-        ))
-    } else {
-        None
-    };
+                    .expect("failed to create global rate limiters");
+            (Some(Arc::new(td_limiter)), Some(Arc::new(token_limiter)))
+        } else {
+            (None, None)
+        };
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
@@ -306,7 +360,7 @@ where
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
     let event_payload_max_bytes = match config.capture_mode {
-        CaptureMode::Events => BATCH_BODY_SIZE * 5,
+        CaptureMode::Events | CaptureMode::Ai => BATCH_BODY_SIZE * 5,
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 
@@ -366,14 +420,19 @@ where
             None
         };
 
+    let (event_restriction_service, event_restrictions_cancel, event_restrictions_handle) =
+        create_event_restriction_service(&config);
+
     let app = router::router(
         crate::time::SystemTime {},
         liveness,
         sink,
         redis_client,
-        global_rate_limiter,
+        global_rate_limiter_token_distinctid,
+        global_rate_limiter_token,
         quota_limiter,
         token_dropper,
+        event_restriction_service,
         config.export_prometheus,
         config.capture_mode,
         config.otel_service_name.clone(), // this matches k8s role label in prod deploy envs
@@ -431,13 +490,13 @@ where
                                 "err_type" => "connection",
                                 "stage" => "accept",
                             ).increment(1);
-                            error!("Hyper accept loop: connection error: {}", e);
+                            error!("Hyper accept loop: connection error: {e:#}");
                         } else {
                             metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
                                 "err_type" => "resources",
                                 "stage" => "accept",
                             ).increment(1);
-                            error!("Hyper accept loop: resource error: {}", e);
+                            error!("Hyper accept loop: resource error: {e:#}");
                             tokio::time::sleep(Duration::from_secs(1)).await;
                         }
                         continue;
@@ -500,8 +559,7 @@ where
                     error!(
                         error_type = "connection",
                         pause = "none",
-                        "Hyper accept loop (draining): {}",
-                        e
+                        "Hyper accept loop (draining): {e:#}"
                     );
                 } else {
                     metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
@@ -512,8 +570,7 @@ where
                     error!(
                         error_type = "resources",
                         pause = "none",
-                        "Hyper accept loop (draining): {}",
-                        e
+                        "Hyper accept loop (draining): {e:#}"
                     );
                 }
             }
@@ -532,4 +589,16 @@ where
     info!("Hyper accept loop (shutdown): waiting for in-flight request handlers to complete...");
     graceful.shutdown().await;
     info!("Hyper accept loop (shutdown): graceful shutdown completed");
+
+    // Shutdown event restrictions refresh task if running
+    if let (Some(cancel_token), Some(handle)) =
+        (event_restrictions_cancel, event_restrictions_handle)
+    {
+        info!("Shutting down event restrictions refresh task...");
+        cancel_token.cancel();
+        if let Err(e) = handle.await {
+            warn!("Event restrictions refresh task failed: {e:#}");
+        }
+        info!("Event restrictions refresh task stopped");
+    }
 }

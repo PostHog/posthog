@@ -1,5 +1,6 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useFeatureFlagVariantKey } from 'posthog-js/react'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -42,10 +43,11 @@ import {
 
 import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
 
-import { GroupOverview } from './GroupOverview'
-import { RelatedGroups } from './RelatedGroups'
+import { GroupDashboardCard } from './cards/GroupDashboardCard'
 import { GroupNotebookCard } from './cards/GroupNotebookCard'
 import { GroupCaption } from './components/GroupCaption'
+import { GroupOverview } from './GroupOverview'
+import { RelatedGroups } from './RelatedGroups'
 
 export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
@@ -60,21 +62,23 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
     if (!tabId) {
         throw new Error('GroupScene rendered with no tabId')
     }
-
+    const mountedGroupLogic = useMountedLogic(groupLogic)
     const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
-        useValues(groupLogic)
+        useValues(mountedGroupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
+    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const groupProfileVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.GROUP_PROFILE_EXPERIMENT)
+    const isProfileEnabled = groupProfileVariant === 'test'
+    const showProfile = featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || isProfileEnabled
 
     if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-    const activeTab = groupTab ?? (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? 'profile' : 'overview')
+    const activeTab = groupTab ?? (showProfile ? 'profile' : 'overview')
 
     return (
         <SceneContent>
@@ -107,19 +111,25 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                 activeKey={activeTab}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
-                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
+                    ...(showProfile
                         ? [
                               {
                                   key: GroupsTabType.PROFILE,
                                   label: <span data-attr="groups-profile-tab">Profile</span>,
-                                  content: <GroupProfileCanvas group={groupData} tabId={tabId} />,
+                                  content: (
+                                      <GroupProfileCanvas
+                                          group={groupData}
+                                          tabId={tabId}
+                                          attachTo={mountedGroupLogic}
+                                      />
+                                  ),
                               },
                           ]
                         : []),
                     {
                         key: GroupsTabType.OVERVIEW,
                         label: <span data-attr="groups-overview-tab">Overview</span>,
-                        content: <GroupOverview groupData={groupData} />,
+                        content: showProfile ? <GroupDashboardCard /> : <GroupOverview groupData={groupData} />,
                     },
                     ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && groupData.notebook
                         ? [
@@ -165,8 +175,8 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                 {!currentTeam?.session_recording_opt_in ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are currently disabled for this {settingLevel}. To use
-                                            this feature, please go to your{' '}
+                                            Session recordings are currently disabled for this project. To use this
+                                            feature, please go to your{' '}
                                             <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
                                             and enable it.
                                         </LemonBanner>

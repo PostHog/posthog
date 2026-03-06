@@ -3,11 +3,28 @@ const path = require('path')
 
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
+const fs = require('fs-extra')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
 
 function createEntry(entry) {
+    // Copy hedgehog-mode assets to dist
+    const hedgehogModeSrc = path.resolve(
+        __dirname,
+        '..',
+        '..',
+        'frontend',
+        'node_modules',
+        '@posthog',
+        'hedgehog-mode',
+        'assets'
+    )
+    const hedgehogModeDest = path.resolve(__dirname, 'dist', 'hedgehog-mode')
+    if (fs.existsSync(hedgehogModeSrc)) {
+        fs.copySync(hedgehogModeSrc, hedgehogModeDest, { overwrite: true })
+    }
+
     const commonLoadersForSassAndLess = [
         {
             loader: 'style-loader',

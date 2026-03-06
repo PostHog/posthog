@@ -12,6 +12,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    InternalAPIAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -100,6 +101,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             return self.dangerously_get_permissions()
         except NotImplementedError:
             pass
+
+        if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
+            return [IsAuthenticated()]
 
         if isinstance(
             self.request.successful_authenticator,
@@ -305,6 +309,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             assert team.project is not None
             return team.project
         try:
+            # nosemgrep: idor-lookup-without-org (routing validates org access via permissions)
             return Project.objects.get(id=self.project_id)
         except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")
@@ -422,6 +427,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                     query_value = team_from_request.project_id if team_from_request else int(query_value)
                 except ValueError:
                     raise NotFound("Project not found.")
+            elif query_lookup == "organization_id":
+                try:
+                    query_value = UUID(query_value)
+                except ValueError:
+                    raise NotFound("Organization not found.")
 
             result[query_lookup] = query_value
 

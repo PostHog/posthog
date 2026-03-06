@@ -135,6 +135,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
     path(['scenes', 'session-recordings', 'player', 'miniFiltersLogic']),
     actions({
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
+        setGroupRepeatedItems: (groupRepeatedItems: boolean) => ({ groupRepeatedItems }),
         setMiniFilter: (key: MiniFilterKey, enabled: boolean) => ({ key, enabled }),
         setMiniFilters: (keys: MiniFilterKey[], enabled: boolean) => ({ keys, enabled }),
         setSearchQuery: (search: string) => ({ search }),
@@ -150,6 +151,14 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             { persist: true },
             {
                 setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
+            },
+        ],
+
+        groupRepeatedItems: [
+            true,
+            { persist: true },
+            {
+                setGroupRepeatedItems: (_, { groupRepeatedItems }) => groupRepeatedItems,
             },
         ],
 

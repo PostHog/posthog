@@ -15,6 +15,7 @@ use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::ai_s3::BlobStorage;
+use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
@@ -36,9 +37,11 @@ pub struct State {
     pub sink: Arc<dyn sinks::Event + Send + Sync>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
-    pub global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
+    pub global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
+    pub event_restriction_service: Option<EventRestrictionService>,
     pub event_payload_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
     pub is_mirror_deploy: bool,
@@ -95,9 +98,11 @@ pub fn router<
     liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
-    global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
+    global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
+    event_restriction_service: Option<EventRestrictionService>,
     metrics: bool,
     capture_mode: CaptureMode,
     deploy_role: String,
@@ -117,10 +122,12 @@ pub fn router<
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
-        global_rate_limiter,
+        global_rate_limiter_token_distinctid,
+        global_rate_limiter_token,
         quota_limiter: Arc::new(quota_limiter),
         event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
+        event_restriction_service,
         historical_cfg: HistoricalConfig::new(
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
@@ -269,7 +276,7 @@ pub fn router<
         .layer(DefaultBodyLimit::max(ai_body_limit));
 
     let mut router = match capture_mode {
-        CaptureMode::Events => Router::new()
+        CaptureMode::Events | CaptureMode::Ai => Router::new()
             .merge(batch_router)
             .merge(event_router)
             .merge(test_router)

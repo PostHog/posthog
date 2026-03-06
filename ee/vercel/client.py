@@ -8,6 +8,8 @@ import structlog
 from requests import HTTPError, RequestException, Timeout
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from posthog.security.outbound_proxy import external_requests_session
+
 logger = structlog.get_logger(__name__)
 
 
@@ -23,6 +25,17 @@ class SSOTokenResponse:
 
 
 @dataclass
+class OAuthTokenResponse:
+    access_token: str
+    token_type: str
+    installation_id: str
+    user_id: str
+    team_id: str | None = None
+    error: str | None = None
+    error_description: str | None = None
+
+
+@dataclass
 class APIError(Exception):
     message: str
     status_code: int | None = None
@@ -33,7 +46,9 @@ class APIError(Exception):
 
 
 @dataclass
-class ExperimentationResult:
+class OperationResult:
+    """Generic result type for Vercel API CRUD operations."""
+
     success: bool
     item_id: str | None = None
     item_count: int | None = None
@@ -47,7 +62,7 @@ class VercelAPIClient:
         self.bearer_token = bearer_token
         self.timeout = timeout
         self.base_url = base_url
-        self.session = requests.Session()
+        self.session = external_requests_session()
 
         # Not all endpoints (Such as SSO token exchange) require authorization
         if bearer_token and bearer_token.strip():
@@ -84,15 +99,13 @@ class VercelAPIClient:
         log_kwargs: dict[str, Any],
         result_kwargs: dict[str, Any],
         **request_kwargs,
-    ) -> ExperimentationResult:
+    ) -> OperationResult:
         try:
             self._request(method, url, **request_kwargs)
             logger.info(success_msg, integration="vercel", **log_kwargs)
-            return ExperimentationResult(success=True, **result_kwargs)
+            return OperationResult(success=True, **result_kwargs)
         except APIError as e:
-            return ExperimentationResult(
-                success=False, error=e.message, status_code=e.status_code, error_detail=e.detail
-            )
+            return OperationResult(success=False, error=e.message, status_code=e.status_code, error_detail=e.detail)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -118,7 +131,7 @@ class VercelAPIClient:
 
     def create_experimentation_items(
         self, integration_config_id: str, resource_id: str, items: list[dict[str, Any]]
-    ) -> ExperimentationResult:
+    ) -> OperationResult:
         if not items:
             raise ValueError("items list cannot be empty")
 
@@ -134,7 +147,7 @@ class VercelAPIClient:
 
     def update_experimentation_item(
         self, integration_config_id: str, resource_id: str, item_id: str, data: dict[str, Any]
-    ) -> ExperimentationResult:
+    ) -> OperationResult:
         if not data:
             raise ValueError("data dictionary cannot be empty")
 
@@ -150,7 +163,7 @@ class VercelAPIClient:
 
     def delete_experimentation_item(
         self, integration_config_id: str, resource_id: str, item_id: str
-    ) -> ExperimentationResult:
+    ) -> OperationResult:
         url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}/experimentation/items/{item_id}"
         return self._crud_operation(
             "DELETE",
@@ -186,6 +199,98 @@ class VercelAPIClient:
             scope=json_data.get("scope"),
             refresh_token=json_data.get("refresh_token"),
         )
+
+    def update_resource_secrets(
+        self, integration_config_id: str, resource_id: str, secrets: list[dict[str, Any]]
+    ) -> OperationResult:
+        """Push updated secrets to Vercel for a resource."""
+        url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}/secrets"
+        return self._crud_operation(
+            "PUT",
+            url,
+            "Successfully updated resource secrets",
+            {"integration_config_id": integration_config_id, "resource_id": resource_id},
+            {},
+            json={"secrets": secrets},
+        )
+
+    def oauth_token_exchange(
+        self,
+        code: str,
+        client_id: str,
+        client_secret: str,
+        redirect_uri: str,
+    ) -> OAuthTokenResponse:
+        """Exchange an OAuth code for an access token (connectable account flow).
+
+        Uses POST /v2/oauth/access_token (different from the SSO /v1/integrations/sso/token endpoint).
+        """
+        try:
+            response = self._request(
+                "POST",
+                "https://api.vercel.com/v2/oauth/access_token",
+                data=urlencode(
+                    {
+                        "code": code,
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                        "redirect_uri": redirect_uri,
+                    }
+                ),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            json_data = self._parse_json_response(response)
+
+            if "error" in json_data:
+                logger.warning("OAuth token exchange error", error=json_data["error"], integration="vercel")
+                return OAuthTokenResponse(
+                    access_token="",
+                    token_type="",
+                    installation_id="",
+                    user_id="",
+                    error=json_data["error"],
+                    error_description=json_data.get("error_description"),
+                )
+
+            access_token = json_data.get("access_token")
+            token_type = json_data.get("token_type")
+            installation_id = json_data.get("installation_id")
+            user_id = json_data.get("user_id")
+
+            if not access_token or not installation_id or not user_id:
+                logger.warning(
+                    "OAuth token exchange missing required fields",
+                    has_access_token=bool(access_token),
+                    has_installation_id=bool(installation_id),
+                    has_user_id=bool(user_id),
+                    integration="vercel",
+                )
+                return OAuthTokenResponse(
+                    access_token="",
+                    token_type="",
+                    installation_id="",
+                    user_id="",
+                    error="invalid_response",
+                    error_description="Missing required fields in OAuth response",
+                )
+
+            return OAuthTokenResponse(
+                access_token=access_token,
+                token_type=token_type or "Bearer",
+                installation_id=installation_id,
+                user_id=user_id,
+                team_id=json_data.get("team_id"),
+            )
+        except APIError as e:
+            logger.exception("OAuth token exchange failed", error=str(e), integration="vercel")
+            return OAuthTokenResponse(
+                access_token="",
+                token_type="",
+                installation_id="",
+                user_id="",
+                error="exchange_failed",
+                error_description=str(e),
+            )
 
     def sso_token_exchange(
         self,

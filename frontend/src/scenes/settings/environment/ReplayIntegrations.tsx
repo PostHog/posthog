@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
 import { PropsWithChildren, useMemo, useState } from 'react'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
@@ -19,9 +19,6 @@ export function ReplayIntegrations(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-y-6">
-            <LemonBanner type="info">
-                Configure integrations to create and link issues from session replays.
-            </LemonBanner>
             <div>
                 <h3>Linear</h3>
                 <LinearIntegration />

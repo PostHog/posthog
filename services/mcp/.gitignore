@@ -18,11 +18,13 @@ __pycache__/
 .mypy_cache/.ruff_cache/
 .pytest_cache/
 .ruff_cache/
-
 .env
-
 dist/
-
 .venv/
-
 .husy/
+
+# MCP UI Apps build files
+ui-apps-dist/
+
+# Copied instruction references (from products/posthog_ai)
+shared/

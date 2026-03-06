@@ -1,4 +1,7 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -9,7 +12,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource, WebhookSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -58,10 +61,16 @@ STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join(
 
 
 @SourceRegistry.register
-class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig]):
+class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig], WebhookSource[StripeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from posthog.temporal.data_imports.sources.stripe.webhook_template import template
+
+        return template
 
     @property
     def get_source_config(self) -> SourceConfig:

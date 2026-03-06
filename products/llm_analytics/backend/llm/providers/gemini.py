@@ -15,7 +15,12 @@ from google.genai.types import GenerateContentConfig, HttpOptions
 from posthoganalytics.ai.gemini import genai as posthog_genai
 from pydantic import BaseModel
 
-from products.llm_analytics.backend.llm.errors import AuthenticationError
+from products.llm_analytics.backend.llm.errors import (
+    AuthenticationError,
+    QuotaExceededError,
+    RateLimitError,
+    StructuredOutputParseError,
+)
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -35,10 +40,11 @@ class GeminiConfig:
     TIMEOUT: int = 300_000
 
     SUPPORTED_MODELS: list[str] = [
+        "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview",
         "gemini-3-flash-preview",
-        "gemini-2.5-flash-preview-09-2025",
-        "gemini-2.5-flash-lite-preview-09-2025",
         "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
@@ -57,6 +63,7 @@ class GeminiAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> CompletionResponse:
         """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
@@ -108,7 +115,7 @@ class GeminiAdapter:
                     parsed = request.response_format.model_validate_json(content)
                 except Exception as e:
                     logger.warning(f"Failed to parse structured output from Gemini: {e}")
-                    raise ValueError(f"Failed to parse structured output: {e}") from e
+                    raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
 
             return CompletionResponse(
                 content=content,
@@ -116,9 +123,15 @@ class GeminiAdapter:
                 usage=usage,
                 parsed=parsed,
             )
-        except Exception as e:
-            if "authentication" in str(e).lower() or "api key" in str(e).lower():
+        except APIError as e:
+            error_message = str(e).lower()
+            status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
+            if status_code == 401 or "authentication" in error_message or "api key" in error_message:
                 raise AuthenticationError(str(e))
+            if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
+                if "quota" in error_message or "billing" in error_message:
+                    raise QuotaExceededError(str(e))
+                raise RateLimitError(str(e))
             raise
 
     def stream(
@@ -126,6 +139,7 @@ class GeminiAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
@@ -200,17 +214,39 @@ class GeminiAdapter:
             return (LLMProviderKey.State.INVALID, "Invalid API key")
 
     @staticmethod
+    def recommended_models() -> set[str]:
+        return set(GeminiConfig.SUPPORTED_MODELS)
+
+    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
-        """List available Gemini models."""
-        if api_key:
-            try:
-                client = genai.Client(api_key=api_key)
-                all_models = [m.name for m in client.models.list() if m.name]
-                return [m.replace("models/", "") for m in all_models if m and "gemini" in m.lower()]
-            except Exception as e:
-                logger.exception(f"Error listing Gemini models: {e}")
-                return GeminiConfig.SUPPORTED_MODELS
-        return GeminiConfig.SUPPORTED_MODELS
+        """List available Gemini models.
+
+        Without a key, returns the curated SUPPORTED_MODELS list.
+        With a key, returns SUPPORTED_MODELS first, then remaining Gemini models
+        sorted reverse alphabetically (newest first by naming convention, since
+        Gemini's API doesn't expose creation timestamps).
+        """
+        if not api_key:
+            return GeminiConfig.SUPPORTED_MODELS
+
+        supported = set(GeminiConfig.SUPPORTED_MODELS)
+        try:
+            client = genai.Client(api_key=api_key)
+            api_models = list(client.models.list())
+            other = sorted(
+                (
+                    m.name.removeprefix("models/")
+                    for m in api_models
+                    if m.name
+                    and m.name.removeprefix("models/") not in supported
+                    and m.name.startswith("models/gemini-")
+                ),
+                reverse=True,
+            )
+            return list(GeminiConfig.SUPPORTED_MODELS) + other
+        except Exception:
+            logger.exception("Error fetching Gemini models from API")
+            return GeminiConfig.SUPPORTED_MODELS
 
     @staticmethod
     def get_api_key() -> str:

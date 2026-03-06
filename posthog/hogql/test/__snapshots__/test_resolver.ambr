@@ -147,7 +147,9 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        top_level_settings: None,
+                        workload: None
                       }
                     }
                   }
@@ -958,7 +960,9 @@
                                         hidden: False
                                       }
                                     },
-                                    hidden: False
+                                    hidden: False,
+                                    top_level_settings: None,
+                                    workload: None
                                   },
                                   to_field: None
                                 }
@@ -1034,7 +1038,9 @@
                                 hidden: False
                               }
                             },
-                            hidden: False
+                            hidden: False,
+                            top_level_settings: None,
+                            workload: None
                           },
                           to_field: None
                         }
@@ -1287,7 +1293,9 @@
                                         hidden: False
                                       }
                                     },
-                                    hidden: False
+                                    hidden: False,
+                                    top_level_settings: None,
+                                    workload: None
                                   },
                                   to_field: None
                                 }
@@ -1360,7 +1368,9 @@
                                 hidden: False
                               }
                             },
-                            hidden: False
+                            hidden: False,
+                            top_level_settings: None,
+                            workload: None
                           },
                           to_field: None
                         }
@@ -1633,7 +1643,9 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -1857,7 +1869,9 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -1936,7 +1950,9 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -2284,7 +2300,9 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -2360,7 +2378,9 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -2561,6 +2581,9 @@
                     first_url: {
                       hidden: False
                     },
+                    is_deleted: {
+                      hidden: False
+                    },
                     keypress_count: {
                       hidden: False
                     },
@@ -2594,6 +2617,9 @@
                     size: {
                       hidden: False
                     },
+                    snapshot_library: {
+                      hidden: False
+                    },
                     snapshot_source: {
                       hidden: False
                     },
@@ -2604,7 +2630,9 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -2898,6 +2926,26 @@
         }
       },
       {
+        alias: "snapshot_library"
+        expr: {
+          chain: [
+            "e",
+            "snapshot_library"
+          ]
+          from_asterisk: True
+          type: {
+            name: "snapshot_library"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "snapshot_library"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "retention_period_days"
         expr: {
           chain: [
@@ -2914,6 +2962,26 @@
         hidden: True
         type: {
           alias: "retention_period_days"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "is_deleted"
+        expr: {
+          chain: [
+            "e",
+            "is_deleted"
+          ]
+          from_asterisk: True
+          type: {
+            name: "is_deleted"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "is_deleted"
           type: <recursion ...>
         }
       },
@@ -3128,7 +3196,9 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        top_level_settings: None,
+                        workload: None
                       }
                     }
                   }
@@ -3201,12 +3271,14 @@
         end_time: <recursion ...>,
         event_count: <recursion ...>,
         first_url: <recursion ...>,
+        is_deleted: <recursion ...>,
         keypress_count: <recursion ...>,
         message_count: <recursion ...>,
         mouse_activity_count: <recursion ...>,
         retention_period_days: <recursion ...>,
         session_id: <recursion ...>,
         size: <recursion ...>,
+        snapshot_library: <recursion ...>,
         snapshot_source: <recursion ...>,
         start_time: <recursion ...>
       }
@@ -3595,7 +3667,9 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        top_level_settings: None,
+                        workload: None
                       }
                     }
                   }
@@ -4407,7 +4481,9 @@
                                           hidden: False
                                         }
                                       },
-                                      hidden: False
+                                      hidden: False,
+                                      top_level_settings: None,
+                                      workload: None
                                     },
                                     to_field: None
                                   }
@@ -4483,7 +4559,9 @@
                                   hidden: False
                                 }
                               },
-                              hidden: False
+                              hidden: False,
+                              top_level_settings: None,
+                              workload: None
                             },
                             to_field: None
                           }
@@ -4736,7 +4814,9 @@
                                           hidden: False
                                         }
                                       },
-                                      hidden: False
+                                      hidden: False,
+                                      top_level_settings: None,
+                                      workload: None
                                     },
                                     to_field: None
                                   }
@@ -4809,7 +4889,9 @@
                                   hidden: False
                                 }
                               },
-                              hidden: False
+                              hidden: False,
+                              top_level_settings: None,
+                              workload: None
                             },
                             to_field: None
                           }
@@ -5040,7 +5122,9 @@
                               hidden: False
                             }
                           },
-                          hidden: False
+                          hidden: False,
+                          top_level_settings: None,
+                          workload: None
                         }
                       }
                     }
@@ -5264,7 +5348,9 @@
                                               hidden: False
                                             }
                                           },
-                                          hidden: False
+                                          hidden: False,
+                                          top_level_settings: None,
+                                          workload: None
                                         },
                                         to_field: None
                                       }
@@ -5343,7 +5429,9 @@
                                       hidden: False
                                     }
                                   },
-                                  hidden: False
+                                  hidden: False,
+                                  top_level_settings: None,
+                                  workload: None
                                 },
                                 to_field: None
                               }
@@ -5691,7 +5779,9 @@
                                               hidden: False
                                             }
                                           },
-                                          hidden: False
+                                          hidden: False,
+                                          top_level_settings: None,
+                                          workload: None
                                         },
                                         to_field: None
                                       }
@@ -5767,7 +5857,9 @@
                                       hidden: False
                                     }
                                   },
-                                  hidden: False
+                                  hidden: False,
+                                  top_level_settings: None,
+                                  workload: None
                                 },
                                 to_field: None
                               }
@@ -6330,7 +6422,9 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -6554,7 +6648,9 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -6633,7 +6729,9 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -6981,7 +7079,9 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -7057,7 +7157,9 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -7345,7 +7447,9 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -7570,7 +7674,9 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -7649,7 +7755,9 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -7997,7 +8105,9 @@
                                     hidden: False
                                   }
                                 },
-                                hidden: False
+                                hidden: False,
+                                top_level_settings: None,
+                                workload: None
                               },
                               to_field: None
                             }
@@ -8073,7 +8183,9 @@
                             hidden: False
                           }
                         },
-                        hidden: False
+                        hidden: False,
+                        top_level_settings: None,
+                        workload: None
                       },
                       to_field: None
                     }
@@ -8362,7 +8474,9 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    top_level_settings: None,
+                    workload: None
                   }
                 }
               }
@@ -8564,7 +8678,9 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    top_level_settings: None,
+                    workload: None
                   }
                 }
               }
@@ -8621,6 +8737,9 @@
                       is_identified: {
                         hidden: False
                       },
+                      last_seen_at: {
+                        hidden: False
+                      },
                       pdi: {
                         hidden: False
                       },
@@ -8638,7 +8757,9 @@
                       }
                     },
                     filter: None,
-                    hidden: False
+                    hidden: False,
+                    top_level_settings: None,
+                    workload: None
                   }
                 }
               }
@@ -9079,7 +9200,9 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -9314,7 +9437,9 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -9553,7 +9678,9 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    top_level_settings: None,
+                    workload: None
                   }
                 }
               }
@@ -9832,7 +9959,9 @@
                                 hidden: False
                               }
                             },
-                            hidden: False
+                            hidden: False,
+                            top_level_settings: None,
+                            workload: None
                           }
                         }
                       }
@@ -10117,7 +10246,9 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -10174,7 +10305,9 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    top_level_settings: None,
+                    workload: None
                   },
                   to_field: None
                 }
@@ -10359,7 +10492,9 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -10418,7 +10553,9 @@
                         hidden: False
                       }
                     },
-                    hidden: False
+                    hidden: False,
+                    top_level_settings: None,
+                    workload: None
                   },
                   to_field: None
                 }
@@ -10602,7 +10739,9 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -10647,7 +10786,9 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  top_level_settings: None,
+                  workload: None
                 },
                 to_field: None
               }
@@ -10831,7 +10972,9 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -10878,7 +11021,9 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  top_level_settings: None,
+                  workload: None
                 },
                 to_field: None
               }
@@ -10950,7 +11095,9 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -11162,7 +11309,9 @@
                       hidden: False
                     }
                   },
-                  hidden: False
+                  hidden: False,
+                  top_level_settings: None,
+                  workload: None
                 }
               }
             }
@@ -11358,7 +11507,9 @@
                           hidden: False
                         }
                       },
-                      hidden: False
+                      hidden: False,
+                      top_level_settings: None,
+                      workload: None
                     }
                   }
                 }
@@ -11566,7 +11717,9 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                top_level_settings: None,
+                workload: None
               }
             }
           }
@@ -11618,7 +11771,9 @@
                     hidden: False
                   }
                 },
-                hidden: False
+                hidden: False,
+                top_level_settings: None,
+                workload: None
               }
             }
           }

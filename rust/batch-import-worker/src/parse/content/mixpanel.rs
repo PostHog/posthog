@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+/// UUID namespace for generating deterministic UUIDs from Mixpanel $insert_id values.
+/// This allows deduplication of events that may be imported multiple times.
+/// Generated using `uuidgen` - this is a random UUID that serves as our namespace.
+const MIXPANEL_INSERT_ID_NAMESPACE: Uuid = Uuid::from_bytes(*b"posthog_mixpanel");
+
 use super::TransformContext;
 use crate::parse::format::{extract_between, extract_field_name, UserFacingParseError};
 
@@ -102,7 +107,15 @@ impl MixpanelEvent {
                 (None, false) => Uuid::now_v7().to_string(),
             };
 
-            let event_uuid = Uuid::now_v7();
+            // Generate a deterministic UUID from $insert_id if present, otherwise use random UUIDv7.
+            // This allows deduplication of events that may be imported multiple times.
+            let event_uuid = mx
+                .properties
+                .other
+                .get("$insert_id")
+                .and_then(|v| v.as_str())
+                .map(|insert_id| Uuid::new_v5(&MIXPANEL_INSERT_ID_NAMESPACE, insert_id.as_bytes()))
+                .unwrap_or_else(Uuid::now_v7);
 
             // Was seeing timestamp values come in that were in seconds, not milliseconds
             // Do a quick heuristic check on the size of the timestamp to determine if it's in seconds or milliseconds
@@ -398,6 +411,116 @@ mod tests {
         assert!(
             serialized["now"].is_string(),
             "now must be a string in serialized output"
+        );
+    }
+
+    #[test]
+    fn test_deterministic_uuid_from_insert_id() {
+        let test_job_id = Uuid::now_v7();
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: std::sync::Arc::new(crate::cache::MockIdentifyCache::new()),
+            group_cache: std::sync::Arc::new(crate::cache::MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        // Parse the same event twice with the same $insert_id
+        let parser1 = MixpanelEvent::parse_fn(
+            context.clone(),
+            false,
+            Duration::seconds(0),
+            identity_transform,
+        );
+        let parser2 =
+            MixpanelEvent::parse_fn(context, false, Duration::seconds(0), identity_transform);
+
+        let mut other1 = HashMap::new();
+        other1.insert("$insert_id".to_string(), json!("unique_insert_id_123"));
+        let mx_event1 = MixpanelEvent {
+            event: "test_event".to_string(),
+            properties: MixpanelProperties {
+                timestamp: 1697379000,
+                distinct_id: Some("user123".to_string()),
+                other: other1,
+            },
+        };
+
+        let mut other2 = HashMap::new();
+        other2.insert("$insert_id".to_string(), json!("unique_insert_id_123"));
+        let mx_event2 = MixpanelEvent {
+            event: "test_event".to_string(),
+            properties: MixpanelProperties {
+                timestamp: 1697379000,
+                distinct_id: Some("user123".to_string()),
+                other: other2,
+            },
+        };
+
+        let result1 = parser1(mx_event1).unwrap().unwrap();
+        let result2 = parser2(mx_event2).unwrap().unwrap();
+
+        // Both events should have the same UUID because they have the same $insert_id
+        assert_eq!(
+            result1.inner.uuid, result2.inner.uuid,
+            "Events with the same $insert_id should have the same deterministic UUID"
+        );
+
+        // The UUID should be deterministic (UUID v5), not random
+        let expected_uuid = Uuid::new_v5(&MIXPANEL_INSERT_ID_NAMESPACE, b"unique_insert_id_123");
+        assert_eq!(
+            result1.inner.uuid, expected_uuid,
+            "UUID should be generated using UUID v5 from $insert_id"
+        );
+    }
+
+    #[test]
+    fn test_random_uuid_without_insert_id() {
+        let test_job_id = Uuid::now_v7();
+
+        let mx_event1 = MixpanelEvent {
+            event: "test_event".to_string(),
+            properties: MixpanelProperties {
+                timestamp: 1697379000,
+                distinct_id: Some("user123".to_string()),
+                other: HashMap::new(), // No $insert_id
+            },
+        };
+
+        let mx_event2 = MixpanelEvent {
+            event: "test_event".to_string(),
+            properties: MixpanelProperties {
+                timestamp: 1697379000,
+                distinct_id: Some("user123".to_string()),
+                other: HashMap::new(), // No $insert_id
+            },
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: std::sync::Arc::new(crate::cache::MockIdentifyCache::new()),
+            group_cache: std::sync::Arc::new(crate::cache::MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser =
+            MixpanelEvent::parse_fn(context, false, Duration::seconds(0), identity_transform);
+
+        let result1 = parser(mx_event1).unwrap().unwrap();
+        let result2 = parser(mx_event2).unwrap().unwrap();
+
+        // Without $insert_id, UUIDs should be random (different)
+        assert_ne!(
+            result1.inner.uuid, result2.inner.uuid,
+            "Events without $insert_id should have different random UUIDs"
         );
     }
 }

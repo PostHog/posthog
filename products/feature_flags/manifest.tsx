@@ -6,10 +6,42 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Feature Flags',
+    scenes: {
+        FeatureFlagTemplates: {
+            import: () => import('./frontend/FeatureFlagTemplatesScene'),
+            projectBased: true,
+            name: 'Feature flag templates',
+            defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
+        },
+    },
+    routes: {
+        '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+    },
     urls: {
-        featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
         featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-        featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
+        featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+        featureFlagTemplates: (): string => '/feature_flags/templates',
+        featureFlagNew: ({
+            type,
+            sourceId,
+            template,
+        }: {
+            type?: 'boolean' | 'multivariate' | 'remote_config'
+            sourceId?: number | string | null
+            template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
+        }): string => {
+            const params = new URLSearchParams()
+            if (type) {
+                params.set('type', type)
+            }
+            if (sourceId) {
+                params.set('sourceId', sourceId.toString())
+            }
+            if (template) {
+                params.set('template', template)
+            }
+            return `/feature_flags/new?${params.toString()}`
+        },
     },
     fileSystemTypes: {
         feature_flag: {

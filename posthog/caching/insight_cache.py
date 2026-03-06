@@ -3,7 +3,6 @@ from typing import Any, Optional
 from uuid import UUID
 
 from django.conf import settings
-from django.core.cache import cache
 from django.utils.timezone import now
 
 import structlog
@@ -40,6 +39,7 @@ CACHE_UPDATE_SHARED_GAUGE = Gauge(
 
 
 def update_cache(caching_state_id: UUID):
+    # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
     caching_state = InsightCachingState.objects.get(pk=caching_state_id)
 
     if caching_state.target_cache_age_seconds is None or (
@@ -110,6 +110,7 @@ def update_cache(caching_state_id: UUID):
         if caching_state.refresh_attempt < MAX_ATTEMPTS:
             update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
 
+        # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
         InsightCachingState.objects.filter(pk=caching_state.pk).update(
             refresh_attempt=caching_state.refresh_attempt + 1,
             last_refresh_queued_at=now(),
@@ -124,7 +125,10 @@ def update_cached_state(
     ttl: Optional[int] = None,
 ):
     if result is not None:  # This is particularly the case for HogQL-based queries, which cache.set() on their own
-        cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
+        from posthog.caching.query_cache_routing import get_query_cache
+
+        query_cache = get_query_cache(team_id)
+        query_cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
         INSIGHT_CACHE_WRITE_COUNTER.inc()
 
     # :TRICKY: We update _all_ states with same cache_key to avoid needless re-calculations and

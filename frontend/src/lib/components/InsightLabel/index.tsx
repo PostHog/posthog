@@ -39,7 +39,7 @@ interface InsightsLabelProps {
     iconStyle?: Record<string, any> // style on series color icon
     seriesStatus?: string // Used by lifecycle chart to display the series name
     fallbackName?: string // Name to display for the series if it can be determined from `action`
-    hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
+    hasMultipleSeries?: boolean // Whether the query defines multiple series (not breakdown values). Derived from !isSingleSeriesDefinition.
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
     onLabelClick?: () => void // Click handler for inner label
@@ -81,7 +81,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
                 <LemonTag>{(mathDefinitions as any)[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
                 {mathProperty && (
                     <>
-                        <span>of</span>
+                        <span className="shrink-0">of</span>
                         <PropertyKeyInfo disableIcon value={mathProperty} />
                     </>
                 )}
@@ -137,7 +137,7 @@ export function InsightLabel({
     )
 
     return (
-        <div className={clsx('insights-label', className)}>
+        <div className={clsx('insights-label', className)} data-attr="insight-label">
             <div className="flex items-center w-fit">
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div

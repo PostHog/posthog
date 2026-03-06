@@ -5,8 +5,8 @@ import { testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -27,6 +27,8 @@ export function initKeaTests(
         ...window.POSTHOG_APP_CONTEXT,
         current_team: teamForWindowContext,
         current_project: projectForWindowContext,
+        // Default to $pageview in tests (simulating a team that has pageview events)
+        default_event_name: '$pageview',
     } as unknown as AppContext
     posthog.init('no token', {
         autocapture: false,

@@ -3,14 +3,14 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { Element, PluginEvent, Properties } from '@posthog/plugin-scaffold'
-
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { InternalCaptureService } from './common/services/internal-capture'
+import { InternalFetchService } from './common/services/internal-fetch'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { PostgresRouter } from './utils/db/postgres'
@@ -22,7 +22,7 @@ import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositorie
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
-export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+export { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
@@ -54,12 +54,13 @@ export enum PluginServerMode {
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
-    cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
+    recording_api = 'recording-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -189,6 +190,14 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
+    CYCLOTRON_SHADOW_DATABASE_URL: string
+    CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
+    CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, fetches consumed messages via HTTP to measure WarpStream read latency
+    CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
+    CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: number // Number of parallel individual single-record fetches (0 to disable)
+    CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: number // Number of parallel batch fetch requests (0 to disable)
+    CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: number // Records per batch fetch request
+    CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: string // Base URL for WarpStream HTTP fetch endpoint (e.g. 'https://warpstream.example.com')
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -210,7 +219,7 @@ export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
 
 export type IngestionConsumerConfig = {
     /** The lane this consumer is processing (e.g. main, overflow, historical, async) */
-    INGESTION_LANE?: IngestionLane
+    INGESTION_LANE: IngestionLane | null
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
@@ -273,12 +282,17 @@ export type IngestionConsumerConfig = {
 
     // Pipeline step config
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
-    PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
+    EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
-    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+
+    // AI event splitting config
+    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
 
     // Cookieless server hash mode config
@@ -310,6 +324,17 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TTL_SECONDS: number
     LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    REDIS_URL: string
+    REDIS_POOL_MIN_SIZE: number
+    REDIS_POOL_MAX_SIZE: number
+    KAFKA_CLIENT_RACK: string | undefined
+}
+
+export type SessionRecordingApiConfig = {
+    SESSION_RECORDING_API_REDIS_HOST: string
+    SESSION_RECORDING_API_REDIS_PORT: number
+    SESSION_RECORDING_KMS_ENDPOINT: string | undefined
+    SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
 }
 
 export type SessionRecordingConfig = {
@@ -362,13 +387,19 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
+    // Kafka consumer config (overrides hardcoded defaults when set)
+    INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
+    INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: string
 }
 
 export interface PluginsServerConfig
     extends CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
-        SessionRecordingConfig {
+        SessionRecordingConfig,
+        SessionRecordingApiConfig {
     CONTINUOUS_PROFILING_ENABLED: boolean
     PYROSCOPE_SERVER_ADDRESS: string
     PYROSCOPE_APPLICATION_NAME: string
@@ -451,7 +482,10 @@ export interface PluginsServerConfig
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    /** Comma-separated list of capability groups for local dev: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags */
+    NODEJS_CAPABILITY_GROUPS: string | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
+    INGESTION_PIPELINE: string | null
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
@@ -459,6 +493,8 @@ export interface PluginsServerConfig
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
+    OUTBOUND_PROXY_URL: string
+    OUTBOUND_PROXY_ENABLED: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
@@ -470,6 +506,14 @@ export interface PluginsServerConfig
     // posthog
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
+
+    // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
+    OTEL_SERVICE_NAME: string | null
+    OTEL_SERVICE_ENVIRONMENT: string | null
+
+    // Internal API authentication
+    INTERNAL_API_BASE_URL: string
+    INTERNAL_API_SECRET: string
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -498,29 +542,28 @@ export interface PluginsServerConfig
     POD_TERMINATION_JITTER_MINUTES: number
 }
 
-export interface Hub extends PluginsServerConfig {
-    // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
+export interface HubServices {
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     posthogRedisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
-    // tools
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
-    // geoip database, setup in workers
     geoipService: GeoIPService
-    // lookups
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
     internalCaptureService: InternalCaptureService
+    internalFetchService: InternalFetchService
 }
+
+export interface Hub extends PluginsServerConfig, HubServices {}
 
 export interface PluginServerCapabilities {
     // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts
@@ -538,12 +581,13 @@ export interface PluginServerCapabilities {
     cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerDelay?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    cdpCyclotronShadowWorker?: boolean
+    recordingApi?: boolean
 }
 
 export type TeamId = Team['id']
@@ -634,6 +678,13 @@ export interface RawOrganization {
 
 // NOTE: We don't need to list all options here - only the ones we use
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
+
+/** Event schema with enforcement enabled. Only includes required properties since optional properties are not validated. */
+export interface EventSchemaEnforcement {
+    event_name: string
+    /** Map from property name to accepted types (multiple types when property groups disagree) */
+    required_properties: Map<string, string[]>
+}
 
 /** Usable Team model. */
 export interface LogsSettings {
@@ -746,6 +797,25 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
     project_id: ProjectId
 }
 
+/** Pre-serialization event produced by create-event, before ClickHouse formatting. */
+export interface ProcessedEvent {
+    uuid: string
+    event: string
+    properties: Record<string, unknown>
+    timestamp: ISOTimestamp
+    team_id: TeamId
+    project_id: ProjectId
+    distinct_id: string
+    elements_chain: string
+    created_at: null
+    captured_at: Date | null
+    person_id: string
+    person_properties: Record<string, unknown>
+    person_created_at: DateTime | null
+    person_mode: PersonMode
+    historical_migration?: boolean
+}
+
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
     project_id: ProjectId
@@ -844,12 +914,14 @@ export interface BasePerson {
 export interface RawPerson extends BasePerson {
     created_at: string
     version: string | null
+    last_seen_at: string | null
 }
 
 /** Usable Person model. */
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+    last_seen_at: DateTime | null
 }
 
 /** Mutable fields that can be updated on a Person via updatePerson. */
@@ -860,6 +932,7 @@ export interface PersonUpdateFields {
     is_identified: boolean
     created_at: DateTime
     version?: number // Optional: allows forcing a specific version
+    last_seen_at?: DateTime | null
 }
 
 /** Person model exposed outside of person-specific DB logic. */
@@ -885,6 +958,7 @@ export interface ClickHousePerson {
     is_deleted: number
     timestamp: string
     version: number
+    last_seen_at: string | null
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
@@ -1209,7 +1283,6 @@ export enum OrganizationMembershipLevel {
 
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
-    token?: string
 }
 
 export interface EventHeaders {

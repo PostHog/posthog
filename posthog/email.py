@@ -17,7 +17,6 @@ from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
-import requests
 import css_inline
 import posthoganalytics
 from celery import shared_task
@@ -26,6 +25,7 @@ from lxml import html as lxml_html
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
+from posthog.security.outbound_proxy import external_requests
 from posthog.tasks.utils import CeleryQueue
 
 
@@ -91,6 +91,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "2fa_enabled": "31",
     "2fa_disabled": "30",
     "2fa_backup_code_used": "29",
+    "2fa_reset": "62",
     "password_reset": "32",
     "invite": "33",
     "member_join": "34",
@@ -106,11 +107,14 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "passkey_added": "51",
     "passkey_removed": "52",
     "new_conversation_ticket": "53",
+    "project_deleted": "54",
+    "organization_deleted": "55",
     "approval_requested": "60",
     "approval_approved": "57",
     "approval_rejected": "58",
     "approval_expired": "59",
     "approval_applied": "61",
+    "conversation_restore": "63",
 }
 
 
@@ -163,7 +167,9 @@ def _send_via_http(
                     "message_data": properties,
                 }
 
-                response = requests.post(f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload)
+                response = external_requests.post(
+                    f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload
+                )
 
                 if response.status_code != 200:
                     raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")

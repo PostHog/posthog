@@ -4,8 +4,8 @@ import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
+import { TeamManager } from '~/utils/team-manager'
 
-import { Hub } from '../../../types'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -14,25 +14,23 @@ import {
     HogFunctionType,
 } from '../../types'
 
-export type HogWatcherServiceHub = Pick<
-    Hub,
-    | 'teamManager'
-    | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
-    | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
-    | 'CDP_WATCHER_HOG_COST_TIMING'
-    | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
-    | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
-    | 'CDP_WATCHER_ASYNC_COST_TIMING'
-    | 'CDP_WATCHER_SEND_EVENTS'
-    | 'CDP_WATCHER_BUCKET_SIZE'
-    | 'CDP_WATCHER_REFILL_RATE'
-    | 'CDP_WATCHER_TTL'
-    | 'CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS'
-    | 'CDP_WATCHER_THRESHOLD_DEGRADED'
-    | 'CDP_WATCHER_STATE_LOCK_TTL'
-    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
-    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
->
+export interface HogWatcherConfig {
+    hogCostTimingLowerMs: number
+    hogCostTimingUpperMs: number
+    hogCostTiming: number
+    asyncCostTimingLowerMs: number
+    asyncCostTimingUpperMs: number
+    asyncCostTiming: number
+    sendEvents: boolean
+    bucketSize: number
+    refillRate: number
+    ttl: number
+    automaticallyDisableFunctions: boolean
+    thresholdDegraded: number
+    stateLockTtl: number
+    observeResultsBufferTimeMs: number
+    observeResultsBufferMaxResults: number
+}
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
@@ -98,19 +96,20 @@ export class HogWatcherService {
     } | null = null
 
     constructor(
-        private hub: HogWatcherServiceHub,
+        private teamManager: TeamManager,
+        private config: HogWatcherConfig,
         private redis: RedisV2
     ) {
         this.costsMapping = {
             hog: {
-                lowerBound: this.hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
-                upperBound: this.hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                cost: this.hub.CDP_WATCHER_HOG_COST_TIMING,
+                lowerBound: this.config.hogCostTimingLowerMs,
+                upperBound: this.config.hogCostTimingUpperMs,
+                cost: this.config.hogCostTiming,
             },
             async_function: {
-                lowerBound: this.hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
-                upperBound: this.hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
-                cost: this.hub.CDP_WATCHER_ASYNC_COST_TIMING,
+                lowerBound: this.config.asyncCostTimingLowerMs,
+                upperBound: this.config.asyncCostTimingUpperMs,
+                cost: this.config.asyncCostTiming,
             },
         }
 
@@ -139,7 +138,7 @@ export class HogWatcherService {
         state: HogWatcherState
         previousState: HogWatcherState
     }) {
-        const team = await this.hub.teamManager.getTeam(hogFunction.team_id)
+        const team = await this.teamManager.getTeam(hogFunction.team_id)
 
         logger.info('[HogWatcherService] onStateChange', {
             hogFunctionId: hogFunction.id,
@@ -148,7 +147,7 @@ export class HogWatcherService {
             previousState,
         })
 
-        if (team && this.hub.CDP_WATCHER_SEND_EVENTS) {
+        if (team && this.config.sendEvents) {
             captureTeamEvent(team, 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
                 hog_function_type: hogFunction.type,
@@ -167,19 +166,19 @@ export class HogWatcherService {
             `${REDIS_KEY_TOKENS}/${id}`,
             nowSeconds,
             cost,
-            this.hub.CDP_WATCHER_BUCKET_SIZE,
-            this.hub.CDP_WATCHER_REFILL_RATE,
-            this.hub.CDP_WATCHER_TTL,
+            this.config.bucketSize,
+            this.config.refillRate,
+            this.config.ttl,
         ] as const
     }
 
     public calculateNewState(tokens: number): HogWatcherState {
-        const rating = tokens / this.hub.CDP_WATCHER_BUCKET_SIZE
+        const rating = tokens / this.config.bucketSize
 
-        if (rating < 0 && this.hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS) {
+        if (rating < 0 && this.config.automaticallyDisableFunctions) {
             return HogWatcherState.disabled
         }
-        if (rating <= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED) {
+        if (rating <= this.config.thresholdDegraded) {
             return HogWatcherState.degraded
         }
 
@@ -206,7 +205,7 @@ export class HogWatcherService {
                 const resIndex = index * 2
                 // V2 returns [tokensBefore, tokensAfter], we use tokensAfter
                 const tokenResult = res ? res[resIndex][1] : undefined
-                const tokens = tokenResult?.[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE
+                const tokens = tokenResult?.[1] ?? this.config.bucketSize
                 const state = res ? res[resIndex + 1][1] : undefined
 
                 acc[id] = {
@@ -312,15 +311,15 @@ export class HogWatcherService {
                 const id = hogFunction.id
                 const newScore =
                     state === HogWatcherState.healthy
-                        ? this.hub.CDP_WATCHER_BUCKET_SIZE
+                        ? this.config.bucketSize
                         : state === HogWatcherState.degraded
-                          ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
+                          ? this.config.bucketSize * this.config.thresholdDegraded
                           : 0
 
                 const nowSeconds = Math.round(Date.now() / 1000)
 
                 pipeline.getset(`${REDIS_KEY_STATE}/${id}`, state) // Set the state
-                pipeline.setex(`${REDIS_KEY_STATE_LOCK}/${id}`, this.hub.CDP_WATCHER_STATE_LOCK_TTL, '1') // Set the lock
+                pipeline.setex(`${REDIS_KEY_STATE_LOCK}/${id}`, this.config.stateLockTtl, '1') // Set the lock
                 if (forceReset) {
                     pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'pool', newScore)
                     pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'ts', nowSeconds)
@@ -411,7 +410,7 @@ export class HogWatcherService {
 
             const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
             // V2 returns [tokensBefore, tokensAfter], we use tokensAfter
-            const tokens = Number(tokenResult[1]?.[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
+            const tokens = Number(tokenResult[1]?.[1] ?? this.config.bucketSize)
             const newState = this.calculateNewState(tokens)
 
             if (currentState !== newState) {
@@ -449,16 +448,13 @@ export class HogWatcherService {
                 results: [],
                 promise,
                 complete: resolvePromise!,
-                timeout: setTimeout(
-                    () => this.flushBufferedResults(),
-                    this.hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS
-                ),
+                timeout: setTimeout(() => this.flushBufferedResults(), this.config.observeResultsBufferTimeMs),
             }
         }
 
         this.queuedResults.results.push(result)
 
-        if (this.queuedResults.results.length >= this.hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS) {
+        if (this.queuedResults.results.length >= this.config.observeResultsBufferMaxResults) {
             await this.flushBufferedResults()
         } else {
             await this.queuedResults.promise

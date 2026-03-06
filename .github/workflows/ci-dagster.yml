@@ -8,6 +8,7 @@ on:
 
 permissions:
     contents: read
+    pull-requests: read
 
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -66,8 +67,6 @@ jobs:
                         # version changes
                         - docker-compose.dev.yml
                         - frontend/public/email/*
-                        # These scripts are used in the CI
-                        - bin/check_kafka_clickhouse_up
 
     get_clickhouse_versions:
         name: Get ClickHouse versions
@@ -116,19 +115,23 @@ jobs:
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
 
             - name: Set up Python
-              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
-                  version: 0.9.9
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -149,6 +152,10 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: |
@@ -157,8 +164,16 @@ jobs:
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
-            - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
+            - name: Create Dagster test database
+              run: |
+                  # Ensure the test_dagster database exists for Dagster's PostgreSQL-backed
+                  # event log / run storage (avoids SQLite locking issues in tests).
+                  # The init script in docker/postgres-init-scripts/ handles this on fresh
+                  # containers, but this step is a safety net.
+                  docker compose -f docker-compose.dev.yml exec -T db \
+                    psql -U posthog -tAc "SELECT 1 FROM pg_database WHERE datname='test_dagster'" | grep -q 1 || \
+                    docker compose -f docker-compose.dev.yml exec -T db \
+                      psql -U posthog -c "CREATE DATABASE test_dagster;"
 
             - name: Run migrations
               run: |

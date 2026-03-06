@@ -1,10 +1,17 @@
+import { useValues } from 'kea'
+
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
+import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import { formatLLMCost } from '../utils'
+import { SentimentBar } from './SentimentTag'
 
 interface LLMAnalyticsEventCardProps {
     event: {
@@ -15,9 +22,18 @@ interface LLMAnalyticsEventCardProps {
     }
     isExpanded: boolean
     onToggleExpand: () => void
+    traceId?: string
 }
 
-export function LLMAnalyticsEventCard({ event, isExpanded, onToggleExpand }: LLMAnalyticsEventCardProps): JSX.Element {
+export function LLMAnalyticsEventCard({
+    event,
+    isExpanded,
+    onToggleExpand,
+    traceId,
+}: LLMAnalyticsEventCardProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
+
     const isGeneration = event.event === '$ai_generation'
     const isEmbedding = event.event === '$ai_embedding'
     const eventForDetails: EventType = {
@@ -65,6 +81,16 @@ export function LLMAnalyticsEventCard({ event, isExpanded, onToggleExpand }: LLM
                     {typeof latency === 'number' && (
                         <LemonTag type="muted" size="small">
                             {latency.toFixed(2)}s
+                            {event.properties.$ai_stream &&
+                                typeof event.properties.$ai_time_to_first_token === 'number' && (
+                                    <span className="ml-1 opacity-75">
+                                        (TTFT:{' '}
+                                        {event.properties.$ai_time_to_first_token < 0.001
+                                            ? `${(event.properties.$ai_time_to_first_token * 1000).toFixed(2)}ms`
+                                            : `${Math.round(event.properties.$ai_time_to_first_token * 1000)}ms`}
+                                        )
+                                    </span>
+                                )}
                         </LemonTag>
                     )}
                     {(isGeneration || isEmbedding) && typeof cost === 'number' && (
@@ -72,6 +98,19 @@ export function LLMAnalyticsEventCard({ event, isExpanded, onToggleExpand }: LLM
                             {formatLLMCost(cost)}
                         </LemonTag>
                     )}
+                    {isGeneration &&
+                        traceId &&
+                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] &&
+                        (() => {
+                            const genSentiment = getGenerationSentiment(event.id)
+                            return genSentiment ? (
+                                <SentimentBar
+                                    label={genSentiment.label}
+                                    score={genSentiment.score}
+                                    messages={genSentiment.messages}
+                                />
+                            ) : null
+                        })()}
                 </div>
             </div>
             {isExpanded && (

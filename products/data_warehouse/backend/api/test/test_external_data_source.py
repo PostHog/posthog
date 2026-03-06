@@ -9,11 +9,13 @@ from django.conf import settings
 from django.test import override_settings
 
 import psycopg
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -36,6 +38,7 @@ from products.data_warehouse.backend.models import ExternalDataSchema, ExternalD
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -58,7 +61,11 @@ class TestExternalDataSource(APIBaseTest):
             name="Customers", team_id=self.team.pk, source_id=source_id, table=None
         )
 
-    def test_create_external_data_source(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -105,7 +112,11 @@ class TestExternalDataSource(APIBaseTest):
             len(STRIPE_ENDPOINTS),
         )
 
-    def test_create_external_data_source_delete_on_missing_schemas(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_delete_on_missing_schemas(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -120,7 +131,11 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
 
-    def test_create_external_data_source_delete_on_bad_schema(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_delete_on_bad_schema(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -137,7 +152,11 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
 
-    def test_prefix_external_data_source(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_prefix_external_data_source(self, _mock_validate):
         # Create no prefix
 
         response = self.client.post(
@@ -267,7 +286,11 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"message": "Prefix already exists"})
 
-    def test_create_external_data_source_incremental(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -330,7 +353,11 @@ class TestExternalDataSource(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201)
 
-    def test_create_external_data_source_incremental_missing_field(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental_missing_field(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -387,7 +414,11 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert len(ExternalDataSource.objects.all()) == 0
 
-    def test_create_external_data_source_incremental_missing_type(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental_missing_type(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -446,10 +477,16 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_create_external_data_source_bigquery_removes_project_id_prefix(self):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
-        with patch(
-            "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-        ) as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE")]}
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
+            ) as mocked_get_bigquery_schemas,
+            patch(
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+                return_value=(True, None),
+            ),
+        ):
+            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -591,6 +628,34 @@ class TestExternalDataSource(APIBaseTest):
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
 
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch(
+        "products.data_warehouse.backend.api.external_data_source.delete_external_data_schedule",
+        side_effect=Exception("External delete failed"),
+    )
+    def test_delete_external_data_source_soft_deletes_even_if_external_cleanup_fails(
+        self, _mock_delete_schedule, mock_capture_exception
+    ):
+        source = self._create_external_data_source()
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            external_data_source=source,
+            url_pattern="http://example.com/data/*.csv",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers", team_id=self.team.pk, source_id=source.pk, table=table
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
+        assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+        assert DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists()
+        assert mock_capture_exception.call_count == 2  # one for source, one for schema
+
     # TODO: update this test
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
     def test_reload_external_data_source(self, mock_trigger):
@@ -603,6 +668,137 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(mock_trigger.call_count, 1)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="table_a", supports_incremental=False, supports_append=False),
+            SourceSchema(name="table_b", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 2)
+        self.assertEqual(data["deleted"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
+        )
+        names = list(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).values_list(
+                "name", flat=True
+            )
+        )
+        self.assertCountEqual(names, ["table_a", "table_b"])
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="new_table", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(name="existing", team_id=self.team.pk, source_id=source.pk, should_sync=False)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 1)
+        self.assertEqual(data["deleted"], 1)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 1
+        )
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=True).count(), 1
+        )
+        names = list(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).values_list(
+                "name", flat=True
+            )
+        )
+        self.assertCountEqual(names, ["new_table"])
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_adds_only_new_schemas(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="existing", supports_incremental=False, supports_append=False),
+            SourceSchema(name="new_table", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(name="existing", team_id=self.team.pk, source_id=source.pk, should_sync=False)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 1)
+        self.assertEqual(data["deleted"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
+        )
+        self.assertTrue(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="new_table", deleted=False
+            ).exists()
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_idempotent_no_duplicates(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(name="only_one", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+
+        self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/")
+        response2 = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response2.status_code, 200)
+        self.assertEqual(response2.json()["added"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="only_one", deleted=False
+            ).count(),
+            1,
+        )
+
+    def test_refresh_schemas_returns_400_when_no_job_inputs(self):
+        source = self._create_external_data_source()
+        source.job_inputs = None
+        source.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("configuration", response.json().get("message", ""))
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_returns_400_when_get_schemas_raises(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.side_effect = Exception("Connection failed")
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
@@ -767,7 +963,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
-        return_value={"table_1": [("id", "integer")]},
+        return_value={"table_1": [("id", "integer", True)]},
     )
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
@@ -799,7 +995,9 @@ class TestExternalDataSource(APIBaseTest):
                     "table": "table_1",
                     "should_sync": False,
                     "rows": 42,
-                    "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+                    "incremental_fields": [
+                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                    ],
                     "incremental_available": True,
                     "append_available": True,
                     "incremental_field": "id",
@@ -846,7 +1044,9 @@ class TestExternalDataSource(APIBaseTest):
                     "table": "table_1",
                     "should_sync": False,
                     "rows": 42,
-                    "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+                    "incremental_fields": [
+                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                    ],
                     "incremental_available": True,
                     "append_available": True,
                     "incremental_field": "id",
@@ -870,6 +1070,53 @@ class TestExternalDataSource(APIBaseTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+
+    @parameterized.expand(
+        [
+            ("192.168.1.1",),
+            ("169.254.169.254",),
+            ("localhost",),
+            ("127.0.0.1",),
+            ("0.0.0.0",),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+        return_value={"table_1": [("id", "integer", True)]},
+    )
+    def test_blocks_internal_host(self, host, _patch_schemas):
+        database_schema_url = f"/api/environments/{self.team.pk}/external_data_sources/database_schema/"
+        database_schema_data = {
+            "source_type": "Postgres",
+            "host": host,
+            "port": int(settings.PG_PORT),
+            "database": settings.PG_DATABASE,
+            "user": settings.PG_USER,
+            "password": settings.PG_PASSWORD,
+            "schema": "public",
+        }
+        create_url = f"/api/environments/{self.team.pk}/external_data_sources/"
+        create_data = {
+            "source_type": "Postgres",
+            "payload": {
+                "host": host,
+                "port": 5432,
+                "database": "mydb",
+                "user": "user",
+                "password": "pass",
+                "schema": "public",
+            },
+            "schemas": [],
+        }
+        with override_settings(CLOUD_DEPLOYMENT="US"):
+            for url, data in [(database_schema_url, database_schema_data), (create_url, create_data)]:
+                response = self.client.post(url, data=data)
+                self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {url}")
+                self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+
+            self.assertFalse(
+                ExternalDataSource.objects.filter(team=self.team, source_type="Postgres").exists(),
+            )
 
     def test_source_jobs(self):
         source = self._create_external_data_source()
@@ -989,7 +1236,11 @@ class TestExternalDataSource(APIBaseTest):
             assert len(data) == 1
             assert data[0]["id"] == str(job3.pk)
 
-    def test_trimming_payload(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_trimming_payload(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -1316,6 +1567,109 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "original_password"
 
+    def test_update_source_with_ssh_tunnel_missing_auth(self):
+        """Regression test: PATCH with ssh_tunnel but no auth key should not fail validation."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_no_auth",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                        "passphrase": None,
+                        "private_key": None,
+                    },
+                },
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "ssh_tunnel": {
+                        "enabled": False,
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json()}"
+
+        source.refresh_from_db()
+        assert source.job_inputs["password"] == "db_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"
+
+    def test_update_source_with_ssh_tunnel_enabled_missing_auth(self):
+        """Regression test: PATCH with ssh_tunnel enabled but no auth key should preserve existing auth."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_enabled_no_auth",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                        "passphrase": None,
+                        "private_key": None,
+                    },
+                },
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "ssh_tunnel": {
+                        "enabled": True,
+                        "host": "new-ssh.example.com",
+                        "port": 22,
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json()}"
+
+        source.refresh_from_db()
+        assert source.job_inputs["ssh_tunnel"]["host"] == "new-ssh.example.com"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["username"] == "sshuser"
+
     def test_update_legacy_auth_type_format_preserves_credentials(self):
         """
         Regression test for sources created via migration 0807 that use 'auth_type' instead of 'auth'.
@@ -1388,7 +1742,7 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.temporal.data_imports.sources.snowflake.source.get_snowflake_schemas"
         ) as mocked_get_snowflake_schemas:
-            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE")]}
+            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             # Create a Snowflake source with password auth
             response = self.client.post(
@@ -1480,10 +1834,16 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_bigquery_create_and_update(self):
         """Test that we can create and update the config for a BigQuery source"""
-        with patch(
-            "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
-        ) as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE")]}
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+                return_value=(True, None),
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
+            ) as mocked_get_bigquery_schemas,
+        ):
+            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE", False)]}
 
             # Create a BigQuery source
             response = self.client.post(
@@ -1787,7 +2147,11 @@ class TestExternalDataSource(APIBaseTest):
                     f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}",
                 )
 
-    def test_create_external_data_source_accepts_valid_prefix(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_accepts_valid_prefix(self, _mock_validate):
         """Test that valid prefixes are accepted."""
         valid_prefixes = [
             "valid_prefix",

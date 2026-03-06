@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { uuidFromDistinctId } from '../person-uuid'

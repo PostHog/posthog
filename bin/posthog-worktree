@@ -242,9 +242,11 @@ setup_worktree_environment() {
     # Setup Flox environment for this worktree
     cd "${worktree_path}"
     
-    # Copy both .flox manifest and .envrc for direnv
+    # Copy .flox env files and .envrc for direnv
     mkdir -p "${worktree_path}/.flox/env"
     clone_path "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
+    [[ -f "${main_repo}/.flox/env/on-activate.sh" ]] && \
+        clone_path "${main_repo}/.flox/env/on-activate.sh" "${worktree_path}/.flox/env/"
     clone_path "${main_repo}/.envrc" "${worktree_path}/"
 
     # Copy .vscode/settings.json if it exists
@@ -269,6 +271,17 @@ setup_worktree_environment() {
         mkdir -p "${worktree_path}/.flox/cache"
         if clone_path "${main_repo}/.flox/cache/venv" "${worktree_path}/.flox/cache/venv" true; then
             print_color blue "Cloned .flox/cache/venv (copy-on-write)"
+            # Fix VIRTUAL_ENV path in activate scripts — the cloned venv has the
+            # source repo's path hardcoded, which puts the wrong bin/ on PATH.
+            local venv_bin="${worktree_path}/.flox/cache/venv/bin"
+            local old_venv="${main_repo}/.flox/cache/venv"
+            local new_venv="${worktree_path}/.flox/cache/venv"
+            local sed_inplace=(-i)
+            [[ "$(uname -s)" == "Darwin" ]] && sed_inplace=(-i '')
+            for activate_script in "${venv_bin}"/activate*; do
+                [[ -f "$activate_script" ]] && sed "${sed_inplace[@]}" "s|${old_venv}|${new_venv}|g" "$activate_script"
+            done
+            print_color blue "Patched venv activate scripts for worktree path"
         else
             print_color yellow "Skipping venv copy (CoW not available) — flox activate will create it"
         fi

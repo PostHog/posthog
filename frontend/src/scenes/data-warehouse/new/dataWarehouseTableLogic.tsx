@@ -25,6 +25,7 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
     name: '',
     url_pattern: '',
     format: 'Parquet',
+    options: { csv_allow_double_quotes: false },
     credential: {
         access_key: '',
         access_secret: '',
@@ -69,13 +70,13 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
-            router.actions.replace(urls.dataPipelines('sources'))
+            router.actions.replace(urls.sources())
         },
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
             actions.editingTable(false)
             actions.loadDatabase()
-            router.actions.replace(urls.dataPipelines('sources'))
+            router.actions.replace(urls.sources())
         },
         loadTableSuccess: async ({ table }) => {
             if (props.id) {

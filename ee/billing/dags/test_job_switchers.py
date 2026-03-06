@@ -9,10 +9,10 @@ import requests
 from parameterized import parameterized
 
 from posthog.dags.common.resources import ClayWebhookResource
+from posthog.dags.common.utils import compute_dataframe_hashes
 
 from ee.billing.dags.job_switchers import (
     clickhouse_to_dataframe,
-    compute_dataframe_hashes,
     dataframe_to_clay_payload,
     filter_changed_domains,
     get_prior_hashes_from_metadata,
@@ -26,18 +26,19 @@ class TestClickhouseToDataframe:
                 "single_row",
                 [
                     (
-                        "example.com",
-                        ["user1@example.com", "user2@example.com"],
-                        5,
-                        datetime(2024, 1, 15, 10, 30),
-                        datetime(2024, 6, 20, 14, 22),
-                        ["Subject 1"],
-                        ["mailbox full"],
-                        ["org-123"],
-                        ["Example Corp"],
-                        [1704067200],
-                        ["voluntary"],
-                        ["customer_io_delivery"],
+                        5,  # bounce_count
+                        ["mailbox full"],  # bounce_reasons
+                        [{"email": "user1@example.com", "first_name": "Alice"}],  # contacts
+                        "example.com",  # email_domain
+                        ["user1@example.com", "user2@example.com"],  # emails
+                        datetime(2024, 1, 15, 10, 30),  # first_bounce_at
+                        datetime(2024, 6, 20, 14, 22),  # last_bounce_at
+                        "org-123",  # organization_id
+                        "Example Corp",  # organization_name
+                        [1704067200],  # removal_timestamps
+                        ["voluntary"],  # removal_types
+                        ["customer_io_delivery"],  # source_type
+                        ["Subject 1"],  # subjects
                     ),
                 ],
                 1,
@@ -47,34 +48,8 @@ class TestClickhouseToDataframe:
             (
                 "multiple_rows",
                 [
-                    (
-                        "a.com",
-                        ["a@a.com"],
-                        1,
-                        None,
-                        None,
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                    ),
-                    (
-                        "b.com",
-                        ["b@b.com"],
-                        2,
-                        None,
-                        None,
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                    ),
+                    (1, [], [], "a.com", ["a@a.com"], None, None, "", "", [], [], [], []),
+                    (2, [], [], "b.com", ["b@b.com"], None, None, "", "", [], [], [], []),
                 ],
                 2,
                 "a.com",
@@ -206,13 +181,24 @@ class TestDataframeToClayPayload:
             {
                 "email_domain": ["example.com"],
                 "emails": [["user@example.com"]],
+                "contacts": [
+                    [
+                        {
+                            "email": "user@example.com",
+                            "first_name": "Alice",
+                            "last_name": "Smith",
+                            "is_active": "true",
+                            "date_joined": "2024-01-01 00:00:00",
+                        }
+                    ]
+                ],
                 "bounce_count": [5],
                 "first_bounce_at": [datetime(2024, 1, 15)],
                 "last_bounce_at": [None],
                 "subjects": [["Test subject"]],
                 "bounce_reasons": [["mailbox full"]],
-                "organization_ids": [["org-1"]],
-                "organization_names": [["Example Corp"]],
+                "organization_id": ["org-1"],
+                "organization_name": ["Example Corp"],
                 "removal_timestamps": [[1704067200]],
                 "removal_types": [["voluntary"]],
                 "source_type": [["customer_io"]],
@@ -225,23 +211,58 @@ class TestDataframeToClayPayload:
         assert len(payload) == 1
         assert payload[0]["domain"] == "example.com"
         assert payload[0]["emails"] == ["user@example.com"]
+        assert payload[0]["contacts"] == [
+            {
+                "email": "user@example.com",
+                "first_name": "Alice",
+                "last_name": "Smith",
+                "is_active": "true",
+                "date_joined": "2024-01-01 00:00:00",
+            }
+        ]
         assert payload[0]["first_bounce_at"] == "2024-01-15T00:00:00"
         assert payload[0]["last_bounce_at"] is None
         assert payload[0]["bounce_count"] == 5
-        assert payload[0]["organization_names"] == ["Example Corp"]
+        assert payload[0]["organization_id"] == "org-1"
+        assert payload[0]["organization_name"] == "Example Corp"
 
-    def test_handles_null_arrays(self):
+    def test_handles_contacts_as_json_string(self):
+        contacts_json = '[{"email": "a@test.com", "first_name": "A"}]'
+        df = pl.DataFrame(
+            {
+                "email_domain": ["test.com"],
+                "emails": [["a@test.com"]],
+                "contacts": [contacts_json],
+                "bounce_count": [0],
+                "first_bounce_at": [None],
+                "last_bounce_at": [None],
+                "subjects": [[]],
+                "bounce_reasons": [[]],
+                "organization_id": [""],
+                "organization_name": [""],
+                "removal_timestamps": [[]],
+                "removal_types": [[]],
+                "source_type": [[]],
+            }
+        )
+
+        payload = dataframe_to_clay_payload(df)
+
+        assert payload[0]["contacts"] == [{"email": "a@test.com", "first_name": "A"}]
+
+    def test_handles_null_values(self):
         df = pl.DataFrame(
             {
                 "email_domain": ["test.com"],
                 "emails": [None],
+                "contacts": [None],
                 "bounce_count": [0],
                 "first_bounce_at": [None],
                 "last_bounce_at": [None],
                 "subjects": [None],
                 "bounce_reasons": [None],
-                "organization_ids": [None],
-                "organization_names": [None],
+                "organization_id": [None],
+                "organization_name": [None],
                 "removal_timestamps": [None],
                 "removal_types": [None],
                 "source_type": [None],
@@ -251,7 +272,10 @@ class TestDataframeToClayPayload:
         payload = dataframe_to_clay_payload(df)
 
         assert payload[0]["emails"] == []
+        assert payload[0]["contacts"] == []
         assert payload[0]["bounce_reasons"] == []
+        assert payload[0]["organization_id"] == ""
+        assert payload[0]["organization_name"] == ""
 
 
 class TestGetPriorHashesFromMetadata:
@@ -463,7 +487,7 @@ class TestClayWebhookResourceCreateBatches:
         original_size = len(json.dumps([oversized_record]).encode("utf-8"))
         assert original_size > 500  # Verify it's actually oversized
 
-        result = resource.create_batches([oversized_record])
+        result = resource.create_batches([oversized_record], truncatable_fields=["emails"])
 
         assert len(result.batches) == 1
         assert len(result.batches[0]) == 1

@@ -1,0 +1,167 @@
+{
+    "cohorts-list": {
+        "description": "List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on property filters).",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "List all cohorts",
+        "title": "List all cohorts",
+        "required_scopes": ["cohort:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cohorts-create": {
+        "description": "Create a new cohort. For dynamic cohorts, provide 'filters' with AND/OR groups of property conditions (person properties, behavioral filters, or cohort references). For static cohorts, set 'is_static: true' then use the 'cohorts-add-persons-to-static-cohort-partial-update' tool to add person UUIDs.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Create cohort",
+        "title": "Create cohort",
+        "required_scopes": ["cohort:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cohorts-retrieve": {
+        "description": "Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of matching users, and calculation status.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Get cohort",
+        "title": "Get cohort",
+        "required_scopes": ["cohort:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cohorts-partial-update": {
+        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Update cohort",
+        "title": "Update cohort",
+        "required_scopes": ["cohort:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cohorts-add-persons-to-static-cohort-partial-update": {
+        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Add persons to static cohort",
+        "title": "Add persons to static cohort",
+        "required_scopes": ["cohort:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cohorts-remove-person-from-static-cohort-partial-update": {
+        "description": "Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort succeeds silently.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Remove person from static cohort",
+        "title": "Remove person from static cohort",
+        "required_scopes": ["cohort:write"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-issues-list": {
+        "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking issues",
+        "title": "List error tracking issues",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-issues-retrieve": {
+        "description": "Get a specific error tracking issue by ID. Returns full issue details including status, description, volume, and metadata.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Get error tracking issue",
+        "title": "Get error tracking issue",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-issues-partial-update": {
+        "description": "Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or update description.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking issue",
+        "title": "Update error tracking issue",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-list": {
+        "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
+        "category": "Workflows",
+        "feature": "hog_flows",
+        "summary": "List workflows",
+        "title": "List workflows",
+        "required_scopes": ["hog_flow:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-get": {
+        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
+        "category": "Workflows",
+        "feature": "hog_flows",
+        "summary": "Get workflow",
+        "title": "Get workflow",
+        "required_scopes": ["hog_flow:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    }
+}

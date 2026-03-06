@@ -164,3 +164,25 @@ class PostgresPrinter(HogQLPrinter):
             return f"ROW({values[0]})"
 
         return f"({', '.join(values)})"
+
+    def visit_type_cast(self, node):
+        expr_sql = self.visit(node.expr)
+        return f"CAST({expr_sql} AS {escape_postgres_identifier(node.type_name)})"
+
+    def visit_cte(self, node: ast.CTE):
+        materialization_hint = (
+            "" if node.materialized is None else ("MATERIALIZED " if node.materialized else "NOT MATERIALIZED ")
+        )
+
+        if node.cte_type == "subquery":
+            columns_sql = (
+                "" if node.columns is None else f"({', '.join(self._print_identifier(col) for col in node.columns)})"
+            )
+            using_key_sql = (
+                ""
+                if node.using_key is None
+                else f" USING KEY ({', '.join(self._print_identifier(col) for col in node.using_key)})"
+            )
+            return f"{self._print_identifier(node.name)}{columns_sql}{using_key_sql} AS {materialization_hint}{self.visit(node.expr)}"
+
+        return super().visit_cte(node)

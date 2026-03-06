@@ -1,21 +1,20 @@
 {
     "name": "@posthog/root",
-    "description": "",
     "version": "0.0.0",
+    "description": "",
+    "homepage": "https://github.com/posthog/posthog#readme",
+    "bugs": {
+        "url": "https://github.com/posthog/posthog/issues"
+    },
+    "license": "MIT",
+    "author": "PostHog Inc.",
     "repository": {
         "type": "git",
         "url": "https://github.com/posthog/posthog.git"
     },
-    "author": "PostHog Inc.",
-    "bugs": {
-        "url": "https://github.com/posthog/posthog/issues"
+    "browser": {
+        "path": "path-browserify"
     },
-    "homepage": "https://github.com/posthog/posthog#readme",
-    "license": "MIT",
-    "engines": {
-        "node": ">=24 <25"
-    },
-    "packageManager": "pnpm@10.23.0+sha512.21c4e5698002ade97e4efe8b8b4a89a8de3c85a37919f957e7a0f30f38fbc5bbdd05980ffe29179b2fb6e6e691242e098d945d1601772cad0fef5fb6411e2a4b",
     "scripts": {
         "prepare": "husky install",
         "schema:build": "bin/hogli build:schema",
@@ -37,7 +36,8 @@
         "// DEPRECATED - use hogli format:python instead": "",
         "format:backend": "./bin/ruff.sh format .",
         "// DEPRECATED - use hogli format:js instead": "",
-        "format:frontend": "pnpm --filter=@posthog/frontend run format",
+        "format:frontend": "oxfmt --check \"{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "format:frontend:check": "pnpm run format:frontend -- --check",
         "// DEPRECATED - use hogli format instead": "",
         "format": "pnpm format:backend && pnpm format:frontend",
         "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
@@ -47,25 +47,25 @@
         "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true",
         "lint": "pnpm lint:js && pnpm lint:css",
         "lint:js": "oxlint --quiet",
-        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\""
+        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\"",
+        "test:unit": "pnpm --filter=@posthog/frontend test"
     },
     "dependencies": {
-        "concurrently": "^5.3.0",
-        "fuse.js": "^6.6.2",
-        "husky": "^7.0.4",
-        "lint-staged": "~15.4.3",
+        "concurrently": "catalog:",
+        "fuse.js": "catalog:",
+        "husky": "catalog:",
+        "lint-staged": "catalog:",
         "uuid": "^10.0.0"
     },
     "devDependencies": {
-        "@parcel/packager-ts": "2.13.3",
-        "@parcel/transformer-typescript-types": "2.13.3",
-        "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+        "@parcel/packager-ts": "catalog:",
+        "@parcel/transformer-typescript-types": "catalog:",
         "@types/uuid": "^10.0.0",
         "markdownlint-cli2": "^0.18.1",
         "orval": "8.0.3",
+        "oxfmt": "catalog:",
         "oxlint": "^1.8.0",
         "playwright": "1.45.0",
-        "prettier": "^3.6.2",
         "stylelint": "^15.11.0",
         "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
@@ -76,49 +76,17 @@
     "optionalDependencies": {
         "fsevents": "^2.3.3"
     },
-    "pnpm": {
-        "overrides": {
-            "typescript": "5.4.5",
-            "node-forge": "1.3.2",
-            "pbkdf2": ">=3.1.3",
-            "cipher-base": ">=1.0.5",
-            "sha.js": ">=2.4.12",
-            "form-data": ">=4.0.4"
-        },
-        "patchedDependencies": {
-            "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
-            "dayjs@1.11.11": "patches/dayjs@1.11.11.patch",
-            "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch"
-        },
-        "// Known dependencies that we need preinstall scripts for, add new ones with caution": "",
-        "onlyBuiltDependencies": [
-            "re2",
-            "node-gyp",
-            "node-rdkafka",
-            "@parcel/watcher",
-            "msgpackr-extract",
-            "@swc/core",
-            "esbuild",
-            "core-js-pure",
-            "core-js",
-            "msw",
-            "unrs-resolver",
-            "protobufjs",
-            "cpu-features",
-            "lz4",
-            "workerd",
-            "sharp",
-            "ssh2",
-            "lmdb"
-        ]
-    },
     "lint-staged": {
-        "*.{json,yaml,yml}": "bin/hogli format:yaml",
+        "products/**/manifest.tsx": [
+            "bin/hogli format:js",
+            "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/products.json'"
+        ],
+        "!(**/.sqlx/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
-        "{playwright,frontend,products,common,ee,services}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
+        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
         "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
-        "!(posthog/hogql/grammar/*)*.{py,pyi}": [
+        "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
             "bin/hogli format:python"
         ],
@@ -134,7 +102,52 @@
             "defaults and not op_mini all"
         ]
     },
-    "browser": {
-        "path": "path-browserify"
+    "engines": {
+        "node": ">=24 <25"
+    },
+    "packageManager": "pnpm@10.29.3",
+    "pnpm": {
+        "// Fix Typescript and React version to a fixed known good version across the monorepo": "",
+        "overrides": {
+            "@modelcontextprotocol/sdk": "^1.26.0",
+            "@types/react": "18.3.27",
+            "@types/react-dom": "18.3.7",
+            "cipher-base": ">=1.0.5",
+            "form-data": ">=4.0.4",
+            "node-forge": "1.3.2",
+            "pbkdf2": ">=3.1.3",
+            "react": "18.3.1",
+            "react-dom": "18.3.1",
+            "sha.js": ">=2.4.12",
+            "typescript": "5.4.5"
+        },
+        "patchedDependencies": {
+            "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
+            "dayjs@1.11.11": "patches/dayjs@1.11.11.patch",
+            "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch"
+        },
+        "// Known dependencies that we need preinstall scripts for, add new ones with caution": "",
+        "onlyBuiltDependencies": [
+            "@modelcontextprotocol/ext-apps",
+            "@parcel/watcher",
+            "chartjs-plugin-stacked100",
+            "@swc/core",
+            "core-js",
+            "core-js-pure",
+            "cpu-features",
+            "esbuild",
+            "lmdb",
+            "lz4",
+            "msgpackr-extract",
+            "msw",
+            "node-gyp",
+            "node-rdkafka",
+            "protobufjs",
+            "re2",
+            "sharp",
+            "ssh2",
+            "unrs-resolver",
+            "workerd"
+        ]
     }
 }

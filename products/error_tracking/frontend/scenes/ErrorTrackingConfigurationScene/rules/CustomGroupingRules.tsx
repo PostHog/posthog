@@ -13,7 +13,7 @@ export function CustomGroupingRules(): JSX.Element {
                 matches will be applied.
             </p>
             <Rules<ErrorTrackingGroupingRule> ruleType={ErrorTrackingRuleType.Grouping}>
-                {({ rule, editing, disabled }) => {
+                {({ rule, editing }) => {
                     return (
                         <>
                             <div className="flex gap-2 justify-between px-2 py-3">
@@ -22,7 +22,7 @@ export function CustomGroupingRules(): JSX.Element {
                                     <Rules.Operator rule={rule} editing={editing} />
                                     <div>filters match</div>
                                 </div>
-                                {!disabled && <Rules.Actions rule={rule} editing={editing} />}
+                                <Rules.Actions rule={rule} editing={editing} />
                             </div>
                             <LemonDivider className="my-0" />
                             <div className="p-2">

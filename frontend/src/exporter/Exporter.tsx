@@ -1,5 +1,4 @@
 import '~/styles'
-
 import './Exporter.scss'
 
 import clsx from 'clsx'
@@ -37,6 +36,7 @@ function ExportHeatmap(): JSX.Element {
                 <iframe
                     id="heatmap-iframe"
                     ref={null}
+                    title="Heatmap export"
                     className="h-screen bg-white w-screen"
                     // eslint-disable-next-line react/forbid-dom-props
                     src={exportedData.heatmap_url ?? ''}

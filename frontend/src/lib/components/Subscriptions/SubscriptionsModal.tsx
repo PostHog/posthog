@@ -19,25 +19,35 @@ export interface SubscriptionsModalProps {
     inline?: boolean
     insightShortId?: InsightShortId
     dashboard?: DashboardType<any> | null
+    'data-attr'?: string
 }
 
 export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
-    const { closeModal, dashboard, insightShortId, subscriptionId, isOpen, inline } = props
-    const dashboardId = dashboard?.id
-    const baseProps: SubscriptionBaseProps = { insightShortId, dashboardId }
+    const { closeModal, dashboard, insightShortId, subscriptionId, isOpen, inline, 'data-attr': dataAttr } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
+
+    const dashboardId = dashboard?.id
+    const baseProps: SubscriptionBaseProps = { insightShortId, dashboardId }
 
     if (userLoading) {
         return <Spinner className="text-2xl" />
     }
     return (
-        <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="" inline={inline}>
+        <LemonModal
+            onClose={closeModal}
+            isOpen={isOpen}
+            width={600}
+            simple
+            title=""
+            inline={inline}
+            data-attr={dataAttr}
+        >
             <PayGateMini
                 feature={AvailableFeature.SUBSCRIPTIONS}
                 handleSubmit={closeModal}
                 background={false}
-                className="py-8"
+                className="py-8 flex-1 min-h-0 flex flex-col"
                 docsLink="https://posthog.com/docs/user-guides/subscriptions"
             >
                 {!subscriptionId ? (

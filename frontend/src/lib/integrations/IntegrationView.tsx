@@ -5,8 +5,10 @@ import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -25,6 +27,10 @@ export function IntegrationView({
     schema?: CyclotronJobInputSchemaType
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const errors = (integration.errors && integration.errors?.split(',')) || []
     const { githubRepositoriesLoading, getGitHubRepositories } = useValues(integrationsLogic)
@@ -47,6 +53,7 @@ export function IntegrationView({
                 status="danger"
                 onClick={() => deleteIntegration(integration.id)}
                 icon={<IconTrash />}
+                disabledReason={restrictedReason}
             >
                 Disconnect
             </LemonButton>
@@ -57,7 +64,11 @@ export function IntegrationView({
         <div className="rounded border bg-surface-primary">
             <div className="flex justify-between items-center p-2">
                 <div className="flex gap-4 items-center ml-2">
-                    <img src={integration.icon_url} className="w-10 h-10 rounded" />
+                    <img
+                        src={integration.icon_url}
+                        alt={`${integration.kind} integration`}
+                        className="w-10 h-10 rounded"
+                    />
                     <div>
                         <div className="flex gap-2">
                             <span>

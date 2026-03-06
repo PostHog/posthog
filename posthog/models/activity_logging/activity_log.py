@@ -78,9 +78,10 @@ ActivityScope = Literal[
     "CustomerProfileConfig",
     "Log",
     "ProductTour",
+    "Ticket",
 ]
 ChangeAction = Literal[
-    "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
+    "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
 ]
 
 
@@ -229,10 +230,13 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
     "OrganizationDomain": [
         "scim_bearer_token",
+        "verification_challenge",
+        "saml_x509_cert",
     ],
     "User": [
         "email",
         "password",
+        # No longer used but kept for backwards-compatibility with existing activity log entries
         "temporary_token",
         "pending_email",
     ],
@@ -261,6 +265,15 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "ExternalDataSchema": {
         "should_sync": "enabled",
     },
+    "OrganizationDomain": {
+        "jit_provisioning_enabled": "just-in-time provisioning",
+        "sso_enforcement": "SSO enforcement",
+        "saml_entity_id": "SAML entity ID",
+        "saml_acs_url": "SAML ACS URL",
+        "saml_x509_cert": "SAML X.509 certificate",
+        "scim_enabled": "SCIM provisioning",
+        "verified_at": "domain verification",
+    },
 }
 
 # Fields that prevent activity signal triggering entirely when only these fields change
@@ -284,6 +297,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "current_organization_id",
         "current_team_id",
     ],
+    "OrganizationDomain": [
+        "last_verification_retry",
+    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -301,9 +317,25 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    {
+        "scope": "User",
+        "activities": ["scim_provisioned", "scim_replaced", "scim_updated", "scim_deprovisioned"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        "scope": "Role",
+        "activities": ["scim_provisioned", "scim_replaced", "scim_updated", "scim_deprovisioned"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
 ]
 
 field_exclusions: dict[ActivityScope, list[str]] = {
+    "OrganizationDomain": [
+        "organization",
+        "scim_provisioned_users",
+    ],
     "Cohort": [
         "version",
         "pending_version",
@@ -413,6 +445,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "Endpoint": [
         "saved_query",
+        "current_version",
     ],
     "EndpointVersion": [
         "saved_query",

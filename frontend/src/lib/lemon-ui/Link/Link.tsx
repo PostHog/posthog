@@ -3,7 +3,7 @@ import './Link.scss'
 import { router } from 'kea-router'
 import React from 'react'
 
-import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
+import { IconExternal, IconSend } from '@posthog/icons'
 
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -13,6 +13,7 @@ import {
     ContextMenuItem,
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
+import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -21,9 +22,7 @@ import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/route
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urlToResource } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
-import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
 
@@ -78,6 +77,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
 
+    extraContextMenuItems?: React.ReactNode
     /** Skip the context menu */
     skipContext?: boolean
 }
@@ -101,10 +101,6 @@ const isDirectLink = (url: string): boolean => {
     return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
 }
 
-const isPostHogComDocs = (url: string): url is PostHogComDocsURL => {
-    return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
-}
-
 export type PostHogComDocsURL = `https://${'www.' | ''}posthog.com/docs/${string}`
 
 /**
@@ -121,7 +117,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             target,
             subtle,
             disableClientSideRouting,
-            disableDocsPanel = false,
+            disableDocsPanel: _disableDocsPanel,
             preventClick = false,
             onClick: onClickRaw,
             onAuxClick,
@@ -138,6 +134,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             role,
             tabIndex,
             skipContext,
+            extraContextMenuItems,
             ...props
         },
         ref
@@ -146,8 +143,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
         })
-
-        const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -159,30 +154,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
             if (event.isDefaultPrevented()) {
                 event.preventDefault()
-                return
-            }
-
-            const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
-
-            if (shouldOpenInDocsPanel && mountedSidePanelLogic) {
-                // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
-                const { sidePanelOpen } = mountedSidePanelLogic.values
-                const { openSidePanel } = mountedSidePanelLogic.actions
-
-                event.preventDefault()
-
-                const target = event.currentTarget
-                const container = document.getElementsByTagName('main')[0]
-                const topBar = document.getElementsByClassName('TopBar3000')[0]
-                if (!sidePanelOpen && container.contains(target)) {
-                    setTimeout(() => {
-                        // Little delay to allow the rendering of the side panel
-                        const y = container.scrollTop + target.getBoundingClientRect().top - topBar.clientHeight
-                        container.scrollTo({ top: y })
-                    }, 50)
-                }
-
-                openSidePanel(SidePanelTab.Docs, to)
                 return
             }
 
@@ -236,9 +207,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             >
                 {children}
                 {targetBlankIcon &&
-                    (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
-                        <IconOpenSidebar />
-                    ) : href?.startsWith('mailto:') ? (
+                    (href?.startsWith('mailto:') ? (
                         <IconSend />
                     ) : target === '_blank' ? (
                         <IconExternal className={buttonProps ? 'size-3' : ''} />
@@ -267,9 +236,15 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                         {/* Span so we can have both tooltip and context menu, without it the tooltip doesn't work with context menu */}
                         <span className="contents">{element}</span>
                     </ContextMenuTrigger>
-                    <ContextMenuContent className="max-w-[300px]">
+                    <ContextMenuContent className="max-w-[300px] click-outside-block">
                         <ContextMenuGroup>
                             <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
+                            {extraContextMenuItems && (
+                                <>
+                                    <MenuSeparator />
+                                    {extraContextMenuItems}
+                                </>
+                            )}
                         </ContextMenuGroup>
                     </ContextMenuContent>
                 </ContextMenu>

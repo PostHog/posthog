@@ -72,7 +72,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
-        processor = new CdpCyclotronWorkerHogFlow(hub)
+        processor = new CdpCyclotronWorkerHogFlow(hub, hub)
 
         hogFlows = []
         hogFlows.push(
@@ -238,30 +238,10 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         })
 
         it('should make minimal calls to the person manager', async () => {
-            const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersons')
+            const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersonsByDistinctIds')
             await processor.processInvocations(invocations)
             expect(personManagerSpy).toHaveBeenCalledTimes(1)
             expect(personManagerSpy.mock.calls[0][0]).toEqual([
-                `${team.id}:distinct_A_1`,
-                `${team.id}:distinct_A_2`,
-                `${team2.id}:distinct_A_1`,
-                `${team2.id}:missing_person`,
-            ])
-        })
-
-        it('should clear the cache each time', async () => {
-            const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersons')
-            await processor.processInvocations(invocations)
-            expect(personManagerSpy).toHaveBeenCalledTimes(1)
-            expect(personManagerSpy.mock.calls[0][0]).toEqual([
-                `${team.id}:distinct_A_1`,
-                `${team.id}:distinct_A_2`,
-                `${team2.id}:distinct_A_1`,
-                `${team2.id}:missing_person`,
-            ])
-            await processor.processInvocations(invocations)
-            expect(personManagerSpy).toHaveBeenCalledTimes(2)
-            expect(personManagerSpy.mock.calls[1][0]).toEqual([
                 `${team.id}:distinct_A_1`,
                 `${team.id}:distinct_A_2`,
                 `${team2.id}:distinct_A_1`,

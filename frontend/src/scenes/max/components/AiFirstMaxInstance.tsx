@@ -1,16 +1,75 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
 
+import { IconOpenSidebar, IconShare } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
+
+import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 
 import { Intro } from '../Intro'
-import { Thread } from '../Thread'
+import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
+import { Thread } from '../Thread'
 import { ChatHistoryPanel } from './ChatHistoryPanel'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
+import { ThreadAutoScroller } from './ThreadAutoScroller'
+
+/* Sits above the chat area */
+export function ChatHeader({ conversationId, tabId }: { conversationId: string | null; tabId?: string }): JSX.Element {
+    const { openSidePanelMax } = useActions(maxGlobalLogic)
+    const { chatTitle } = useValues(maxLogic)
+    const { closeTabId } = useActions(sceneLogic)
+    const isTitleLoading = chatTitle === 'New chat'
+
+    return (
+        <div className="flex w-full gap-2 py-2 border-b border-primary items-center justify-between px-2">
+            <div className="flex items-center gap-2 pl-2 text-sm font-medium truncate min-w-0 flex-1">
+                {chatTitle === null ? null : isTitleLoading ? (
+                    <div className="w-100">
+                        <SceneName name="New chat" isLoading />
+                    </div>
+                ) : (
+                    <SceneName name={chatTitle} />
+                )}
+            </div>
+            <div className="flex items-center gap-2">
+                {conversationId ? (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        sideIcon={<IconShare />}
+                        onClick={() => {
+                            copyToClipboard(
+                                urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
+                                'conversation sharing link'
+                            )
+                        }}
+                    >
+                        Copy link
+                    </LemonButton>
+                ) : undefined}
+                {tabId ? (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        sideIcon={<IconOpenSidebar />}
+                        onClick={() => {
+                            openSidePanelMax(conversationId ?? undefined)
+                            closeTabId(tabId, { source: 'open_in_side_panel' })
+                        }}
+                    >
+                        Open in context panel
+                    </LemonButton>
+                ) : undefined}
+            </div>
+        </div>
+    )
+}
 
 interface AiFirstMaxInstanceProps {
     tabId: string
@@ -31,12 +90,15 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
             <ChatHistoryPanel tabId={tabId} />
             <BindLogic logic={maxLogic} props={{ tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
-                    <ChatArea
-                        threadVisible={threadVisible}
-                        conversationId={conversationId}
-                        conversation={conversation}
-                        onStartNewConversation={startNewConversation}
-                    />
+                    <div className="flex flex-col grow overflow-hidden">
+                        <ChatHeader conversationId={conversationId} tabId={tabId} />
+                        <ChatArea
+                            threadVisible={threadVisible}
+                            conversationId={conversationId}
+                            conversation={conversation}
+                            onStartNewConversation={startNewConversation}
+                        />
+                    </div>
                 </BindLogic>
             </BindLogic>
         </div>
@@ -50,53 +112,11 @@ interface ChatAreaProps {
     onStartNewConversation: () => void
 }
 
-function ChatArea({ threadVisible, conversationId, conversation, onStartNewConversation }: ChatAreaProps): JSX.Element {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [stickToBottom, setStickToBottom] = useState(true)
-    const { streamingActive } = useValues(maxThreadLogic)
-
+function ChatArea({ threadVisible, conversation, onStartNewConversation }: ChatAreaProps): JSX.Element {
     const hasMessages = threadVisible
 
-    // Scroll to bottom when content changes (streaming or new messages)
-    useEffect(() => {
-        if (hasMessages && stickToBottom && containerRef.current) {
-            containerRef.current.scrollTop = containerRef.current.scrollHeight
-        }
-    })
-
-    // Track if user scrolled away from bottom
-    useEffect(() => {
-        const container = containerRef.current
-        if (!container || !hasMessages) {
-            return
-        }
-
-        const handleScroll = (): void => {
-            const { scrollTop, scrollHeight, clientHeight } = container
-            const isAtBottom = scrollHeight - scrollTop - clientHeight < 50
-            setStickToBottom(isAtBottom)
-        }
-
-        container.addEventListener('scroll', handleScroll, { passive: true })
-        return () => container.removeEventListener('scroll', handleScroll)
-    }, [hasMessages])
-
-    // Reset stick-to-bottom when starting a new conversation
-    useEffect(() => {
-        if (!conversationId) {
-            setStickToBottom(true)
-        }
-    }, [conversationId])
-
-    // Reset stick-to-bottom when streaming starts
-    useEffect(() => {
-        if (streamingActive) {
-            setStickToBottom(true)
-        }
-    }, [streamingActive])
-
     return (
-        <div ref={containerRef} className="flex flex-col grow overflow-y-auto">
+        <div className="flex flex-col grow overflow-y-auto" data-attr="max-scrollable">
             {/* Top spacer - fills space above content, shrinks when messages appear */}
             <div className={`transition-[flex-grow] duration-300 ease-out ${hasMessages ? 'grow-0' : 'grow'}`} />
 
@@ -111,7 +131,7 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
 
             {/* Thread content - appears when messages exist */}
             {hasMessages && (
-                <>
+                <ThreadAutoScroller>
                     {conversation?.has_unsupported_content && (
                         <div className="px-4 pt-4">
                             <LemonBanner type="warning">
@@ -125,7 +145,7 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
                         </div>
                     )}
                     <Thread className="p-3" />
-                </>
+                </ThreadAutoScroller>
             )}
 
             {/* Input - always in flow, mt-auto pushes to bottom when messages exist */}

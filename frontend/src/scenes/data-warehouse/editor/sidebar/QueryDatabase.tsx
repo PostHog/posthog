@@ -15,15 +15,15 @@ import {
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { IconTextSize } from 'lib/lemon-ui/icons'
+import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { multitabEditorLogic } from 'scenes/data-warehouse/editor/multitabEditorLogic'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -34,7 +34,6 @@ import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
-import { OutputTab } from '../outputPaneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
@@ -62,9 +61,8 @@ export const QueryDatabase = (): JSX.Element => {
     const { deleteDataWarehouseSavedQuery, runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { setQueryInput } = useActions(multitabEditorLogic)
-    const { selectedQueryColumns } = useValues(multitabEditorLogic)
-    const builtTabLogic = useMountedLogic(multitabEditorLogic)
+    const { setQueryInput } = useActions(sqlEditorLogic)
+    const builtTabLogic = useMountedLogic(sqlEditorLogic)
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -137,6 +135,50 @@ export const QueryDatabase = (): JSX.Element => {
         }
     }
 
+    const getTableKindLabel = (item: TreeDataItem): string | null => {
+        if (!item.record) {
+            return null
+        }
+
+        switch (item.record.traversedFieldType ?? item.record.type) {
+            case 'lazy-table':
+                return 'join'
+            case 'virtual-table':
+                return 'virtual table'
+            case 'materialized_view':
+                return 'materialized view'
+            case 'managed-view':
+                return 'managed view'
+            case 'endpoint':
+                return 'materialized endpoint'
+            case 'view':
+            case 'view-table':
+                return item.record.view?.is_materialized ? 'materialized view' : 'view'
+            case 'table': {
+                const tableType = item.record.table?.type
+                switch (tableType) {
+                    case 'materialized_view':
+                        return 'mat view'
+                    case 'batch_export':
+                        return 'batch export'
+                    case 'data_warehouse':
+                        // Return "" to not clutter the interface
+                        return ''
+                    case 'posthog':
+                        // Return "" to not clutter the interface
+                        return ''
+                    case 'system':
+                        // Return "" to not clutter the interface
+                        return ''
+                    default:
+                        return null
+                }
+            }
+            default:
+                return null
+        }
+    }
+
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
         setTreeRef(treeRef)
@@ -187,7 +229,7 @@ export const QueryDatabase = (): JSX.Element => {
                 const hasMatches = matches && matches.length > 0
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
-                const columnKey = isColumn && item.record ? `${item.record.table}.${item.record.columnName}` : null
+                const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
 
                 return (
                     <span className="truncate">
@@ -202,18 +244,10 @@ export const QueryDatabase = (): JSX.Element => {
                                 ) : (
                                     <span
                                         className={cn(
-                                            [
-                                                'managed-views',
-                                                'views',
-                                                'sources',
-                                                'drafts',
-                                                'unsaved-folder',
-                                                'endpoints',
-                                            ].includes(item.record?.type) && 'font-semibold',
+                                            ['managed-views', 'views', 'sources', 'drafts', 'unsaved-folder'].includes(
+                                                item.record?.type
+                                            ) && 'font-semibold',
                                             isColumn && 'font-mono text-xs',
-                                            columnKey &&
-                                                selectedQueryColumns[columnKey] &&
-                                                'underline underline-offset-2',
                                             'truncate shrink-0'
                                         )}
                                     >
@@ -222,7 +256,13 @@ export const QueryDatabase = (): JSX.Element => {
                                 )}
                                 {isColumn && columnType ? (
                                     <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
-                                        {columnType}
+                                        {columnType === 'field_traverser' && item?.record?.field.chain
+                                            ? formatTraversalChain(item.record.field.chain)
+                                            : columnType}
+                                    </span>
+                                ) : tableKindLabel ? (
+                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
+                                        {tableKindLabel}
                                     </span>
                                 ) : null}
                             </div>
@@ -232,6 +272,49 @@ export const QueryDatabase = (): JSX.Element => {
                 )
             }}
             itemSideAction={(item) => {
+                const joinMenu =
+                    item.record?.field && item.record?.table
+                        ? (() => {
+                              const joinKey = `${item.record.table}.${item.record.field.name}`
+                              const join = joinsByFieldName[joinKey]
+
+                              if (
+                                  !join ||
+                                  !isJoined(item.record.field) ||
+                                  join.source_table_name !== item.record.table
+                              ) {
+                                  return null
+                              }
+
+                              return (
+                                  <DropdownMenuGroup>
+                                      <DropdownMenuItem
+                                          asChild
+                                          onClick={(e) => {
+                                              e.stopPropagation()
+                                              toggleEditJoinModal(join)
+                                          }}
+                                      >
+                                          <ButtonPrimitive menuItem>Edit</ButtonPrimitive>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                          asChild
+                                          onClick={(e) => {
+                                              e.stopPropagation()
+                                              deleteJoin(join)
+                                          }}
+                                      >
+                                          <ButtonPrimitive menuItem>Delete join</ButtonPrimitive>
+                                      </DropdownMenuItem>
+                                  </DropdownMenuGroup>
+                              )
+                          })()
+                        : null
+
+                if (joinMenu) {
+                    return joinMenu
+                }
+
                 // Show menu for drafts
                 if (item.record?.type === 'draft') {
                     const draft = item.record.draft
@@ -291,6 +374,35 @@ export const QueryDatabase = (): JSX.Element => {
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Copy table name</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
+                // Show menu for endpoint tables
+                if (item.record?.type === 'endpoint') {
+                    const tableName = item.record.tableName
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    router.actions.push(urls.endpoint(item.name))
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Edit endpoint</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sceneLogic.actions.newTab(
+                                        urls.sqlEditor({ query: `SELECT * FROM \`${tableName}\`` })
+                                    )
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     )
@@ -411,47 +523,6 @@ export const QueryDatabase = (): JSX.Element => {
                     )
                 }
 
-                if (item.record?.type === 'column') {
-                    if (
-                        isJoined(item.record.field) &&
-                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`] &&
-                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`].source_table_name ===
-                            item.record.table
-                    ) {
-                        return (
-                            <DropdownMenuGroup>
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (item.record?.columnName) {
-                                            toggleEditJoinModal(
-                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-                                            )
-                                        }
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Edit</ButtonPrimitive>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (item.record?.columnName) {
-                                            const join =
-                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-
-                                            deleteJoin(join)
-                                        }
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Delete join</ButtonPrimitive>
-                                </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                        )
-                    }
-                }
-
                 if (item.record?.type === 'unsaved-query') {
                     return (
                         <DropdownMenuGroup>
@@ -481,39 +552,7 @@ export const QueryDatabase = (): JSX.Element => {
                     )
                 }
 
-                // Show menu for endpoints
-                if (item.record?.type === 'endpoint') {
-                    return (
-                        <DropdownMenuGroup>
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    sceneLogic.actions.newTab(urls.endpoint(item.name))
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>View endpoint</ButtonPrimitive>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    sceneLogic.actions.newTab(
-                                        urls.sqlEditor({
-                                            query: item.record?.endpoint?.query.query,
-                                            outputTab: OutputTab.Endpoint,
-                                            endpointName: item.record?.endpoint?.name,
-                                        })
-                                    )
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>Edit endpoint query</ButtonPrimitive>
-                            </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                    )
-                }
-
-                if (['sources', 'endpoints'].includes(item.record?.type)) {
+                if (item.record?.type === 'sources') {
                     // used to override default icon behavior
                     return null
                 }
@@ -532,23 +571,6 @@ export const QueryDatabase = (): JSX.Element => {
                                 sceneLogic.actions.newTab(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
-                        >
-                            <IconPlusSmall className="text-tertiary" />
-                        </ButtonPrimitive>
-                    )
-                }
-
-                if (item.record?.type === 'endpoints') {
-                    return (
-                        <ButtonPrimitive
-                            iconOnly
-                            isSideActionRight
-                            className="z-2"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                sceneLogic.actions.newTab(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))
-                            }}
-                            data-attr="sql-editor-add-endpoint"
                         >
                             <IconPlusSmall className="text-tertiary" />
                         </ButtonPrimitive>

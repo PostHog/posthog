@@ -41,6 +41,7 @@ import {
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
+    VizSpecificOptions,
 } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
@@ -122,6 +123,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
         }),
+        updateVizSpecificOptions: (vizSpecificOptions: VizSpecificOptions) => ({ vizSpecificOptions }),
     }),
 
     reducers({
@@ -310,7 +312,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
         ],
 
-        isSingleSeries: [
+        // Whether the insight will produce a single visual output (one line/bar).
+        // Considers breakdowns: a breakdown splits one series into multiple visual outputs.
+        // See also: isSingleSeriesDefinition (which ignores breakdowns).
+        isSingleSeriesOutput: [
             (s) => [s.isTrends, s.formula, s.formulas, s.formulaNodes, s.series, s.breakdownFilter],
             (
                 isTrends: boolean,
@@ -330,7 +335,27 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isBreakdownSeries: [
             (s) => [s.breakdownFilter],
             (breakdownFilter): boolean => {
-                return !!breakdownFilter?.breakdown
+                return !!breakdownFilter?.breakdown || (breakdownFilter?.breakdowns?.length ?? 0) > 0
+            },
+        ],
+
+        // Whether there's only one event/action series defined in the query.
+        // Ignores breakdowns which create multiple visual outputs from the same series.
+        // See also: isSingleSeriesOutput (which considers breakdowns).
+        isSingleSeriesDefinition: [
+            (s) => [s.isTrends, s.formula, s.formulas, s.formulaNodes, s.series],
+            (
+                isTrends: boolean,
+                formula: string | undefined,
+                formulas: string[] | undefined,
+                formulaNodes: TrendsFormulaNode[] | undefined,
+                series: any[]
+            ): boolean => {
+                const hasSingleFormula =
+                    (formula && !formulas) ||
+                    (formulas && formulas.length === 1) ||
+                    (formulaNodes && formulaNodes.length === 1)
+                return (isTrends && hasSingleFormula) || (series || []).length <= 1
             },
         ],
 
@@ -348,7 +373,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         currentDataWarehouseSchemaColumns: [
             (s) => [
                 s.series,
-                s.isSingleSeries,
+                s.isSingleSeriesOutput,
                 s.isTrends,
                 s.hasDataWarehouseSeries,
                 s.isBreakdownSeries,
@@ -356,13 +381,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ],
             (
                 series,
-                isSingleSeries,
+                isSingleSeriesOutput,
                 isTrends,
                 hasDataWarehouseSeries,
                 isBreakdownSeries,
                 dataWarehouseTablesMap
             ): DatabaseSchemaField[] => {
-                if (!hasDataWarehouseSeries || (isTrends && !isSingleSeries && !isBreakdownSeries)) {
+                if (!hasDataWarehouseSeries || (isTrends && !isSingleSeriesOutput && !isBreakdownSeries)) {
                     return []
                 }
 
@@ -652,6 +677,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             })
         },
 
+        updateVizSpecificOptions: ({ vizSpecificOptions }) => {
+            actions.setQuery({
+                ...values.query,
+                vizSpecificOptions: {
+                    ...values.vizSpecificOptions,
+                    ...vizSpecificOptions,
+                },
+            } as Node)
+        },
+
         // data loading side effects i.e. displaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
@@ -828,7 +863,7 @@ const handleQuerySourceUpdateSideEffects = (
         display !== maybeChangedDisplay &&
         maybeChangedDisplay === ChartDisplayType.WorldMap
     ) {
-        const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0].math
+        const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0]?.math
 
         mergedUpdate['breakdownFilter'] = {
             breakdown: '$geoip_country_code',
@@ -855,6 +890,17 @@ const handleQuerySourceUpdateSideEffects = (
     // Remove breakdown filter if display type is Heatmap because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.CalendarHeatmap) {
         mergedUpdate['breakdownFilter'] = null
+    }
+
+    // Remove breakdown filter and formulas for box plot
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoxPlot) {
+        mergedUpdate['breakdownFilter'] = null
+        ;(mergedUpdate as TrendsQuery).trendsFilter = {
+            ...(mergedUpdate as TrendsQuery).trendsFilter,
+            formula: undefined,
+            formulas: undefined,
+            formulaNodes: [],
+        }
     }
 
     // Don't allow minutes on anything other than Trends

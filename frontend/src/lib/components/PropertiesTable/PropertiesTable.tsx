@@ -14,8 +14,8 @@ import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/Lem
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { isObject, isURL } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewProperty } from 'scenes/persons/NewProperty'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -486,6 +486,7 @@ export function PropertiesTable({
                                 icon={<IconTrash />}
                                 status="danger"
                                 size="small"
+                                data-attr="delete-prop-button"
                                 onClick={() => onClickDelete(item[0])}
                             />
                         )

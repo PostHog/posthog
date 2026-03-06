@@ -2,6 +2,7 @@ import uuid
 import dataclasses
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Prefetch, Q
 
 import structlog
@@ -50,6 +51,7 @@ from products.data_warehouse.backend.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.util import validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
@@ -215,6 +217,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "reddit_integration_id",
             # salesforce
             "salesforce_integration_id",
+            # github
+            "repository",
             # shopify
             "shopify_store_id",
             # temporal
@@ -307,10 +311,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
-        # SSH tunnel auth is a special config not exposed in source fields - preserve its credentials too
+        # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
+            # Deep-merge: start with existing, overlay incoming top-level keys
+            merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
+
             # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
             existing_auth = (
                 (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
@@ -319,13 +326,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
             )
 
-            new_ssh_tunnel = new_job_inputs.get("ssh_tunnel") or {}
-            new_job_inputs["ssh_tunnel"] = new_ssh_tunnel
-            new_auth = new_ssh_tunnel.setdefault("auth", {})
+            if not incoming_auth:
+                # No auth in incoming request - preserve entire existing auth
+                merged_ssh_tunnel["auth"] = {**existing_auth}
+            else:
+                # Merge auth, preserving sensitive fields not explicitly provided
+                merged_auth = {**incoming_auth}
+                for key in ("password", "passphrase", "private_key"):
+                    if existing_auth.get(key) and not incoming_auth.get(key):
+                        merged_auth[key] = existing_auth[key]
+                merged_ssh_tunnel["auth"] = merged_auth
 
-            for key in ("password", "passphrase", "private_key"):
-                if existing_auth.get(key) and not incoming_auth.get(key):
-                    new_auth[key] = existing_auth[key]
+            new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
@@ -446,6 +458,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(payload)
 
+        credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or "Invalid credentials"},
+            )
+
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
@@ -558,6 +577,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
+        schemas = list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=instance.id)
+            .select_related("table")
+            .all()
+        )
+
+        # Soft-delete source, schemas, and tables atomically first so DB state
+        # is consistent even if the external cleanup below fails
+        with transaction.atomic():
+            for schema in schemas:
+                if schema.table:
+                    schema.table.soft_delete()
+                schema.soft_delete()
+            instance.soft_delete()
+
+        # Best-effort external cleanup — soft-deletes are already committed
         latest_running_job = (
             ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
             .order_by("-created_at")
@@ -566,25 +602,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        for schema in (
-            ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=self.team_id, source_id=instance.id)
-            .select_related("table")
-            .all()
-        ):
-            # Delete temporal schedule
-            delete_external_data_schedule(str(schema.id))
+        for schema in schemas:
+            try:
+                delete_external_data_schedule(str(schema.id))
+            except Exception as e:
+                capture_exception(e)
 
-            # Delete data from S3 if it exists
-            schema.delete_table()
-            # Soft delete postgres models
-            schema.soft_delete()
+            try:
+                schema.delete_table()
+            except Exception as e:
+                capture_exception(e)
 
-        # Delete the old source schedule if it still exists
-        delete_external_data_schedule(str(instance.id))
-
-        # Soft delete the source model
-        instance.soft_delete()
+        try:
+            delete_external_data_schedule(str(instance.id))
+        except Exception as e:
+            capture_exception(e)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -612,6 +644,61 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         instance.status = "Running"
         instance.save()
         return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    @extend_schema(
+        responses={
+            200: {"type": "object", "properties": {"added": {"type": "integer"}, "deleted": {"type": "integer"}}}
+        }
+    )
+    def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""
+        instance: ExternalDataSource = self.get_object()
+        logger.debug(
+            "refresh_schemas called",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            source_type=instance.source_type,
+        )
+        if not instance.job_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration."},
+            )
+        try:
+            source_type = ExternalDataSourceType(instance.source_type)
+            source = SourceRegistry.get_source(source_type)
+            config = source.parse_config(instance.job_inputs)
+            schemas = source.get_schemas(config, self.team_id)
+            schema_names = [s.name for s in schemas]
+            logger.info(
+                "refresh_schemas fetched from source",
+                source_id=str(instance.id),
+                schema_count=len(schema_names),
+                schema_names=schema_names,
+            )
+        except Exception as e:
+            logger.exception("Could not fetch schemas from source", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not fetch schemas from source."},
+            )
+        with transaction.atomic():
+            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
+                schema_names, source_id=str(instance.id), team_id=self.team_id
+            )
+        logger.debug(
+            "refresh_schemas completed",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            added=len(schemas_created),
+            deleted=len(schemas_deleted),
+        )
+        return Response(
+            status=status.HTTP_200_OK,
+            data={"added": len(schemas_created), "deleted": len(schemas_deleted)},
+        )
 
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):

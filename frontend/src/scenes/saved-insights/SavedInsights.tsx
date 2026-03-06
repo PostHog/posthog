@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
+import { ComponentType } from 'react'
 
 import {
     IconAI,
@@ -21,6 +22,8 @@ import {
     IconPlusSmall,
     IconRetention,
     IconRetentionHeatmap,
+    IconHeart,
+    IconHeartFilled,
     IconStar,
     IconStarFilled,
     IconStickiness,
@@ -38,25 +41,29 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { projectLogic } from 'scenes/projectLogic'
-import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { HomeTab } from 'scenes/saved-insights/HomeTab'
 import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -84,7 +91,7 @@ export interface InsightTypeMetadata {
     description?: string
     /** Override the description on the insight page tab, for additional info. */
     tooltipDescription?: string
-    icon: (props?: any) => JSX.Element | null
+    icon: React.ComponentType<any>
     inMenu: boolean
     tooltipDocLink?: string
 }
@@ -265,12 +272,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         description: 'Direct SQL query.',
         icon: IconBrackets,
         inMenu: true,
-    },
-    [NodeKind.HogQLASTQuery]: {
-        name: 'SQL AST',
-        description: 'Direct SQL AST query.',
-        icon: IconBrackets,
-        inMenu: false,
     },
     [NodeKind.HogQLMetadata]: {
         name: 'SQL Metadata',
@@ -572,6 +573,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.PropertyValuesQuery]: {
+        name: 'Property values',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -586,6 +592,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         description: 'Use SQL to query your data.',
         icon: IconHogQL,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
     },
     [InsightType.JSON]: {
         name: 'Custom',
@@ -629,7 +636,7 @@ export function InsightIcon({
     insight: QueryBasedInsightModel
     className?: string
 }): JSX.Element | null {
-    let Icon: (props?: any) => JSX.Element | null = () => null
+    let Icon: ComponentType<any> | null = null
 
     if ('query' in insight && isNonEmptyObject(insight.query)) {
         const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
@@ -688,6 +695,8 @@ export function SavedInsights(): JSX.Element {
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
+    const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
+    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { tab } = filters
 
@@ -705,40 +714,37 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <>
+                    <div className="flex items-center gap-1">
                         <LemonTableLink
                             to={urls.insightView(insight.short_id)}
-                            title={
-                                <>
-                                    {name || <i>{summarizeInsight(insight.query)}</i>}
-
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Insight}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={insight.user_access_level}
-                                    >
-                                        <LemonButton
-                                            className="ml-1"
-                                            size="xsmall"
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                updateFavoritedInsight(insight, !insight.favorited)
-                                            }}
-                                            icon={
-                                                insight.favorited ? (
-                                                    <IconStarFilled className="text-warning" />
-                                                ) : (
-                                                    <IconStar className="text-secondary" />
-                                                )
-                                            }
-                                            tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
-                                        />
-                                    </AccessControlAction>
-                                </>
-                            }
+                            title={name || <i>{summarizeInsight(insight.query)}</i>}
                             description={insight.description}
                         />
-                    </>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Insight}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={insight.user_access_level}
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
+                                icon={
+                                    insight.favorited ? (
+                                        isAIFirst ? (
+                                            <IconHeartFilled className="text-danger" />
+                                        ) : (
+                                            <IconStarFilled className="text-warning" />
+                                        )
+                                    ) : isAIFirst ? (
+                                        <IconHeart className="text-secondary" />
+                                    ) : (
+                                        <IconStar className="text-secondary" />
+                                    )
+                                }
+                                tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
+                            />
+                        </AccessControlAction>
+                    </div>
                 )
             },
             sorter: (a, b) => (a.name || summarizeInsight(a.query)).localeCompare(b.name || summarizeInsight(b.query)),
@@ -748,21 +754,45 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'tags' as keyof QueryBasedInsightModel,
             key: 'tags',
             render: function renderTags(tags: string[]) {
-                return <ObjectTags tags={tags} staticOnly />
+                return <ObjectTags tags={[...tags].sort()} staticOnly />
             },
         },
-        ...(tab === SavedInsightsTabs.Yours
-            ? []
-            : [
-                  createdByColumn() as LemonTableColumn<
-                      QueryBasedInsightModel,
-                      keyof QueryBasedInsightModel | undefined
-                  >,
-              ]),
-        createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
+        {
+            title: 'Created by',
+            dataIndex: 'created_by' as keyof QueryBasedInsightModel,
+            render: function Render(_: any, item: QueryBasedInsightModel) {
+                const { created_by } = item
+                return (
+                    <div className="flex flex-row items-center flex-nowrap">
+                        {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                    </div>
+                )
+            },
+            sorter: (a, b) =>
+                (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
+                    b.created_by?.first_name || b.created_by?.email || ''
+                ),
+        },
+        {
+            title: 'Created',
+            dataIndex: 'created_at',
+            render: function RenderCreated(created_at: string) {
+                return created_at ? (
+                    <div className="whitespace-nowrap text-right">
+                        <TZLabel time={created_at} />
+                    </div>
+                ) : (
+                    <span className="text-secondary">—</span>
+                )
+            },
+            align: 'right',
+            defaultSortOrder: -1,
+            sorter: (a, b) => dayjs(a.created_at || 0).diff(b.created_at || 0),
+        },
         {
             title: 'Last modified',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (
@@ -773,6 +803,7 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Last viewed',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_viewed_at',
             render: function renderLastViewed(last_viewed_at: string | null) {
                 return (
@@ -836,13 +867,26 @@ export function SavedInsights(): JSX.Element {
                                 >
                                     <LemonButton
                                         status="danger"
-                                        onClick={() =>
-                                            void deleteInsightWithUndo({
-                                                object: insight,
-                                                endpoint: `projects/${currentProjectId}/insights`,
-                                                callback: loadInsights,
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Delete insight?',
+                                                description:
+                                                    'Are you sure you want to delete this insight? This action can be undone.',
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () =>
+                                                        void deleteInsightWithUndo({
+                                                            object: insight,
+                                                            endpoint: `projects/${currentProjectId}/insights`,
+                                                            callback: loadInsights,
+                                                        }),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
                                             })
-                                        }
+                                        }}
                                         data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
                                         fullWidth
                                     >
@@ -872,50 +916,68 @@ export function SavedInsights(): JSX.Element {
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
-                    { key: SavedInsightsTabs.All, label: 'All insights' },
-                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
-                    { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
-                    { key: SavedInsightsTabs.History, label: 'History' },
+                    ...(showHomeTab
+                        ? [
+                              {
+                                  key: SavedInsightsTabs.Home,
+                                  label: (
+                                      <div className="flex items-center gap-2">
+                                          Home
+                                          <LemonTag type="warning" size="small">
+                                              BETA
+                                          </LemonTag>
+                                      </div>
+                                  ),
+                              },
+                          ]
+                        : []),
+                    { key: SavedInsightsTabs.All, label: 'Insights' },
                     {
                         key: SavedInsightsTabs.Alerts,
                         label: <div className="flex items-center gap-2">Alerts</div>,
                     },
+                    { key: SavedInsightsTabs.History, label: 'History' },
                 ]}
                 sceneInset
             />
 
-            {tab === SavedInsightsTabs.History ? (
+            {tab === SavedInsightsTabs.Home ? (
+                <HomeTab />
+            ) : tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : tab === SavedInsightsTabs.Alerts ? (
                 <Alerts alertId={alertModalId} />
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    {!insightsLoading && insights.count < 1 ? (
-                        <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
-                    ) : (
-                        <>
-                            <ReloadInsight />
-                            <LemonTable
-                                loading={insightsLoading}
-                                columns={columns}
-                                dataSource={insights.results}
-                                pagination={pagination}
-                                noSortingCancellation
-                                sorting={sorting}
-                                onSort={(newSorting) =>
-                                    setSavedInsightsFilters({
-                                        order: newSorting
-                                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                            : undefined,
-                                    })
-                                }
-                                rowKey="id"
-                                loadingSkeletonRows={15}
-                                nouns={['insight', 'insights']}
-                            />
-                        </>
-                    )}
+
+                    <ReloadInsight />
+                    <LemonTable
+                        loading={insightsLoading}
+                        columns={columns}
+                        dataSource={insights.results}
+                        pagination={pagination}
+                        noSortingCancellation
+                        sorting={sorting}
+                        onSort={(newSorting) =>
+                            setSavedInsightsFilters({
+                                order: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                            })
+                        }
+                        rowKey="id"
+                        loadingSkeletonRows={15}
+                        nouns={['insight', 'insights']}
+                        hideSortingIndicatorWhenInactive
+                        emptyState={
+                            !insightsLoading && insights.count < 1 ? (
+                                <div className="py-8">
+                                    <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
+                                </div>
+                            ) : undefined
+                        }
+                    />
                 </>
             )}
         </SceneContent>

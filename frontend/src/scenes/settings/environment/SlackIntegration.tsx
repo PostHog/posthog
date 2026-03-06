@@ -5,8 +5,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -20,7 +20,7 @@ const getSlackAppManifest = (): any => ({
     features: {
         app_home: {
             home_tab_enabled: false,
-            messages_tab_enabled: false,
+            messages_tab_enabled: true,
             messages_tab_read_only_enabled: true,
         },
         bot_user: {
@@ -32,13 +32,26 @@ const getSlackAppManifest = (): any => ({
     oauth_config: {
         redirect_urls: [`${window.location.origin.replace('http://', 'https://')}/integrations/slack/callback`],
         scopes: {
-            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
+            bot: [
+                'app_mentions:read',
+                'channels:history',
+                'channels:read',
+                'chat:write',
+                'groups:history',
+                'links:read',
+                'links:write',
+                'reactions:read',
+                'reactions:write',
+                'team:read',
+                'users:read',
+                'users:read.email',
+            ],
         },
     },
     settings: {
         event_subscriptions: {
-            request_url: `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`,
-            bot_events: ['link_shared'],
+            request_url: `${window.location.origin.replace('http://', 'https://')}/slack/event-callback`,
+            bot_events: ['app_mention', 'link_shared'],
         },
         org_deploy_enabled: false,
         socket_mode_enabled: false,
@@ -53,16 +66,6 @@ export function SlackIntegration(): JSX.Element {
 
     return (
         <div>
-            <p>
-                Integrate with Slack directly to get more advanced options such as{' '}
-                <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack channels of your choice.
-                Guidance on integrating with Slack available{' '}
-                <Link to="https://posthog.com/docs/product-analytics/subscriptions#slack-subscriptions">
-                    in our docs
-                </Link>
-                .
-            </p>
-
             <div className="deprecated-space-y-2">
                 {slackIntegrations?.map((integration) => (
                     <IntegrationView key={integration.id} integration={integration} />

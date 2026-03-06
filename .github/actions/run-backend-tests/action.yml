@@ -2,6 +2,10 @@
 # This is a composite action that packages our backend Django tests.
 # It is called by the `ci-backend.yml` job using a matrix.
 #
+# Note: This action starts core services only (no extra profiles).
+# Callers needing Temporal/Azure must start those services themselves
+# before invoking this action (see ci-backend.yml django job).
+#
 name: Run Django tests
 inputs:
     python-version:
@@ -62,7 +66,8 @@ runs:
                   echo "Attempt $attempt of $max_attempts to start stack..."
 
                   if docker compose -f docker-compose.dev.yml down && \
-                     docker compose -f docker-compose.dev.yml up -d; then
+                     docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d && \
+                     bin/wait-for-docker; then
                       echo "Stack started successfully"
                       exit 0
                   fi
@@ -95,6 +100,7 @@ runs:
           uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
           with:
               enable-cache: true
+              save-cache: ${{ github.ref == 'refs/heads/master' }}
 
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
@@ -111,6 +117,10 @@ runs:
 
         - name: Install pnpm
           uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+        - name: Fix node-gyp permissions
+          shell: bash
+          run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
         - name: Set up Node.js
           uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -170,7 +180,9 @@ runs:
         - name: Cache Rust dependencies
           uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
           with:
+              shared-key: 'v2-rust-backend'
               workspaces: rust
+              save-if: ${{ github.ref == 'refs/heads/master' }}
 
         - name: Install sqlx-cli
           shell: bash
@@ -185,16 +197,6 @@ runs:
               touch frontend/dist/exporter.html
               ./bin/download-mmdb
 
-        - name: Wait for Clickhouse & Kafka
-          shell: bash
-          run: bin/check_kafka_clickhouse_up
-
-        - name: Wait for Temporal
-          if: ${{ inputs.segment == 'Temporal' }}
-          shell: bash
-          run: |
-              bin/check_temporal_up
-
         - name: Determine if --snapshot-update should be on
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
           # runs, as we want to ignore snapshots diverging there
@@ -202,12 +204,13 @@ runs:
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
-        - name: Add --snapshot-warn-unused for compat tests
-          # Compat tests run a subset of snapshot tests, so unused snapshots are expected
-          # This makes unused snapshots non-fatal (warning only)
+        - name: Add snapshot flags for subset runs (compat tests)
+          # Subset runs don't own snapshots — the main django tests do.
+          # Always update snapshots and warn on unused so compat tests
+          # never fail due to snapshot differences across CH versions.
           if: inputs.snapshot-warn-unused == 'true'
           shell: bash
-          run: echo "PYTEST_ARGS=$PYTEST_ARGS --snapshot-warn-unused" >> $GITHUB_ENV
+          run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
         # Tests
         - name: Run Core tests

@@ -393,7 +393,7 @@ class HogQLCohortQuery:
         return query_runner.to_query()
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        cohort = Cohort.objects.get(pk=cast(int, prop.value))
+        cohort = Cohort.objects.get(pk=cast(int, prop.value), team__project_id=self.team.project_id)
         return cast(
             ast.SelectQuery,
             parse_select(

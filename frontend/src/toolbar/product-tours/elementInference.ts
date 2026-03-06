@@ -2,7 +2,7 @@ import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { TAGS_TO_IGNORE } from 'lib/actionUtils'
 
-import { TOOLBAR_ID, elementIsVisible, getParent, getSafeText } from '~/toolbar/utils'
+import { TOOLBAR_ID, elementIsVisible, getParent } from '~/toolbar/utils'
 
 export interface SelectorGroup {
     cardinality: number
@@ -21,6 +21,7 @@ export interface InferredSelector {
     autoData: string
     text: string | null
     excludeText?: boolean
+    precision?: number
 }
 
 export interface InferenceResult {
@@ -140,10 +141,10 @@ function getAncestorSelectors(element: HTMLElement, config: InferenceConfig): Ar
         .map(([selector]) => selector)
 }
 
-// get element text - use getSafeText, but restrict to max 250 chars.
-// anything higher -> prob not a good selector / button / target.
+// get element text using innerText to capture nested text content
+// anything higher than 250 chars -> prob not a good selector / button / target
 function getElementText(element: HTMLElement): string | null {
-    const text = getSafeText(element)
+    const text = element.innerText?.trim()
     if (!text || text.length > 250) {
         return null
     }

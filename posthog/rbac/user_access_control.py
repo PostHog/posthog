@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
@@ -43,6 +44,7 @@ AccessControlLevelNone = Literal["none"]
 AccessControlLevelMember = Literal[AccessControlLevelNone, "member", "admin"]
 AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor", "manager"]
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
+InheritedAccessLevelReason = Literal["role_override", "project_default", "organization_admin"]
 
 NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
@@ -56,12 +58,14 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "external_data_source",
     "feature_flag",
     "insight",
+    "llm_analytics",
     "notebook",
     "revenue_analytics",
     "session_recording",
     "survey",
     "web_analytics",
     "activity_log",
+    "error_tracking",
     "logs",
 )
 
@@ -69,6 +73,10 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
     "external_data_schema": "external_data_source",
+    "evaluation": "llm_analytics",
+    "dataset": "llm_analytics",
+    "llm_provider_key": "llm_analytics",
+    "llm_prompt": "llm_analytics",
 }
 
 
@@ -148,6 +156,91 @@ def access_level_satisfied_for_resource(
     resource: APIScopeObject, current_level: AccessControlLevel, required_level: AccessControlLevel
 ) -> bool:
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
+
+
+@dataclass(frozen=True)
+class EffectiveAccessResult:
+    effective_access_level: AccessControlLevel | None
+    inherited_access_level: AccessControlLevel | None
+    inherited_access_level_reason: InheritedAccessLevelReason | None
+
+
+def get_effective_access_level_for_role(
+    resource: APIScopeObject,
+    default_level: AccessControlLevel | None,
+    role_level: AccessControlLevel | None,
+) -> EffectiveAccessResult:
+    """Compute effective access for a role from role override and default."""
+    effective: AccessControlLevel | None = None
+    inherited: AccessControlLevel | None = None
+    inherited_reason: InheritedAccessLevelReason | None = None
+
+    if default_level is None:
+        effective = role_level
+    elif role_level is None:
+        effective = default_level
+        inherited = default_level
+        inherited_reason = "project_default"
+    elif role_level and default_level:
+        inherited = default_level
+        inherited_reason = "project_default"
+
+        levels = ordered_access_levels(resource)
+        effective = role_level if levels.index(role_level) > levels.index(default_level) else default_level
+
+    return EffectiveAccessResult(
+        effective_access_level=effective,
+        inherited_access_level=inherited,
+        inherited_access_level_reason=inherited_reason,
+    )
+
+
+def get_effective_access_level_for_member(
+    resource: APIScopeObject,
+    default_level: AccessControlLevel | None,
+    role_levels: list[AccessControlLevel],
+    member_level: AccessControlLevel | None,
+    is_org_admin: bool,
+) -> EffectiveAccessResult:
+    """Compute effective access for a member from member override, default, and role levels."""
+    effective: AccessControlLevel | None = None
+    inherited: AccessControlLevel | None = None
+    inherited_reason: InheritedAccessLevelReason | None = None
+
+    if is_org_admin:
+        highest = highest_access_level(resource)
+        effective = highest
+        inherited = highest
+        inherited_reason = "organization_admin"
+    elif default_level and not role_levels and not member_level:
+        effective = default_level
+        inherited = default_level
+        inherited_reason = "project_default"
+    elif default_level is None and not role_levels and member_level:
+        effective = member_level
+    else:
+        levels = ordered_access_levels(resource)
+
+        inherited = default_level
+        inherited_reason = "project_default" if default_level else None
+
+        # checking if any role level is higher than the default level
+        for rl in role_levels:
+            if inherited is None or levels.index(rl) > levels.index(inherited):
+                inherited = rl
+                inherited_reason = "role_override"
+
+        # checking if the member level is higher than the default and role levels
+        if member_level and levels.index(member_level) > levels.index(cast(AccessControlLevel, inherited)):
+            effective = member_level
+        else:
+            effective = inherited
+
+    return EffectiveAccessResult(
+        effective_access_level=effective,
+        inherited_access_level=inherited,
+        inherited_access_level_reason=inherited_reason,
+    )
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
@@ -955,8 +1048,14 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             # Get the required resource and access level for this field
             resource, required_level = field_mappings[field_name]
 
-            # Check if user has the required access level
-            if not user_access_control.check_access_level_for_resource(resource, required_level):
+            # Check if user has the required access level.
+            # "project" access is object-level (checked against the Team instance), not resource-level.
+            if resource == "project":
+                has_access = user_access_control.check_access_level_for_object(self.instance, required_level)
+            else:
+                has_access = user_access_control.check_access_level_for_resource(resource, required_level)
+
+            if not has_access:
                 display_name = resource_to_display_name(resource)
                 raise serializers.ValidationError(
                     {field_name: f"You need {required_level} access to {display_name} to modify this field."}

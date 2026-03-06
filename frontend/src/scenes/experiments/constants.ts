@@ -94,6 +94,7 @@ export const NEW_EXPERIMENT: Experiment = {
             { key: 'control', rollout_percentage: 50 },
             { key: 'test', rollout_percentage: 50 },
         ] as any[],
+        rollout_percentage: 100,
     },
     created_at: null,
     created_by: null,

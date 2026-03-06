@@ -73,6 +73,7 @@ yalc.lock
 .vscode/*
 !.vscode/launch.json
 !.vscode/settings.example.json
+!.vscode/extensions.json
 
 # Ignoring local Zed config
 # but commit shared `debug.json` file
@@ -133,6 +134,7 @@ posthog/management/commands/clear_demo_data.py
 
 # Ignore Claude Code settings
 .claude/settings.local.json
+.claude/worktrees/
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
@@ -165,4 +167,17 @@ data/seaweedfs/
 # Ignore Agent OS (Claude Code) files
 .claude/agents/agent-os
 .claude/commands/agent-os
+
 agent-os/
+
+# MCP build files
+services/mcp/ui-apps-dist
+
+# Product skills
+.claude/skills/error-tracking
+
+# Test output
+junit.xml
+
+# Downloaded GitHub issues for signals
+products/signals/backend/github_issues/

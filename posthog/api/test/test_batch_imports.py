@@ -75,6 +75,19 @@ class TestBatchImportConfigBuilder(BaseTest):
         self.assertEqual(self.batch_import.import_config, expected_config)
         self.assertEqual(self.batch_import.secrets["urls"], urls)
 
+    def test_to_capture_configuration(self):
+        urls = ["http://example.com/data.json"]
+
+        self.batch_import.config.json_lines(ContentType.AMPLITUDE).from_urls(urls).to_capture(send_rate=1000)
+
+        expected_config = {
+            "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
+            "source": {"type": "url_list", "urls_key": "urls", "allow_internal_ips": False, "timeout_seconds": 30},
+            "sink": {"type": "capture", "send_rate": 1000},
+        }
+        self.assertEqual(self.batch_import.import_config, expected_config)
+        self.assertEqual(self.batch_import.secrets["urls"], urls)
+
     def test_with_generate_identify_events_configuration(self):
         """Test that generate_identify_events is added as a top-level config field"""
         self.batch_import.config.json_lines(ContentType.AMPLITUDE).with_generate_identify_events(True)
@@ -236,6 +249,10 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertNotIn("import_events", batch_import.import_config)
         self.assertNotIn("generate_identify_events", batch_import.import_config)
         self.assertNotIn("generate_group_identify_events", batch_import.import_config)
+
+        # Verify sink defaults to capture
+        self.assertEqual(batch_import.import_config["sink"]["type"], "capture")
+        self.assertEqual(batch_import.import_config["sink"]["send_rate"], 1000)
 
     def test_amplitude_migration_includes_amplitude_specific_fields(self):
         """Test that Amplitude migrations include import_events and generate_identify_events in config"""
@@ -472,6 +489,30 @@ class TestBatchImportAPI(APIBaseTest):
         # Verify the batch import was created
         batch_import = BatchImport.objects.get(id=response.json()["id"])
         self.assertIsNotNone(batch_import)
+
+    def test_s3_gzip_migration_creates_correct_import_config(self):
+        """Test that s3_gzip source type creates import_config with type s3_gzip"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3_gzip",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "exports/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["source"]["type"], "s3_gzip")
+        self.assertEqual(batch_import.import_config["source"]["bucket"], "test-bucket")
+        self.assertEqual(batch_import.import_config["source"]["prefix"], "exports/")
+        self.assertEqual(batch_import.import_config["source"]["region"], "us-east-1")
+        self.assertIn("aws_access_key_id", batch_import.secrets)
+        self.assertIn("aws_secret_access_key", batch_import.secrets)
 
     @parameterized.expand(
         [

@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast  # noqa: UP035
 
 from django.core.exceptions import FieldError
@@ -22,11 +23,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.heatmap_saved import SavedHeatmap
+from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -36,6 +36,8 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 from posthog.utils import relative_date_parse_with_delta_mapping
+
+STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
 DEFAULT_QUERY = """
             select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
@@ -71,6 +73,22 @@ FROM (
 ORDER BY bucket
 """
 
+EVENTS_QUERY = """
+SELECT
+    session_id,
+    distinct_id,
+    timestamp,
+    round((x / viewport_width), 2) as pointer_relative_x,
+    y * scale_factor as pointer_y,
+    current_url,
+    type
+FROM heatmaps
+WHERE {predicates}
+ORDER BY timestamp DESC
+LIMIT {limit}
+OFFSET {offset}
+"""
+
 
 class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_min = serializers.IntegerField(required=False)
@@ -87,6 +105,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         default="total_count",
     )
     filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
+    hide_zero_coordinates = serializers.BooleanField(required=False, default=True)
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -169,19 +188,54 @@ class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
     results = HeatmapScrollDepthResponseItemSerializer(many=True)
 
 
+class HeatmapEventsRequestSerializer(HeatmapsRequestSerializer):
+    # JSON string of coordinate points: [{"x": 0.5, "y": 100}, ...]
+    points = serializers.CharField(required=True)
+    limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
+    offset = serializers.IntegerField(required=False, default=0, min_value=0)
+
+    def validate_points(self, value: str) -> list[dict]:
+        try:
+            points = loads(value)
+            if not isinstance(points, list) or len(points) == 0:
+                raise serializers.ValidationError("points must be a non-empty array")
+            for point in points:
+                if not isinstance(point, dict) or "x" not in point or "y" not in point:
+                    raise serializers.ValidationError("each point must have x and y")
+            return points
+        except JSONDecodeError:
+            raise serializers.ValidationError("points must be valid JSON")
+
+
+class HeatmapEventItemSerializer(serializers.Serializer):
+    session_id = serializers.CharField(required=False, allow_null=True)
+    distinct_id = serializers.CharField(required=True)
+    timestamp = serializers.DateTimeField(required=True)
+    pointer_relative_x = serializers.FloatField(required=True)
+    pointer_y = serializers.IntegerField(required=True)
+    current_url = serializers.CharField(required=True)
+    type = serializers.CharField(required=True)
+
+
+class HeatmapEventsResponseSerializer(serializers.Serializer):
+    results = HeatmapEventItemSerializer(many=True)
+    total_count = serializers.IntegerField(required=True)
+    has_more = serializers.BooleanField(required=True)
+
+
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "heatmap"
+    scope_object_read_actions = ["list", "retrieve", "events"]
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
-
-    authentication_classes = [TemporaryTokenAuthentication]
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
         request_serializer.is_valid(raise_exception=True)
 
         aggregation = request_serializer.validated_data.pop("aggregation")
+        hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
@@ -191,28 +245,13 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
         exprs = self._predicate_expressions(placeholders)
 
+        if hide_zero_coordinates and not is_scrolldepth_query:
+            exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
+
         if request_serializer.validated_data.get("filter_test_accounts") is True:
             date_from: date = request_serializer.validated_data["date_from"]
             date_to: date | None = request_serializer.validated_data.get("date_to", None)
-            events_select = replace_filters(
-                parse_select(
-                    "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
-                ),
-                HogQLFilters(
-                    filterTestAccounts=True,
-                    dateRange=DateRange(
-                        date_from=date_from.strftime("%Y-%m-%d"),
-                        date_to=date_to.strftime("%Y-%m-%d") if date_to else (date.today()).strftime("%Y-%m-%d"),
-                    ),
-                ),
-                self.team,
-            )
-            session_filter_expr = ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["session_id"]),
-                right=events_select,
-            )
-            exprs.append(session_filter_expr)
+            exprs.append(self._build_test_accounts_filter(date_from, date_to))
 
         stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
@@ -229,6 +268,26 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             aggregation_value = "count(*)" if aggregation == "total_count" else "count(distinct distinct_id)"
         aggregation_count = parse_expr(aggregation_value)
         return aggregation_count
+
+    def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
+        events_select = replace_filters(
+            parse_select(
+                "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
+            ),
+            HogQLFilters(
+                filterTestAccounts=True,
+                dateRange=DateRange(
+                    date_from=date_from.strftime("%Y-%m-%d"),
+                    date_to=date_to.strftime("%Y-%m-%d") if date_to else (date.today()).strftime("%Y-%m-%d"),
+                ),
+            ),
+            self.team,
+        )
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["session_id"]),
+            right=events_select,
+        )
 
     @staticmethod
     def _predicate_expressions(placeholders: dict[str, Expr]) -> List[ast.Expr]:  # noqa: UP006
@@ -297,6 +356,88 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         resp["Vary"] = "Accept, Accept-Encoding, Query-String"
         return resp
 
+    @action(methods=["GET"], detail=False)
+    def events(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        request_serializer = HeatmapEventsRequestSerializer(data=request.query_params, context={"team": self.team})
+        request_serializer.is_valid(raise_exception=True)
+
+        validated_data = request_serializer.validated_data
+        limit = validated_data.pop("limit")
+        offset = validated_data.pop("offset")
+        points = validated_data.pop("points")
+        validated_data.pop("aggregation", None)
+        validated_data.pop("hide_zero_coordinates", None)
+
+        placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
+        placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
+
+        exprs = self._predicate_expressions(placeholders)
+
+        # Build OR condition for each exact point
+        # Each point must match the exact aggregation grouping used in DEFAULT_QUERY
+        point_conditions: list[ast.Expr] = []
+        for point in points:
+            x_rounded = round(float(point["x"]), 2)
+            y_int = int(point["y"])
+            target_fixed = bool(point.get("target_fixed", False))
+            point_expr = ast.And(
+                exprs=[
+                    parse_expr("round((x / viewport_width), 2) = {x}", {"x": Constant(value=x_rounded)}),
+                    parse_expr("y * scale_factor = {y}", {"y": Constant(value=y_int)}),
+                    parse_expr("pointer_target_fixed = {fixed}", {"fixed": Constant(value=target_fixed)}),
+                ]
+            )
+            point_conditions.append(point_expr)
+
+        # Combine all point conditions with OR
+        if len(point_conditions) == 1:
+            exprs.append(point_conditions[0])
+        else:
+            exprs.append(ast.Or(exprs=point_conditions))
+
+        if validated_data.get("filter_test_accounts") is True:
+            date_from: date = validated_data["date_from"]
+            date_to: date | None = validated_data.get("date_to", None)
+            exprs.append(self._build_test_accounts_filter(date_from, date_to))
+
+        # First get total count
+        count_stmt = parse_select(
+            "SELECT count() FROM heatmaps WHERE {predicates}",
+            {"predicates": ast.And(exprs=exprs)},
+        )
+        context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
+        count_result = execute_hogql_query(
+            query=count_stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context
+        )
+        total_count = count_result.results[0][0] if count_result.results else 0
+
+        # Then get events with limit and offset
+        stmt = parse_select(
+            EVENTS_QUERY,
+            {"predicates": ast.And(exprs=exprs), "limit": Constant(value=limit), "offset": Constant(value=offset)},
+        )
+        results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
+
+        data = [
+            {
+                "session_id": item[0] if item[0] else None,
+                "distinct_id": item[1],
+                "timestamp": item[2],
+                "pointer_relative_x": item[3],
+                "pointer_y": item[4],
+                "current_url": item[5],
+                "type": item[6],
+            }
+            for item in results.results or []
+        ]
+
+        response_serializer = HeatmapEventsResponseSerializer(
+            data={"results": data, "total_count": total_count, "has_more": total_count > offset + limit}
+        )
+        response_serializer.is_valid(raise_exception=True)
+
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
 
 class LegacyHeatmapViewSet(HeatmapViewSet):
     param_derived_from_user_current_team = "team_id"
@@ -354,10 +495,10 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
 
 
 class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "heatmap"
+    scope_object_read_actions = ["list", "retrieve", "content"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     queryset = SavedHeatmap.objects.all()
 
     def safely_get_queryset(self, queryset):
@@ -432,10 +573,9 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
 
 
 class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "heatmap"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     queryset = SavedHeatmap.objects.all()
     lookup_field = "short_id"
 
@@ -532,7 +672,33 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
+
+        if (
+            obj.type == SavedHeatmap.Type.SCREENSHOT
+            and obj.status == SavedHeatmap.Status.PROCESSING
+            and obj.updated_at < datetime.now(tz=obj.updated_at.tzinfo) - STALE_PROCESSING_THRESHOLD
+        ):
+            self._regenerate(obj)
+
         return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        if obj.type != SavedHeatmap.Type.SCREENSHOT:
+            return response.Response(
+                {"error": "Only screenshot heatmaps can be regenerated"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        self._regenerate(obj)
+        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    def _regenerate(self, obj: SavedHeatmap) -> None:
+        obj.status = SavedHeatmap.Status.PROCESSING
+        obj.exception = None
+        obj.save(update_fields=["status", "exception", "updated_at"])
+        HeatmapSnapshot.objects.filter(heatmap=obj).delete()
+        generate_heatmap_screenshot.delay(obj.id)
 
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()

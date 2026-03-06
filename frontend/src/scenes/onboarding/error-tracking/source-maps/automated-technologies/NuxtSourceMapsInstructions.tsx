@@ -34,7 +34,7 @@ export function NuxtSourceMapsInstructions(): JSX.Element {
             </p>
             <CodeSnippet language={Language.TypeScript}>
                 {nuxtModuleConfig(
-                    currentTeam?.api_token ?? '<ph_project_api_key>',
+                    currentTeam?.api_token ?? '<ph_project_token>',
                     host,
                     currentTeam?.id?.toString() ?? '<team_id>'
                 )}

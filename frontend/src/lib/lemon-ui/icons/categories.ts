@@ -269,6 +269,7 @@ export const ELEMENTS = {
         'IconStarHalfFilled',
         'IconHeart',
         'IconHeartFilled',
+        'IconHeartPlus',
     ],
     Mathematics: [
         'IconCalculator',
@@ -305,6 +306,7 @@ export const TEAMS_AND_COMPANIES = {
         'IconPulse',
         'IconRefresh',
         'IconBadge',
+        'IconGroupIntersect',
     ],
     Replay: [
         'IconPlay',
@@ -321,10 +323,10 @@ export const TEAMS_AND_COMPANIES = {
     ],
     'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
     Modeling: ['IconDirectedGraph'],
-    Pipeline: ['IconWebhooks', 'IconDecisionTree'],
+    Pipeline: ['IconWebhooks', 'IconDecisionTree', 'IconEndpoints'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
     Logos: ['IconLogomark', 'IconGithub', 'IconGitLab', 'IconLinear', 'IconRedux'],
     ErrorTracking: ['IconIssue'],
-    LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
+    LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement', 'IconScatter'],
     PostHogAI: ['IconBrain'],
 }

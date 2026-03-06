@@ -17,7 +17,6 @@ from posthog.schema import (
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsQuery,
-    HogQLQueryModifiers,
     PropertyOperator,
 )
 
@@ -135,7 +134,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         person = Person.objects.filter(team_id=self.team.pk).first()
-        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk))  # type: ignore
+        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk), orderBy=[])  # type: ignore
 
         # matching team
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
@@ -162,7 +161,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         ]
         self.team.save()
-        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True)
+        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True, orderBy=[])
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Constant, where_expr.right)
@@ -492,21 +491,101 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        runner_regular = EventsQueryRunner(query=query, team=self.team)
-        response_regular = runner_regular.run()
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
 
-        runner_presorted = EventsQueryRunner(
-            query=query, team=self.team, modifiers=HogQLQueryModifiers(usePresortedEventsTable=True)
+        assert isinstance(response, CachedEventsQueryResponse)
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    def test_presorted_events_table_order_by_event(self):
+        """Test presorted optimization when ordering by event column."""
+        self._create_events(data=[("p2", "2021-01-20T12:00:14Z", {})], event="beta_event")
+        self._create_events(data=[("p3", "2021-01-20T12:00:24Z", {})], event="gamma_event")
+        self._create_events(data=[("p1", "2021-01-20T12:00:04Z", {})], event="alpha_event")
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            after="-7d",
+            kind="EventsQuery",
+            orderBy=["event ASC"],
+            select=["*"],
+            offset=0,
         )
-        response_presorted = runner_presorted.run()
 
-        assert isinstance(response_regular, CachedEventsQueryResponse)
-        assert isinstance(response_presorted, CachedEventsQueryResponse)
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
 
-        assert "cityHash" not in response_regular.hogql
-        assert "cityHash" in response_presorted.hogql
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) == 3
+        # Alphabetical order: alpha < beta < gamma (different from creation order)
+        assert response.results[0][0]["distinct_id"] == "p1"
+        assert response.results[1][0]["distinct_id"] == "p2"
+        assert response.results[2][0]["distinct_id"] == "p3"
 
-        assert response_regular.results == response_presorted.results
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    def test_presorted_events_table_order_by_property(self):
+        """Test presorted optimization when ordering by property."""
+        self._create_events(
+            data=[
+                ("p2", "2021-01-20T12:00:14Z", {"priority": "medium"}),
+                ("p3", "2021-01-20T12:00:24Z", {"priority": "urgent"}),
+                ("p1", "2021-01-20T12:00:04Z", {"priority": "low"}),
+            ]
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            after="-7d",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["properties.priority ASC"],
+            select=["*"],
+            offset=0,
+        )
+
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) == 3
+        # Alphabetical order: low < medium < urgent (different from creation order)
+        assert response.results[0][0]["distinct_id"] == "p1"
+        assert response.results[1][0]["distinct_id"] == "p2"
+        assert response.results[2][0]["distinct_id"] == "p3"
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    def test_presorted_events_table_multiple_order_by(self):
+        """Test presorted optimization with multiple ORDER BY clauses."""
+        self._create_events(
+            data=[
+                ("p2", "2021-01-20T12:00:14Z", {}),
+                ("p1", "2021-01-20T12:00:04Z", {}),
+                ("p3", "2021-01-20T12:00:24Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            after="-7d",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["timestamp DESC", "event ASC"],
+            select=["*"],
+            offset=0,
+        )
+
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) == 3
+        # timestamp DESC: p3 (12:00:24) > p2 (12:00:14) > p1 (12:00:04)
+        assert response.results[0][0]["distinct_id"] == "p3"
+        assert response.results[1][0]["distinct_id"] == "p2"
+        assert response.results[2][0]["distinct_id"] == "p1"
 
     def test_select_person_column(self):
         self._create_events(
@@ -749,3 +828,36 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Should use default display name property (email)
         display_names = [row[1]["display_name"] for row in response.results]
         assert display_names[0] == "user@email.com"
+
+    def test_presorted_pagination_does_not_double_offset(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T12:00:01Z", {"idx": 1}),
+                ("p1", "2020-01-11T12:00:02Z", {"idx": 2}),
+                ("p1", "2020-01-11T12:00:03Z", {"idx": 3}),
+                ("p1", "2020-01-11T12:00:04Z", {"idx": 4}),
+                ("p1", "2020-01-11T12:00:05Z", {"idx": 5}),
+            ]
+        )
+        flush_persons_and_events()
+
+        all_results = []
+        for offset in (0, 2, 4):
+            with freeze_time("2020-01-12"):
+                query = EventsQuery(
+                    kind="EventsQuery",
+                    select=["properties.idx", "timestamp"],
+                    after="2020-01-10",
+                    before="2020-01-13",
+                    orderBy=["timestamp ASC"],
+                    limit=2,
+                    offset=offset,
+                )
+                runner = EventsQueryRunner(query=query, team=self.team)
+                response = runner.run()
+
+            assert isinstance(response, CachedEventsQueryResponse)
+            all_results.extend(response.results)
+
+        actual_indices = [row[0] for row in all_results]
+        self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])

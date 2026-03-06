@@ -6,9 +6,9 @@ import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -31,6 +31,8 @@ export const navigationLogic = kea<navigationLogicType>([
     })),
     actions({
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
+        showConfigurePinnedTabsModal: true,
+        hideConfigurePinnedTabsModal: true,
     }),
     loaders({
         navigationStatus: [
@@ -55,6 +57,13 @@ export const navigationLogic = kea<navigationLogicType>([
             { persist: true },
             {
                 closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
+            },
+        ],
+        isConfigurePinnedTabsModalOpen: [
+            false,
+            {
+                showConfigurePinnedTabsModal: () => true,
+                hideConfigurePinnedTabsModal: () => false,
             },
         ],
     }),

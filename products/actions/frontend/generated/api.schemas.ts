@@ -15,9 +15,9 @@
 export type UrlMatchingEnumApi = (typeof UrlMatchingEnumApi)[keyof typeof UrlMatchingEnumApi]
 
 export const UrlMatchingEnumApi = {
-    contains: 'contains',
-    regex: 'regex',
-    exact: 'exact',
+    Contains: 'contains',
+    Regex: 'regex',
+    Exact: 'exact',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
@@ -61,14 +61,14 @@ export interface ActionStepJSONApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -199,8 +199,8 @@ export type ActionsListParams = {
 export type ActionsListFormat = (typeof ActionsListFormat)[keyof typeof ActionsListFormat]
 
 export const ActionsListFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsCreateParams = {
@@ -210,8 +210,8 @@ export type ActionsCreateParams = {
 export type ActionsCreateFormat = (typeof ActionsCreateFormat)[keyof typeof ActionsCreateFormat]
 
 export const ActionsCreateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsRetrieveParams = {
@@ -221,8 +221,8 @@ export type ActionsRetrieveParams = {
 export type ActionsRetrieveFormat = (typeof ActionsRetrieveFormat)[keyof typeof ActionsRetrieveFormat]
 
 export const ActionsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsUpdateParams = {
@@ -232,8 +232,8 @@ export type ActionsUpdateParams = {
 export type ActionsUpdateFormat = (typeof ActionsUpdateFormat)[keyof typeof ActionsUpdateFormat]
 
 export const ActionsUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsPartialUpdateParams = {
@@ -243,8 +243,8 @@ export type ActionsPartialUpdateParams = {
 export type ActionsPartialUpdateFormat = (typeof ActionsPartialUpdateFormat)[keyof typeof ActionsPartialUpdateFormat]
 
 export const ActionsPartialUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
 
 export type ActionsDestroyParams = {
@@ -254,6 +254,6 @@ export type ActionsDestroyParams = {
 export type ActionsDestroyFormat = (typeof ActionsDestroyFormat)[keyof typeof ActionsDestroyFormat]
 
 export const ActionsDestroyFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const

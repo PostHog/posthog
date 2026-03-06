@@ -2,11 +2,18 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import Optional
+import re
+from enum import StrEnum
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 import posthoganalytics
+from rest_framework.authentication import SessionAuthentication
 
 from posthog.models import Organization, User
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
 from posthog.settings import SITE_URL
 from posthog.utils import get_instance_realm
@@ -23,6 +30,7 @@ def report_user_signed_up(
     org_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the Organization object
     role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
+    referral_source_ai_prompt: str = "",  # prompt they used when discovering PostHog via AI
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
@@ -40,6 +48,7 @@ def report_user_signed_up(
         "realm": get_instance_realm(),
         "role_at_organization": role_at_organization,
         "referral_source": referral_source,
+        "referral_source_ai_prompt": referral_source_ai_prompt,
         "is_email_verified": user.is_email_verified,
     }
     if user_analytics_metadata is not None:
@@ -254,16 +263,112 @@ def report_user_organization_membership_level_changed(
     )
 
 
-def report_user_action(user: User, event: str, properties: Optional[dict] = None, team: Optional[Team] = None):
-    if not user.distinct_id:
+class EventSource(StrEnum):
+    WEB = "web"
+    API = "api"
+    POSTHOG_AI = "posthog_ai"
+    POSTHOG_CODE = "posthog_code"
+    TERRAFORM = "terraform"
+    MCP = "mcp"
+    WIZARD = "wizard"
+
+
+_POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
+
+
+def get_event_source(request) -> EventSource:
+    """Determine the source of an API request for analytics."""
+    user_agent = request.META.get("HTTP_USER_AGENT", "")
+    if "posthog/terraform-provider" in user_agent:
+        return EventSource.TERRAFORM
+    if "posthog/wizard" in user_agent:
+        return EventSource.WIZARD
+    if _POSTHOG_CODE_UA_RE.search(user_agent):
+        return EventSource.POSTHOG_CODE
+    if "posthog/mcp-server" in user_agent:
+        return EventSource.MCP
+    if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
+        return EventSource.WEB
+    return EventSource.API
+
+
+MAX_HEADER_VALUE_LENGTH = 1000
+
+
+def _sanitize_header_value(value: str | None) -> str | None:
+    if not value:
+        return None
+    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()[:MAX_HEADER_VALUE_LENGTH] or None
+
+
+def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
+    """Extract standard analytics properties from a request."""
+    return {
+        "source": get_event_source(request),
+        "$current_url": request.headers.get("Referer"),
+        "$session_id": request.headers.get("X-Posthog-Session-Id"),
+        "was_impersonated": is_impersonated_session(request),
+        "mcp_user_agent": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-User-Agent")),
+        "mcp_client_name": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Name")),
+        "mcp_client_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Client-Version")),
+        "mcp_protocol_version": _sanitize_header_value(request.headers.get("X-Posthog-Mcp-Protocol-Version")),
+    }
+
+
+def report_user_action(
+    user: User,
+    event: str,
+    properties: Optional[dict] = None,
+    *,
+    team: Optional[Team] = None,
+    organization: Optional[Organization] = None,
+    request: Optional["Request"] = None,
+):
+    if user is None or not user.distinct_id:
         return
     if properties is None:
         properties = {}
+    if request is not None:
+        properties = {**get_request_analytics_properties(request), **properties}
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event=event,
         properties=properties,
-        groups=groups(user.current_organization, team or user.current_team),
+        groups=groups(organization or user.current_organization, team or user.current_team),
+    )
+
+
+def report_user_or_team_action(
+    event: str,
+    properties: Optional[dict] = None,
+    *,
+    user: Optional[User] = None,
+    team: Optional[Team] = None,
+    organization: Optional[Organization] = None,
+    request: Optional["Request"] = None,
+):
+    if properties is None:
+        properties = {}
+    if request is not None:
+        properties = {**get_request_analytics_properties(request), **properties}
+
+    distinct_id = None
+    if user and user.distinct_id:
+        distinct_id = user.distinct_id
+    elif team:
+        distinct_id = str(team.uuid)
+
+    if not distinct_id:
+        return
+
+    org = organization or (user.current_organization if user else None)
+    tm = team or (user.current_team if user else None)
+
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event=event,
+        properties=properties,
+        groups=groups(org, tm),
     )
 
 

@@ -43,6 +43,8 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
 
+import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
+import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 import type { activityLogLogicType } from './activityLogLogicType'
@@ -167,9 +169,12 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.USER:
             return userActivityDescriber
         case ActivityScope.ENDPOINT:
-            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
+        case ActivityScope.ENDPOINT_VERSION:
+            return endpointActivityDescriber
         case ActivityScope.PRODUCT_TOUR:
             return productTourActivityDescriber
+        case ActivityScope.TICKET:
+            return ticketActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
@@ -283,13 +288,13 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
-            [urls.dataPipelines('history')]: (_, searchParams, hashParams) =>
-                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
         }
     }),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            actions.fetchActivity()
+            if (!values.activity.results.length && !values.activityLoading) {
+                actions.fetchActivity()
+            }
         },
     })),
 ])

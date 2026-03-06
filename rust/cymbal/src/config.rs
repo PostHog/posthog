@@ -93,6 +93,9 @@ pub struct Config {
     #[envconfig(default = "symbolsets")]
     pub ss_prefix: String,
 
+    #[envconfig(default = "600")]
+    pub issue_cache_ttl_seconds: u64,
+
     #[envconfig(default = "100000")]
     pub frame_cache_size: u64,
 
@@ -143,7 +146,7 @@ pub struct Config {
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
-    #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6479/")]
+    #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
     #[envconfig(default = "100")]

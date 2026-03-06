@@ -136,6 +136,12 @@ impl DependencyProvider for FeatureFlag {
     }
 
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
+        // Inactive flags evaluate to false regardless of their dependencies,
+        // so skip extraction to avoid MissingDependency errors for stale references.
+        if !self.active {
+            return Ok(HashSet::new());
+        }
+
         let mut dependencies = HashSet::new();
         for group in &self.filters.groups {
             if let Some(properties) = &group.properties {
@@ -443,12 +449,59 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_dependencies_respects_active_state() {
+        use crate::utils::graph_utils::DependencyProvider;
+
+        for (active, expected_deps, label) in [
+            (
+                false,
+                HashSet::new(),
+                "inactive flags should return no dependencies",
+            ),
+            (
+                true,
+                HashSet::from([999]),
+                "active flags should still extract dependencies",
+            ),
+        ] {
+            let mut flag = create_test_flag(
+                Some(1),
+                None,
+                None,
+                Some("test_flag".to_string()),
+                None,
+                None,
+                Some(active),
+                None,
+            );
+
+            flag.filters.groups = vec![crate::flags::flag_models::FlagPropertyGroup {
+                properties: Some(vec![PropertyFilter {
+                    key: "999".to_string(),
+                    value: Some(json!("true")),
+                    operator: Some(OperatorType::Exact),
+                    prop_type: PropertyType::Flag,
+                    group_type_index: None,
+                    negation: None,
+                }]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }];
+
+            let deps = flag.extract_dependencies().unwrap();
+            assert_eq!(deps, expected_deps, "{label}");
+        }
+    }
+
+    #[test]
     fn test_operator_type_deserialization() {
         let operators = vec![
             ("exact", OperatorType::Exact),
             ("is_not", OperatorType::IsNot),
             ("icontains", OperatorType::Icontains),
             ("not_icontains", OperatorType::NotIcontains),
+            ("icontains_multi", OperatorType::IcontainsMulti),
+            ("not_icontains_multi", OperatorType::NotIcontainsMulti),
             ("regex", OperatorType::Regex),
             ("not_regex", OperatorType::NotRegex),
             ("gt", OperatorType::Gt),
@@ -998,7 +1051,10 @@ mod tests {
             .expect("Failed to set malformed JSON in Redis");
 
         let result = get_flags_from_redis(redis_client, team.id).await;
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
 
         // Test database query error (using a non-existent table)
         let result = sqlx::query("SELECT * FROM non_existent_table")

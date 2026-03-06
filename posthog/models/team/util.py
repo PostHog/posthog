@@ -16,6 +16,7 @@ actions_that_require_current_team = [
     "delete_secret_token_backup",
     "reset_token",
     "generate_conversations_public_token",
+    "default_release_conditions",
 ]
 
 
@@ -29,8 +30,14 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import Person, PersonDistinctId, PersonlessDistinctId
 
+    from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+
+    # Delete data modeling nodes and edges first to not block Team deletion.
+    # Team cascades to DataWarehouseSavedQuery, but it has PROTECT on delete.
+    _raw_delete(Edge.objects.filter(team_id__in=team_ids))
+    _raw_delete(Node.objects.filter(team_id__in=team_ids))
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))

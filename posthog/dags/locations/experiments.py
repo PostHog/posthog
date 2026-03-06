@@ -6,11 +6,7 @@ with shared resources to create a complete Dagster definitions object.
 
 import dagster
 
-from products.experiments.dags import (
-    experiment_regular_metrics_timeseries,
-    experiment_saved_metrics_timeseries,
-    experiment_timeseries_recalculation,
-)
+from products.experiments.dags import experiment_timeseries_recalculation
 
 from . import resources
 
@@ -21,29 +17,18 @@ def _create_definitions():
     """
 
     jobs = [
-        experiment_regular_metrics_timeseries.experiment_regular_metrics_timeseries_job,
-        experiment_saved_metrics_timeseries.experiment_saved_metrics_timeseries_job,
         experiment_timeseries_recalculation.experiment_timeseries_recalculation_job,
     ]
     sensors = [
-        experiment_regular_metrics_timeseries.experiment_regular_metrics_timeseries_discovery_sensor,
-        experiment_saved_metrics_timeseries.experiment_saved_metrics_timeseries_discovery_sensor,
         experiment_timeseries_recalculation.experiment_timeseries_recalculation_sensor,
-    ]
-    schedules = [
-        experiment_regular_metrics_timeseries.experiment_regular_metrics_timeseries_refresh_schedule,
-        experiment_saved_metrics_timeseries.experiment_saved_metrics_timeseries_refresh_schedule,
     ]
 
     definitions = dagster.Definitions(
         assets=[
-            experiment_regular_metrics_timeseries.experiment_regular_metrics_timeseries,
-            experiment_saved_metrics_timeseries.experiment_saved_metrics_timeseries,
             experiment_timeseries_recalculation.experiment_timeseries_recalculation,
         ],
         jobs=jobs,
         sensors=sensors,
-        schedules=schedules,
         resources=resources,
     )
 

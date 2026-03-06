@@ -8,8 +8,8 @@ import { compactNumber } from 'lib/utils'
 import { AutocaptureElement } from '~/toolbar/elements/AutocaptureElement'
 import { AutocaptureElementLabel } from '~/toolbar/elements/AutocaptureElementLabel'
 import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
-import { FocusRect } from '~/toolbar/elements/FocusRect'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { FocusRect } from '~/toolbar/elements/FocusRect'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
@@ -33,7 +33,11 @@ export function Elements(): JSX.Element {
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
     const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
-    const { isSelecting: productToursSelecting, hoverElementRect: productToursHoverRect } = useValues(productToursLogic)
+    const {
+        isSelecting: productToursSelecting,
+        hoverElementRect: productToursHoverRect,
+        expandedStepRect: productToursSelectedStepRect,
+    } = useValues(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
@@ -65,9 +69,10 @@ export function Elements(): JSX.Element {
                 }}
             >
                 <ScrollDepth />
-                {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
+                {activeToolbarMode === 'heatmap' && <HeatmapCanvas positioning="absolute" context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
                 {productToursSelecting && productToursHoverRect && <ElementHighlight rect={productToursHoverRect} />}
+                {productToursSelectedStepRect && <ElementHighlight rect={productToursSelectedStepRect} isSelected />}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
                     return (

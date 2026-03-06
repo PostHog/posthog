@@ -1,0 +1,14 @@
+{
+    "name": "@posthog/products-mcp-store",
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@types/react": "*",
+        "react": "*"
+    }
+}

@@ -4,21 +4,19 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconExpand45 } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
+import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 
 import { Notebook } from '../Notebook/Notebook'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
-import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
 import { notebookLogic } from '../Notebook/notebookLogic'
+import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
 import { NotebookMenu } from '../NotebookMenu'
 import { NotebookTarget } from '../types'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
@@ -29,7 +27,6 @@ export function NotebookPanel(): JSX.Element | null {
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover }))
     const editable = !notebook?.is_template
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         832: 'medium',
@@ -38,40 +35,27 @@ export function NotebookPanel(): JSX.Element | null {
     const contentWidthHasEffect = useMemo(() => size === 'medium', [size])
 
     return (
-        <div
-            ref={ref}
-            className={cn('NotebookPanel', {
-                'rounded-l-lg bg-transparent': isRemovingSidePanelFlag,
-            })}
-            {...dropProperties}
-        >
+        <div ref={ref} className={cn('NotebookPanel', 'bg-transparent')} {...dropProperties}>
             {!droppedResource ? (
                 <>
-                    <SidePanelPaneHeader>
-                        <div className="flex gap-1">
-                            <NotebookListMini
-                                selectedNotebookId={selectedNotebook}
-                                onSelectNotebook={(notebook) => {
-                                    selectNotebook(notebook.short_id)
-                                }}
-                            />
+                    <SidePanelContentContainer>
+                        <SidePanelPaneHeader title="Notebooks">
+                            <div className="flex gap-1 overflow-hidden">
+                                <NotebookListMini
+                                    selectedNotebookId={selectedNotebook}
+                                    onSelectNotebook={(notebook) => {
+                                        selectNotebook(notebook.short_id)
+                                    }}
+                                    buttonProps={{ className: 'max-w-[120px]', truncate: true }}
+                                />
 
-                            {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
-                        </div>
+                                {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
+                            </div>
 
-                        <div className="flex-1" />
-                        <div
-                            className={cn('flex items-center', {
-                                'flex items-center gap-1': isRemovingSidePanelFlag,
-                            })}
-                        >
-                            {isRemovingSidePanelFlag && selectedNotebook && notebook && (
-                                <UserActivityIndicator at={notebook.last_modified_at} by={notebook.last_modified_by} />
-                            )}
-
-                            <NotebookMenu shortId={selectedNotebook} />
-                            {contentWidthHasEffect && <NotebookExpandButton size="small" />}
-                            {isRemovingSidePanelFlag ? (
+                            <div className="flex-1" />
+                            <div className="flex items-center gap-1">
+                                <NotebookMenu shortId={selectedNotebook} />
+                                {contentWidthHasEffect && <NotebookExpandButton size="small" inPanel={true} />}
                                 <Link
                                     buttonProps={{
                                         iconOnly: true,
@@ -84,21 +68,8 @@ export function NotebookPanel(): JSX.Element | null {
                                 >
                                     <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
                                 </Link>
-                            ) : (
-                                <LemonButton
-                                    size="small"
-                                    sideIcon={<IconExpand45 />}
-                                    to={urls.notebook(selectedNotebook)}
-                                    onClick={() => closeSidePanel()}
-                                    targetBlank
-                                    tooltip="Open as main focus"
-                                    tooltipPlacement="bottom-end"
-                                />
-                            )}
-                        </div>
-                    </SidePanelPaneHeader>
-
-                    <SidePanelContentContainer flagOffClassName="flex flex-col flex-1 overflow-y-auto p-3 bg-[var(--color-bg-surface-primary)]">
+                            </div>
+                        </SidePanelPaneHeader>
                         <Notebook
                             key={selectedNotebook}
                             shortId={selectedNotebook}

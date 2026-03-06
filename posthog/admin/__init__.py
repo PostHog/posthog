@@ -14,18 +14,24 @@ def register_all_admin():
         DashboardTemplateAdmin,
         DataColorThemeAdmin,
         DataWarehouseTableAdmin,
+        DuckgresServerAdmin,
+        DuckLakeCatalogAdmin,
         EventIngestionRestrictionConfigAdmin,
         ExperimentAdmin,
         ExperimentSavedMetricAdmin,
+        ExternalDataSchemaAdmin,
         FeatureFlagAdmin,
         GroupTypeMappingAdmin,
+        HogFlowAdmin,
         HogFunctionAdmin,
         InsightAdmin,
         InstanceSettingAdmin,
+        IntegrationAdmin,
         LinkAdmin,
         OAuthApplicationAdmin,
         OrganizationAdmin,
         OrganizationDomainAdmin,
+        OrganizationIntegrationAdmin,
         PersonalAPIKeyAdmin,
         PersonDistinctIdAdmin,
         PluginAdmin,
@@ -38,6 +44,7 @@ def register_all_admin():
         UserAdmin,
         UserProductListAdmin,
     )
+    from posthog.admin.admins.exported_asset_admin import ExportedAssetAdmin
     from posthog.models import (
         AsyncDeletion,
         BatchImport,
@@ -47,17 +54,23 @@ def register_all_admin():
         DashboardTemplate,
         DataColorTheme,
         DataWarehouseTable,
+        DuckgresServer,
+        DuckLakeCatalog,
         EventIngestionRestrictionConfig,
         Experiment,
         ExperimentSavedMetric,
+        ExportedAsset,
         FeatureFlag,
         GroupTypeMapping,
+        HogFlow,
         HogFunction,
         Insight,
         InstanceSetting,
+        Integration,
         Link,
         Organization,
         OrganizationDomain,
+        OrganizationIntegration,
         PersonalAPIKey,
         PersonDistinctId,
         Plugin,
@@ -73,11 +86,22 @@ def register_all_admin():
 
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
-    from products.tasks.backend.admin import SandboxSnapshotAdmin, TaskAdmin, TaskRunAdmin
-    from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+    from products.endpoints.backend.admin import EndpointAdmin, EndpointVersionAdmin
+    from products.endpoints.backend.models import Endpoint, EndpointVersion
+    from products.signals.backend.admin import SignalReportAdmin
+    from products.signals.backend.models import SignalReport
+    from products.tasks.backend.admin import (
+        CodeInviteAdmin,
+        CodeInviteRedemptionAdmin,
+        SandboxSnapshotAdmin,
+        TaskAdmin,
+        TaskRunAdmin,
+    )
+    from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxSnapshot, Task, TaskRun
 
     admin.site.register(Organization, OrganizationAdmin)
     admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
+    admin.site.register(OrganizationIntegration, OrganizationIntegrationAdmin)
     admin.site.register(Project, ProjectAdmin)
     admin.site.register(Team, TeamAdmin)
     admin.site.register(User, UserAdmin)
@@ -90,10 +114,12 @@ def register_all_admin():
 
     admin.site.register(Experiment, ExperimentAdmin)
     admin.site.register(ExperimentSavedMetric, ExperimentSavedMetricAdmin)
+    admin.site.register(ExportedAsset, ExportedAssetAdmin)
     admin.site.register(FeatureFlag, FeatureFlagAdmin)
 
     admin.site.register(AsyncDeletion, AsyncDeletionAdmin)
     admin.site.register(InstanceSetting, InstanceSettingAdmin)
+    admin.site.register(Integration, IntegrationAdmin)
     admin.site.register(PluginConfig, PluginConfigAdmin)
     admin.site.register(Plugin, PluginAdmin)
     admin.site.register(Text, TextAdmin)
@@ -108,7 +134,13 @@ def register_all_admin():
 
     admin.site.register(ProductTour, ProductTourAdmin)
 
+    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+    admin.site.register(ExternalDataSchema, ExternalDataSchemaAdmin)
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
+    admin.site.register(DuckgresServer, DuckgresServerAdmin)
+    admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)
+    admin.site.register(HogFlow, HogFlowAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
     admin.site.register(Link, LinkAdmin)
@@ -120,7 +152,14 @@ def register_all_admin():
     admin.site.register(Task, TaskAdmin)
     admin.site.register(TaskRun, TaskRunAdmin)
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
+    admin.site.register(CodeInvite, CodeInviteAdmin)
+    admin.site.register(CodeInviteRedemption, CodeInviteRedemptionAdmin)
 
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
+
+    admin.site.register(Endpoint, EndpointAdmin)
+    admin.site.register(EndpointVersion, EndpointVersionAdmin)
+
+    admin.site.register(SignalReport, SignalReportAdmin)
 
     admin.site.register(UserProductList, UserProductListAdmin)

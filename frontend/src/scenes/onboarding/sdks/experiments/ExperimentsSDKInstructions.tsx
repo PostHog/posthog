@@ -20,6 +20,7 @@ import {
     ReactNativeInstallation,
     RemixInstallation,
     RubyInstallation,
+    RubyOnRailsInstallation,
     SvelteInstallation,
     VueInstallation,
     WebflowInstallation,
@@ -132,6 +133,10 @@ const ExperimentsPHPInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const ExperimentsRubyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const ExperimentsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyOnRailsInstallation,
     snippets: SERVER_SDK_SNIPPETS,
 })
 const ExperimentsGoInstructionsWrapper = withOnboardingDocsWrapper({
@@ -252,6 +257,7 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     }),
     [SDKKey.REMIX]: ExperimentsRemixJSInstructionsWrapper,
     [SDKKey.RUBY]: ExperimentsRubyInstructionsWrapper,
+    [SDKKey.RUBY_ON_RAILS]: ExperimentsRubyOnRailsInstructionsWrapper,
     [SDKKey.SVELTE]: ExperimentsSvelteInstructionsWrapper,
     [SDKKey.VITE]: withOnboardingDocsWrapper({
         Installation: ReactInstallation,

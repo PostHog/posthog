@@ -51,7 +51,7 @@ export function MovingAverageIntervalsInput(): JSX.Element {
                     suffix={<span>{`${interval}s`}</span>}
                     step={1}
                     disabledReason={
-                        !showMovingAverage ? 'Moving averages are only available for line graphs' : undefined
+                        !showMovingAverage ? 'Moving averages are only available for line and area graphs' : undefined
                     }
                 />
             </div>

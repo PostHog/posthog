@@ -396,10 +396,10 @@ describe('clusterDetailLogic', () => {
                 })
 
                 const breadcrumbs = logic.values.breadcrumbs
-                expect(breadcrumbs).toHaveLength(4)
-                expect(breadcrumbs[0].name).toBe('LLM analytics')
-                expect(breadcrumbs[1].name).toBe('Clusters')
-                expect(breadcrumbs[3].name).toBe('Test Cluster')
+                expect(breadcrumbs).toHaveLength(3)
+                expect(breadcrumbs[0].name).toBe('Clusters')
+                expect(breadcrumbs[2].name).toBe('Test Cluster')
+                expect(breadcrumbs[2].iconType).toBe('llm_clusters')
             })
 
             it('uses default cluster name when cluster has no title', async () => {
@@ -413,7 +413,7 @@ describe('clusterDetailLogic', () => {
                 })
 
                 const breadcrumbs = logic.values.breadcrumbs
-                expect(breadcrumbs[3].name).toBe('Cluster')
+                expect(breadcrumbs[2].name).toBe('Cluster')
             })
         })
     })

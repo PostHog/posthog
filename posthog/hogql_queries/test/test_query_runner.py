@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
@@ -19,6 +20,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
+    InlineCohortCalculation,
     IntervalType,
     MaterializationMode,
     PersonsArgMaxVersion,
@@ -38,8 +40,19 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
-from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
+
+MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
+    "01977f7b-7f29-0000-a028-7275d1a767a4": {
+        "cost": "cost",
+        "date": "date",
+        "clicks": "clicks",
+        "source": "_metadata_launched_at",
+        "campaign": "campaignname",
+        "currency": "const:USD",
+        "impressions": "impressions",
+    },
+}
 
 
 class TheTestQuery(BaseModel):
@@ -129,14 +142,15 @@ class TestQueryRunner(BaseTest):
                 "bounceRatePageViewMode": BounceRatePageViewMode.COUNT_PAGEVIEWS,
                 "convertToProjectTimezone": True,
                 "inCohortVia": InCohortVia.AUTO,
+                "inlineCohortCalculation": InlineCohortCalculation.AUTO,
                 "materializationMode": MaterializationMode.LEGACY_NULL_AS_NULL,
                 "optimizeJoinedFilters": False,
+                "optimizeProjections": False,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "sessionTableVersion": SessionTableVersion.AUTO,
-                "sessionsV2JoinMode": SessionsV2JoinMode.STRING,
+                "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
-                "usePresortedEventsTable": False,
             },
             "products_modifiers": {
                 "marketing_analytics": {
@@ -153,7 +167,7 @@ class TestQueryRunner(BaseTest):
                             "clicks": "clicks",
                             "source": "_metadata_launched_at",
                             "campaign": "campaignname",
-                            "currency": "USD",
+                            "currency": "const:USD",
                             "impressions": "impressions",
                         },
                     },
@@ -215,7 +229,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_194d1cdb3e7a4bef74e185f7339bbf1b245e4bde0316ac641969447a2daaaea3"
+        assert cache_key == "cache_42_450d82bef38d66f548b7ef465827a80cbab3de31913363b0ef5ed2d69a02e9b2"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -229,7 +243,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_84635471ca5a516c617c633dac5bd7dd717647f255f86eab09fb891a7cdbd828"
+        assert cache_key == "cache_42_68a7a0c2cd6fbf1c74db8cde440b7391345c9e5dbae7b45651a018d8194eeafe"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -240,7 +254,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_cc74546afbbefc5454fa188e0a6146b8701f524d71f8f535c368cdaf20e220d4"
+        assert cache_key == "cache_42_471a20fc7da3ec182478de571e6a34b5782d1db5d85c33abf8585563002f1652"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -394,6 +408,84 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_cache_manager.get_cache_data.assert_called_once()
             mock_cache_manager.set_cache_data.assert_called_once()
+
+    def test_query_execution_metrics_on_success(self):
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        before_success = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
+
+        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() - before_success == 1
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
+
+    def test_query_execution_metrics_on_error_result(self):
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_with_error(self):
+            return TheTestBasicQueryResponse(results=[], error="Some error occurred")
+
+        TestQueryRunner.calculate = calculate_with_error
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        before_success = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get()
+        before_failure = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
+
+        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() - before_success == 1
+        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get() - before_failure == 0
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
+
+    def test_query_execution_metrics_on_exception(self):
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_raises(self):
+            raise ValueError("Query execution failed")
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        before_success = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get()
+        before_failure = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
+
+        with pytest.raises(ValueError):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() - before_success == 0
+        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get() - before_failure == 1
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
+
+    def test_query_execution_metrics_not_recorded_on_cache_hit(self):
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        before_success = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get()
+        before_failure = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get()
+        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
+
+        # Cache is fresh (< 10 min old), so this hits the cache without recalculating
+        with freeze_time(datetime(2023, 2, 4, 13, 38, 0)):
+            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() == before_success
+        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get() == before_failure
+        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
 
 
 class TestSeriesCustomNameCaching(BaseTest):

@@ -5,17 +5,20 @@ from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import AccessControlPermission
 
 from ..models.model_configuration import POSTHOG_ALLOWED_MODELS, LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from .metrics import llma_track_latency
 
 
 class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """List available models for a provider."""
 
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @llma_track_latency("llma_models_list")
     @monitor(feature=None, endpoint="llma_models_list", method="GET")
     def list(self, request: Request, **_kwargs) -> Response:
         provider = request.query_params.get("provider")

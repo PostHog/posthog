@@ -2,12 +2,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { IconCancel } from 'lib/lemon-ui/icons'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { BatchExportBackfill } from '~/types'
 
@@ -83,7 +83,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             const color = colorForStatus(status)
                             const statusStyles = {
                                 success: 'border-success text-success-dark',
-                                accent: 'border-accent text-primary-dark',
+                                'color-accent': 'border-accent text-accent',
                                 warning: 'border-warning text-warning-dark',
                                 danger: 'border-danger text-danger-dark',
                                 default: 'border-default text-default-dark',
@@ -107,15 +107,15 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             const status = backfill.status
                             const color = colorForStatus(status)
                             const progress = backfill.progress
-                            if (progress && progress.progress !== null && progress.progress !== undefined) {
+                            if (progress && progress.progress != null) {
                                 let label = ''
-                                if (
-                                    progress.finished_runs !== null &&
-                                    progress.finished_runs !== undefined &&
-                                    progress.total_runs
-                                ) {
-                                    const runsLabel = progress.total_runs === 1 ? 'run' : 'runs'
-                                    label = `(${progress.finished_runs}/${progress.total_runs} ${runsLabel})`
+                                if (progress.finished_runs != null && progress.total_runs != null) {
+                                    if (progress.total_runs === 0) {
+                                        label = '(0 runs)'
+                                    } else {
+                                        const runsLabel = progress.total_runs === 1 ? 'run' : 'runs'
+                                        label = `(${progress.finished_runs}/${progress.total_runs} ${runsLabel})`
+                                    }
                                 }
 
                                 return (
@@ -136,6 +136,27 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         title: 'ID',
                         key: 'runId',
                         render: (_, backfill) => backfill.id,
+                    },
+                    {
+                        title: 'Total rows',
+                        key: 'total_records_count',
+                        render: (_, backfill) => {
+                            if (backfill.total_records_count == null) {
+                                return ''
+                            }
+                            const isEstimate = backfill.status === 'Running' || backfill.status === 'Starting'
+                            const formatted = backfill.total_records_count.toLocaleString()
+                            if (isEstimate) {
+                                return (
+                                    <Tooltip title="Estimated count, may change as the backfill progresses">
+                                        <div className="cursor-help border-b border-dashed border-current w-fit">
+                                            ~{formatted}
+                                        </div>
+                                    </Tooltip>
+                                )
+                            }
+                            return formatted
+                        },
                     },
                     {
                         title: 'Interval start',
@@ -239,14 +260,14 @@ function BackfillCancelButton({
 
 const colorForStatus = (
     status: BatchExportBackfill['status']
-): 'success' | 'accent' | 'warning' | 'danger' | 'default' => {
+): 'success' | 'color-accent' | 'warning' | 'danger' | 'default' => {
     switch (status) {
         case 'Completed':
             return 'success'
         case 'ContinuedAsNew':
         case 'Running':
         case 'Starting':
-            return 'accent'
+            return 'color-accent'
         case 'Cancelled':
         case 'Terminated':
         case 'TimedOut':

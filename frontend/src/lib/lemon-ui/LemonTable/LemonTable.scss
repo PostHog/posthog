@@ -272,7 +272,7 @@
     cursor: default;
 
     .LemonTable__header-content {
-        color: var(--color-text-secondary);
+        color: var(--color-text-tertiary);
     }
 
     &.LemonTable__header--actionable {
@@ -290,6 +290,17 @@
             .LemonTable__header-content {
                 color: var(--color-text-primary);
             }
+        }
+    }
+
+    .sorting-indicator {
+        color: var(--color-text-tertiary);
+        opacity: 0.5;
+    }
+
+    &:hover {
+        .sorting-indicator {
+            opacity: 1;
         }
     }
 }

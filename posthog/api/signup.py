@@ -1,7 +1,7 @@
 import json
 import uuid as uuid_module
 from typing import Any, Optional, Union, cast
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from django import forms
 from django.conf import settings
@@ -37,6 +37,7 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 logger = structlog.get_logger(__name__)
 
@@ -68,7 +69,7 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
         redirect_url = "/verify_email/" + uuid
 
         if next_url:
-            redirect_url += "?next=" + next_url
+            redirect_url += "?next=" + quote(next_url, safe="")
 
         return redirect_url
 
@@ -79,12 +80,17 @@ class SignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
     last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
-    password: serializers.Field = serializers.CharField(allow_null=True, required=False, allow_blank=True)
-    organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    password: serializers.Field = serializers.CharField(
+        max_length=72, allow_null=True, required=False, allow_blank=True
+    )
+    organization_name: serializers.Field = serializers.CharField(max_length=64, required=False, allow_blank=True)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
+    referral_source_ai_prompt: serializers.Field = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True
+    )
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
@@ -161,11 +167,21 @@ class SignupSerializer(serializers.Serializer):
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
 
+        auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
+        evaluate_auth_attempt(
+            request=request._request,
+            email=validated_data["email"],
+            action=RadarAction.SIGNUP,
+            auth_method=auth_method,
+        )
+
         is_instance_first_user: bool = not User.objects.exists()
 
-        organization_name = validated_data.pop("organization_name", f"{validated_data['first_name']}'s Organization")
+        default_org_name = f"{validated_data['first_name']}'s Organization"[:64]
+        organization_name = validated_data.pop("organization_name", default_org_name)
         role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")
+        referral_source_ai_prompt = validated_data.pop("referral_source_ai_prompt", "")
 
         # For passkey signup, set password to None and use the pre-generated UUID
         if passkey_credential:
@@ -233,6 +249,7 @@ class SignupSerializer(serializers.Serializer):
             org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
             role_at_organization=role_at_organization,
             referral_source=referral_source,
+            referral_source_ai_prompt=referral_source_ai_prompt,
         )
 
         verify_email_or_login(request, user)
@@ -313,7 +330,7 @@ class SignupViewset(generics.CreateAPIView):
 
 class InviteSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
-    password: serializers.Field = serializers.CharField(required=False)
+    password: serializers.Field = serializers.CharField(max_length=72, required=False)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
@@ -364,9 +381,19 @@ class InviteSignupSerializer(serializers.Serializer):
         invite_id = self.context["view"].kwargs.get("invite_id")
 
         try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
         except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
+
+        if not user and invite.target_email:
+            auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
+            evaluate_auth_attempt(
+                request=request._request,
+                email=invite.target_email,
+                action=RadarAction.SIGNUP,
+                auth_method=auth_method,
+            )
 
         # Only check SSO enforcement if we're not already logged in
         if (
@@ -481,6 +508,7 @@ class InviteSignupViewset(generics.CreateAPIView):
             raise exceptions.ValidationError("Please provide an invite ID to continue.")
 
         try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
@@ -511,9 +539,15 @@ class SocialSignupSerializer(serializers.Serializer):
     Pre-processes information not obtained from SSO provider to create organization.
     """
 
-    organization_name: serializers.Field = serializers.CharField(max_length=128)
+    organization_name: serializers.Field = serializers.CharField(max_length=64)
     first_name: serializers.Field = serializers.CharField(max_length=128)
     role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
+    referral_source: serializers.Field = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True, default=""
+    )
+    referral_source_ai_prompt: serializers.Field = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True, default=""
+    )
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
@@ -526,6 +560,8 @@ class SocialSignupSerializer(serializers.Serializer):
         email = request.session.get("email")
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
+        referral_source = validated_data.get("referral_source", "")
+        referral_source_ai_prompt = validated_data.get("referral_source_ai_prompt", "")
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
@@ -535,6 +571,8 @@ class SocialSignupSerializer(serializers.Serializer):
                 "email": email,
                 "password": None,
                 "role_at_organization": role_at_organization,
+                "referral_source": referral_source,
+                "referral_source_ai_prompt": referral_source_ai_prompt,
             },
             context={"request": request},
         )
@@ -580,6 +618,7 @@ class CompanyNameForm(forms.Form):
 
 
 def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[OrganizationInvite]:
+    # nosemgrep: idor-lookup-without-org (ID from SAML response)
     organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
     if not organization_domain:
         return None
@@ -594,6 +633,7 @@ def process_social_invite_signup(
     strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
 ) -> User:
     try:
+        # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
             "organization"
         ).get(id=invite_id)

@@ -1,12 +1,14 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { InternalCaptureEvent } from '~/common/services/internal-capture'
+import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { Hub, TimestampFormat } from '../../../types'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { TimestampFormat } from '../../../types'
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { TeamManager } from '../../../utils/team-manager'
 import { castTimestampOrNow } from '../../../utils/utils'
 import {
     AppMetricType,
@@ -18,15 +20,6 @@ import {
     MinimalAppMetric,
 } from '../../types'
 import { fixLogDeduplication } from '../../utils'
-
-export type HogFunctionMonitoringServiceHub = Pick<
-    Hub,
-    | 'kafkaProducer'
-    | 'internalCaptureService'
-    | 'teamManager'
-    | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
-    | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
->
 
 const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
@@ -68,7 +61,13 @@ export class HogFunctionMonitoringService {
     messagesToProduce: HogFunctionMonitoringMessage[] = []
     eventsToCapture: InternalCaptureEvent[] = []
 
-    constructor(private hub: HogFunctionMonitoringServiceHub) {}
+    constructor(
+        private kafkaProducer: KafkaProducerWrapper,
+        private internalCaptureService: InternalCaptureService,
+        private teamManager: TeamManager,
+        private appMetricsTopic: string,
+        private logEntriesTopic: string
+    ) {}
 
     async flush() {
         const messages = [...this.messagesToProduce]
@@ -82,7 +81,7 @@ export class HogFunctionMonitoringService {
         await Promise.all([
             ...messages.map((x) => {
                 const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
-                return this.hub.kafkaProducer
+                return this.kafkaProducer
                     .produce({
                         topic: x.topic,
                         key: x.key ? Buffer.from(x.key) : null,
@@ -104,7 +103,7 @@ export class HogFunctionMonitoringService {
                     })
             }),
             eventsToCapture.map((event) =>
-                this.hub.internalCaptureService.capture(event).catch((error) => {
+                this.internalCaptureService.capture(event).catch((error) => {
                     logger.error('Error capturing internal event', { error })
                     captureException(error)
                 })
@@ -122,7 +121,7 @@ export class HogFunctionMonitoringService {
         counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
 
         this.messagesToProduce.push({
-            topic: this.hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
+            topic: this.appMetricsTopic,
             value: appMetric,
             key: appMetric.app_source_id,
         })
@@ -143,7 +142,7 @@ export class HogFunctionMonitoringService {
 
         logs.forEach((logEntry) => {
             this.messagesToProduce.push({
-                topic: this.hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
+                topic: this.logEntriesTopic,
                 value: logEntry,
                 key: logEntry.instance_id,
             })
@@ -199,7 +198,7 @@ export class HogFunctionMonitoringService {
                     const capturedEvents = result.capturedPostHogEvents
 
                     for (const event of capturedEvents ?? []) {
-                        const team = await this.hub.teamManager.getTeam(event.team_id)
+                        const team = await this.teamManager.getTeam(event.team_id)
                         if (!team) {
                             continue
                         }

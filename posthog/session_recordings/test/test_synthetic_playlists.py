@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -11,8 +12,12 @@ from rest_framework import status
 from posthog.models import Comment, SessionRecordingPlaylist
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.synthetic_playlists import NewUrlsSyntheticPlaylistSource
+from posthog.session_recordings.synthetic_playlists import (
+    FrustrationSignalsPlaylistSource,
+    NewUrlsSyntheticPlaylistSource,
+)
 
 try:
     from ee.models.session_summaries import SingleSessionSummary
@@ -50,6 +55,7 @@ class TestSyntheticPlaylists(APIBaseTest):
             "synthetic-shared",
             "synthetic-exported",
             "synthetic-expiring",
+            "synthetic-frustrated",
         ]
         if HAS_EE:
             expected.append("synthetic-summarised")
@@ -222,7 +228,7 @@ class TestSyntheticPlaylists(APIBaseTest):
                 type="collection",
             )
 
-        expected_synthetic_count = 6 if HAS_EE else 5
+        expected_synthetic_count = 7 if HAS_EE else 6
 
         page1_data = self._get_playlists_response("?limit=20")
         page1_synthetic_count = self._count_synthetic_playlists(page1_data["results"])
@@ -267,7 +273,7 @@ class TestSyntheticPlaylists(APIBaseTest):
             last_modified_at=base_time,
         )
 
-        expected_synthetic_count = 6 if HAS_EE else 5
+        expected_synthetic_count = 7 if HAS_EE else 6
 
         response_data = self._get_playlists_response(f"?order={order_param}")
         results = response_data["results"]
@@ -850,3 +856,197 @@ class TestUrlNormalization(BaseTest):
         assert admin_pattern in new_patterns
         assert billing_pattern not in new_patterns
         assert len(new_patterns) == 1
+
+
+class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
+    """Tests for the frustration signals synthetic playlist"""
+
+    def setUp(self):
+        super().setUp()
+        from posthog.clickhouse.client import sync_execute
+
+        sync_execute("TRUNCATE TABLE sharded_events")
+
+    def _get_playlists_response(self, query_params: str = "") -> dict:
+        url = f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()
+
+    def _get_synthetic_playlist(self, short_id: str) -> dict:
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}")
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()
+
+    def test_frustrated_playlist_appears_in_list(self) -> None:
+        response_data = self._get_playlists_response()
+        synthetic_short_ids = [
+            p["short_id"] for p in response_data["results"] if p["short_id"].startswith("synthetic-")
+        ]
+        assert "synthetic-frustrated" in synthetic_short_ids
+
+    def test_frustrated_playlist_retrieve(self) -> None:
+        playlist = self._get_synthetic_playlist("synthetic-frustrated")
+        assert playlist["short_id"] == "synthetic-frustrated"
+        assert playlist["name"] == "Frustration signals"
+        assert playlist["type"] == "collection"
+        assert playlist["is_synthetic"] is True
+        assert playlist["created_by"] is None
+
+    def test_frustrated_sessions_detected(self) -> None:
+        cache.clear()
+
+        session_id = str(uuid7())
+        _create_event(
+            distinct_id="user",
+            event="$rageclick",
+            properties={"$session_id": session_id},
+            team=self.team,
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+        flush_persons_and_events()
+
+        source = FrustrationSignalsPlaylistSource()
+        session_ids = source.get_session_ids(self.team, self.user)
+        assert session_id in session_ids
+
+    def test_frustrated_sessions_ordered_by_score(self) -> None:
+        cache.clear()
+
+        # session_a: 1 rage click = score 3
+        session_a = str(uuid7())
+        _create_event(
+            distinct_id="user",
+            event="$rageclick",
+            properties={"$session_id": session_a},
+            team=self.team,
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # session_b: 1 rage click + 1 exception = score 5
+        session_b = str(uuid7())
+        _create_event(
+            distinct_id="user",
+            event="$rageclick",
+            properties={"$session_id": session_b},
+            team=self.team,
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+        _create_event(
+            distinct_id="user",
+            event="$exception",
+            properties={"$session_id": session_b},
+            team=self.team,
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # session_c: 2 rage clicks + 2 exceptions = score 10
+        session_c = str(uuid7())
+        for _ in range(2):
+            _create_event(
+                distinct_id="user",
+                event="$rageclick",
+                properties={"$session_id": session_c},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
+        for _ in range(2):
+            _create_event(
+                distinct_id="user",
+                event="$exception",
+                properties={"$session_id": session_c},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
+
+        flush_persons_and_events()
+
+        source = FrustrationSignalsPlaylistSource()
+        session_ids = source.get_session_ids(self.team, self.user)
+
+        # session_c (score 10) > session_b (score 5) > session_a (score 3)
+        assert session_ids == [session_c, session_b, session_a]
+
+    def test_frustrated_sessions_excludes_old_data(self) -> None:
+        cache.clear()
+
+        old_session = str(uuid7())
+        _create_event(
+            distinct_id="user",
+            event="$rageclick",
+            properties={"$session_id": old_session},
+            team=self.team,
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+        flush_persons_and_events()
+
+        source = FrustrationSignalsPlaylistSource()
+        session_ids = source.get_session_ids(self.team, self.user)
+        assert old_session not in session_ids
+
+    def test_frustrated_sessions_caching(self) -> None:
+        cache.clear()
+
+        session_id = str(uuid7())
+        _create_event(
+            distinct_id="user",
+            event="$rageclick",
+            properties={"$session_id": session_id},
+            team=self.team,
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+        flush_persons_and_events()
+
+        cache_key = FrustrationSignalsPlaylistSource._get_cache_key(self.team.pk)
+        assert cache.get(cache_key) is None
+
+        source = FrustrationSignalsPlaylistSource()
+        session_ids = source.get_session_ids(self.team, self.user)
+        assert session_id in session_ids
+        assert cache.get(cache_key) is not None
+
+    def test_frustrated_sessions_count(self) -> None:
+        cache.clear()
+
+        for _ in range(3):
+            session_id = str(uuid7())
+            _create_event(
+                distinct_id="user",
+                event="$rageclick",
+                properties={"$session_id": session_id},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
+        flush_persons_and_events()
+
+        source = FrustrationSignalsPlaylistSource()
+        count = source.count_session_ids(self.team, self.user)
+        assert count == 3
+
+    def test_frustrated_sessions_pagination(self) -> None:
+        cache.clear()
+
+        for i in range(5):
+            session_id = str(uuid7())
+            # Create varying rage clicks so ordering is deterministic
+            for _ in range(5 - i):
+                _create_event(
+                    distinct_id="user",
+                    event="$rageclick",
+                    properties={"$session_id": session_id},
+                    team=self.team,
+                    timestamp=datetime.now() - timedelta(days=1),
+                )
+        flush_persons_and_events()
+
+        source = FrustrationSignalsPlaylistSource()
+        page1 = source.get_session_ids(self.team, self.user, limit=2, offset=0)
+        page2 = source.get_session_ids(self.team, self.user, limit=2, offset=2)
+        page3 = source.get_session_ids(self.team, self.user, limit=2, offset=4)
+
+        assert len(page1) == 2
+        assert len(page2) == 2
+        assert len(page3) == 1
+
+        all_pages = page1 + page2 + page3
+        assert len(set(all_pages)) == 5

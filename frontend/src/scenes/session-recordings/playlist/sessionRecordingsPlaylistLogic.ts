@@ -160,6 +160,11 @@ export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 export const MAX_SELECTED_RECORDINGS = 20
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
+const getDefaultFilterTestAccounts = (): boolean => {
+    const stored = localStorage.getItem('default_filter_test_accounts')
+    return stored === 'true'
+}
+
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
@@ -170,13 +175,13 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     order_direction: 'DESC',
 }
 
-const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
-    ...DEFAULT_RECORDING_FILTERS,
-    date_from: '-30d',
-}
-
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
-    return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+    const filterTestAccounts = getDefaultFilterTestAccounts()
+    return {
+        ...DEFAULT_RECORDING_FILTERS,
+        filter_test_accounts: filterTestAccounts,
+        date_from: personUUID ? '-30d' : '-3d',
+    }
 }
 
 /**
@@ -330,6 +335,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     having_predicates.push(f)
                 } else if (f.key === 'comment_text') {
                     comment_text = f
+                } else {
+                    having_predicates.push(f)
                 }
             } else {
                 // Normalize filter value to ensure multi-select operators have array values
@@ -482,6 +489,7 @@ export interface SessionRecordingPlaylistLogicProps {
     distinctIds?: string[]
     updateSearchParams?: boolean
     autoPlay?: boolean
+    onlyPinned?: boolean
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
@@ -1309,13 +1317,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         nextSessionRecording: [
             (s) => [s.activeSessionRecording, s.recordings, s.autoplayDirection],
             (activeSessionRecording, recordings, autoplayDirection): Partial<SessionRecordingType> | undefined => {
-                if (!activeSessionRecording || !autoplayDirection) {
+                if (!activeSessionRecording) {
                     return
                 }
                 const activeSessionRecordingIndex = recordings.findIndex((x) => x.id === activeSessionRecording.id)
-                return autoplayDirection === 'older'
-                    ? recordings[activeSessionRecordingIndex + 1]
-                    : recordings[activeSessionRecordingIndex - 1]
+                return autoplayDirection === 'newer'
+                    ? recordings[activeSessionRecordingIndex - 1]
+                    : recordings[activeSessionRecordingIndex + 1]
             },
         ],
 
@@ -1399,9 +1407,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         recordings: [
-            (s) => [s.pinnedRecordings, s.otherRecordings],
-            (pinnedRecordings, otherRecordings): SessionRecordingType[] => {
-                return [...pinnedRecordings, ...otherRecordings]
+            (s) => [s.pinnedRecordings, s.otherRecordings, (_, props) => props.onlyPinned],
+            (pinnedRecordings, otherRecordings, onlyPinned): SessionRecordingType[] => {
+                return onlyPinned ? [...pinnedRecordings] : [...pinnedRecordings, ...otherRecordings]
             },
         ],
 
@@ -1560,7 +1568,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props, values }) => {
+        if (props.onlyPinned) {
+            return
+        }
+
+        // If updateSearchParams is enabled and URL has filters different from current state,
+        // skip the initial load here. The urlToAction handler will apply the URL filters and
+        // trigger loadSessionRecordings with the correct filters. This prevents a race condition
+        // where we load with default filters first, then load again with URL filters.
+        if (props.updateSearchParams) {
+            const searchParams = router.values.searchParams
+            if (
+                searchParams?.filters &&
+                isValidRecordingFilters(searchParams.filters) &&
+                !equal(searchParams.filters, values.filters)
+            ) {
+                // URL has valid filters different from current state - let urlToAction handle the initial load
+                return
+            }
+        }
+
         actions.loadSessionRecordings()
     }),
 ])

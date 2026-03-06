@@ -26,10 +26,10 @@ export function ChartFilter(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { isTrends, isSingleSeries, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { isTrends, isSingleSeriesOutput, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
-    const singleSeriesOnlyDisabledReason = !isSingleSeries
+    const singleSeriesOnlyDisabledReason = !isSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
         : undefined
 
@@ -81,6 +81,22 @@ export function ChartFilter(): JSX.Element {
                         />
                     ),
                 },
+                ...(featureFlags[FEATURE_FLAGS.BOX_PLOT_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.BoxPlot,
+                              icon: <IconGraph />,
+                              label: 'Box plot',
+                              disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                              labelInMenu: (
+                                  <ChartFilterOptionLabel
+                                      label="Box plot"
+                                      description="Distribution of a property over time showing quartiles."
+                                  />
+                              ),
+                          },
+                      ]
+                    : []),
             ],
         },
         {

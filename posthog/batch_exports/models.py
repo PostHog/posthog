@@ -398,11 +398,23 @@ class BatchExportBackfill(UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportBackfill was last updated.",
     )
+    total_records_count = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="The total number of records to export. Initially estimated, updated with actual count after completion.",
+    )
+    adjusted_start_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.",
+    )
 
     @property
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this BatchExportBackfill model."""
         end_at = self.end_at.astimezone(tz=dt.UTC).isoformat() if self.end_at else "END"
+        # we use the start_at rather than adjusted_start_at here since the workflow ID for this batch export is created
+        # before the backfill is started
         start_at = self.start_at.astimezone(tz=dt.UTC).isoformat() if self.start_at else "START"
 
         return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"
@@ -410,9 +422,13 @@ class BatchExportBackfill(UUIDTModel):
     @property
     def total_expected_runs(self) -> int | None:
         """Return the total number of expected runs for this backfill, based on the number of intervals."""
+        start_at = self.adjusted_start_at or self.start_at
         # if no start_at then it means we're backfilling all data in a single run
-        if self.start_at is None:
+        if start_at is None:
             return 1
+
+        if self.total_records_count == 0:
+            return 0
 
         end_at = self.end_at
         # if the backfill has no end_at then it means it's backfilling everything up to the 'present' (whatever that
@@ -428,7 +444,7 @@ class BatchExportBackfill(UUIDTModel):
         elif not end_at:
             # we didn't always populated finished_at in the past, so probably don't have enough information
             return None
-        return ceil((end_at - self.start_at) / self.batch_export.interval_time_delta)
+        return ceil((end_at - start_at) / self.batch_export.interval_time_delta)
 
     def get_finished_runs(self) -> int:
         """Return the number of finished runs for this backfill.

@@ -11,13 +11,20 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunctionType
 from posthog.plugins.plugin_server_api import get_hog_function_templates
+from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import WebhookSource
+from posthog.temporal.data_imports.sources.common.default_webhook_template import template as default_webhook_template
 
 logger = structlog.get_logger(__name__)
 
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
 # Templates to include in test mode
-TEST_INCLUDE_PYTHON_TEMPLATE_IDS = ["template-slack"]
+TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
+    "template-slack",
+    "template-warehouse-source-stripe",
+    "template-warehouse-source-default",
+]
 TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [
     "template-webhook",
     "template-geoip",
@@ -66,6 +73,27 @@ class Command(BaseCommand):
             template_dict = dataclasses.asdict(template_dc)
             all_templates.append(template_dict)
             current_template_ids.add(template_dict["id"])
+
+        # Process warehouse source webhook templates from SourceRegistry
+        for source in SourceRegistry.get_all_sources().values():
+            if not isinstance(source, WebhookSource):
+                continue
+
+            wh_template = source.webhook_template
+            if wh_template is not None:
+                if not self.should_include_python_template(wh_template):
+                    continue
+                total_templates += 1
+                template_dict = dataclasses.asdict(wh_template)
+                all_templates.append(template_dict)
+                current_template_ids.add(template_dict["id"])
+
+        # Always include the default fallback warehouse webhook template
+        if self.should_include_python_template(default_webhook_template):
+            total_templates += 1
+            default_dict = dataclasses.asdict(default_webhook_template)
+            all_templates.append(default_dict)
+            current_template_ids.add(default_dict["id"])
 
         # Process templates from Node.js
         try:

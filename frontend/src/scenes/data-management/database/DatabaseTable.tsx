@@ -56,7 +56,11 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
     const { loadJoins } = useActions(dataWarehouseJoinsLogic)
     const { loadDatabase } = useActions(dataWarehouseSettingsSceneLogic)
 
-    const join = joins.find((n) => n.source_table_name === tableName && n.field_name === fieldName)
+    const join =
+        joins.find((n) => n.source_table_name === tableName && n.field_name === fieldName) ||
+        (tableName === 'events'
+            ? joins.find((n) => n.source_table_name === 'persons' && n.field_name === fieldName)
+            : undefined)
 
     const overlay = useCallback(
         () =>

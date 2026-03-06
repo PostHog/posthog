@@ -8,7 +8,10 @@ use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
+use crate::tokio_monitor::TokioRuntimeMonitor;
+use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
@@ -21,8 +24,12 @@ use tokio::net::TcpListener;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
 
-pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
-where
+pub async fn serve<F>(
+    config: Config,
+    listener: TcpListener,
+    rayon_dispatcher: RayonDispatcher,
+    shutdown: F,
+) where
     F: Future<Output = ()> + Send + 'static,
 {
     // Configure compression based on environment variable
@@ -111,7 +118,7 @@ where
     let health = HealthRegistry::new("liveness");
 
     // Liveness checks only verify the process is alive (simple heartbeat loop).
-    // Readiness checks (in router.rs) verify DB connectivity before accepting traffic.
+    // Readiness checks (in router.rs) verify the pod isn't shutting down via a preStop marker file.
     let simple_loop = health
         .register(
             "simple_loop".to_string(),
@@ -133,6 +140,12 @@ where
         cohort_cache_clone
             .start_monitoring(cohort_cache_monitor_interval)
             .await;
+    });
+
+    // Start Tokio runtime monitoring
+    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
+    tokio::spawn(async move {
+        tokio_monitor.start_monitoring().await;
     });
 
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
@@ -239,9 +252,8 @@ where
         };
 
     // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
-    let flags_with_cohorts_redis_client = dedicated_redis_client
-        .clone()
-        .unwrap_or_else(|| redis_client.clone());
+    // Uses the shared cache (redis_client) - same cache Django writes to via HyperCache
+    let flags_with_cohorts_redis_client = redis_client.clone();
 
     let mut flags_with_cohorts_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
@@ -302,6 +314,23 @@ where
             }
         };
 
+    let team_negative_cache = NegativeCache::new(
+        config.team_negative_cache_capacity,
+        config.team_negative_cache_ttl_seconds,
+    );
+    tracing::info!(
+        capacity = config.team_negative_cache_capacity,
+        ttl_seconds = config.team_negative_cache_ttl_seconds,
+        "Created team negative cache for invalid API tokens"
+    );
+
+    if *config.skip_writes {
+        tracing::warn!(
+            "SKIP_WRITES is enabled: all writes to PostgreSQL and Redis are disabled. \
+             This instance is running in read-only mode for safe performance testing."
+        );
+    }
+
     // Warn about deprecated environment variables
     if std::env::var("TEAM_CACHE_TTL_SECONDS").is_ok() {
         tracing::warn!(
@@ -330,6 +359,8 @@ where
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
+        rayon_dispatcher,
+        team_negative_cache,
         config,
     );
 

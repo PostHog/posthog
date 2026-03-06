@@ -54,7 +54,6 @@ class SingleSessionSummaryData:
     user_id: int
     prompt_data: _SessionSummaryPromptData | None
     prompt: SessionSummaryPrompt | None
-    error_msg: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -197,15 +196,8 @@ async def prepare_data_for_single_session_summary(
     session_db_data: SessionSummaryDBData,
     extra_summary_context: ExtraSummaryContext | None,
 ) -> SingleSessionSummaryData:
-    if not session_db_data.session_events or not session_db_data.session_events_columns:
-        # Real-time replays could have no events yet, so we need to handle that case and show users a meaningful message
-        return SingleSessionSummaryData(
-            session_id=session_id,
-            user_id=user_id,
-            prompt_data=None,
-            prompt=None,
-            error_msg="No events found for this replay yet. Please try again in a few minutes.",
-        )
+    assert session_db_data.session_events is not None  # Must be verified by caller
+    assert session_db_data.session_events_columns is not None  # Must be verified by caller
     prompt_data = prepare_prompt_data(
         session_id=session_id,
         # Convert to a dict, so that we can amend its values freely

@@ -4,11 +4,14 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
+from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
 from posthog.temporal.ai.session_summary.activities import (
     analyze_video_segment_activity,
+    capture_timing_activity,
+    cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
 )
@@ -26,6 +29,29 @@ from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
     process_slack_conversation_activity,
+)
+from posthog.temporal.ai.twig_slack_interactivity import (
+    TwigSlackTerminateTaskWorkflow,
+    process_twig_terminate_task_activity,
+)
+from posthog.temporal.ai.twig_slack_mention import (
+    TwigSlackMentionWorkflow,
+    collect_twig_thread_messages_activity,
+    create_twig_routing_rule_activity,
+    create_twig_task_for_repo_activity,
+    forward_twig_followup_activity,
+    handle_twig_rules_command_activity,
+    post_twig_internal_error_activity,
+    post_twig_no_repos_activity,
+    post_twig_picker_timeout_activity,
+    post_twig_repo_picker_activity,
+    resolve_twig_slack_user_activity,
+    select_twig_repository_activity,
+)
+
+from products.signals.backend.temporal import (
+    ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
 
 from .llm_traces_summaries.summarize_traces import (
@@ -53,22 +79,62 @@ from .sync_vectors import (
     batch_summarize_actions,
     get_approximate_actions_count,
 )
+from .video_segment_clustering.activities import (
+    cluster_segments_activity,
+    emit_signals_from_clusters_activity,
+    fetch_segments_activity,
+    get_sessions_to_prime_activity,
+)
+from .video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
+from .video_segment_clustering.coordinator_workflow import (
+    VideoSegmentClusteringCoordinatorWorkflow,
+    get_proactive_tasks_enabled_team_ids_activity,
+)
 
-WORKFLOWS = [
+AI_WORKFLOWS = [
     SyncVectorsWorkflow,
-    SummarizeSingleSessionStreamWorkflow,
-    SummarizeSingleSessionWorkflow,
-    SummarizeSessionGroupWorkflow,
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
+    ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
+    TwigSlackMentionWorkflow,
+    TwigSlackTerminateTaskWorkflow,
 ]
 
-ACTIVITIES = [
+AI_ACTIVITIES = [
     get_approximate_actions_count,
     batch_summarize_actions,
     batch_embed_and_sync_actions,
+    process_conversation_activity,
+    process_chat_agent_activity,
+    process_research_agent_activity,
+    summarize_llm_traces_activity,
+    process_slack_conversation_activity,
+    resolve_twig_slack_user_activity,
+    handle_twig_rules_command_activity,
+    collect_twig_thread_messages_activity,
+    create_twig_routing_rule_activity,
+    select_twig_repository_activity,
+    post_twig_no_repos_activity,
+    post_twig_repo_picker_activity,
+    create_twig_task_for_repo_activity,
+    forward_twig_followup_activity,
+    post_twig_picker_timeout_activity,
+    post_twig_internal_error_activity,
+    process_twig_terminate_task_activity,
+]
+
+SIGNALS_WORKFLOWS = [
+    SummarizeSingleSessionStreamWorkflow,
+    SummarizeSingleSessionWorkflow,
+    SummarizeSessionGroupWorkflow,
+    VideoSegmentClusteringWorkflow,
+    VideoSegmentClusteringCoordinatorWorkflow,
+    *SIGNALS_PRODUCT_WORKFLOWS,
+]
+
+SIGNALS_ACTIVITIES = [
     stream_llm_single_session_summary_activity,
     get_llm_single_session_summary_activity,
     fetch_session_batch_events_activity,
@@ -77,18 +143,21 @@ ACTIVITIES = [
     fetch_session_data_activity,
     combine_patterns_from_chunks_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
-    process_conversation_activity,
-    process_chat_agent_activity,
     validate_llm_single_session_summary_with_videos_activity,
-    summarize_llm_traces_activity,
-    process_slack_conversation_activity,
-    # Video analysis activities
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     upload_video_to_gemini_activity,
     analyze_video_segment_activity,
     embed_and_store_segments_activity,
     store_video_session_summary_activity,
+    cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
+    capture_timing_activity,
+    get_sessions_to_prime_activity,
+    fetch_segments_activity,
+    cluster_segments_activity,
+    emit_signals_from_clusters_activity,
+    get_proactive_tasks_enabled_team_ids_activity,
+    *SIGNALS_PRODUCT_ACTIVITIES,
 ]
 
 __all__ = [

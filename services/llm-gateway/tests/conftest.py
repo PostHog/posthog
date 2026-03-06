@@ -3,12 +3,17 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
+from llm_gateway.main import http_exception_handler
+from llm_gateway.rate_limiting.cost_throttles import (
+    ProductCostThrottle,
+    UserCostBurstThrottle,
+    UserCostSustainedThrottle,
+)
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
 
@@ -22,7 +27,8 @@ def create_test_app(
 
     default_throttles: list[Throttle] = [
         ProductCostThrottle(redis=None),
-        UserCostThrottle(redis=None),
+        UserCostBurstThrottle(redis=None),
+        UserCostSustainedThrottle(redis=None),
     ]
 
     @asynccontextmanager
@@ -33,6 +39,8 @@ def create_test_app(
         yield
 
     app = FastAPI(title="LLM Gateway Test", lifespan=test_lifespan)
+    app.exception_handler(HTTPException)(http_exception_handler)
+
     app.include_router(health_router)
     app.include_router(router)
     return app

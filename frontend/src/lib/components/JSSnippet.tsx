@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { apiHostOrigin } from 'lib/utils/apiHost'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -36,6 +36,7 @@ type SnippetOption = {
 export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: string): string {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const { proxyRecords } = useValues(proxyLogic)
     const proxyRecord = proxyRecords[0]
@@ -49,7 +50,7 @@ export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: st
             enabled: true,
         },
         ui_host: {
-            content: apiHostOrigin(),
+            content: preflight?.site_url || window.location.origin,
             comment: "necessary because you're using a proxy, this way links will point back to PostHog properly",
             enabled: !!proxyRecord,
         },

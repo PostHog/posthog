@@ -345,6 +345,10 @@ class TestDockerProfiles:
         result = resolver.resolve(["session_replay"])
         assert "replay" in result.docker_profiles
 
+        # feature_flags needs etcd (coordination)
+        result = resolver.resolve(["feature_flags"])
+        assert "etcd" in result.docker_profiles
+
 
 class TestIntentMapLoading:
     """Test intent map loading from YAML."""
@@ -385,6 +389,7 @@ class TestIntentMapLoading:
         assert intent_map.capabilities["replay_storage"].docker_profiles == ["replay"]
         assert intent_map.capabilities["observability"].docker_profiles == ["observability"]
         assert intent_map.capabilities["dev_tools"].docker_profiles == ["dev_tools"]
+        assert intent_map.capabilities["coordination"].docker_profiles == ["etcd"]
 
 
 class TestMprocsRegistry:
@@ -484,3 +489,122 @@ class TestConfigPersistence:
             loaded = load_devenv_config(output_path)
 
             assert loaded is None
+
+
+class TestInfoProcess:
+    """Test info process generation."""
+
+    def _generate_with_intents(self, intents: list[str]) -> dict[str, dict]:
+        """Helper to generate mprocs config and return the procs dict."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(intents)
+        generator = MprocsGenerator(registry)
+        config = generator.generate(resolved)
+        return config.procs
+
+    def test_info_process_always_present(self) -> None:
+        """Generated config always contains info process regardless of intents."""
+        procs = self._generate_with_intents(["feature_flags"])
+        assert "info" in procs
+
+    def test_info_process_is_first(self) -> None:
+        """Info process is the first entry in the procs dict."""
+        procs = self._generate_with_intents(["error_tracking"])
+        assert next(iter(procs.keys())) == "info"
+
+    @parameterized.expand(
+        [
+            (["error_tracking"], {"error_tracking"}),
+            (["error_tracking", "session_replay"], {"error_tracking", "session_replay"}),
+            (["feature_flags"], {"feature_flags"}),
+        ]
+    )
+    def test_info_process_includes_product_names(self, intents: list[str], expected_products: set[str]) -> None:
+        """Info process shell includes product names."""
+        procs = self._generate_with_intents(intents)
+        shell = procs["info"]["shell"]
+        for product in expected_products:
+            assert product in shell
+
+    def test_info_process_includes_process_count(self) -> None:
+        """Info process shell includes the active process count."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(["error_tracking"])
+        expected_count = len(resolved.units)
+
+        generator = MprocsGenerator(registry)
+        config = generator.generate(resolved)
+
+        shell = config.procs["info"]["shell"]
+        assert f"{expected_count} active" in shell
+
+    def test_info_process_reads_news_at_runtime(self) -> None:
+        """Info process shell reads news.txt at runtime, not at generation time."""
+        procs = self._generate_with_intents(["feature_flags"])
+        shell = procs["info"]["shell"]
+
+        assert "devenv/news.txt" in shell
+        assert "News:" in shell
+
+    def test_info_process_includes_commands(self) -> None:
+        """Info process shell includes useful commands."""
+        procs = self._generate_with_intents(["feature_flags"])
+        shell = procs["info"]["shell"]
+
+        assert "hogli dev:setup" in shell
+        assert "hogli dev:explain" in shell
+
+
+class TestPersonhogEnvInjection:
+    """Test that personhog env vars are injected into backend when capability is active."""
+
+    def _make_fixtures(self, *, with_personhog: bool):
+        capabilities = {
+            "core_infra": Capability(name="core_infra", description="Core", requires=[]),
+            "flag_evaluation": Capability(name="flag_evaluation", description="Flags", requires=["core_infra"]),
+        }
+        intents = {
+            "feature_flags": Intent(name="feature_flags", description="Flags", capabilities=["flag_evaluation"]),
+        }
+        capability_units = {
+            "core_infra": ["docker-compose"],
+            "flag_evaluation": ["feature-flags"],
+        }
+
+        if with_personhog:
+            capabilities["personhog"] = Capability(name="personhog", description="PersonHog", requires=["core_infra"])
+            intents["personhog"] = Intent(name="personhog", description="PersonHog", capabilities=["personhog"])
+            capability_units["personhog"] = ["personhog-replica", "personhog-router"]
+
+        intent_map = IntentMap(
+            version="1.0",
+            capabilities=capabilities,
+            intents=intents,
+            always_required=["backend"],
+        )
+        registry = MockRegistry(capability_units)
+        registry._processes["backend"] = {"shell": "./bin/start-backend", "capability": ""}
+        return intent_map, registry
+
+    @parameterized.expand(
+        [
+            (True, ["personhog"], True),
+            (False, ["feature_flags"], False),
+        ]
+    )
+    def test_personhog_env_injection(self, with_personhog: bool, intents: list[str], should_inject: bool) -> None:
+        intent_map, registry = self._make_fixtures(with_personhog=with_personhog)
+        resolver = IntentResolver(intent_map, registry)
+        resolved = resolver.resolve(intents)
+        config = MprocsGenerator(registry).generate(resolved)
+
+        shell = config.procs["backend"]["shell"]
+        for var in ["PERSONHOG_ADDR", "PERSONHOG_ENABLED", "PERSONHOG_ROLLOUT_PERCENTAGE"]:
+            if should_inject:
+                assert var in shell
+            else:
+                assert var not in shell

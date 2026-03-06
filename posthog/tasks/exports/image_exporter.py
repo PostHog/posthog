@@ -20,7 +20,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
-from posthog.schema import NodeKind
+from posthog.schema import FunnelLayout, NodeKind
 
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -30,6 +30,7 @@ from posthog.models import InsightVariable
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
@@ -50,7 +51,20 @@ TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 # See https://github.com/SeleniumHQ/selenium/issues/14660.
 HEIGHT_OFFSET = 85
 MAX_WIDTH_PIXELS = 4000  # Max width for wide content like funnels with many steps
+MAX_HEIGHT_PIXELS = 5000  # Prevents Chrome from consuming excessive memory on very tall pages
 CONTENT_PADDING = 80  # Padding for card borders
+
+MEASURE_CONTENT_HEIGHT_JS = """
+    const element = document.querySelector('.InsightCard__viz') ||
+                  document.querySelector('.ExportedInsight__content') ||
+                  document.querySelector('.replayer-wrapper') ||
+                  document.querySelector('.heatmap-exporter');
+    if (element) {
+        const rect = element.getBoundingClientRect();
+        return Math.max(rect.height, document.body.scrollHeight);
+    }
+    return document.body.scrollHeight;
+"""
 
 ScreenWidth = Literal[800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
@@ -59,6 +73,9 @@ CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", "
 # NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
+    # this instance of Chrome does *not* use the egress proxy.
+    # after multiple attempts, we were not able to get selenium to actually use the proxy.
+    # the risk is minimal though, since this always uses a URL hardoded to settings.SITE_URL
     options = Options()
     options.add_argument("--headless=new")  # Hint: Try removing this line when debugging
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
@@ -139,10 +156,15 @@ def _export_to_png(
             query = exported_asset.insight.query or {}
             source = query.get("source", query)  # This to handle the InsightVizNode wrapper
             is_funnel = source.get("kind") == NodeKind.FUNNELS_QUERY
-            # Set initial window size large enough for wide content like funnels with many steps
+            # Only use wide width for left-to-right funnels (vertical layout, which is the default)
+            # Top-to-bottom funnels (horizontal layout) grow vertically, not horizontally
+            funnels_filter = source.get("funnelsFilter") or {}
+            funnel_layout = funnels_filter.get("layout")
+            is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
+            # Set initial window size large enough for wide content like left-to-right funnels with many steps
             # Small funnels will be constrained later.
             # The higher the number, the more RAM will be required by the Chromium driver.
-            screenshot_width = 4000 if is_funnel else 800
+            screenshot_width = 4000 if is_left_to_right_funnel else 800
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
@@ -166,6 +188,11 @@ def _export_to_png(
                 token_preview=access_token[:10],
             )
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
+            heatmap_url = exported_asset.export_context["heatmap_url"]
+            ok, err = is_url_allowed(heatmap_url)
+            if not ok:
+                raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
+
             # Handle replay export using /exporter route (same as insights/dashboards)
             url_to_render = absolute_uri(
                 f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"
@@ -257,29 +284,17 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-        # Get the height of the visualization container specifically
-        height = driver.execute_script(
-            """
-            const element = document.querySelector('.InsightCard__viz') ||
-                          document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.replayer-wrapper') ||
-                          document.querySelector('.heatmap-exporter');
-            if (element) {
-                const rect = element.getBoundingClientRect();
-                return Math.max(rect.height, document.body.scrollHeight);
-            }
-            return document.body.scrollHeight;
-        """
-        )
+        height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
 
-        if max_height_pixels and height > max_height_pixels:
+        effective_max = min(max_height_pixels, MAX_HEIGHT_PIXELS) if max_height_pixels else MAX_HEIGHT_PIXELS
+        if height > effective_max:
             logger.warning(
                 "screenshot_height_capped",
                 original_height=height,
-                capped_height=max_height_pixels,
+                capped_height=effective_max,
                 url=url_to_render,
             )
-            height = max_height_pixels
+            height = effective_max
 
         # Calculate width for replay players and non-funnel tables
         # Funnels are handled separately with fit-content measurement below
@@ -291,6 +306,8 @@ def _screenshot_asset(
                 return replayElement.offsetWidth;
             }}
 
+            // Check for left-to-right funnel (FunnelBarVertical)
+            // Top-to-bottom funnels use FunnelBarHorizontal and don't need width expansion
             const funnelElement = document.querySelector('.FunnelBarVertical');
             if (funnelElement) {{
                 // Force funnel to shrink to content size
@@ -338,29 +355,16 @@ def _screenshot_asset(
         # Allow a moment for any dynamic resizing
         driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
 
-        # Get the final height after any dynamic adjustments
-        final_height = driver.execute_script(
-            """
-            const element = document.querySelector('.InsightCard__viz') ||
-                          document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.replayer-wrapper') ||
-                          document.querySelector('.heatmap-exporter');
-            if (element) {
-                const rect = element.getBoundingClientRect();
-                return Math.max(rect.height, document.body.scrollHeight);
-            }
-            return document.body.scrollHeight;
-        """
-        )
+        final_height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
 
-        if max_height_pixels and final_height > max_height_pixels:
+        if final_height > effective_max:
             logger.warning(
                 "screenshot_final_height_capped",
                 original_final_height=final_height,
-                capped_height=max_height_pixels,
+                capped_height=effective_max,
                 url=url_to_render,
             )
-            final_height = max_height_pixels
+            final_height = effective_max
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)

@@ -1,7 +1,7 @@
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import {
     IconApps,
@@ -11,28 +11,22 @@ import {
     IconFolderOpen,
     IconGear,
     IconHome,
+    IconNotification,
     IconPeople,
     IconSearch,
     IconShortcut,
-    IconSidebarClose,
-    IconSidebarOpen,
     IconSparkles,
-    IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
-import { DebugNotice } from 'lib/components/DebugNotice'
-import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
-import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -47,17 +41,14 @@ import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
+import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
-import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
-import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
-import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
+import { navigationLogic } from '../navigation/navigationLogic'
+import { NavBarFooter } from './NavBarFooter'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -75,7 +66,7 @@ const navBarStyles = cva({
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
+    const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
     const {
         showLayoutPanel,
         setActivePanelIdentifier,
@@ -94,11 +85,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { user } = useValues(userLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -137,6 +127,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Settings' && currentPath.startsWith('/settings/')) {
             return true
         }
+        if (itemIdentifier === 'Inbox' && currentPath.startsWith('/inbox')) {
+            return true
+        }
         if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
             return true
         }
@@ -146,6 +139,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
         return false
     }
+
+    useAppShortcut({
+        name: 'ToggleLeftNav',
+        keybind: [keyBinds.toggleLeftNav],
+        intent: 'Toggle collapse left navigation',
+        interaction: 'function',
+        callback: toggleLayoutNavCollapsed,
+    })
 
     const navItems: {
         identifier: string
@@ -157,18 +158,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         collapsedTooltip?: React.ReactNode | [React.ReactNode, React.ReactNode] // Open and closed tooltips
         documentationUrl?: string
     }[] = [
-        ...(isRemovingSidePanelFlag
-            ? [
-                  {
-                      identifier: 'ai',
-                      label: 'PostHog AI',
-                      icon: <IconSparkles />,
-                      to: urls.ai(),
-                      onClick: () => handleStaticNavbarItemClick(urls.ai(), true),
-                      collapsedTooltip: 'PostHog AI',
-                  },
-              ]
-            : []),
+        {
+            identifier: 'ai',
+            label: 'PostHog AI',
+            icon: <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />,
+            to: urls.ai(),
+            onClick: () => handleStaticNavbarItemClick(urls.ai(), true),
+            collapsedTooltip: 'PostHog AI',
+        },
         {
             identifier: 'ProjectHomepage',
             label: 'Home',
@@ -195,6 +192,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
+        ...(isProductAutonomyEnabled
+            ? [
+                  {
+                      identifier: 'Inbox',
+                      label: 'Inbox',
+                      icon: <IconNotification />,
+                      to: urls.inbox(),
+                      onClick: () => handleStaticNavbarItemClick(urls.inbox(), true),
+                      collapsedTooltip: 'Inbox',
+                  },
+              ]
+            : []),
         ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
             ? []
             : [
@@ -302,38 +311,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 'flex-col items-center pt-px': isLayoutNavCollapsed,
                             })}
                         >
-                            {!isRemovingSidePanelFlag ? (
-                                <>
-                                    <OrganizationMenu
-                                        showName={false}
-                                        buttonProps={{
-                                            variant: 'panel',
-                                            className: cn('px-px', {
-                                                hidden: isLayoutNavCollapsed,
-                                            }),
-                                            iconOnly: isLayoutNavCollapsed,
-                                            tooltipCloseDelayMs: 0,
-                                            tooltipPlacement: 'bottom',
-                                            tooltip: 'Switch organization',
-                                        }}
-                                    />
-                                    <ProjectMenu
-                                        buttonProps={{
-                                            className: 'max-w-[175px]',
-                                            variant: 'panel',
-                                            tooltipCloseDelayMs: 0,
-                                            iconOnly: isLayoutNavCollapsed,
-                                            tooltipPlacement: 'bottom',
-                                            tooltip: 'Switch project',
-                                        }}
-                                    />
-                                    <RecentItemsMenu />
-                                </>
-                            ) : (
-                                <>
-                                    <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
-                                </>
-                            )}
+                            <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
                         </div>
                     </div>
 
@@ -427,15 +405,64 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         )
 
                                         if (item.identifier === 'ProjectHomepage') {
+                                            const homeListItem = !isLayoutNavCollapsed ? (
+                                                <ListBox.Item
+                                                    key={item.identifier}
+                                                    asChild
+                                                    onClick={() => item.onClick?.()}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            item.onClick?.(e)
+                                                        }
+                                                    }}
+                                                >
+                                                    <ButtonGroupPrimitive
+                                                        fullWidth
+                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+                                                    >
+                                                        <Link
+                                                            data-attr={`menu-item-${item.identifier
+                                                                .toString()
+                                                                .toLowerCase()}`}
+                                                            buttonProps={{
+                                                                menuItem: true,
+                                                                className: 'group',
+                                                                active: isStaticNavItemActive(item.identifier),
+                                                                hasSideActionRight: true,
+                                                            }}
+                                                            to={item.to}
+                                                            tooltip={tooltip}
+                                                            tooltipPlacement="right"
+                                                        >
+                                                            <span className={iconClassName}>{item.icon}</span>
+                                                            <span className="truncate">{item.label}</span>
+                                                        </Link>
+                                                        <ButtonPrimitive
+                                                            iconOnly
+                                                            isSideActionRight
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                showConfigurePinnedTabsModal()
+                                                            }}
+                                                            tooltip="Configure tabs & home"
+                                                            tooltipPlacement="right"
+                                                        >
+                                                            <IconGear className="text-tertiary" />
+                                                        </ButtonPrimitive>
+                                                    </ButtonGroupPrimitive>
+                                                </ListBox.Item>
+                                            ) : (
+                                                listItem
+                                            )
                                             return (
                                                 <ContextMenu key={item.identifier}>
-                                                    <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
+                                                    <ContextMenuTrigger asChild>{homeListItem}</ContextMenuTrigger>
                                                     <ContextMenuContent className="max-w-[300px]">
                                                         <ContextMenuGroup>
                                                             <ContextMenuItem asChild>
                                                                 <ButtonPrimitive
                                                                     menuItem
-                                                                    onClick={() => setIsConfigurePinnedTabsOpen(true)}
+                                                                    onClick={() => showConfigurePinnedTabsModal()}
                                                                 >
                                                                     <IconGear /> Configure tabs & home
                                                                 </ButtonPrimitive>
@@ -478,117 +505,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        {!isRemovingSidePanelFlag && <div className="border-b border-primary h-px " />}
+                        <div className="border-b border-primary h-px " />
 
-                        <div
-                            className={cn('p-1 flex flex-col gap-px items-center', {
-                                'pb-2 pl-2 items-start': isRemovingSidePanelFlag,
-                            })}
-                        >
-                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
-                            <NavPanelAdvertisement />
-
-                            {!isRemovingSidePanelFlag ? (
-                                <>
-                                    <ButtonPrimitive
-                                        iconOnly={isLayoutNavCollapsed}
-                                        tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
-                                        tooltipPlacement="right"
-                                        onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
-                                        menuItem={!isLayoutNavCollapsed}
-                                        className="hidden lg:flex"
-                                    >
-                                        {isLayoutNavCollapsed ? (
-                                            <>
-                                                <IconSidebarClose className="text-tertiary" />
-                                            </>
-                                        ) : (
-                                            <>
-                                                <IconSidebarOpen className="text-tertiary" />
-                                                Collapse nav
-                                            </>
-                                        )}
-                                    </ButtonPrimitive>
-
-                                    <Link
-                                        buttonProps={{
-                                            menuItem: !isLayoutNavCollapsed,
-                                            className: 'group',
-                                            iconOnly: isLayoutNavCollapsed,
-                                            active: isStaticNavItemActive('Toolbar'),
-                                        }}
-                                        to={urls.toolbarLaunch()}
-                                        onClick={() => {
-                                            handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
-                                        }}
-                                        tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
-                                        tooltipDocLink="https://posthog.com/docs/toolbar"
-                                        tooltipPlacement="right"
-                                        data-attr="menu-item-toolbar"
-                                    >
-                                        <span className="flex text-tertiary group-hover:text-primary">
-                                            <IconToolbar />
-                                        </span>
-                                        {!isLayoutNavCollapsed && 'Toolbar'}
-                                    </Link>
-                                    <AppShortcut
-                                        name="Settings"
-                                        keybind={[['command', 'option', 's']]}
-                                        intent="Open settings"
-                                        interaction="click"
-                                    >
-                                        <Link
-                                            buttonProps={{
-                                                menuItem: !isLayoutNavCollapsed,
-                                                className: 'group',
-                                                iconOnly: isLayoutNavCollapsed,
-                                                active: isStaticNavItemActive('Settings'),
-                                            }}
-                                            to={urls.settings('project')}
-                                            onClick={() => {
-                                                handleStaticNavbarItemClick(urls.settings('project'), true)
-                                            }}
-                                            tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
-                                            tooltipPlacement="right"
-                                            data-attr="menu-item-settings"
-                                        >
-                                            <span className="flex text-tertiary group-hover:text-primary">
-                                                <IconGear />
-                                            </span>
-                                            {!isLayoutNavCollapsed && 'Settings'}
-                                        </Link>
-                                    </AppShortcut>
-                                    <AccountMenu
-                                        align="end"
-                                        side="right"
-                                        alignOffset={10}
-                                        trigger={
-                                            <ButtonPrimitive
-                                                menuItem={!isLayoutNavCollapsed}
-                                                tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
-                                                tooltipPlacement="right"
-                                                iconOnly={isLayoutNavCollapsed}
-                                                data-attr="menu-item-me"
-                                            >
-                                                <ProfilePicture user={user} size="xs" />
-                                                {!isLayoutNavCollapsed && (
-                                                    <>
-                                                        {user?.first_name ? (
-                                                            <span>{user?.first_name}</span>
-                                                        ) : (
-                                                            <span>{user?.email}</span>
-                                                        )}
-                                                        <IconChevronRight className="size-3 text-secondary ml-auto" />
-                                                    </>
-                                                )}
-                                            </ButtonPrimitive>
-                                        }
-                                    />
-                                </>
-                            ) : (
-                                <HelpMenu />
-                            )}
-                        </div>
+                        <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
                     </div>
                     {!isMobileLayout && (
                         <Resizer
@@ -632,10 +551,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     />
                 )}
             </div>
-            <ConfigurePinnedTabsModal
-                isOpen={isConfigurePinnedTabsOpen}
-                onClose={() => setIsConfigurePinnedTabsOpen(false)}
-            />
         </>
     )
 }

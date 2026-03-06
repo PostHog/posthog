@@ -54,7 +54,7 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 language: 'bash',
                                 file: '.env',
                                 code: dedent`
-                                    VITE_PUBLIC_POSTHOG_KEY=<ph_project_api_key>
+                                    VITE_PUBLIC_POSTHOG_KEY=<ph_project_token>
                                     VITE_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
@@ -86,7 +86,7 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
 
                                     const options = {
                                       api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
-                                      defaults: '2025-11-30',
+                                      defaults: '2026-01-30',
                                     } as const
 
                                     createRoot(document.getElementById('root')).render(

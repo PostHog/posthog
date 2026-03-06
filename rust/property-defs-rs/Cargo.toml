@@ -19,7 +19,7 @@ axum = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 metrics = { workspace = true }
 chrono = { workspace = true }
-quick_cache = { workspace = true }
+quick_cache = { workspace = true, features = ["stats"] }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }

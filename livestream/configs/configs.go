@@ -24,6 +24,12 @@ type SessionRecordingConfig struct {
 	MaxLRUEntries int `mapstructure:"max_lru_entries"`
 }
 
+type RedisConfig struct {
+	Address string `mapstructure:"address"`
+	Port    string `mapstructure:"port"`
+	TLS     bool   `mapstructure:"tls"`
+}
+
 type Config struct {
 	Debug            bool `mapstructure:"debug"`
 	MMDB             MMDBConfig
@@ -33,6 +39,7 @@ type Config struct {
 	Postgres         PostgresConfig
 	JWT              JWTConfig
 	SessionRecording SessionRecordingConfig `mapstructure:"session_recording"`
+	Redis            RedisConfig
 }
 
 type KafkaConfig struct {
@@ -98,6 +105,11 @@ func InitConfigs(filename, configPath string) {
 
 	// Session recording settings
 	_ = viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
+
+	// Redis settings
+	_ = viper.BindEnv("redis.address") // LIVESTREAM_REDIS_ADDRESS
+	_ = viper.BindEnv("redis.port")    // LIVESTREAM_REDIS_PORT
+	_ = viper.BindEnv("redis.tls")     // LIVESTREAM_REDIS_TLS
 }
 
 func LoadConfig() (*Config, error) {

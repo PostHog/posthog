@@ -7,13 +7,13 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { OnboardingStepKey } from '~/types'
 
 import { EditKeyModal } from '../../settings/user/PersonalAPIKeys'
-import { OnboardingStep } from '../OnboardingStep'
 import { OnboardingStepComponentType } from '../onboardingLogic'
+import { OnboardingStep } from '../OnboardingStep'
 import { SourceMapsInstructionsModal } from './OnboardingErrorTrackingSourceMapsModal'
 import { SourceMapOptionCard } from './source-maps/SourceMapOptionCard'
-import { SourceMapStatus } from './source-maps/SourceMapStatus'
 import { automatedSourceMapsTechnologies } from './source-maps/SourceMapsSDKInstructionsMap'
 import { sourceMapsStepLogic } from './source-maps/sourceMapsStepLogic'
+import { SourceMapStatus } from './source-maps/SourceMapStatus'
 
 export const OnboardingErrorTrackingSourceMapsStep: OnboardingStepComponentType = () => {
     const { selectedOption, instructionsModalOpen, shouldShowContinue, shouldShowSourceMapStatus } =

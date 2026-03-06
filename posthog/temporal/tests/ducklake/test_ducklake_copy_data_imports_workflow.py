@@ -132,8 +132,8 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
     assert len(result) == 1
     metadata = result[0]
     assert metadata.source_normalized_name == "customers"
-    assert metadata.ducklake_schema_name == f"data_imports_team_{ateam.id}"
-    assert metadata.ducklake_table_name.startswith("postgres_customers_")
+    assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
+    assert metadata.ducklake_table_name == "postgres_customers"
     assert metadata.source_partition_column == "created_at"
 
 
@@ -186,10 +186,76 @@ async def test_prepare_data_imports_ducklake_metadata_activity_no_partition(atea
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_prepare_data_imports_ducklake_metadata_activity_with_prefix(ateam, monkeypatch):
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: [])
+
+    credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
+        team=ateam, access_key="test_key", access_secret="test_secret"
+    )
+    source = await database_sync_to_async(ExternalDataSource.objects.create)(
+        team=ateam,
+        source_id="test_source",
+        connection_id="test_connection",
+        source_type="Stripe",
+        status="Running",
+        prefix="prod_",
+    )
+    table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+        team=ateam,
+        name="test_table",
+        format="Delta",
+        url_pattern="s3://bucket/path",
+        credential=credential,
+        external_data_source=source,
+        columns={
+            "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+        },
+    )
+    schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
+        team=ateam,
+        name="invoices",
+        source=source,
+        table=table,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+    )
+
+    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-prefix", schema_ids=[schema.id])
+
+    result = await prepare_data_imports_ducklake_metadata_activity(inputs)
+
+    assert len(result) == 1
+    metadata = result[0]
+    assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
+    assert metadata.ducklake_table_name == "stripe_prod_invoices"  # {source_type}_{prefix}_{name}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_prepare_data_imports_ducklake_metadata_activity_empty_schema_ids(ateam):
     inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-empty", schema_ids=[])
     result = await prepare_data_imports_ducklake_metadata_activity(inputs)
     assert result == []
+
+
+def _create_mock_catalog():
+    """Create a mock DuckLakeCatalog with cross-account settings."""
+    mock_catalog = MagicMock()
+    mock_catalog.to_public_config.return_value = {
+        "DUCKLAKE_RDS_HOST": "localhost",
+        "DUCKLAKE_RDS_PORT": "5432",
+        "DUCKLAKE_RDS_DATABASE": "ducklake",
+        "DUCKLAKE_RDS_USERNAME": "posthog",
+        "DUCKLAKE_RDS_PASSWORD": "password",
+        "DUCKLAKE_BUCKET": "test-bucket",
+        "DUCKLAKE_BUCKET_REGION": "us-east-1",
+        "DUCKLAKE_S3_ACCESS_KEY": "",
+        "DUCKLAKE_S3_SECRET_KEY": "",
+    }
+    mock_cross_account_dest = MagicMock()
+    mock_cross_account_dest.role_arn = "arn:aws:iam::123456789012:role/test-role"
+    mock_cross_account_dest.bucket_name = "test-bucket"
+    mock_catalog.to_cross_account_destination.return_value = mock_cross_account_dest
+    return mock_catalog
 
 
 def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch):
@@ -211,7 +277,15 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
     )
 
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=_create_mock_catalog()),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_cross_account_connection",
         MagicMock(),
     )
     monkeypatch.setattr(
@@ -222,10 +296,6 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
         MagicMock(),
     )
-    monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
-        MagicMock(return_value={}),
-    )
 
     metadata = DuckLakeCopyDataImportsMetadata(
         model_label="postgres_customers",
@@ -233,7 +303,7 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
@@ -262,7 +332,7 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[],
     )
@@ -293,16 +363,20 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
     )
 
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=_create_mock_catalog()),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_cross_account_connection",
         MagicMock(),
     )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
         MagicMock(),
-    )
-    monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
-        MagicMock(return_value={}),
     )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
@@ -328,7 +402,7 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query],
     )
@@ -363,16 +437,20 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
     )
 
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=_create_mock_catalog()),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_cross_account_connection",
         MagicMock(),
     )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
         MagicMock(),
-    )
-    monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
-        MagicMock(return_value={}),
     )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
@@ -398,7 +476,7 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query],
     )
@@ -433,16 +511,20 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     )
 
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=_create_mock_catalog()),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_cross_account_connection",
         MagicMock(),
     )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
         MagicMock(),
-    )
-    monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
-        MagicMock(return_value={}),
     )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
@@ -477,7 +559,7 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
-        ducklake_schema_name="data_imports_team_1",
+        ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         verification_queries=[query_pass, query_fail],
     )
@@ -508,6 +590,96 @@ def test_ducklake_copy_data_imports_workflow_parse_inputs():
     assert inputs.schema_ids[0] == schema_id
 
 
+def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypatch):
+    """Test that copy activity raises ApplicationError when no DuckLakeCatalog is configured."""
+    from temporalio.exceptions import ApplicationError
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    # Return None to simulate no DuckLakeCatalog configured
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=None),
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="posthog_data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        copy_data_imports_to_ducklake_activity(inputs)
+
+    assert "No DuckLakeCatalog configured for team 1" in str(exc_info.value)
+    assert exc_info.value.non_retryable is True
+
+
+def test_verify_data_imports_ducklake_copy_activity_raises_when_no_catalog(monkeypatch):
+    """Test that verify activity raises ApplicationError when no DuckLakeCatalog is configured."""
+    from temporalio.exceptions import ApplicationError
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    # Return None to simulate no DuckLakeCatalog configured
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=None),
+    )
+
+    query = DuckLakeCopyVerificationQuery(
+        name="row_count_check",
+        sql="SELECT 1",
+        description="A verification query",
+        parameters=(),
+        expected_value=0.0,
+        tolerance=0.0,
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="posthog_data_imports_team_42",
+        ducklake_table_name="postgres_customers_abc12345",
+        verification_queries=[query],
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=42, job_id="job-456", model=metadata)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        verify_data_imports_ducklake_copy_activity(inputs)
+
+    assert "No DuckLakeCatalog configured for team 42" in str(exc_info.value)
+    assert exc_info.value.non_retryable is True
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disabled(monkeypatch, ateam):
@@ -523,7 +695,7 @@ async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disab
                 source_schema_name="customers",
                 source_normalized_name="customers",
                 source_table_uri="s3://bucket/team_1/customers",
-                ducklake_schema_name="data_imports_team_1",
+                ducklake_schema_name="posthog_data_imports_team_1",
                 ducklake_table_name="postgres_customers_abc12345",
             )
         ]
@@ -585,7 +757,7 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
                 source_schema_name="customers",
                 source_normalized_name="customers",
                 source_table_uri="s3://bucket/team_1/customers",
-                ducklake_schema_name="data_imports_team_1",
+                ducklake_schema_name="posthog_data_imports_team_1",
                 ducklake_table_name="postgres_customers_abc12345",
             )
         ]

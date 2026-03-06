@@ -11,8 +11,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { RepositoryConfig } from '../components/RepositorySelector'
 import { OriginProduct, Task, TaskRunStatus, TaskUpsertProps } from '../types'
-import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 import { tasksLogic } from './tasksLogic'
+import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 
 const DEFAULT_SEARCH_QUERY = ''
 const DEFAULT_REPOSITORY = 'all'

@@ -95,3 +95,81 @@ for index, schema_id in enumerate(schema_ids):
         print(e)
     print(f"{index + 1}/{len(schema_ids)}")
 ```
+
+## How to clean up orphaned S3 data
+
+When a source or schema is soft-deleted, S3 cleanup can fail silently (it's best-effort). This leaves orphaned data in S3 that customers consider deleted.
+
+Run this on a `temporal-worker-data-warehouse` pod to find and delete S3 folders for orphaned schemas:
+
+```python
+import os
+import s3fs
+
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+bucket_url = os.environ['BUCKET_URL']
+s3 = s3fs.S3FileSystem()
+
+# Find schemas that are soft-deleted but whose S3 folder may still exist
+orphaned_schemas = (
+    ExternalDataSchema.objects
+    .filter(deleted=True)
+    .select_related('source')
+    .iterator()
+)
+
+deleted = 0
+skipped = 0
+errors = 0
+
+for schema in orphaned_schemas:
+    s3_folder = f"{bucket_url}/{schema.folder_path()}"
+    try:
+        if s3.exists(s3_folder):
+            print(f"Deleting {s3_folder} (schema={schema.id}, team={schema.team_id})")
+            s3.delete(s3_folder, recursive=True)
+            deleted += 1
+        else:
+            skipped += 1
+    except Exception as e:
+        print(f"Error deleting {s3_folder}: {e}")
+        errors += 1
+
+print(f"Done. Deleted: {deleted}, Already clean: {skipped}, Errors: {errors}")
+```
+
+To do a dry run first (just list what would be deleted without actually deleting):
+
+```python
+import os
+import s3fs
+
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+bucket_url = os.environ['BUCKET_URL']
+s3 = s3fs.S3FileSystem()
+
+orphaned_schemas = (
+    ExternalDataSchema.objects
+    .filter(deleted=True)
+    .select_related('source')
+    .iterator()
+)
+
+total_size = 0
+count = 0
+
+for schema in orphaned_schemas:
+    s3_folder = f"{bucket_url}/{schema.folder_path()}"
+    try:
+        if s3.exists(s3_folder):
+            size = sum(f['size'] for f in s3.ls(s3_folder, detail=True))
+            print(f"[WOULD DELETE] {s3_folder} (schema={schema.id}, team={schema.team_id}, size={size / 1024 / 1024:.1f} MB)")
+            total_size += size
+            count += 1
+    except Exception as e:
+        print(f"Error checking {s3_folder}: {e}")
+
+print(f"\nTotal: {count} folders, {total_size / 1024 / 1024 / 1024:.2f} GB")
+```

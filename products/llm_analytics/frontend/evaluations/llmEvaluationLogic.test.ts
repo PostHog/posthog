@@ -4,7 +4,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { llmEvaluationLogic } from './llmEvaluationLogic'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationConfig, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -27,6 +28,28 @@ const mockProviderKeys: LLMProviderKey[] = [
         error_message: null,
         api_key_masked: 'sk-ant-...5678',
         created_at: '2024-01-02T00:00:00Z',
+        created_by: null,
+        last_used_at: null,
+    },
+    {
+        id: 'key-3',
+        provider: 'openrouter',
+        name: 'OpenRouter Key',
+        state: 'ok',
+        error_message: null,
+        api_key_masked: 'sk-or-...9012',
+        created_at: '2024-01-03T00:00:00Z',
+        created_by: null,
+        last_used_at: null,
+    },
+    {
+        id: 'key-4',
+        provider: 'fireworks',
+        name: 'Fireworks Key',
+        state: 'ok',
+        error_message: null,
+        api_key_masked: 'fw-...3456',
+        created_at: '2024-01-04T00:00:00Z',
         created_by: null,
         last_used_at: null,
     },
@@ -245,21 +268,52 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
-        describe('providerKeysByProvider', () => {
+        describe('evaluationProviderKeyIssue', () => {
             beforeEach(() => {
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
                 logic.mount()
             })
 
-            it('groups keys by provider', async () => {
-                await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
+            it.each([
+                ['invalid' as const, 'Authentication failed'],
+                ['error' as const, 'Quota exceeded'],
+            ])('returns the provider key when state is %s', async (state, errorMessage) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-                const byProvider = logic.values.providerKeysByProvider
-                expect(byProvider.openai).toHaveLength(1)
-                expect(byProvider.openai[0].id).toBe('key-1')
-                expect(byProvider.anthropic).toHaveLength(1)
-                expect(byProvider.anthropic[0].id).toBe('key-2')
-                expect(byProvider.gemini).toHaveLength(0)
+                keysLogic.actions.loadProviderKeysSuccess(
+                    mockProviderKeys.map((key) =>
+                        key.id === 'key-1' ? { ...key, state, error_message: errorMessage } : key
+                    )
+                )
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: expect.objectContaining({
+                        id: 'key-1',
+                        state,
+                        error_message: errorMessage,
+                    }),
+                })
+            })
+
+            it('returns null when evaluation uses the PostHog default key', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    model_configuration: null,
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: null,
+                })
+            })
+
+            it('returns null when provider key state is healthy', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationProviderKeyIssue: null,
+                })
             })
         })
 
@@ -375,45 +429,369 @@ describe('llmEvaluationLogic', () => {
         })
     })
 
-    describe('provider selection', () => {
+    describe('evaluation summary', () => {
+        beforeEach(() => {
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+        })
+
+        describe('evaluationSummaryFilter', () => {
+            it('defaults to all', async () => {
+                expect(logic.values.evaluationSummaryFilter).toBe('all')
+            })
+
+            it('updates when setEvaluationSummaryFilter is called', async () => {
+                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationSummaryFilter: 'pass',
+                })
+            })
+
+            it('clears evaluationSummary when filter changes', async () => {
+                // Simulate having a summary
+                logic.actions.generateEvaluationSummarySuccess({
+                    overall_assessment: 'Test',
+                    pass_patterns: [],
+                    fail_patterns: [],
+                    na_patterns: [],
+                    recommendations: [],
+                    statistics: { total_analyzed: 10, pass_count: 5, fail_count: 3, na_count: 2 },
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationSummary: expect.objectContaining({ overall_assessment: 'Test' }),
+                })
+
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationSummary: null,
+                })
+            })
+        })
+
+        describe('runsToSummarizeCount', () => {
+            it('returns 0 when no runs', async () => {
+                expect(logic.values.runsToSummarizeCount).toBe(0)
+            })
+
+            it('counts all completed runs when filter is all', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: 3,
+                })
+            })
+
+            it('counts only passing runs when filter is pass', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: 1,
+                })
+            })
+
+            it('counts only failing runs when filter is fail', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: 1,
+                })
+            })
+
+            it('counts only N/A runs when filter is na', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('na', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: 1,
+                })
+            })
+
+            it(`caps count at ${EVALUATION_SUMMARY_MAX_RUNS}`, async () => {
+                const manyRuns = Array.from({ length: EVALUATION_SUMMARY_MAX_RUNS + 50 }, (_, i) => ({
+                    ...mockRuns[0],
+                    id: `run-${i}`,
+                    generation_id: `gen-${i}`,
+                }))
+                logic.actions.loadEvaluationRunsSuccess(manyRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: EVALUATION_SUMMARY_MAX_RUNS,
+                })
+            })
+        })
+
+        describe('summaryExpanded', () => {
+            it('defaults to true', async () => {
+                expect(logic.values.summaryExpanded).toBe(true)
+            })
+
+            it('toggles on toggleSummaryExpanded', async () => {
+                logic.actions.toggleSummaryExpanded()
+
+                await expectLogic(logic).toMatchValues({
+                    summaryExpanded: false,
+                })
+
+                logic.actions.toggleSummaryExpanded()
+
+                await expectLogic(logic).toMatchValues({
+                    summaryExpanded: true,
+                })
+            })
+
+            it('expands on generateEvaluationSummarySuccess', async () => {
+                logic.actions.toggleSummaryExpanded() // collapse
+
+                await expectLogic(logic).toMatchValues({ summaryExpanded: false })
+
+                logic.actions.generateEvaluationSummarySuccess({
+                    overall_assessment: 'Test',
+                    pass_patterns: [],
+                    fail_patterns: [],
+                    na_patterns: [],
+                    recommendations: [],
+                    statistics: { total_analyzed: 10, pass_count: 5, fail_count: 3, na_count: 2 },
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    summaryExpanded: true,
+                })
+            })
+        })
+
+        describe('filteredEvaluationRuns', () => {
+            it('returns all runs when filter is all', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: mockRuns,
+                })
+            })
+
+            it('returns only passing runs when filter is pass', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1', result: true })],
+                })
+            })
+
+            it('returns only failing runs when filter is fail', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2', result: false })],
+                })
+            })
+
+            it('returns only N/A runs when filter is na', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('na', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-3', result: null })],
+                })
+            })
+
+            it('excludes non-completed runs when filter is not all', async () => {
+                const runsWithFailed: EvaluationRun[] = [
+                    ...mockRuns,
+                    {
+                        id: 'run-4',
+                        evaluation_id: 'eval-123',
+                        evaluation_name: 'Test Evaluation',
+                        generation_id: 'gen-4',
+                        trace_id: 'trace-4',
+                        timestamp: '2024-01-01T15:00:00Z',
+                        result: true,
+                        reasoning: 'Good',
+                        status: 'failed',
+                    },
+                ]
+                logic.actions.loadEvaluationRunsSuccess(runsWithFailed)
+                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1' })],
+                })
+            })
+        })
+
+        describe('runsLookup', () => {
+            it('creates lookup by generation_id', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    runsLookup: {
+                        'gen-1': expect.objectContaining({ id: 'run-1' }),
+                        'gen-2': expect.objectContaining({ id: 'run-2' }),
+                        'gen-3': expect.objectContaining({ id: 'run-3' }),
+                    },
+                })
+            })
+        })
+    })
+
+    describe('hog evaluation type', () => {
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()
         })
 
-        it('setSelectedProvider dispatches loadAvailableModels', async () => {
+        it('setEvaluationType switches to hog config shape', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-            logic.actions.setSelectedProvider('anthropic')
+            logic.actions.setEvaluationType('hog')
 
             await expectLogic(logic).toMatchValues({
-                selectedProvider: 'anthropic',
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: DEFAULT_HOG_SOURCE },
+                    model_configuration: null,
+                }),
             })
         })
 
-        it('setSelectedKeyId resets model selection', async () => {
+        it('setEvaluationType switches back to llm_judge config shape', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-            logic.actions.setSelectedModel('gpt-5-mini')
-
-            await expectLogic(logic).toMatchValues({ selectedModel: 'gpt-5-mini' })
-
-            logic.actions.setSelectedKeyId('key-1')
-
-            await expectLogic(logic).toMatchValues({ selectedModel: '' })
-        })
-
-        it('setSelectedModel updates model configuration', async () => {
-            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-            logic.actions.setSelectedModel('gpt-5-mini')
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setEvaluationType('llm_judge')
 
             await expectLogic(logic).toMatchValues({
-                selectedModel: 'gpt-5-mini',
                 evaluation: expect.objectContaining({
-                    model_configuration: expect.objectContaining({
-                        model: 'gpt-5-mini',
-                    }),
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: { prompt: '' },
+                }),
+            })
+        })
+
+        it('setHogSource updates source in hog config', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource('return true')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_config: { source: 'return true' },
+                }),
+            })
+        })
+
+        it('formValid checks source for hog type', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setEvaluationName('Valid Name')
+            logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+
+            // Default source is non-empty -> valid
+            await expectLogic(logic).toMatchValues({ formValid: true })
+
+            logic.actions.setHogSource('')
+
+            // Empty source -> invalid
+            await expectLogic(logic).toMatchValues({ formValid: false })
+
+            logic.actions.setHogSource('return true')
+
+            // Non-empty source -> valid again
+            await expectLogic(logic).toMatchValues({ formValid: true })
+        })
+
+        it('formValid rejects whitespace-only source', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setEvaluationName('Valid Name')
+            logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+            logic.actions.setHogSource('   ')
+
+            await expectLogic(logic).toMatchValues({ formValid: false })
+        })
+
+        it('setEvaluationType marks unsaved changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('setHogSource marks unsaved changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            // Clear the flag
+            logic.actions.saveEvaluationSuccess({
+                ...mockEvaluation,
+                evaluation_type: 'hog',
+                evaluation_config: { source: DEFAULT_HOG_SOURCE },
+            } as any)
+
+            logic.actions.setHogSource('return true')
+
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: true })
+        })
+    })
+
+    describe('selectModelFromPicker', () => {
+        beforeEach(() => {
+            logic = llmEvaluationLogic({ evaluationId: 'new' })
+            logic.mount()
+        })
+
+        it('sets model configuration from BYOK provider key', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
+
+            logic.actions.selectModelFromPicker('gpt-5', 'key-1')
+
+            await expectLogic(logic).toMatchValues({
+                selectedModel: 'gpt-5',
+                evaluation: expect.objectContaining({
+                    model_configuration: {
+                        provider: 'openai',
+                        model: 'gpt-5',
+                        provider_key_id: 'key-1',
+                    },
+                }),
+            })
+        })
+
+        it('sets model configuration from trial provider key', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.selectModelFromPicker('gpt-5', 'trial:openai')
+
+            await expectLogic(logic).toMatchValues({
+                selectedModel: 'gpt-5',
+                evaluation: expect.objectContaining({
+                    model_configuration: {
+                        provider: 'openai',
+                        model: 'gpt-5',
+                        provider_key_id: null,
+                    },
+                }),
+            })
+        })
+
+        it('ignores empty modelId', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.selectModelFromPicker('', 'key-1')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    model_configuration: null,
                 }),
             })
         })

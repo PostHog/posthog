@@ -1,4 +1,3 @@
-import re
 import json
 import uuid
 import typing
@@ -15,8 +14,19 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.ducklake.common import attach_catalog, get_config
-from posthog.ducklake.storage import configure_connection, ensure_ducklake_bucket_exists, get_deltalake_storage_options
+from posthog.ducklake.common import (
+    attach_catalog,
+    get_config,
+    get_ducklake_catalog_for_team,
+    is_dev_mode,
+    sanitize_ducklake_identifier,
+)
+from posthog.ducklake.storage import (
+    configure_connection,
+    configure_cross_account_connection,
+    ensure_ducklake_bucket_exists,
+    get_deltalake_storage_options,
+)
 from posthog.ducklake.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -37,8 +47,6 @@ from products.data_warehouse.backend.models.external_data_schema import External
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
-
-_IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
 
 
 @dataclasses.dataclass
@@ -185,12 +193,12 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_schema_name=schema.name,
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
-                ducklake_schema_name=_sanitize_ducklake_identifier(
-                    f"{DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
-                    default_prefix=DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX,
-                ),
-                ducklake_table_name=_sanitize_ducklake_identifier(
-                    f"{source_type}_{normalized_name}_{schema.id.hex[:8]}", default_prefix="data_imports"
+                ducklake_schema_name=f"posthog_data_imports_team_{inputs.team_id}",
+                ducklake_table_name=sanitize_ducklake_identifier(
+                    f"{source_type}_{schema.source.prefix}_{normalized_name}"
+                    if schema.source.prefix
+                    else f"{source_type}_{normalized_name}",
+                    default_prefix="data_import",
                 ),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
@@ -208,11 +216,29 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
-        config = get_config()
         alias = "ducklake"
+        dev_mode = is_dev_mode()
+
         with duckdb.connect() as conn:
-            configure_connection(conn)
-            ensure_ducklake_bucket_exists(config=config)
+            if dev_mode:
+                config = get_config()
+                configure_connection(conn)
+            else:
+                catalog = get_ducklake_catalog_for_team(inputs.team_id)
+                if catalog is None:
+                    raise ApplicationError(
+                        f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True
+                    )
+                config = catalog.to_public_config()
+                config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+                cross_account_dest = catalog.to_cross_account_destination()
+                logger.info(
+                    "Using cross-account S3 access",
+                    role_arn=cross_account_dest.role_arn,
+                    bucket=cross_account_dest.bucket_name,
+                )
+                configure_cross_account_connection(conn, destinations=[cross_account_dest])
+            ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             qualified_schema = f"{alias}.{inputs.model.ducklake_schema_name}"
@@ -258,16 +284,6 @@ def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
     return [column for column in partition_columns if column]
 
 
-def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
-    """Normalize identifiers so they are safe for DuckDB (lowercase alnum + underscores)."""
-    cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
-    if not cleaned:
-        cleaned = default_prefix
-    if cleaned[0].isdigit():
-        cleaned = f"{default_prefix}_{cleaned}"
-    return cleaned[:63]
-
-
 def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, str], alias: str) -> None:
     """Attach the DuckLake catalog, swallowing the error if already attached."""
     try:
@@ -291,12 +307,24 @@ def verify_data_imports_ducklake_copy_activity(
 
     heartbeater = HeartbeaterSync(details=("ducklake_verify", inputs.model.model_label), logger=logger)
     with heartbeater:
-        config = get_config()
         alias = "ducklake"
+        dev_mode = is_dev_mode()
+
         results: list[DuckLakeCopyDataImportsVerificationResult] = []
 
         with duckdb.connect() as conn:
-            configure_connection(conn)
+            if dev_mode:
+                config = get_config()
+                configure_connection(conn)
+            else:
+                catalog = get_ducklake_catalog_for_team(inputs.team_id)
+                if catalog is None:
+                    raise ApplicationError(
+                        f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True
+                    )
+                config = catalog.to_public_config()
+                config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+                configure_cross_account_connection(conn, destinations=[catalog.to_cross_account_destination()])
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             ducklake_table = f"{alias}.{inputs.model.ducklake_schema_name}.{inputs.model.ducklake_table_name}"

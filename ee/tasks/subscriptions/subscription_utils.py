@@ -25,9 +25,6 @@ logger = structlog.get_logger(__name__)
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 # Keep in sync with MAX_INSIGHTS in frontend/src/lib/components/Subscriptions/insightSelectorLogic.ts
 DEFAULT_MAX_ASSET_COUNT = 6
-# Maximum height for screenshots in pixels. This prevents Chrome from consuming excessive memory
-# when rendering very tall pages (e.g., tables with thousands of rows).
-MAX_SCREENSHOT_HEIGHT_PIXELS = 5000
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
 # Prometheus metrics for Temporal workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
@@ -223,7 +220,7 @@ async def generate_assets_async(
 
             try:
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
-                    asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS, cancellation_event=cancellation_event
+                    asset, cancellation_event=cancellation_event
                 )
 
                 logger.info(

@@ -1,4 +1,3 @@
-import re
 import json
 import datetime as dt
 import dataclasses
@@ -11,8 +10,19 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.ducklake.common import attach_catalog, get_config
-from posthog.ducklake.storage import configure_connection, ensure_ducklake_bucket_exists, get_deltalake_storage_options
+from posthog.ducklake.common import (
+    attach_catalog,
+    get_config,
+    get_ducklake_catalog_for_team,
+    is_dev_mode,
+    sanitize_ducklake_identifier,
+)
+from posthog.ducklake.storage import (
+    configure_connection,
+    configure_cross_account_connection,
+    ensure_ducklake_bucket_exists,
+    get_deltalake_storage_options,
+)
 from posthog.ducklake.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -145,11 +155,8 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 saved_query_name=saved_query.name,
                 normalized_name=normalized_name,
                 source_table_uri=model.table_uri,
-                schema_name=_sanitize_ducklake_identifier(
-                    f"{DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
-                    default_prefix=DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX,
-                ),
-                table_name=_sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
+                schema_name=f"posthog_data_modeling_team_{inputs.team_id}",
+                table_name=sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
                 partition_column=partition_column,
             )
@@ -166,12 +173,29 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
-        config = get_config()
-        conn = duckdb.connect()
         alias = "ducklake"
-        try:
-            configure_connection(conn)
-            ensure_ducklake_bucket_exists(config=config)
+        dev_mode = is_dev_mode()
+
+        with duckdb.connect() as conn:
+            if dev_mode:
+                config = get_config()
+                configure_connection(conn)
+            else:
+                catalog = get_ducklake_catalog_for_team(inputs.team_id)
+                if catalog is None:
+                    raise ApplicationError(
+                        f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True
+                    )
+                config = catalog.to_public_config()
+                config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+                cross_account_dest = catalog.to_cross_account_destination()
+                logger.info(
+                    "Using cross-account S3 access",
+                    role_arn=cross_account_dest.role_arn,
+                    bucket=cross_account_dest.bucket_name,
+                )
+                configure_cross_account_connection(conn, destinations=[cross_account_dest])
+            ensure_ducklake_bucket_exists(config=config, team_id=inputs.team_id)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             qualified_schema = f"{alias}.{inputs.model.schema_name}"
@@ -188,8 +212,6 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
                 [inputs.model.source_table_uri],
             )
             logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
-        finally:
-            conn.close()
 
 
 @activity.defn
@@ -204,13 +226,24 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
 
     heartbeater = HeartbeaterSync(details=("ducklake_verify", inputs.model.model_label), logger=logger)
     with heartbeater:
-        config = get_config()
-        conn = duckdb.connect()
         alias = "ducklake"
+        dev_mode = is_dev_mode()
+
         results: list[DuckLakeCopyVerificationResult] = []
 
-        try:
-            configure_connection(conn)
+        with duckdb.connect() as conn:
+            if dev_mode:
+                config = get_config()
+                configure_connection(conn)
+            else:
+                catalog = get_ducklake_catalog_for_team(inputs.team_id)
+                if catalog is None:
+                    raise ApplicationError(
+                        f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True
+                    )
+                config = catalog.to_public_config()
+                config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+                configure_cross_account_connection(conn, destinations=[catalog.to_cross_account_destination()])
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             ducklake_table = f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}"
@@ -315,8 +348,6 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
             partition_result = _run_partition_verification(conn, ducklake_table, inputs)
             if partition_result:
                 results.append(partition_result)
-        finally:
-            conn.close()
 
     failed = [result for result in results if not result.passed]
     if failed:
@@ -425,19 +456,6 @@ def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, 
     except duckdb.CatalogException as exc:
         if alias not in str(exc):
             raise
-
-
-_IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
-
-
-def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
-    """Normalize identifiers so they are safe for DuckDB (lowercase alnum + underscores)."""
-    cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
-    if not cleaned:
-        cleaned = default_prefix
-    if cleaned[0].isdigit():
-        cleaned = f"{default_prefix}_{cleaned}"
-    return cleaned[:63]
 
 
 def _detect_partition_column_name(table_uri: str) -> str | None:

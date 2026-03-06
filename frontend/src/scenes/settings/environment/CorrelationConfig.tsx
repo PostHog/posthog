@@ -5,15 +5,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { TeamMembershipLevel } from 'lib/constants'
 import { IconSelectEvents, IconSelectProperties } from 'lib/lemon-ui/icons'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function CorrelationConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, funnelCorrelationConfig } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const handleChange = (
         excludedProperties?: string[],
@@ -39,14 +44,8 @@ export function CorrelationConfig(): JSX.Element {
 
     return (
         <>
-            <p>Globally exclude events or properties that do not provide relevant signals for your conversions.</p>
-
-            <LemonBanner type="info">
-                Correlation analysis can automatically surface relevant signals for conversion, and help you understand
-                why your users dropped off and what makes them convert.
-            </LemonBanner>
             {currentTeam && (
-                <div className="mt-4 deprecated-space-y-2">
+                <div className="deprecated-space-y-2">
                     <div>
                         <h3 className="flex items-center gap-2">
                             <IconSelectProperties className="text-lg" />
@@ -57,6 +56,7 @@ export function CorrelationConfig(): JSX.Element {
                             onChange={(properties) => handleChange(properties)}
                             selectedProperties={funnelCorrelationConfig.excluded_person_property_names || []}
                             addText="Add exclusion"
+                            disabledReason={restrictedReason}
                         />
                     </div>
                     <div>
@@ -68,7 +68,13 @@ export function CorrelationConfig(): JSX.Element {
                             onChange={(excludedEvents) => handleChange(undefined, excludedEvents)}
                             selectedEvents={funnelCorrelationConfig.excluded_event_names || []}
                             addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    sideIcon={null}
+                                    disabledReason={restrictedReason}
+                                >
                                     Add exclusion
                                 </LemonButton>
                             }
@@ -85,6 +91,7 @@ export function CorrelationConfig(): JSX.Element {
                                 allowCustomValues
                                 onChange={(properties: string[]) => handleChange(undefined, undefined, properties)}
                                 value={funnelCorrelationConfig.excluded_event_property_names || []}
+                                disabled={!!restrictedReason}
                             />
                         </div>
                     </div>

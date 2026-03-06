@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
@@ -15,6 +15,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -27,23 +28,25 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     CyclotronJobFiltersType,
     EarlyAccessFeatureStage,
@@ -57,8 +60,8 @@ import {
     ReplayTabs,
 } from '~/types'
 
-import { InstructionsModal } from './InstructionsModal'
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import { InstructionsModal } from './InstructionsModal'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
@@ -109,7 +112,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         type: 'early_access_feature',
         ref: earlyAccessFeatureId,
         enabled: Boolean(currentTeamId && earlyAccessFeatureId && !earlyAccessFeatureLoading),
-        deps: [currentTeamId, earlyAccessFeatureId, earlyAccessFeatureLoading],
     })
 
     if (earlyAccessFeatureMissing) {
@@ -149,21 +151,12 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     resourceType={{
                         type: 'early_access_feature',
                     }}
-                    canEdit
-                    renameDebounceMs={isNewEarlyAccessFeature ? undefined : 1000}
+                    canEdit={isNewEarlyAccessFeature || isEditingFeature}
                     onNameChange={(name) => {
-                        if (isNewEarlyAccessFeature) {
-                            setEarlyAccessFeatureValue('name', name)
-                        } else {
-                            saveEarlyAccessFeature({ ...earlyAccessFeature, name })
-                        }
+                        setEarlyAccessFeatureValue('name', name)
                     }}
                     onDescriptionChange={(description) => {
-                        if (isNewEarlyAccessFeature) {
-                            setEarlyAccessFeatureValue('description', description)
-                        } else {
-                            saveEarlyAccessFeature({ ...earlyAccessFeature, description })
-                        }
+                        setEarlyAccessFeatureValue('description', description)
                     }}
                     forceEdit={isEditingFeature || isNewEarlyAccessFeature}
                     actions={
@@ -366,9 +359,9 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         <LemonTag type="default" className="uppercase">
                             Concept
                         </LemonTag>{' '}
-                        stage assigns the feature flag to the user. Gate your code behind a different feature flag if
-                        you'd like to keep it hidden, and then switch your code to this feature flag when you're ready
-                        to release to your early access users.
+                        stage is for gathering interest. Users can opt in, but the feature flag will not be enabled
+                        until you promote this feature to Alpha or later. This lets you gauge demand before releasing
+                        any functionality.
                     </LemonBanner>
                 )}
                 <div className="flex-1 min-w-[20rem] max-w-prose">
@@ -679,10 +672,40 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
 
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
+    const context: QueryContext = useMemo(
+        () => ({
+            columns: {
+                person_display_name: {
+                    render: ({ value }) => {
+                        const person = value as { id: string; display_name: string }
+                        return (
+                            <CopyToClipboardInline
+                                explicitValue={person.display_name}
+                                iconSize="small"
+                                iconStyle={{ color: 'var(--color-accent)' }}
+                            >
+                                <PersonDisplay
+                                    withIcon
+                                    person={{ id: person.id }}
+                                    displayName={person.display_name}
+                                    noPopover
+                                />
+                            </CopyToClipboardInline>
+                        )
+                    },
+                },
+            },
+        }),
+        []
+    )
+
     return (
         <div className="relative">
-            {/* NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query */}
-            <div className="absolute top-0 right-0 z-10">
+            {/*
+            NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query
+            UPDATE: Absolute postion was overlapping with filters, so we put a bit on top. Still need to find a better solution.
+             */}
+            <div className="flex justify-end mb-2">
                 <LemonButton
                     key="view-opt-in-session-recordings"
                     to={urls.replay(ReplayTabs.Home, recordingsFilters)}
@@ -698,7 +721,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
                     View recordings
                 </LemonButton>
             </div>
-            <Query query={query} setQuery={setQuery} />
+            <Query query={query} setQuery={setQuery} context={context} />
         </div>
     )
 }

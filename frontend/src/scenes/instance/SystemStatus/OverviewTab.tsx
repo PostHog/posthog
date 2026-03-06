@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 
 import { LemonTable } from '@posthog/lemon-ui'
 
-import { Link } from 'lib/lemon-ui/Link'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 
 import { SystemStatusRow, SystemStatusSubrows } from '~/types'
 

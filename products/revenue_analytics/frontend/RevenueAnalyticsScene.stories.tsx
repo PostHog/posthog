@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -13,8 +14,8 @@ import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } 
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
 import revenueAnalyticsGrossRevenueQueryMock from './__mocks__/RevenueAnalyticsGrossRevenueQuery.json'
-import revenueAnalyticsMRRQueryMock from './__mocks__/RevenueAnalyticsMRRQuery.json'
 import revenueAnalyticsMetricsQueryMock from './__mocks__/RevenueAnalyticsMetricsQuery.json'
+import revenueAnalyticsMRRQueryMock from './__mocks__/RevenueAnalyticsMRRQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -27,6 +28,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.revenueAnalytics(),
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         testOptions: {
             waitForLoadersToDisappear: true,
         },

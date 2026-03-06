@@ -2,17 +2,22 @@
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import 'chartjs-adapter-dayjs-3'
+
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
 
 import { LemonTable, lemonToast } from '@posthog/lemon-ui'
 
 import {
+    ActiveElement,
     Chart,
     ChartData,
+    ChartEvent,
     ChartOptions,
     ChartType,
     ChartTypeRegistry,
@@ -24,20 +29,29 @@ import {
 } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { hexToRGBA } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hexToRGBA, uuid } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
+import { resolveVariableColor } from 'scenes/insights/views/LineGraph/LineGraph'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { lineGraphLogic } from './lineGraphLogic'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
 Chart.register(chartTrendline)
+
+const TOOLTIP_ROW_CUTOFF = 8
 
 const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): GraphType => {
     if (!settings || !settings.display || !settings.display.displayType || settings.display?.displayType === 'auto') {
@@ -119,24 +133,120 @@ export const LineGraph = ({
     goalLines = [],
     className,
 }: LineGraphProps): JSX.Element => {
-    const { getTooltip } = useInsightTooltip()
+    const { tooltipId, getTooltip, positionTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
+
+    const logicKey = useMemo(() => uuid(), [])
+    const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
+    const { setHoveredDatasetIndex } = useActions(lineGraphLogic({ key: logicKey }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { timezone } = useValues(teamLogic)
+    const isShiftPressed = useKeyHeld('Shift')
+
+    useEffect(() => {
+        if (!isShiftPressed) {
+            setHoveredDatasetIndex(null)
+        }
+    }, [isShiftPressed, setHoveredDatasetIndex])
 
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
+    const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
+
+    const MAX_SERIES = 200
+    const ySeriesData = useMemo(() => {
+        if (!yData) {
+            return null
+        }
+        if (yData.length > MAX_SERIES) {
+            if (!dashboardId) {
+                lemonToast.warning(
+                    `This breakdown has too many series (${yData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
+                )
+            }
+            return yData.slice(0, MAX_SERIES)
+        }
+        return yData
+    }, [yData, dashboardId])
+
+    const datasets = useMemo(() => {
+        if (!ySeriesData) {
+            return null
+        }
+
+        return ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
+            const seriesColor = settings?.display?.color ?? getSeriesColor(index)
+            let backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
+
+            // Dim non-hovered bars in stacked bar charts when shift is pressed
+            if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
+                backgroundColor = hexToRGBA(seriesColor, 0.2)
+            }
+
+            const graphType = getGraphType(visualizationType, settings)
+
+            let yAxisID = 'yLeft'
+            if (chartSettings.stackBars100) {
+                yAxisID = 'y'
+            } else if (settings?.display?.yAxisPosition === 'right') {
+                yAxisID = 'yRight'
+            }
+
+            const getLabel = (): string => {
+                if ('name' in rest) {
+                    return rest.name
+                }
+
+                return rest.column.name
+            }
+
+            return {
+                data: seriesData,
+                label: getLabel(),
+                borderColor: seriesColor,
+                backgroundColor: backgroundColor,
+                borderWidth: graphType === GraphType.Bar ? 0 : 2,
+                pointRadius: 0,
+                hitRadius: 0,
+                order: 1,
+                hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
+                hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
+                type: graphType,
+                fill: isAreaChart ? 'origin' : false,
+                yAxisID,
+                ...(settings?.display?.trendLine && xData && yData && xData.data.length > 0 && seriesData.length > 0
+                    ? {
+                          trendlineLinear: {
+                              colorMin: hexToRGBA(seriesColor, 0.6),
+                              colorMax: hexToRGBA(seriesColor, 0.6),
+                              lineStyle: 'dotted',
+                              width: 3,
+                          },
+                      }
+                    : {}),
+            } as ChartData['datasets'][0]
+        })
+    }, [
+        ySeriesData,
+        xData,
+        yData,
+        isAreaChart,
+        isHighlightBarMode,
+        hoveredDatasetIndex,
+        visualizationType,
+        chartSettings.stackBars100,
+    ])
 
     const { canvasRef } = useChart({
         getConfig: () => {
             const colors = getGraphColors()
 
-            let ySeriesData: AxisSeries<number>[] | AxisBreakdownSeries<number>[]
             let xSeriesData: AxisSeries<string>
             let hasRightYAxis = false
             let hasLeftYAxis = false
-            if (xData && yData) {
-                ySeriesData = yData
+            if (xData && ySeriesData && datasets) {
                 xSeriesData = xData
                 hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
                 hasLeftYAxis =
@@ -146,74 +256,17 @@ export const LineGraph = ({
                 return null
             }
 
-            const MAX_SERIES = 200
-            if (ySeriesData.length > MAX_SERIES) {
-                if (!dashboardId) {
-                    lemonToast.warning(
-                        `This breakdown has too many series (${ySeriesData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
-                    )
-                }
-                ySeriesData = ySeriesData.slice(0, MAX_SERIES)
-            }
-
             const data: ChartData = {
                 labels: xSeriesData.data,
-                datasets: ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
-                    const seriesColor = settings?.display?.color ?? getSeriesColor(index)
-                    const backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
-
-                    const graphType = getGraphType(visualizationType, settings)
-
-                    let yAxisID = 'yLeft'
-                    if (chartSettings.stackBars100) {
-                        yAxisID = 'y'
-                    } else if (settings?.display?.yAxisPosition === 'right') {
-                        yAxisID = 'yRight'
-                    }
-
-                    const getLabel = (): string => {
-                        if ('name' in rest) {
-                            return rest.name
-                        }
-
-                        return rest.column.name
-                    }
-
-                    return {
-                        data: seriesData,
-                        label: getLabel(),
-                        borderColor: seriesColor,
-                        backgroundColor: backgroundColor,
-                        borderWidth: graphType === GraphType.Bar ? 0 : 2,
-                        pointRadius: 0,
-                        hitRadius: 0,
-                        order: 1,
-                        hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
-                        hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
-                        type: graphType,
-                        fill: isAreaChart ? 'origin' : false,
-                        yAxisID,
-                        ...(settings?.display?.trendLine &&
-                        xData &&
-                        yData &&
-                        xData.data.length > 0 &&
-                        seriesData.length > 0
-                            ? {
-                                  trendlineLinear: {
-                                      colorMin: hexToRGBA(seriesColor, 0.6),
-                                      colorMax: hexToRGBA(seriesColor, 0.6),
-                                      lineStyle: 'dotted',
-                                      width: 3,
-                                  },
-                              }
-                            : {}),
-                    } as ChartData['datasets'][0]
-                }),
+                datasets,
             }
 
             const annotations = goalLines.reduce(
                 (acc, cur, curIndex) => {
                     const line: LineAnnotationOptions = {
+                        borderWidth: 2,
+                        borderDash: [6, 6],
+                        borderColor: resolveVariableColor(cur.borderColor),
                         label: {
                             display: cur.displayLabel ?? true,
                             content: cur.label,
@@ -231,10 +284,10 @@ export const LineGraph = ({
                                     annotationsList[`line${curIndex}`].label.content = `${
                                         cur.label
                                     }: ${cur.value.toLocaleString()}`
-                                    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
 
                                     if (tooltipEl) {
-                                        tooltipEl.style.display = 'none'
+                                        tooltipEl.classList.add('opacity-0', 'invisible')
                                     }
 
                                     ctx.chart.update()
@@ -250,9 +303,9 @@ export const LineGraph = ({
                                 if (annotationsList[`line${curIndex}`]) {
                                     annotationsList[`line${curIndex}`].label.content = cur.label
 
-                                    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
                                     if (tooltipEl) {
-                                        tooltipEl.style.display = 'block'
+                                        tooltipEl.classList.remove('opacity-0', 'invisible')
                                     }
 
                                     ctx.chart.update()
@@ -285,6 +338,15 @@ export const LineGraph = ({
                 tickColor: colors.axisLine as Color,
                 tickBorderDash: [4, 2],
             }
+
+            const isDateAxis = xSeriesData.column.type.name === 'DATE' || xSeriesData.column.type.name === 'DATETIME'
+            const xAxisTickCallback =
+                featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN] && isDateAxis
+                    ? createXAxisTickCallback({
+                          allDays: xSeriesData.data,
+                          timezone,
+                      })
+                    : undefined
 
             const options: ChartOptions = {
                 responsive: true,
@@ -338,8 +400,8 @@ export const LineGraph = ({
                           }),
                     tooltip: {
                         enabled: false,
-                        mode: 'index',
-                        intersect: false,
+                        mode: isHighlightBarMode ? 'point' : 'index',
+                        intersect: isHighlightBarMode,
                         external({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
                             const canvas = chart.canvas
                             if (!canvas) {
@@ -359,10 +421,28 @@ export const LineGraph = ({
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]
 
-                                const tooltipData = ySeriesData.map((series) => {
+                                // Filter series data based on highlight mode
+                                let filteredSeriesData = isHighlightBarMode
+                                    ? ySeriesData.filter((_, index) => index === referenceDataPoint.datasetIndex)
+                                    : ySeriesData
+                                const stackedSeriesTotalAtIndex =
+                                    isStackedBarChart && chartSettings.stackBars100
+                                        ? ySeriesData.reduce(
+                                              (acc, series) => acc + series.data[referenceDataPoint.dataIndex],
+                                              0
+                                          )
+                                        : null
+
+                                const isTruncated = filteredSeriesData.length > TOOLTIP_ROW_CUTOFF
+                                if (isTruncated) {
+                                    filteredSeriesData = filteredSeriesData.slice(0, TOOLTIP_ROW_CUTOFF)
+                                }
+
+                                const tooltipData = filteredSeriesData.map((series, index) => {
                                     const seriesName =
                                         series?.settings?.display?.label ||
                                         ('column' in series ? series.column.name : series.name)
+                                    const seriesIndex = isHighlightBarMode ? referenceDataPoint.datasetIndex : index
                                     return {
                                         series: seriesName,
                                         data: formatDataWithSettings(
@@ -372,25 +452,36 @@ export const LineGraph = ({
                                         rawData: series.data[referenceDataPoint.dataIndex],
                                         dataIndex: referenceDataPoint.dataIndex,
                                         isTotalRow: false,
+                                        seriesIndex: seriesIndex,
+                                        stackedSeriesTotalAtIndex,
                                     }
                                 })
 
-                                const tooltipTotalData = ySeriesData.filter(
+                                const tooltipTotalData = filteredSeriesData.filter(
                                     (n) => n.settings?.formatting?.style !== 'percent'
                                 )
 
-                                if (tooltipTotalData.length > 1 && chartSettings.showTotalRow !== false) {
+                                // Don't show total row when highlighting a single bar
+                                if (
+                                    tooltipTotalData.length > 1 &&
+                                    chartSettings.showTotalRow !== false &&
+                                    !isHighlightBarMode
+                                ) {
                                     const totalRawData = tooltipTotalData.reduce((acc, cur) => {
                                         acc += cur.data[referenceDataPoint.dataIndex]
                                         return acc
                                     }, 0)
 
+                                    const firstSeriesSettings = tooltipTotalData[0]?.settings
+
                                     tooltipData.push({
                                         series: '',
-                                        data: totalRawData.toLocaleString(),
+                                        data: formatDataWithSettings(totalRawData, firstSeriesSettings),
                                         rawData: totalRawData,
                                         dataIndex: referenceDataPoint.dataIndex,
                                         isTotalRow: true,
+                                        seriesIndex: -1,
+                                        stackedSeriesTotalAtIndex,
                                     })
                                 }
 
@@ -405,8 +496,13 @@ export const LineGraph = ({
                                                     render: (value, record) => {
                                                         if (record.isTotalRow) {
                                                             return (
-                                                                <div className="datum-label-column font-extrabold">
-                                                                    Total
+                                                                <div className="datum-label-column">
+                                                                    <span className="font-extrabold">Total</span>
+                                                                    {isTruncated && (
+                                                                        <span className="text-xs text-muted ml-1">
+                                                                            (incl. hidden series)
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                             )
                                                         }
@@ -430,55 +526,59 @@ export const LineGraph = ({
                                                     dataIndex: 'data',
                                                     render: (value, record) => {
                                                         if (isStackedBarChart && chartSettings.stackBars100) {
-                                                            const total = ySeriesData
-                                                                .map((n) => n.data[record.dataIndex])
-                                                                .reduce((acc, cur) => acc + cur, 0)
+                                                            const total = record.stackedSeriesTotalAtIndex
+                                                            if (!total) {
+                                                                return (
+                                                                    <div className="series-data-cell">
+                                                                        {String(value)}
+                                                                    </div>
+                                                                )
+                                                            }
                                                             const percentageLabel: number = parseFloat(
                                                                 ((record.rawData / total) * 100).toFixed(1)
                                                             )
 
                                                             return (
                                                                 <div className="series-data-cell">
-                                                                    {value} ({percentageLabel}%)
+                                                                    {String(value)} ({percentageLabel}%)
                                                                 </div>
                                                             )
                                                         }
 
-                                                        return <div className="series-data-cell">{value}</div>
+                                                        return <div className="series-data-cell">{String(value)}</div>
                                                     },
                                                 },
                                             ]}
                                             uppercaseHeader={false}
-                                            rowRibbonColor={(_datum, index) => {
+                                            rowRibbonColor={(_datum) => {
                                                 if (_datum.isTotalRow) {
                                                     return undefined
                                                 }
-
                                                 return (
-                                                    ySeriesData[index]?.settings?.display?.color ??
-                                                    getSeriesColor(index)
+                                                    ySeriesData[_datum.seriesIndex]?.settings?.display?.color ??
+                                                    getSeriesColor(_datum.seriesIndex)
                                                 )
                                             }}
                                             showHeader
                                         />
+                                        {isTruncated && (
+                                            <div className="text-xs text-muted p-2 border-t">
+                                                For readability, <b>not all series are displayed</b>
+                                            </div>
+                                        )}
+                                        {isBarChart && isStackedBarChart && !isHighlightBarMode && (
+                                            <div className="text-xs text-muted p-2 border-t">
+                                                Hold Shift (⇧) to highlight individual bars
+                                            </div>
+                                        )}
                                     </div>
                                 )
                             }
 
                             const bounds = canvas.getBoundingClientRect()
-                            const horizontalBarTopOffset = 0
-                            const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
-
-                            const chartClientLeft = bounds.left + window.pageXOffset
-                            const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
-                            const maxXPosition = bounds.right - tooltipEl.clientWidth
-                            const tooltipClientLeft =
-                                defaultOffsetLeft > maxXPosition
-                                    ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8
-                                    : defaultOffsetLeft
-
-                            tooltipEl.style.top = tooltipClientTop + 'px'
-                            tooltipEl.style.left = tooltipClientLeft + 'px'
+                            const centerVertically = isHighlightBarMode
+                            const caretY = centerVertically ? tooltip.caretY : 0
+                            positionTooltip(tooltipEl, bounds, tooltip.caretX, caretY, centerVertically)
                         },
                     },
                 },
@@ -486,6 +586,15 @@ export const LineGraph = ({
                     mode: isBarChart ? 'point' : 'nearest',
                     axis: 'x',
                     intersect: false,
+                },
+                onHover: (_event: ChartEvent, elements: ActiveElement[]) => {
+                    // For stacked bar charts when shift is pressed, track hovered dataset to highlight only that bar
+                    if (isHighlightBarMode) {
+                        const hoveredIndex = elements.length > 0 ? elements[0].datasetIndex : null
+                        if (hoveredDatasetIndex !== hoveredIndex) {
+                            setHoveredDatasetIndex(hoveredIndex)
+                        }
+                    }
                 },
                 scales: {
                     x: {
@@ -495,6 +604,9 @@ export const LineGraph = ({
                         ticks: {
                             ...tickOptions,
                             display: chartSettings.showXAxisTicks ?? true,
+                            ...(xAxisTickCallback
+                                ? { callback: xAxisTickCallback, maxRotation: 0, autoSkipPadding: 20 }
+                                : {}),
                         },
                         grid: {
                             ...gridOptions,
@@ -540,7 +652,18 @@ export const LineGraph = ({
                 plugins: [dataLabelsPlugin],
             }
         },
-        deps: [xData, yData, visualizationType, goalLines, chartSettings, dashboardId, getTooltip],
+        deps: [
+            xData,
+            yData,
+            visualizationType,
+            goalLines,
+            chartSettings,
+            dashboardId,
+            getTooltip,
+            isHighlightBarMode,
+            hoveredDatasetIndex,
+            timezone,
+        ],
     })
 
     return (

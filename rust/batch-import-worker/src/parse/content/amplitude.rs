@@ -338,7 +338,9 @@ impl AmplitudeEvent {
             };
 
             let event_type = match event_type_raw.as_str() {
-                "session_start" => return Ok(vec![]),
+                // Amplitude generates synthetic session_start and session_end events as markers.
+                // PostHog calculates sessions from timestamp gaps, so these have no meaning and should be filtered.
+                "session_start" | "session_end" => return Ok(vec![]),
                 "[Amplitude] Page Viewed" => "$pageview".to_string(),
                 "[Amplitude] Element Clicked" | "[Amplitude] Element Changed" => {
                     "$autocapture".to_string()
@@ -841,17 +843,21 @@ mod tests {
     }
 
     #[test]
-    fn test_session_start_filtered_out() {
-        let amp_event = AmplitudeEvent {
-            event_type: Some("session_start".to_string()),
-            user_id: Some("user123".to_string()),
-            ..Default::default()
-        };
+    fn test_synthetic_session_events_filtered_out() {
+        // Amplitude generates synthetic session_start and session_end events.
+        // PostHog calculates sessions from timestamp gaps, so these should be filtered.
+        for event_type in ["session_start", "session_end"] {
+            let amp_event = AmplitudeEvent {
+                event_type: Some(event_type.to_string()),
+                user_id: Some("user123".to_string()),
+                ..Default::default()
+            };
 
-        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap();
+            let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+            let result = parser(amp_event).unwrap();
 
-        assert!(result.is_empty());
+            assert!(result.is_empty(), "{} should be filtered out", event_type);
+        }
     }
 
     #[test]

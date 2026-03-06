@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
 import { urls } from 'scenes/urls'
@@ -87,7 +87,7 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                                 sorter: (a, b) => (a.key || '').localeCompare(b.key || ''),
                                 render: (key, flag) => (
                                     <div className="flex items-center">
-                                        <div className="font-semibold">{key}</div>
+                                        <div className="font-semibold">{String(key ?? '')}</div>
                                         <Link
                                             to={urls.featureFlag(flag.id as number)}
                                             target="_blank"

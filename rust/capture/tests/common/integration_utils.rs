@@ -965,7 +965,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = unit.mode.clone();
+    cfg.capture_mode = unit.mode;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -982,11 +982,13 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             liveness.clone(),
             sink.clone(),
             redis,
-            None, // TODO: add global rate limiter for prod ship
+            None, // global_rate_limiter_token_distinctid
+            None, // global_rate_limiter_token
             quota_limiter,
             TokenDropper::default(),
+            None, // event_restriction_service
             false,
-            unit.mode.clone(),
+            unit.mode,
             String::from("capture"),
             None,
             25 * 1024 * 1024,

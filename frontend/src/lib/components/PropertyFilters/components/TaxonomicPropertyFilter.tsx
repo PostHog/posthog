@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
@@ -77,17 +77,21 @@ export function TaxonomicPropertyFilter({
     editable = true,
     operatorAllowlist,
     endpointFilters,
+    hogQLGlobals,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
-    const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
-    const taxonomicOnChange: (
-        group: TaxonomicFilterGroup,
-        value: TaxonomicFilterValue,
-        item: any,
-        originalQuery?: string
-    ) => void = (taxonomicGroup, value, item, originalQuery) => {
-        selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
-        if (taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression) {
+    const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
+    const groupTypes = [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
+    const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
+        taxonomicGroup,
+        value,
+        item
+    ) => {
+        selectItem(taxonomicGroup, value, item?.propertyFilterType, item)
+        if (
+            taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
+            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters
+        ) {
             onComplete?.()
         }
     }
@@ -169,6 +173,7 @@ export function TaxonomicPropertyFilter({
             hideBehavioralCohorts={hideBehavioralCohorts}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
+            hogQLGlobals={hogQLGlobals}
         />
     )
 
@@ -296,8 +301,20 @@ export function TaxonomicPropertyFilter({
                                     sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                     onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                                     size={size}
-                                    tooltipDocLink={addFilterDocLink}
                                     truncate={true}
+                                    tooltip={
+                                        <>
+                                            {filterContent ?? (addText || 'Add filter')}
+                                            {addFilterDocLink && (
+                                                <>
+                                                    <br />
+                                                    <Link to={addFilterDocLink} target="_blank">
+                                                        Read the docs
+                                                    </Link>
+                                                </>
+                                            )}
+                                        </>
+                                    }
                                 >
                                     {filterContent ?? (addText || 'Add filter')}
                                 </LemonButton>

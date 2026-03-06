@@ -42,7 +42,7 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 code: dedent`
                                     import { PostHog } from 'posthog-node'
 
-                                    const posthog = new PostHog('<ph_project_api_key>', {
+                                    const posthog = new PostHog('<ph_project_token>', {
                                         host: '<ph_client_api_host>'
                                     })
                                 `,

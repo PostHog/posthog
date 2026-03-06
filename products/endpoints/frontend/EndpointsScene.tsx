@@ -1,18 +1,17 @@
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconBook, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -20,9 +19,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { Endpoints } from './Endpoints'
-import { EndpointsUsage } from './EndpointsUsage'
 import { endpointsLogic } from './endpointsLogic'
+import { EndpointsUsage } from './EndpointsUsage'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
+import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
 
 const ENDPOINTS_PRODUCT_DESCRIPTION =
@@ -74,13 +74,13 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        to={urls.sqlEditor({ outputTab: OutputTab.Endpoint })}
+                                        to={urls.sqlEditor({ source: 'endpoint' })}
                                         sideAction={{
                                             dropdown: {
                                                 placement: 'bottom-end',
                                                 className: 'new-endpoint-overlay',
                                                 actionable: true,
-                                                overlay: <OverlayForNewEndpointMenu dataAttr="new-endpoint-option" />,
+                                                overlay: <OverlayForNewEndpointMenu />,
                                             },
                                             'data-attr': 'new-endpoint-dropdown',
                                         }}
@@ -104,6 +104,19 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 like to see here and/or report any issues directly to us!
                             </p>
                         </LemonBanner>
+                        <LemonBanner
+                            type="success"
+                            dismissKey="endpoints-docs-upgrade-banner"
+                            action={{
+                                children: 'View docs',
+                                to: 'https://posthog.com/docs/endpoints',
+                                targetBlank: true,
+                            }}
+                            icon={<IconBook />}
+                        >
+                            We've leveled up our endpoints documentation. Check out the new docs for detailed guides and
+                            examples.
+                        </LemonBanner>
                         <ProductIntroduction
                             productName="endpoints"
                             productKey={ProductKey.ENDPOINTS}
@@ -116,9 +129,10 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             docsURL="https://posthog.com/docs/endpoints"
                             customHog={BigLeaguesHog}
                             isEmpty={false}
-                            action={() => router.actions.push(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))}
+                            action={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
                         />
                         <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                        <InsightPickerEndpointModal tabId={tabId || ''} />
                     </SceneContent>
                 </BindLogic>
             </BindLogic>

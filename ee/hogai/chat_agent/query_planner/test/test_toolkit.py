@@ -6,8 +6,9 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 
 from posthog.models import Action
 from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
 

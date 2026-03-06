@@ -9,8 +9,8 @@ jobs:
     cleanup-hobby-preview:
         name: Cleanup hobby preview deployment
         if: contains(github.event.pull_request.labels.*.name, 'hobby-preview')
-        uses: ./.github/workflows/cleanup-hobby-preview.yml
-        # these permissions are required by cleanup-hobby-preview.yml
+        uses: ./.github/workflows/pr-cleanup.yml
+        # these permissions are required by pr-cleanup.yml
         permissions:
             deployments: write
         with:

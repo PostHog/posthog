@@ -72,6 +72,8 @@ pub enum FrameError {
     Hermes(#[from] HermesError),
     #[error(transparent)]
     Proguard(#[from] ProguardError),
+    #[error(transparent)]
+    Apple(#[from] AppleError),
     #[error("No symbol set for chunk id: {0}")]
     MissingChunkIdData(String),
 }
@@ -154,9 +156,33 @@ pub enum ProguardError {
     NoMapId,
     #[error("No original frames could be derived from this raw frame")]
     NoOriginalFrames,
+    #[error("No module provided")]
+    NoModuleProvided,
+    #[error("No class matched")]
+    MissingClass,
+    #[error("Invalid class format")]
+    InvalidClass,
 }
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error, Serialize, Deserialize)]
+pub enum AppleError {
+    #[error("Data error: {0}")]
+    DataError(#[from] SymbolDataError),
+    #[error("No dSYM uploaded for debug_id: {0}")]
+    MissingDsym(String),
+    #[error("No debug_id found for frame")]
+    NoDebugId,
+    #[error("Invalid address format: {0}")]
+    InvalidAddress(String),
+    #[error("Symbol not found at address: {0:#x}")]
+    SymbolNotFound(u64),
+    #[error("Failed to parse dSYM: {0}")]
+    ParseError(String),
+    #[error("No matching debug image found for frame")]
+    NoMatchingDebugImage,
+}
+
+#[derive(Debug, Error, Clone, Serialize, PartialEq)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
@@ -193,6 +219,12 @@ impl From<HermesError> for ResolveError {
 impl From<ProguardError> for ResolveError {
     fn from(e: ProguardError) -> Self {
         FrameError::Proguard(e).into()
+    }
+}
+
+impl From<AppleError> for ResolveError {
+    fn from(e: AppleError) -> Self {
+        FrameError::Apple(e).into()
     }
 }
 
@@ -247,5 +279,14 @@ impl From<(usize, UnhandledError)> for PipelineFailure {
 impl From<(usize, Arc<UnhandledError>)> for PipelineFailure {
     fn from((index, error): (usize, Arc<UnhandledError>)) -> Self {
         PipelineFailure { index, error }
+    }
+}
+
+impl From<UnhandledError> for PipelineFailure {
+    fn from(error: UnhandledError) -> Self {
+        PipelineFailure {
+            index: 0,
+            error: Arc::new(error),
+        }
     }
 }

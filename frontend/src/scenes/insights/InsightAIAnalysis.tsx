@@ -2,17 +2,20 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { InsightQueryNode } from '~/queries/schema/schema-general'
-import { BillingPlan } from '~/types'
+import { SidePanelTab } from '~/types'
 
-import { InsightSuggestions } from './InsightSuggestions'
 import { insightAIAnalysisLogic } from './insightAIAnalysisLogic'
 import { insightLogic } from './insightLogic'
+import { InsightSuggestions } from './InsightSuggestions'
 import { insightVizDataLogic } from './insightVizDataLogic'
 
 export interface InsightAIAnalysisProps {
@@ -22,19 +25,19 @@ export interface InsightAIAnalysisProps {
 export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
-    const { currentPlatformAddon, billingLoading } = useValues(billingLogic)
-    const { analysis, isAnalyzing, hasClickedAnalyze, analysisFeedbackGiven } = useValues(
+    const {
+        analysis,
+        isAnalyzing,
+        hasClickedAnalyze,
+        hasClickedSuggestions,
+        analysisFeedbackGiven,
+        analysisError,
+        suggestionsLoading,
+    } = useValues(insightAIAnalysisLogic({ insightId: insight.id, query }))
+    const { resetAnalysis, reportAnalysisFeedback, loadSuggestions, setHasClickedSuggestions } = useActions(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
-    const { startAnalysis, resetAnalysis, reportAnalysisFeedback } = useActions(
-        insightAIAnalysisLogic({ insightId: insight.id, query })
-    )
-
-    // Check for at least Boost add-on (Boost, Scale, or Enterprise)
-    const hasBoostOrHigher =
-        currentPlatformAddon?.type === BillingPlan.Boost ||
-        currentPlatformAddon?.type === BillingPlan.Scale ||
-        currentPlatformAddon?.type === BillingPlan.Enterprise
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     useEffect(() => {
         // Reset analysis when insight changes
@@ -47,7 +50,10 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
 
     return (
         <div className="mt-4 mb-4">
-            <h2 className="font-semibold text-lg m-0 mb-2">AI analysis</h2>
+            <h2 className="font-semibold text-lg m-0 mb-2 flex items-center gap-2">
+                AI analysis
+                <LemonTag type="warning">BETA</LemonTag>
+            </h2>
 
             {!hasClickedAnalyze ? (
                 <>
@@ -55,22 +61,54 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                         Get AI-powered insights about your data, including trends, patterns, and actionable
                         recommendations. Find similar insights and get suggestions for next steps.
                     </p>
-                    <LemonButton
-                        type="primary"
-                        onClick={startAnalysis}
-                        loading={isAnalyzing}
-                        disabledReason={
-                            billingLoading
-                                ? 'Loading billing information...'
-                                : !hasBoostOrHigher
-                                  ? 'Upgrade to at least the Boost add-on to use AI analysis'
-                                  : insightDataLoading
-                                    ? 'Please wait for the insight to finish loading'
-                                    : undefined
-                        }
-                    >
-                        Analyze with AI
-                    </LemonButton>
+                    {analysisError && (
+                        <LemonBanner type="error" className="mb-4">
+                            {analysisError}
+                        </LemonBanner>
+                    )}
+                    <div className="flex gap-2 flex-wrap">
+                        <AIConsentPopoverWrapper
+                            onApprove={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => openSidePanel(SidePanelTab.Max, '!Explain this insight')}
+                                sideIcon={null}
+                                data-attr="insight-ai-explain-button"
+                                disabledReason={
+                                    insightDataLoading ? 'Please wait for the insight to finish loading' : undefined
+                                }
+                            >
+                                Explain this insight
+                            </LemonButton>
+                        </AIConsentPopoverWrapper>
+                        <AIConsentPopoverWrapper
+                            onApprove={() => {
+                                setHasClickedSuggestions()
+                                loadSuggestions({})
+                            }}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    setHasClickedSuggestions()
+                                    loadSuggestions({})
+                                }}
+                                sideIcon={null}
+                                data-attr="insight-ai-suggestions-button"
+                                disabledReason={
+                                    suggestionsLoading
+                                        ? 'Generating suggestions...'
+                                        : insightDataLoading
+                                          ? 'Please wait for the insight to finish loading'
+                                          : undefined
+                                }
+                            >
+                                Suggest insights to dive deeper
+                            </LemonButton>
+                        </AIConsentPopoverWrapper>
+                    </div>
+                    {hasClickedSuggestions && <InsightSuggestions insightId={insight.id} query={query} />}
                 </>
             ) : isAnalyzing ? (
                 <div className="flex items-center gap-2 text-muted">

@@ -11,6 +11,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 import structlog
+from django_deprecate_fields import deprecate_field
 
 from posthog.caching.flags_redis_cache import write_flags_to_cache
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
@@ -22,7 +23,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -33,6 +34,11 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+class FeatureFlagManager(RootTeamManager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
+
 class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
@@ -41,7 +47,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
     filters = models.JSONField(default=dict)
-    rollout_percentage = models.IntegerField(null=True, blank=True)
+    # DEPRECATED: rollout percentage now lives in filters["groups"][N]["rollout_percentage"]
+    rollout_percentage = deprecate_field(models.IntegerField(null=True, blank=True))
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
@@ -115,6 +122,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         blank=True,
         help_text="Last time this feature flag was called (from $feature_flag_called events)",
     )
+
+    objects = FeatureFlagManager()  # type: ignore
+    objects_including_soft_deleted: models.Manager["FeatureFlag"] = RootTeamManager()
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -225,19 +235,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return None
 
     def get_filters(self) -> dict:
-        if isinstance(self.filters, dict) and "groups" in self.filters:
-            return self.filters
-        else:
-            # :TRICKY: Keep this backwards compatible.
-            #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
-            return {
-                "groups": [
-                    {
-                        "properties": self.filters.get("properties", []),
-                        "rollout_percentage": self.rollout_percentage,
-                    }
-                ],
-            }
+        return self.filters
 
     def transform_cohort_filters_for_easy_evaluation(
         self,
@@ -556,6 +554,7 @@ class FeatureFlagOverride(models.Model):
 def get_feature_flags(
     team: Optional["Team"] = None,
     project_id: Optional[int] = None,
+    exclude_encrypted_remote_config: bool = False,
 ) -> list[FeatureFlag]:
     """
     Fetch FeatureFlag objects for a team or project.
@@ -566,6 +565,9 @@ def get_feature_flags(
     Args:
         team: Team to get flags for (mutually exclusive with project_id)
         project_id: Project ID to get flags for (mutually exclusive with team)
+        exclude_encrypted_remote_config: If True, exclude flags where both
+            is_remote_configuration=True AND has_encrypted_payloads=True.
+            These flags can only be accessed via the /remote_config endpoint.
 
     Returns:
         List of FeatureFlag model instances with evaluation tags pre-loaded
@@ -579,7 +581,8 @@ def get_feature_flags(
     else:
         raise ValueError("Either team or project_id must be provided")
 
-    filter_kwargs.update({"active": True, "deleted": False})
+    # Include disabled flags (active=False) so flag dependencies can reference them
+    # and evaluate them as false, rather than raising DependencyNotFound errors.
 
     # Build queryset with evaluation tags aggregated
     # Single-shot query: flags plus evaluation tag names aggregated to a string array.
@@ -588,6 +591,11 @@ def get_feature_flags(
     # many flags. The evaluation tags are stored as a many-to-many relationship
     # through FeatureFlagEvaluationTag, but we aggregate them here for efficiency.
     qs = FeatureFlag.objects.filter(**filter_kwargs)
+
+    # Exclude encrypted remote config flags at the database level if requested
+    if exclude_encrypted_remote_config:
+        qs = qs.filter(~Q(is_remote_configuration=True, has_encrypted_payloads=True))
+
     qs = qs.annotate(
         evaluation_tag_names_agg=ArrayAgg(
             "evaluation_tags__tag__name",
@@ -667,7 +675,10 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
                 # This makes cache retrieval extremely fast - no DB queries needed.
                 flag._evaluation_tag_names = evaluation_tags_list
                 flags.append(flag)
-            return flags
+            # Filter to only return active flags. The cache includes inactive flags
+            # for dependency resolution (used by the Rust service), but Python callers
+            # expect only active flags for backward compatibility.
+            return [f for f in flags if f.active]
         except Exception as e:
             logger.exception("Error parsing flags from cache")
             capture_exception(e)

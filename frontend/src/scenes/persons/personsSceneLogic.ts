@@ -7,24 +7,26 @@ import api from 'lib/api'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 
 export const PEOPLE_LIST_CONTEXT_KEY = 'people-list'
-
-export const defaultQuery = {
+const DEFAULT_COLUMNS = [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete']
+export const PEOPLE_LIST_DEFAULT_QUERY = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.ActorsQuery,
-        select: [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete'],
+        tags: { productKey: ProductKey.CUSTOMER_ANALYTICS },
+        select: DEFAULT_COLUMNS,
     },
+    defaultColumns: DEFAULT_COLUMNS,
     full: true,
     propertiesViaUrl: true,
     contextKey: PEOPLE_LIST_CONTEXT_KEY,
@@ -37,10 +39,33 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     actions({
         setQuery: (query: DataTableNode) => ({ query }),
         resetDeletedDistinctId: (distinct_id: string) => ({ distinct_id }),
+        setShowDisplayNameNudge: (showDisplayNameNudge: boolean) => ({ showDisplayNameNudge }),
+        setIsBannerLoading: (isBannerLoading: boolean) => ({ isBannerLoading }),
     }),
 
     reducers({
-        query: [defaultQuery, { setQuery: (_, { query }) => query }],
+        query: [
+            PEOPLE_LIST_DEFAULT_QUERY,
+            {
+                setQuery: (_, { query }) => ({
+                    ...query,
+                    // Need this so that clicking "reset to defaults" in column configurator also bring back the delete button
+                    defaultColumns: DEFAULT_COLUMNS,
+                }),
+            },
+        ],
+        showDisplayNameNudge: [
+            false,
+            {
+                setShowDisplayNameNudge: (_, { showDisplayNameNudge }) => showDisplayNameNudge,
+            },
+        ],
+        isBannerLoading: [
+            false,
+            {
+                setIsBannerLoading: (_, { isBannerLoading }) => isBannerLoading,
+            },
+        ],
     }),
 
     listeners({
@@ -67,7 +92,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         setQuery: () => [
             urls.persons(),
             {},
-            equal(values.query, defaultQuery) ? {} : { q: values.query },
+            equal(values.query, PEOPLE_LIST_DEFAULT_QUERY) ? {} : { q: values.query },
             { replace: true },
         ],
     })),

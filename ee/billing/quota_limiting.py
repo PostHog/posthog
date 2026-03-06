@@ -1,7 +1,8 @@
 import copy
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
+from time import time
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.db import close_old_connections
 from django.db.models import Q
 from django.utils import timezone
 
+import structlog
 import dateutil.parser
 import posthoganalytics
 
@@ -28,6 +30,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
+    get_teams_with_logs_bytes_in_period,
     get_teams_with_recording_count_in_period,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
@@ -36,6 +39,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_workflow_emails_sent_in_period,
 )
 from posthog.utils import get_current_day
+
+logger = structlog.get_logger(__name__)
 
 QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
@@ -76,6 +81,7 @@ class QuotaResource(Enum):
     AI_CREDITS = "ai_credits"
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
+    LOGS_MB_INGESTED = "logs_mb_ingested"
 
 
 class QuotaLimitingCaches(Enum):
@@ -97,6 +103,7 @@ OVERAGE_BUFFER = {
     QuotaResource.AI_CREDITS: 0,
     QuotaResource.WORKFLOW_EMAILS: 0,
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
+    QuotaResource.LOGS_MB_INGESTED: 0,
 }
 
 # These resources are exempt from any grace periods, whether trust-based or never_drop_data
@@ -120,6 +127,7 @@ class UsageCounters(TypedDict):
     ai_credits: int
     workflow_emails: int
     workflow_destinations_dispatched: int
+    logs_mb_ingested: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -587,9 +595,19 @@ def set_org_usage_summary(
     return has_changed
 
 
+def _timed_query(name, fn, *args, **kwargs):
+    start = time()
+    result = fn(*args, **kwargs)
+    logger.info(
+        "quota_limiting_run", phase="query", status="done", query=name, duration_ms=round((time() - start) * 1000, 1)
+    )
+    return result
+
+
 def update_all_orgs_billing_quotas(
     dry_run: bool = False,
-) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]]]:
+    progress_callback: Callable[[str, str, str], None] | None = None,
+) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]], dict[str, float | int]]:
     """
     This is called on a cron job every 30 minutes to update all orgs with their quotas.
     Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
@@ -597,55 +615,92 @@ def update_all_orgs_billing_quotas(
 
     # Start and end of the current day
     """
+    total_start = time()
     period = get_current_day()
     period_start, period_end = period
 
-    api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
-    _, exception_metrics = get_teams_with_exceptions_captured_in_period(period_start, period_end)
+    logger.info("quota_limiting_run", phase="queries", status="start")
+    queries_start = time()
+
+    api_queries_usage = _timed_query(
+        "api_queries_metrics", get_teams_with_api_queries_metrics, period_start, period_end
+    )
+    _, exception_metrics = _timed_query(
+        "exceptions_captured", get_teams_with_exceptions_captured_in_period, period_start, period_end
+    )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
         "teams_with_event_count_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_billable_event_count_in_period(period_start, period_end)
+            _timed_query("billable_events", get_teams_with_billable_event_count_in_period, period_start, period_end)
         ),
         "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(exception_metrics),
         "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_recording_count_in_period(period_start, period_end)
+            _timed_query("recordings", get_teams_with_recording_count_in_period, period_start, period_end)
         ),
         "teams_with_rows_synced_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_rows_synced_in_period(period_start, period_end)
+            _timed_query("rows_synced", get_teams_with_rows_synced_in_period, period_start, period_end)
         ),
         "teams_with_decide_requests_count": convert_team_usage_rows_to_dict(
-            get_teams_with_feature_flag_requests_count_in_period(period_start, period_end, FlagRequestType.DECIDE)
+            _timed_query(
+                "decide_requests",
+                get_teams_with_feature_flag_requests_count_in_period,
+                period_start,
+                period_end,
+                FlagRequestType.DECIDE,
+            )
         ),
         "teams_with_local_evaluation_requests_count": convert_team_usage_rows_to_dict(
-            get_teams_with_feature_flag_requests_count_in_period(
-                period_start, period_end, FlagRequestType.LOCAL_EVALUATION
+            _timed_query(
+                "local_evaluation_requests",
+                get_teams_with_feature_flag_requests_count_in_period,
+                period_start,
+                period_end,
+                FlagRequestType.LOCAL_EVALUATION,
             )
         ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
         "teams_with_cdp_trigger_events_metrics": convert_team_usage_rows_to_dict(
-            get_teams_with_cdp_billable_invocations_in_period(period_start, period_end)
+            _timed_query("cdp_invocations", get_teams_with_cdp_billable_invocations_in_period, period_start, period_end)
         ),
         "teams_with_rows_exported_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_rows_exported_in_period(period_start, period_end)
+            _timed_query("rows_exported", get_teams_with_rows_exported_in_period, period_start, period_end)
         ),
         "teams_with_survey_responses_count_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_survey_responses_count_in_period(period_start, period_end)
+            _timed_query("survey_responses", get_teams_with_survey_responses_count_in_period, period_start, period_end)
         ),
         "teams_with_ai_event_count_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_ai_event_count_in_period(period_start, period_end)
+            _timed_query("ai_events", get_teams_with_ai_event_count_in_period, period_start, period_end)
         ),
         "teams_with_ai_credits_used_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_ai_credits_used_in_period(period_start, period_end)
+            _timed_query("ai_credits", get_teams_with_ai_credits_used_in_period, period_start, period_end)
         ),
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_workflow_emails_sent_in_period(period_start, period_end)
+            _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period_start, period_end)
         ),
         "teams_with_workflow_destinations_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_workflow_billable_invocations_in_period(period_start, period_end)
+            _timed_query(
+                "workflow_invocations", get_teams_with_workflow_billable_invocations_in_period, period_start, period_end
+            )
         ),
+        "teams_with_logs_mb_in_period": {
+            team_id: int(bytes_val // 1_000_000)
+            for team_id, bytes_val in convert_team_usage_rows_to_dict(
+                _timed_query("logs_bytes", get_teams_with_logs_bytes_in_period, period_start, period_end)
+            ).items()
+        },
     }
+
+    queries_duration_s = round((time() - queries_start), 1)
+    logger.info(
+        "quota_limiting_run",
+        phase="queries",
+        status="done",
+        duration_ms=round(queries_duration_s * 1000, 1),
+        query_count=len(all_data),
+    )
+    if progress_callback:
+        progress_callback("queries_done", f"duration={queries_duration_s}s", f"query_count={len(all_data)}")
 
     teams: Sequence[Team] = list(
         Team.objects.select_related("organization")
@@ -657,6 +712,8 @@ def update_all_orgs_billing_quotas(
             "organization__usage",
             "organization__created_at",
             "organization__never_drop_data",
+            "organization__customer_trust_scores",
+            "organization__customer_id",
         )
     )
 
@@ -683,6 +740,7 @@ def update_all_orgs_billing_quotas(
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
             workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
+            logs_mb_ingested=all_data["teams_with_logs_mb_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)
@@ -714,7 +772,13 @@ def update_all_orgs_billing_quotas(
     # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "exceptions": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"], "api_queries_read_bytes": ["phc_123", "phc_456"], "survey_responses": ["phc_123", "phc_456"]})
 
     # Find all orgs that should be rate limited
-    report_index = 1
+    total_orgs = len(todays_usage_report)
+    logger.info("quota_limiting_run", phase="org_loop", status="start", org_count=total_orgs)
+    org_loop_start = time()
+    orgs_processed = 0
+    orgs_limited_count = 0
+    orgs_suspended_count = 0
+
     for org_id, todays_report in todays_usage_report.items():
         # Check and refresh DB connections if needed on every iteration.
         # The database_sync_to_async wrapper only closes connections at start/end,
@@ -731,6 +795,8 @@ def update_all_orgs_billing_quotas(
                 if set_org_usage_summary(org, todays_usage=todays_report):
                     org.save(update_fields=["usage"])
 
+                org_is_limited = False
+                org_is_suspended = False
                 for resource in QuotaResource:
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
@@ -740,12 +806,50 @@ def update_all_orgs_billing_quotas(
                         limiting_suspended_until = result.get("quota_limiting_suspended_until")
                         if limiting_suspended_until:
                             quota_limiting_suspended_orgs[field][org_id] = limiting_suspended_until
+                            org_is_suspended = True
                         elif quota_limited_until:
                             quota_limited_orgs[field][org_id] = quota_limited_until
+                            org_is_limited = True
+                if org_is_suspended:
+                    orgs_suspended_count += 1
+                if org_is_limited:
+                    orgs_limited_count += 1
 
-            report_index += 1
+            orgs_processed += 1
+            if orgs_processed % 1000 == 0:
+                logger.info(
+                    "quota_limiting_run",
+                    phase="org_loop",
+                    status="progress",
+                    orgs_processed=orgs_processed,
+                    org_count=total_orgs,
+                    elapsed_ms=round((time() - org_loop_start) * 1000, 1),
+                )
+                if progress_callback:
+                    progress_callback(
+                        "org_processing",
+                        f"{orgs_processed}/{total_orgs}",
+                        f"limited={orgs_limited_count},suspended={orgs_suspended_count}",
+                    )
         except Exception as e:
+            orgs_processed += 1
             capture_exception(e, {"organization_id": org_id})
+
+    logger.info(
+        "quota_limiting_run",
+        phase="org_loop",
+        status="done",
+        duration_ms=round((time() - org_loop_start) * 1000, 1),
+        orgs_processed=orgs_processed,
+        orgs_limited=orgs_limited_count,
+        orgs_suspended=orgs_suspended_count,
+    )
+    if progress_callback:
+        progress_callback(
+            "org_loop_done",
+            f"{orgs_processed}/{total_orgs}",
+            f"limited={orgs_limited_count},suspended={orgs_suspended_count}",
+        )
 
     # Now we have the teams that are currently under quota limits
     # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "survey_responses": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
@@ -797,6 +901,7 @@ def update_all_orgs_billing_quotas(
         )
 
     if not dry_run:
+        redis_start = time()
         for field in quota_limited_teams:
             replace_limited_team_tokens(
                 QuotaResource(field), quota_limited_teams[field], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
@@ -807,8 +912,33 @@ def update_all_orgs_billing_quotas(
                 quota_limiting_suspended_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
             )
+        redis_duration_s = round((time() - redis_start), 1)
+        logger.info("quota_limiting_run", phase="redis", status="done", duration_ms=round(redis_duration_s * 1000, 1))
+        if progress_callback:
+            progress_callback("redis_done", f"duration={redis_duration_s}s", "")
 
-    return quota_limited_orgs, quota_limiting_suspended_orgs
+    total_duration_s = time() - total_start
+    logger.info(
+        "quota_limiting_run",
+        phase="total",
+        status="done",
+        duration_ms=round(total_duration_s * 1000, 1),
+        orgs_processed=orgs_processed,
+        orgs_limited=orgs_limited_count,
+        orgs_suspended=orgs_suspended_count,
+    )
+
+    return (
+        quota_limited_orgs,
+        quota_limiting_suspended_orgs,
+        {
+            "duration_s": round(total_duration_s, 1),
+            "orgs_total": total_orgs,
+            "orgs_processed": orgs_processed,
+            "orgs_limited": orgs_limited_count,
+            "orgs_suspended": orgs_suspended_count,
+        },
+    )
 
 
 # -------------------------------------------------------------------------------------------------

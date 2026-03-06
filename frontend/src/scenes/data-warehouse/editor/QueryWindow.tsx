@@ -1,251 +1,117 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 
-import { IconBook, IconDownload, IconInfo, IconPlayFilled } from '@posthog/icons'
-import { LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Link } from 'lib/lemon-ui/Link'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
+import { cn } from 'lib/utils/css-classes'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind } from '~/queries/schema/schema-general'
 
-import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { OutputPane } from './OutputPane'
-import { QueryHistoryModal } from './QueryHistoryModal'
-import { QueryPane } from './QueryPane'
 import { FixErrorButton } from './components/FixErrorButton'
-import { draftsLogic } from './draftsLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { editorSizingLogic } from './editorSizingLogic'
+import { OutputPane } from './OutputPane'
+import { QueryPane } from './QueryPane'
+import { QueryVariablesMenu } from './QueryVariablesMenu'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
     tabId: string
+    mode?: SQLEditorMode
 }
 
-export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): JSX.Element {
+export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
 
-    const {
-        activeTab,
-        queryInput,
-        editingView,
-        editingInsight,
-        sourceQuery,
-        originalQueryInput,
-        suggestedQueryInput,
-        isDraft,
-        currentDraft,
-        changesToSave,
-        inProgressViewEdits,
-    } = useValues(multitabEditorLogic)
+    const { queryInput, sourceQuery, originalQueryInput, suggestedQueryInput, editingView } = useValues(sqlEditorLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, saveAsView, saveDraft, updateView } =
-        useActions(multitabEditorLogic)
-    const { openHistoryModal } = useActions(multitabEditorLogic)
+    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading } = useActions(sqlEditorLogic)
 
-    const { saveOrUpdateDraft } = useActions(draftsLogic)
-    const { response } = useValues(dataNodeLogic)
-    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
-        if (updatingDataWarehouseSavedQuery) {
-            return ['Saving...', Spinner]
-        }
-
-        if (!response) {
-            return ['Run query to update', IconDownload]
-        }
-
-        if (!changesToSave) {
-            return ['No changes to save', IconDownload]
-        }
-
-        return [undefined, IconDownload]
-    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
-
-    const isMaterializedView = editingView?.is_materialized === true
+    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
+    const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
+    const { editorVimModeEnabled } = useValues(userPreferencesLogic)
+    const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
+    const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
 
     return (
         <div className="flex grow flex-col overflow-hidden">
-            {(editingView || editingInsight) && (
-                <div className="h-5 bg-warning-highlight">
-                    <span className="pl-2 text-xs">
-                        {editingView && (
-                            <>
-                                Editing {isDraft ? 'draft of ' : ''} {isMaterializedView ? 'materialized view' : 'view'}{' '}
-                                "{editingView.name}"
-                            </>
-                        )}
-                        {editingInsight && (
-                            <>
-                                Editing insight "
-                                <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>"
-                            </>
-                        )}
-                    </span>
+            <div
+                className={cn(
+                    'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
+                    isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
+                )}
+            >
+                <div className="flex items-center gap-2">
+                    <ExpandDatabaseTreeButton />
+                    <RunButton />
+                    <LemonDivider vertical />
+                    <QueryVariablesMenu
+                        disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                    />
                 </div>
-            )}
-            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
-                <RunButton />
-                <LemonDivider vertical />
-                {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
-                    <>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-save-as-draft"
-                            onClick={() => {
-                                if (editingView) {
-                                    saveOrUpdateDraft(
-                                        {
-                                            kind: NodeKind.HogQLQuery,
-                                            query: queryInput ?? '',
-                                        },
-                                        editingView.id,
-                                        currentDraft?.id || undefined,
-                                        activeTab ?? undefined
-                                    )
-                                } else {
-                                    saveOrUpdateDraft(
-                                        {
-                                            kind: NodeKind.HogQLQuery,
-                                            query: queryInput ?? '',
-                                        },
-                                        undefined,
-                                        currentDraft?.id || undefined,
-                                        activeTab ?? undefined
-                                    )
-                                }
+
+                <div className="ml-auto flex items-center gap-2">
+                    <FixErrorButton type="secondary" size="small" source="action-bar" />
+                    {vimModeFeatureEnabled && (
+                        <LemonSwitch
+                            checked={editorVimModeEnabled}
+                            onChange={setEditorVimModeEnabled}
+                            label="Vim"
+                            size="small"
+                            bordered
+                            data-attr="sql-editor-vim-toggle"
+                        />
+                    )}
+                    {mode === SQLEditorMode.Embedded && (
+                        <SceneTitlePanelButton
+                            buttonClassName="size-[26px]"
+                            maxToolProps={{
+                                identifier: 'execute_sql',
+                                context: {
+                                    current_query: queryInput,
+                                },
+                                contextDescription: {
+                                    text: 'Current query',
+                                    icon: iconForType('sql_editor'),
+                                },
+                                callback: (toolOutput: string) => {
+                                    setSuggestedQueryInput(toolOutput, 'max_ai')
+                                },
+                                suggestions: [],
+                                onMaxOpen: () => {
+                                    reportAIQueryPromptOpen()
+                                },
+                                introOverride: {
+                                    headline: 'What data do you want to analyze?',
+                                    description: 'Let me help you quickly write SQL, and tweak it.',
+                                },
                             }}
-                        >
-                            Save
-                        </LemonButton>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-publish-draft"
-                            disabledReason={editingViewDisabledReason}
-                            onClick={() => {
-                                if (editingView && currentDraft?.id && activeTab) {
-                                    updateView(
-                                        {
-                                            id: editingView.id,
-                                            query: {
-                                                ...sourceQuery.source,
-                                                query: queryInput ?? '',
-                                            },
-                                            name: editingView.name,
-                                            types: response && 'types' in response ? (response?.types ?? []) : [],
-                                            shouldRematerialize: isMaterializedView,
-                                            edited_history_id: activeTab.view?.latest_history_id,
-                                        },
-                                        currentDraft.id
-                                    )
-                                } else {
-                                    saveAsView(false, currentDraft?.id)
-                                }
-                            }}
-                            tooltip={
-                                editingView
-                                    ? 'Publishing will update the view with these changes.'
-                                    : 'The view this draft is based on has been deleted. Publishing will create a new view.'
-                            }
-                        >
-                            {!editingView && <IconInfo className="mr-1" color="var(--warning)" />}
-                            Publish
-                        </LemonButton>
-                    </>
-                )}
-                {editingView && !isDraft && activeTab && (
-                    <>
-                        {featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                id="sql-editor-query-window-save-draft"
-                                onClick={() => {
-                                    saveDraft(activeTab, queryInput ?? '', editingView.id)
-                                }}
-                            >
-                                Save draft
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            onClick={() =>
-                                updateView({
-                                    id: editingView.id,
-                                    query: {
-                                        ...sourceQuery.source,
-                                        query: queryInput ?? '',
-                                    },
-                                    types: response && 'types' in response ? (response?.types ?? []) : [],
-                                    shouldRematerialize: isMaterializedView,
-                                    edited_history_id: inProgressViewEdits[editingView.id],
-                                })
-                            }
-                            disabledReason={editingViewDisabledReason}
-                            icon={<EditingViewButtonIcon />}
-                            type="tertiary"
-                            size="xsmall"
-                            id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
-                        >
-                            {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
-                        </LemonButton>
-                    </>
-                )}
-                {editingView && (
-                    <>
-                        <LemonButton
-                            onClick={() => openHistoryModal()}
-                            icon={<IconBook />}
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-history"
-                        >
-                            History
-                        </LemonButton>
-                    </>
-                )}
-                {!editingInsight && !editingView && (
-                    <>
-                        <AppShortcut
-                            name="SQLEditorSaveAsView"
-                            keybind={[keyBinds.save]}
-                            intent="Save as view"
-                            interaction="click"
-                            scope={Scene.SQLEditor}
-                        >
-                            <LemonButton
-                                onClick={() => saveAsView()}
-                                icon={<IconDownload />}
-                                type="tertiary"
-                                size="xsmall"
-                                data-attr="sql-editor-save-view-button"
-                                id="sql-editor-query-window-save-as-view"
-                            >
-                                Save as view
-                            </LemonButton>
-                        </AppShortcut>
-                    </>
-                )}
-                <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
+                        />
+                    )}
+                </div>
             </div>
+
             <QueryPane
                 originalValue={originalQueryInput ?? ''}
                 queryInput={(suggestedQueryInput || queryInput) ?? ''}
                 sourceQuery={sourceQuery.source}
                 promptError={null}
                 onRun={runQuery}
+                editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
                     onChange: (v) => {
@@ -272,17 +138,36 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     },
                 }}
             />
+
             <InternalQueryWindow tabId={tabId} />
-            <QueryHistoryModal />
         </div>
     )
 }
 
+function ExpandDatabaseTreeButton(): JSX.Element | null {
+    const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
+    const { toggleDatabaseTreeCollapsed } = useActions(editorSizingLogic)
+
+    if (!isDatabaseTreeCollapsed) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            icon={<IconSidebarClose className="size-4 text-tertiary rotate-0" />}
+            type="secondary"
+            size="small"
+            tooltip="Expand database schema panel"
+            onClick={toggleDatabaseTreeCollapsed}
+        />
+    )
+}
+
 function RunButton(): JSX.Element {
-    const { runQuery } = useActions(multitabEditorLogic)
+    const { runQuery } = useActions(sqlEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
-    const { metadata, queryInput, isSourceQueryLastRun } = useValues(multitabEditorLogic)
+    const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
 
@@ -295,11 +180,11 @@ function RunButton(): JSX.Element {
             return ['var(--success)', 'New changes to run']
         }
 
-        const tooltipContent = !isUsingIndices
+        const tooltip = !isUsingIndices
             ? 'This query is not using indices optimally, which may result in slower performance.'
             : undefined
 
-        return ['var(--warning)', tooltipContent]
+        return ['var(--warning)', tooltip]
     }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
 
     return (
@@ -320,8 +205,8 @@ function RunButton(): JSX.Element {
                     }
                 }}
                 icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
-                type="tertiary"
-                size="xsmall"
+                type="primary"
+                size="small"
                 tooltip={tooltipContent}
             >
                 {responseLoading ? 'Cancel' : 'Run'}
@@ -330,13 +215,12 @@ function RunButton(): JSX.Element {
     )
 }
 
-function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
-    const { finishedLoading } = useValues(multitabEditorLogic)
+const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+    const { finishedLoading } = useValues(sqlEditorLogic)
 
-    // NOTE: hacky way to avoid flicker loading
     if (finishedLoading) {
         return null
     }
 
     return <OutputPane tabId={tabId} />
-}
+})

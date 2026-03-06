@@ -473,17 +473,13 @@ class TestFileSystemLogViewEndpoint(APIBaseTest):
         obj, _ = _create_feature_flag_case(self)  # type: ignore
         representation = obj.get_file_system_representation()
 
-        with (
-            patch("posthog.api.file_system.file_system.is_impersonated_session", return_value=True),
-            patch("posthog.api.file_system.file_system.log_api_file_system_view") as mock_logger,
-        ):
+        with patch("posthog.decorators.is_impersonated_session", return_value=True):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/file_system/log_view/",
                 {"type": representation.type, "ref": str(representation.ref)},
             )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        mock_logger.assert_not_called()
         assert FileSystemViewLog.objects.count() == 0
 
     def test_log_view_endpoint_lists_entries(self) -> None:

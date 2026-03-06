@@ -38,6 +38,12 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
+    "gpt-5.3-codex": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 200000,
+        "supports_vision": False,
+        "mode": "chat",
+    },
     "o1": {
         "litellm_provider": "openai",
         "max_input_tokens": 200000,
@@ -50,13 +56,19 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "claude-3-5-haiku-20241022": {
+    "claude-haiku-4-5-20251001": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,
         "mode": "chat",
     },
     "claude-opus-4-5": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "claude-opus-4-6": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,
@@ -242,6 +254,8 @@ class TestIsModelAvailable:
             ("gpt-4o", "twig", False),
             ("o1", "llm_gateway", True),
             ("o1", "array", False),
+            ("claude-opus-4-6", "twig", True),
+            ("gpt-5.3-codex", "twig", True),
             ("gpt-5.2", "array", True),
             ("gpt-5-mini", "twig", True),
             ("claude-opus-4-5", "array", True),

@@ -286,9 +286,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
+        file_count = len(content_hashes)
         symbol_set_ids = content_hashes.keys()
         symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids)
 
+        total_file_size = 0
         try:
             for symbol_set in symbol_sets:
                 s3_upload = None
@@ -297,6 +299,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
                 if s3_upload:
                     content_length = s3_upload.get("ContentLength")
+                    if content_length:
+                        total_file_size += content_length
 
                     if not content_length or content_length > ONE_HUNDRED_MEGABYTES:
                         symbol_set.delete()
@@ -314,7 +318,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 content_hash = content_hashes[str(symbol_set.id)]
                 symbol_set.content_hash = content_hash
             ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
-        except Exception:
+        except Exception as e:
             for id in content_hashes.keys():
                 # Try to clean up the symbol sets preemptively if the upload fails
                 try:
@@ -323,10 +327,25 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 except Exception:
                     pass
 
+            posthoganalytics.capture(
+                "error_tracking_symbol_set_uploaded",
+                properties={
+                    "file_size": total_file_size,
+                    "success": False,
+                    "file_count": file_count,
+                    "failure_reason": type(e).__name__,
+                },
+                groups=groups(self.team.organization, self.team),
+            )
             raise
 
-        _ = posthoganalytics.capture(
+        posthoganalytics.capture(
             "error_tracking_symbol_set_uploaded",
+            properties={
+                "file_size": total_file_size,
+                "success": True,
+                "file_count": file_count,
+            },
             groups=groups(self.team.organization, self.team),
         )
 

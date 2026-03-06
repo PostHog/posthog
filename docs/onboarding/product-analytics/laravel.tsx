@@ -1,7 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { PersonProfiles } from './_snippets/person-profiles'
 
 export const getLaravelSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
@@ -53,7 +52,7 @@ export const getLaravelSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     public function boot(): void
                                     {
                                         PostHog::init(
-                                            '<ph_project_api_key>',
+                                            '<ph_project_token>',
                                             [
                                                 'host' => '<ph_client_api_host>'
                                             ]
@@ -87,7 +86,6 @@ export const getLaravelSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             },
                         ]}
                     />
-                    <PersonProfiles language="php" />
                 </>
             ),
         },

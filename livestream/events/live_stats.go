@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"log"
 	"sync"
 	"time"
@@ -28,6 +29,8 @@ type Stats struct {
 	GlobalStore *expirable.LRU[string, NoSpaceType]
 	// Counter keeps all events count in the last COUNTER_TTL
 	Counter *SlidingWindowCounter
+
+	RedisStore *StatsInRedis
 
 	mu sync.RWMutex // guards store
 }
@@ -69,5 +72,13 @@ func (ts *Stats) KeepStats(statsChan chan CountEvent) {
 		ts.GetStoreForToken(event.Token).Add(event.DistinctID, NoSpaceType{})
 		ts.GlobalStore.Add(event.DistinctID, NoSpaceType{})
 		metrics.HandledEvents.Inc()
+
+		if ts.RedisStore != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := ts.RedisStore.AddUser(ctx, event.Token, event.DistinctID); err != nil {
+				log.Printf("Redis AddUser error: %v", err)
+			}
+			cancel()
+		}
 	}
 }

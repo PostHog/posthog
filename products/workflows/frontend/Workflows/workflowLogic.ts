@@ -20,6 +20,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionTemplateType } from '~/types'
 
+import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
@@ -73,7 +74,7 @@ export const NEW_WORKFLOW: HogFlow = {
             type: 'continue',
         },
     ],
-    conversion: { window_minutes: 0, filters: [] },
+    conversion: { window_minutes: null, filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status: 'draft',
@@ -228,12 +229,14 @@ export const workflowLogic = kea<workflowLogicType>([
     forms(({ actions, values }) => ({
         workflow: {
             defaults: NEW_WORKFLOW,
-            errors: ({ name, actions }) => {
+            errors: ({ name, actions, status }) => {
                 const errors = {
                     name: !name ? 'Name is required' : undefined,
-                    actions: actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
-                        ? 'Some fields need work'
-                        : undefined,
+                    actions:
+                        status === 'active' &&
+                        actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
+                            ? 'Some fields need work'
+                            : undefined,
                 } as DeepPartialMap<HogFlow, ValidationErrorType>
 
                 return errors
@@ -298,9 +301,15 @@ export const workflowLogic = kea<workflowLogicType>([
                             const emailTemplating = action.config.inputs?.email?.templating
 
                             const emailTemplateErrors: Partial<EmailTemplate> = {
-                                html: !emailValue?.html
-                                    ? 'HTML is required'
-                                    : getTemplatingError(emailValue?.html, emailTemplating),
+                                html:
+                                    !emailValue?.html && !emailValue?.text
+                                        ? 'HTML or plain text is required'
+                                        : emailValue?.html
+                                          ? getTemplatingError(emailValue?.html, emailTemplating)
+                                          : undefined,
+                                text: emailValue?.text
+                                    ? getTemplatingError(emailValue?.text, emailTemplating)
+                                    : undefined,
                                 subject: !emailValue?.subject
                                     ? 'Subject is required'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
@@ -346,9 +355,17 @@ export const workflowLogic = kea<workflowLogicType>([
                         }
 
                         if (action.type === 'trigger') {
-                            // custom validation here that we can't easily express in the schema
-                            if (action.config.type === 'event') {
-                                if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
+                            const registeredTypes = getRegisteredTriggerTypes()
+                            const matchingType = registeredTypes.find((t) => t.matchConfig?.(action.config))
+
+                            if (matchingType?.validate) {
+                                const triggerValidation = matchingType.validate(action.config)
+                                if (triggerValidation && !triggerValidation.valid) {
+                                    result.valid = false
+                                    result.errors = { ...result.errors, ...triggerValidation.errors }
+                                }
+                            } else if (action.config.type === 'event') {
+                                if (!action.config.filters?.events?.length && !action.config.filters?.actions?.length) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one event or action is required',
@@ -379,6 +396,16 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
+        workflowHasActionErrors: [
+            (s) => [s.workflow, s.actionValidationErrorsById],
+            (
+                workflow: HogFlow,
+                actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+            ): boolean => {
+                return workflow.actions.some((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
+            },
+        ],
+
         triggerAction: [
             (s) => [s.workflow],
             (workflow): TriggerAction | null => {
@@ -395,10 +422,12 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         saveWorkflowPartial: async ({ workflow }) => {
-            actions.saveWorkflow({
-                ...values.workflow,
-                ...workflow,
-            })
+            const merged = { ...values.workflow, ...workflow }
+            if (merged.status === 'active' && values.workflowHasActionErrors) {
+                lemonToast.error('Fix all errors before enabling')
+                return
+            }
+            actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)

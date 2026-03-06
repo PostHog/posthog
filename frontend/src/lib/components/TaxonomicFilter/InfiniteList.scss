@@ -1,6 +1,6 @@
 .taxonomic-infinite-list {
     flex-grow: 1;
-    min-height: 200px;
+    min-height: 272px;
 
     &.empty-infinite-list {
         display: flex;
@@ -11,6 +11,10 @@
         .no-infinite-results {
             color: #666;
         }
+    }
+
+    &.empty-infinite-list--start {
+        align-items: start;
     }
 
     .taxonomic-list-row {
