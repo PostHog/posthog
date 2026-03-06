@@ -351,12 +351,8 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
             (&self.topics.dlq_topic, Some(event_key.as_str()))
         } else if let Some(ref topic) = redirect_to_topic {
+            // redirect_to_topic overrides normal routing (including force_overflow) but DLQ takes priority.
             counter!(
-                "capture_events_rerouted_custom_topic",
-                &[("reason", "event_restriction")]
-            )
-            .increment(1);
-            (topic.as_str(), Some(event_key.as_str()))
         } else {
             match data_type {
                 DataType::AnalyticsHistorical => {
