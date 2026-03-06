@@ -33,6 +33,7 @@ class TestFlushKafkaBatch:
             total_cohorts=5,
             heartbeater=heartbeater,
             logger=logger,
+            percentile_bucket="p0-p50",
         )
 
         assert result == 0
@@ -63,6 +64,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=5,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p0-p50",
             )
 
         assert result == 100
@@ -88,6 +90,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=5,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p0-p50",
                 is_final=True,
             )
 
@@ -117,6 +120,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=5,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p0-p50",
                 is_final=False,
             )
 
@@ -155,6 +159,7 @@ class TestFlushKafkaBatch:
                     total_cohorts=5,
                     heartbeater=heartbeater,
                     logger=logger,
+                    percentile_bucket="p0-p50",
                 )
 
         # Should log warnings for failed messages
@@ -187,6 +192,7 @@ class TestFlushKafkaBatch:
                     total_cohorts=5,
                     heartbeater=heartbeater,
                     logger=logger,
+                    percentile_bucket="p0-p50",
                 )
 
         assert logger.warning.call_count == 5
@@ -211,6 +217,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=10,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p50-p80",
             )
 
         heartbeat_msg = heartbeater.details[0]
@@ -237,6 +244,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=8,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p80-p90",
             )
 
         # Check logger.info was called with metadata
@@ -277,12 +285,16 @@ class TestBatchFlushingBehavior:
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow.asyncio.to_thread"):
             # Batch 1
-            result1 = await flush_kafka_batch(kafka_producer, mock_results_batch1, 123, 1, 5, heartbeater, logger)
+            result1 = await flush_kafka_batch(
+                kafka_producer, mock_results_batch1, 123, 1, 5, heartbeater, logger, "p90-p95"
+            )
             # Batch 2
-            result2 = await flush_kafka_batch(kafka_producer, mock_results_batch2, 123, 1, 5, heartbeater, logger)
+            result2 = await flush_kafka_batch(
+                kafka_producer, mock_results_batch2, 123, 1, 5, heartbeater, logger, "p90-p95"
+            )
             # Batch 3 (final)
             result3 = await flush_kafka_batch(
-                kafka_producer, mock_results_batch3, 123, 1, 5, heartbeater, logger, is_final=True
+                kafka_producer, mock_results_batch3, 123, 1, 5, heartbeater, logger, "p90-p95", is_final=True
             )
 
         assert result1 == 10000
