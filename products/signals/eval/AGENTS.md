@@ -33,7 +33,11 @@ By default (`verbose=True`), each case logs the task output, thoughts (if presen
 ## Running
 
 ```bash
+# Run all cases
 pytest products/signals/eval/eval_<name>.py -s -v --log-cli-level=WARNING
+
+# Run specific cases only
+pytest products/signals/eval/eval_<name>.py --case-ids=00005,00010 -s -v --log-cli-level=WARNING
 ```
 
 Requires `POSTHOG_PROJECT_API_KEY` (`phc_` prefix) and relevant AI provider keys in `.env`.

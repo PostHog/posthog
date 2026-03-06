@@ -93,9 +93,10 @@ Respond with JSON: {{"reasoning": "...", "correct": true/false}}
 </instructions>"""
 
     @pytest.fixture(autouse=True)
-    def _setup(self, posthog_client, openai_client):
+    def _setup(self, posthog_client, openai_client, case_ids):
         self.posthog_client = posthog_client
         self.openai_client = openai_client
+        self.case_ids = case_ids
 
     @staticmethod
     async def task_fn(client: AsyncOpenAI, case: EvalCase) -> dict[str, Any]:
@@ -155,6 +156,8 @@ Respond with JSON: {{"reasoning": "...", "correct": true/false}}
     async def test_actionability(self):
         all_tickets = json.loads((FIXTURES_DIR / "zendesk_tickets.json").read_text())
         all_ids = {t["id"] for t in all_tickets if zendesk_ticket_emitter(team_id=0, record=t) is not None}
+        if self.case_ids is not None:
+            all_ids = all_ids & self.case_ids
         expected_labels = {
             tid: ("NOT_ACTIONABLE" if tid in self.NOT_ACTIONABLE_TICKETS else "ACTIONABLE") for tid in all_ids
         }
