@@ -31,7 +31,7 @@ export interface PrecheckResponseType {
 }
 
 // Routes that should be handled by Django, not the React router
-const BACKEND_ONLY_ROUTES = ['/login/vercel/continue', '/oauth/authorize']
+const BACKEND_ONLY_ROUTES = ['/login/vercel/continue', '/oauth/authorize', '/toolbar_oauth/authorize']
 
 export function handleLoginRedirect(): void {
     let nextURL = '/'

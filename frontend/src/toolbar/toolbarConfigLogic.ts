@@ -79,12 +79,15 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                     return 'https://eu.posthog.com'
                 }
 
-                // Self-hosted: prefer explicit ui_host, then apiURL
+                // Self-hosted / reverse proxy: prefer explicit ui_host, then derive from apiURL.
+                // apiURL is set by the PostHog app via apiHostOrigin() — for Cloud it's the
+                // ingestion host (us.i.posthog.com), so we strip the .i. infix to get the UI host.
+                // Self-hosted URLs pass through unchanged (no .i.posthog.com to strip).
                 if (props.posthog?.config?.ui_host) {
                     return props.posthog.config.ui_host.replace(/\/+$/, '')
                 }
                 if (props.apiURL) {
-                    return props.apiURL.replace(/\/+$/, '')
+                    return props.apiURL.replace(/\/+$/, '').replace('.i.posthog.com', '.posthog.com')
                 }
                 return window.location.origin
             },
