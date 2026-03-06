@@ -501,72 +501,26 @@ class TestPushHypercacheStatsMetrics(BaseTest):
         assert "Failed to push hypercache stats" in str(mock_logger.warning.call_args)
 
 
-class TestConfigValidation(BaseTest):
-    """Test HyperCacheManagementConfig validation."""
+class TestConfigGetTeamsQuerysetFn(BaseTest):
+    """Test HyperCacheManagementConfig.get_teams_queryset_fn."""
 
-    def test_both_optimization_fields_none_is_valid(self):
-        """Config with both optimization fields None is valid."""
-        # Should not raise
+    def test_default_is_none(self):
         config = create_test_config()
-        assert config.get_team_ids_needing_full_verification_fn is None
-        assert config.empty_cache_value is None
+        assert config.get_teams_queryset_fn is None
 
-    def test_both_optimization_fields_set_is_valid(self):
-        """Config with both optimization fields set is valid."""
+    def test_can_be_set_to_callable(self):
+        from posthog.models.team.team import Team
+
         hypercache = create_test_hypercache()
 
         def update_fn(team, ttl=None):
             return True
 
-        def get_team_ids():
-            return {1, 2, 3}
-
-        # Should not raise
         config = HyperCacheManagementConfig(
             hypercache=hypercache,
             update_fn=update_fn,
             cache_name="test_cache",
-            get_team_ids_needing_full_verification_fn=get_team_ids,
-            empty_cache_value={"flags": []},
+            get_teams_queryset_fn=lambda: Team.objects.all(),
         )
-        assert config.get_team_ids_needing_full_verification_fn is not None
-        assert config.empty_cache_value is not None
-
-    def test_only_team_ids_fn_set_raises_error(self):
-        """Config with only get_team_ids_needing_full_verification_fn raises ValueError."""
-        hypercache = create_test_hypercache()
-
-        def update_fn(team, ttl=None):
-            return True
-
-        def get_team_ids():
-            return {1, 2, 3}
-
-        with self.assertRaises(ValueError) as context:
-            HyperCacheManagementConfig(
-                hypercache=hypercache,
-                update_fn=update_fn,
-                cache_name="test_cache",
-                get_team_ids_needing_full_verification_fn=get_team_ids,
-                empty_cache_value=None,  # Missing!
-            )
-
-        assert "both get_team_ids_needing_full_verification_fn and empty_cache_value" in str(context.exception)
-
-    def test_only_empty_cache_value_set_raises_error(self):
-        """Config with only empty_cache_value raises ValueError."""
-        hypercache = create_test_hypercache()
-
-        def update_fn(team, ttl=None):
-            return True
-
-        with self.assertRaises(ValueError) as context:
-            HyperCacheManagementConfig(
-                hypercache=hypercache,
-                update_fn=update_fn,
-                cache_name="test_cache",
-                get_team_ids_needing_full_verification_fn=None,  # Missing!
-                empty_cache_value={"flags": []},
-            )
-
-        assert "both get_team_ids_needing_full_verification_fn and empty_cache_value" in str(context.exception)
+        assert config.get_teams_queryset_fn is not None
+        assert config.get_teams_queryset_fn().count() >= 0
