@@ -28,7 +28,7 @@ export function PathFlowNodeShell({
 }: PathFlowNodeProps & { className?: string; children?: React.ReactNode }): JSX.Element {
     return (
         <div
-            className={className ?? 'flex items-center rounded border border-border bg-bg-light px-2 text-xs'}
+            className={className ?? 'flex items-center rounded border border-primary bg-bg-light px-2 text-xs'}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: PATH_NODE_WIDTH, height: PATH_NODE_HEIGHT }}
         >
@@ -69,7 +69,7 @@ export const PathFlowNode = React.memo(function PathFlowNode({ data, id }: PathF
                     ? isOptional
                         ? 'border-dashed border-success bg-success-highlight'
                         : 'border-success bg-success-highlight'
-                    : 'border-border bg-bg-light'
+                    : 'border-primary bg-bg-light'
             }`}
         >
             {showAddButton && expandedPath && (

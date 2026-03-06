@@ -144,7 +144,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
         <StepNodeShell
             step={step}
             stepIndex={stepIndex}
-            containerClassName="group/builder-node border-border bg-bg-light"
+            containerClassName="group/builder-node border-primary bg-bg-light"
             hasConversionData={hasConversionData}
             handles={
                 <>
