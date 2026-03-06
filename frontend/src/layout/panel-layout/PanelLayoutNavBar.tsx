@@ -418,7 +418,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 >
                                                     <ButtonGroupPrimitive
                                                         fullWidth
-                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center group"
                                                     >
                                                         <Link
                                                             data-attr={`menu-item-${item.identifier
@@ -446,8 +446,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             }}
                                                             tooltip="Configure tabs & home"
                                                             tooltipPlacement="right"
+                                                            className="opacity-0 group-hover:opacity-100 transition-all duration-50"
                                                         >
-                                                            <IconGear className="text-tertiary" />
+                                                            <IconGear className="size-3 text-tertiary" />
                                                         </ButtonPrimitive>
                                                     </ButtonGroupPrimitive>
                                                 </ListBox.Item>
