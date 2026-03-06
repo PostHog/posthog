@@ -433,6 +433,10 @@ export const LineGraph = ({
                                           )
                                         : null
 
+                                filteredSeriesData = filteredSeriesData.filter(
+                                    (series) => series.data[referenceDataPoint.dataIndex] !== null
+                                )
+
                                 const isTruncated = filteredSeriesData.length > TOOLTIP_ROW_CUTOFF
                                 if (isTruncated) {
                                     filteredSeriesData = filteredSeriesData.slice(0, TOOLTIP_ROW_CUTOFF)
