@@ -213,7 +213,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         # Propagate the tile-level annotation to the insight instance so InsightBasicSerializer
         # doesn't fall back to a per-insight DB query for the favorited status.
         if instance.insight is not None and hasattr(instance, "insight_is_favorited"):
-            instance.insight.is_favorited = instance.insight_is_favorited
+            instance.insight.is_favorited = instance.insight_is_favorited  # type: ignore
 
         representation = super().to_representation(instance)
 
