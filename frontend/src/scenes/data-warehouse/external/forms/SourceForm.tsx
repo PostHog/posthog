@@ -8,7 +8,6 @@ import {
     LemonInput,
     LemonSelect,
     LemonSkeleton,
-    LemonRadio,
     LemonSwitch,
     LemonTextArea,
 } from '@posthog/lemon-ui'
@@ -16,6 +15,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
