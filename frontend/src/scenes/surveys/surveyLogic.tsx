@@ -88,7 +88,7 @@ import {
     DATE_FORMAT,
     type OpenEndedColumnMap,
     type SurveyQueryFilters,
-    buildAggregateQuery,
+    buildAggregateQueries,
     buildOpenEndedQuery,
     buildPartialResponsesFilter,
     buildSurveyTimestampFilter,
@@ -822,28 +822,29 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const queryOpts = { scene: 'Survey' as const, productKey: 'surveys' as const }
 
-                const aggregateQuery = buildAggregateQuery(survey, queryFilters, values.dateRange)
+                const aggregateQueries = buildAggregateQueries(survey, queryFilters, values.dateRange)
                 const openEndedResult = buildOpenEndedQuery(survey, queryFilters, values.dateRange)
 
                 const startMs = performance.now()
                 let aggregateDuration = 0
                 let openEndedDuration = 0
 
-                const [aggregateResponse, openEndedResponse] = await Promise.all([
-                    aggregateQuery
-                        ? api.queryHogQL(aggregateQuery as HogQLQueryString, queryOpts, queryParams).then((r) => {
-                              aggregateDuration = performance.now() - startMs
-                              return r
-                          })
-                        : Promise.resolve({ results: null }),
-                    openEndedResult
-                        ? api
-                              .queryHogQL(openEndedResult.query as HogQLQueryString, queryOpts, queryParams)
-                              .then((r) => {
-                                  openEndedDuration = performance.now() - startMs
-                                  return r
-                              })
-                        : Promise.resolve({ results: null }),
+                const aggregatePromises = aggregateQueries.map((q) =>
+                    api.queryHogQL(q as HogQLQueryString, queryOpts, queryParams)
+                )
+                const openEndedPromise = openEndedResult
+                    ? api.queryHogQL(openEndedResult.query as HogQLQueryString, queryOpts, queryParams)
+                    : Promise.resolve({ results: null })
+
+                const [aggregateResponses, openEndedResponse] = await Promise.all([
+                    Promise.all(aggregatePromises).then((responses) => {
+                        aggregateDuration = performance.now() - startMs
+                        return responses
+                    }),
+                    openEndedPromise.then((r) => {
+                        openEndedDuration = performance.now() - startMs
+                        return r
+                    }),
                 ])
 
                 const endMs = performance.now()
@@ -853,7 +854,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     openEnded: openEndedDuration,
                 })
 
-                const aggregate = processResultsForSurveyQuestions(survey.questions, aggregateResponse.results)
+                const allAggregateRows = aggregateResponses.flatMap((r) => r.results ?? [])
+                const aggregate = processResultsForSurveyQuestions(survey.questions, allAggregateRows)
                 const openEnded = openEndedResult
                     ? processOpenEndedResults(survey.questions, openEndedResult.columnMap, openEndedResponse.results)
                     : {}

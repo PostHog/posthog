@@ -513,11 +513,18 @@ export interface OpenEndedColumnMap {
     }
 }
 
-export function buildAggregateQuery(
+// TEMP BANDAID FIX @adboio
+// the c++ hogql parser fails on very large queries. this aggregate query does
+// a bunch of UNION ALLs and hits the limit when a survey has a very large
+// number of questions (bug discovered on a survey with 47 questions)
+// TODO: remove when we migrate surveys queries to a python query runner.
+const MAX_AGGREGATE_BRANCHES = 30
+
+export function buildAggregateQueries(
     survey: Survey,
     filters: SurveyQueryFilters,
     dateRange?: SurveyDateRange | null
-): string | null {
+): string[] {
     const dedupFilter = buildPartialResponsesFilter(survey, dateRange)
     const branches: string[] = []
 
@@ -566,10 +573,14 @@ export function buildAggregateQuery(
     }
 
     if (branches.length === 0) {
-        return null
+        return []
     }
 
-    return branches.join('\nUNION ALL\n')
+    const queries: string[] = []
+    for (let i = 0; i < branches.length; i += MAX_AGGREGATE_BRANCHES) {
+        queries.push(branches.slice(i, i + MAX_AGGREGATE_BRANCHES).join('\nUNION ALL\n'))
+    }
+    return queries
 }
 
 export function buildOpenEndedQuery(

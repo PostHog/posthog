@@ -340,6 +340,11 @@ class Command(BaseCommand):
             choices=QUESTION_TYPE_CHOICES,
             help="Specific question types to include in each generated survey. Example: --question-types nps open",
         )
+        parser.add_argument(
+            "--num-questions",
+            type=int,
+            help="Number of questions per survey. Use 50+ to test the HogQL parser batch limit.",
+        )
 
     def generate_question_of_type(
         self, question_type: QuestionType, choice_type: Literal["single_choice", "multiple_choice"] | None = None
@@ -673,12 +678,21 @@ class Command(BaseCommand):
         }
 
     def generate_random_survey(
-        self, team_id: int, user_id: int, question_types: list[RequestedQuestionType] | None = None
+        self,
+        team_id: int,
+        user_id: int,
+        question_types: list[RequestedQuestionType] | None = None,
+        num_questions: int | None = None,
     ) -> dict[str, Any]:
         # By default include required actionable question types; optionally allow explicit selection.
         questions = self.generate_required_questions()
         if question_types:
             questions = self.generate_questions_for_types(question_types)
+
+        if num_questions is not None:
+            while len(questions) < num_questions:
+                questions.append(self.generate_random_question())
+            questions = questions[:num_questions]
 
         # Preserve order for explicitly requested question types to keep branching indexes stable.
         if not question_types:
@@ -1092,9 +1106,13 @@ class Command(BaseCommand):
         llm_feedback = options["llm_feedback"]
         wipe = options["wipe"]
         question_types: list[RequestedQuestionType] | None = options["question_types"]
+        num_questions: int | None = options["num_questions"]
 
         if llm_feedback and question_types:
             raise CommandError("--question-types cannot be used with --llm-feedback")
+
+        if llm_feedback and num_questions:
+            raise CommandError("--num-questions cannot be used with --llm-feedback")
 
         if team_id:
             team = Team.objects.filter(id=team_id).first()
@@ -1160,7 +1178,9 @@ class Command(BaseCommand):
             if llm_feedback:
                 survey_data = self.generate_llm_feedback_survey(team.id, user.id)
             else:
-                survey_data = self.generate_random_survey(team.id, user.id, question_types=question_types)
+                survey_data = self.generate_random_survey(
+                    team.id, user.id, question_types=question_types, num_questions=num_questions
+                )
             survey = Survey.objects.create(**survey_data)
 
             # Backdate created_at so that generated events (spread over days_back days) fall within
