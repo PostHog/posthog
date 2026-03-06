@@ -210,12 +210,6 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                     const touchesOptionalStep = targetNode.data.isOptional
 
                     const isProfileMode = edgeType === 'profile'
-                    const isCompleted = targetNode.data.step.count > 0
-                    const edgeColor = isProfileMode
-                        ? isCompleted
-                            ? 'var(--success)'
-                            : 'var(--border-3000)'
-                        : undefined
 
                     return {
                         id: `edge-${index}`,
@@ -224,10 +218,16 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                         type: edgeType,
                         sourceHandle: `${node.id}-source`,
                         targetHandle: `${targetNode.id}-target`,
-                        markerEnd: { type: MarkerType.ArrowClosed, ...(edgeColor && { color: edgeColor }) },
+                        markerEnd: {
+                            type: MarkerType.ArrowClosed,
+                            ...(isProfileMode && { color: 'var(--color-border-secondary)' }),
+                        },
                         deletable: false,
                         style: {
-                            ...(edgeColor && { stroke: edgeColor, strokeWidth: 2 }),
+                            ...(isProfileMode && {
+                                stroke: 'var(--color-border-secondary)',
+                                strokeWidth: 2,
+                            }),
                             ...(touchesOptionalStep && { strokeDasharray: '5 5' }),
                         },
                         data: {
