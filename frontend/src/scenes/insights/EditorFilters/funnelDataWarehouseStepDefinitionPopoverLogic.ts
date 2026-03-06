@@ -17,7 +17,7 @@ import type { funnelDataWarehouseStepDefinitionPopoverLogicType } from './funnel
 
 export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'distinct_id_field'
 
-const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
+export const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
 const ALLOWED_COLUMN_TYPES_BY_FIELD_KEY: Record<FunnelFieldKey, DatabaseSerializedFieldType[]> = {
     distinct_id_field: ['string'],
     timestamp_field: ['datetime', 'date', 'string'],

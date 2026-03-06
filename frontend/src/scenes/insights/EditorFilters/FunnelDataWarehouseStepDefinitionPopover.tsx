@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonButton, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
+import { TablePreviewExpressionColumn } from 'lib/components/TablePreview/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
@@ -11,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { insightLogic } from '../insightLogic'
 import {
+    EDITABLE_FIELD_ORDER,
     FunnelFieldKey,
     funnelDataWarehouseStepDefinitionPopoverLogic,
 } from './funnelDataWarehouseStepDefinitionPopoverLogic'
@@ -61,17 +64,60 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
         activeFieldIsHogQL,
         isAggregatingByGroup,
         isAggregatingByHogQL,
+        localDefinition,
     } = useValues(logic)
     const { setActiveFieldKey, selectTable, setLocalDefinition } = useActions(logic)
+
+    const tableFieldNames = useMemo(() => new Set(Object.values(table.fields).map((field) => field.name)), [table.fields])
+    const previewExpressionColumns = useMemo<TablePreviewExpressionColumn[]>(() => {
+        const usedKeys = new Set(tableFieldNames)
+
+        return EDITABLE_FIELD_ORDER.flatMap((fieldKey) => {
+            const configuredValue = localDefinition[fieldKey]
+            if (typeof configuredValue !== 'string') {
+                return []
+            }
+
+            const expression = configuredValue.trim()
+            if (!expression || tableFieldNames.has(expression)) {
+                return []
+            }
+
+            const label = dataWarehousePopoverFields.find((field) => field.key === fieldKey)?.label ?? fieldKey
+            const keyBase = `__${fieldKey}_hogql_expression`
+            let key = keyBase
+            let suffix = 2
+
+            while (usedKeys.has(key)) {
+                key = `${keyBase}_${suffix}`
+                suffix += 1
+            }
+
+            usedKeys.add(key)
+
+            return [
+                {
+                    key,
+                    expression,
+                    label: `${label} (SQL expression)`,
+                    type: 'SQL expression',
+                },
+            ]
+        })
+    }, [dataWarehousePopoverFields, localDefinition, tableFieldNames])
+    const selectedPreviewKey =
+        previewExpressionColumns.find((column) => column.key.startsWith(`__${activeFieldKey}_hogql_expression`))?.key ??
+        activeFieldValue
 
     return (
         <div className="flex flex-col">
             <DatabaseTablePreview
                 table={table}
-                selectedKey={activeFieldValue}
+                selectedKey={selectedPreviewKey}
                 emptyMessage="No table selected"
                 limit={25}
                 className="mt-2"
+                expressionColumns={previewExpressionColumns}
             />
             <LemonSegmentedButton
                 className="mt-4"
