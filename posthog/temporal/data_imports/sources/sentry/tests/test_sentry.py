@@ -8,9 +8,9 @@ from parameterized import parameterized
 from posthog.temporal.data_imports.sources.generated_configs import SentrySourceConfig
 from posthog.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
-    _extract_rows,
     _normalize_api_base_url,
     _parse_next_link,
+    _retry_wait_seconds,
     _start_param_for_sentry,
     get_resource,
     sentry_source,
@@ -112,7 +112,6 @@ class TestSentryTransport:
             endpoint="issues",
             organization_slug="acme",
             should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2025, 1, 1, 10, 30, 0),
             incremental_field="lastSeen",
         )
 
@@ -492,16 +491,27 @@ class TestHelpers:
     def test_parse_next_link(self, _name, link_header, expected) -> None:
         assert _parse_next_link(link_header) == expected
 
-    @parameterized.expand(
-        [
-            ("list_payload", [{"id": 1}, {"id": 2}], 2),
-            ("dict_with_data", {"data": [{"id": 1}]}, 1),
-            ("bare_dict", {"id": 1}, 1),
-            ("empty_list", [], 0),
-            ("non_dict_items", [1, "str", None], 0),
-        ]
-    )
-    def test_extract_rows(self, _name, payload, expected_count) -> None:
-        rows = _extract_rows(payload)
-        assert len(rows) == expected_count
-        assert all(isinstance(r, dict) for r in rows)
+    def test_retry_wait_uses_exponential_fallback_for_non_429(self) -> None:
+        state = Mock()
+        state.attempt_number = 3
+        state.outcome = Mock()
+        state.outcome.failed = False
+        state.outcome.result.return_value = Mock(status_code=500)
+
+        assert _retry_wait_seconds(state) == 4.0
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.datetime")
+    def test_retry_wait_uses_rate_limit_reset_header_for_429(self, mock_datetime) -> None:
+        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = now
+
+        state = Mock()
+        state.attempt_number = 2
+        state.outcome = Mock()
+        state.outcome.failed = False
+        state.outcome.result.return_value = Mock(
+            status_code=429,
+            headers={"X-Sentry-Rate-Limit-Reset": str(int(now.timestamp()) + 9)},
+        )
+
+        assert _retry_wait_seconds(state) == 9.0
