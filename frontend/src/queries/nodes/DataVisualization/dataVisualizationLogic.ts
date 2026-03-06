@@ -796,7 +796,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
                 return ySeries
-                    .map((series): AxisSeries<number> | null => {
+                    .map((series): AxisSeries<number | null> | null => {
                         if (!series) {
                             return EmptyYAxisSeries
                         }
