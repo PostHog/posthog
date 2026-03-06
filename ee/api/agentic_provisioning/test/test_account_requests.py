@@ -1,7 +1,11 @@
 from datetime import timedelta
 
+from unittest.mock import patch
+
 from django.test import override_settings
 from django.utils import timezone
+
+from rest_framework.response import Response
 
 from posthog.models.user import User
 
@@ -93,11 +97,15 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert user.first_name == "Jane"
 
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_region_mismatch_returns_400(self):
+    @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
+    def test_region_mismatch_proxies_to_other_region(self, mock_proxy):
+        mock_proxy.return_value = Response({"type": "oauth", "oauth": {"code": "proxied"}})
         payload = self._account_request_payload(configuration={"region": "EU"})
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
-        assert res.status_code == 400
-        assert res.json()["error"]["code"] == "region_mismatch"
+        assert res.status_code == 200
+        mock_proxy.assert_called_once()
+        args = mock_proxy.call_args
+        assert "eu.posthog.com" in args[0][1]
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_matching_region_succeeds(self):
@@ -107,11 +115,15 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert res.json()["type"] == "oauth"
 
     @override_settings(CLOUD_DEPLOYMENT="EU")
-    def test_eu_instance_rejects_us_region(self):
+    @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
+    def test_eu_instance_proxies_us_region(self, mock_proxy):
+        mock_proxy.return_value = Response({"type": "oauth", "oauth": {"code": "proxied"}})
         payload = self._account_request_payload(configuration={"region": "US"})
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
-        assert res.status_code == 400
-        assert res.json()["error"]["code"] == "region_mismatch"
+        assert res.status_code == 200
+        mock_proxy.assert_called_once()
+        args = mock_proxy.call_args
+        assert "us.posthog.com" in args[0][1]
 
     def test_no_region_defaults_to_us_and_succeeds(self):
         payload = self._account_request_payload()

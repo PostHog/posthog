@@ -4,9 +4,9 @@ from urllib.parse import urlencode
 from django.core.cache import cache
 from django.test import override_settings
 
+from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
-from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)

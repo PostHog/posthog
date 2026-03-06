@@ -22,12 +22,13 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
+from . import AUTH_CODE_CACHE_PREFIX
+from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_stripe_signature
 
 logger = structlog.get_logger(__name__)
 
 AUTH_CODE_TTL_SECONDS = 300
-AUTH_CODE_CACHE_PREFIX = "stripe_app_auth_code:"
 
 STRIPE_APP_NAME = "PostHog Stripe App"
 
@@ -155,11 +156,8 @@ def provisioning_services(request: Request) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="body_region")
 def account_requests(request: Request) -> Response:
-    error = verify_stripe_signature(request)
-    if error:
-        return error
-
     data = request.data
     email = data.get("email")
     if not email:
@@ -188,19 +186,6 @@ def account_requests(request: Request) -> Response:
         stripe_account_id = orchestrator["stripe"].get("account", "")
 
     region = (configuration.get("region") or "US").upper()
-
-    instance_region = (get_instance_region() or "").upper()
-    if instance_region and instance_region not in ("DEV", "LOCAL") and region != instance_region:
-        return Response(
-            {
-                "type": "error",
-                "error": {
-                    "code": "region_mismatch",
-                    "message": f"This instance serves the {instance_region} region. Use the {region} endpoint instead.",
-                },
-            },
-            status=400,
-        )
 
     existing_user = User.objects.filter(email=email).first()
 
@@ -284,11 +269,8 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@stripe_region_proxy(strategy="token_lookup")
 def oauth_token(request: Request) -> Response:
-    error = verify_stripe_signature(request)
-    if error:
-        return error
-
     grant_type = request.data.get("grant_type", "")
 
     if grant_type == "authorization_code":
