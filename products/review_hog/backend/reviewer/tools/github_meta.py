@@ -31,9 +31,7 @@ class PRFilter:
             r".*/__tests__/.*",  # __tests__ directories
         ]
 
-        return any(
-            re.search(pattern, filename, re.IGNORECASE) for pattern in test_patterns
-        )
+        return any(re.search(pattern, filename, re.IGNORECASE) for pattern in test_patterns)
 
     @staticmethod
     def is_filtered_file(filename: str) -> bool:
@@ -89,9 +87,7 @@ class PRFilter:
             r".*\.txt$",  # TXT files
         ]
 
-        return any(
-            re.search(pattern, filename, re.IGNORECASE) for pattern in filter_patterns
-        )
+        return any(re.search(pattern, filename, re.IGNORECASE) for pattern in filter_patterns)
 
 
 class PRParser:
@@ -102,8 +98,7 @@ class PRParser:
         match = re.match(pattern, url)
         if not match:
             raise ValueError(
-                f"Invalid GitHub PR URL format: {url}\n"
-                "Expected format: https://github.com/OWNER/REPO/pull/NUMBER"
+                f"Invalid GitHub PR URL format: {url}\nExpected format: https://github.com/OWNER/REPO/pull/NUMBER"
             )
         return {
             "owner": match.group(1),
@@ -143,15 +138,9 @@ class PRParser:
             current_new_start = None
 
             def flush_current() -> None:
-                nonlocal \
-                    current_type, \
-                    current_lines, \
-                    current_old_start, \
-                    current_new_start
+                nonlocal current_type, current_lines, current_old_start, current_new_start
                 if current_type and current_lines:
-                    change = PRFileUpdate(
-                        type=current_type, code="\n".join(current_lines)
-                    )
+                    change = PRFileUpdate(type=current_type, code="\n".join(current_lines))
 
                     if current_type == "deletion":
                         change.old_start_line = current_old_start
@@ -237,25 +226,18 @@ class PRFetcher:
         github_token = os.environ.get("GITHUB_TOKEN")
         if not github_token:
             raise ValueError(
-                "GITHUB_TOKEN environment variable not set. "
-                "Please set it to authenticate with GitHub API."
+                "GITHUB_TOKEN environment variable not set. Please set it to authenticate with GitHub API."
             )
         try:
             # Initialize GitHub client
             return Github(github_token)
         except GithubException as e:
             if e.status == 401:
-                raise ValueError(
-                    "Invalid GitHub token. Please check your GITHUB_TOKEN environment variable."
-                ) from e
+                raise ValueError("Invalid GitHub token. Please check your GITHUB_TOKEN environment variable.") from e
             elif e.status == 404:
-                raise ValueError(
-                    f"PR #{self.pr_number} not found in repository {self.owner}/{self.repo}"
-                ) from e
+                raise ValueError(f"PR #{self.pr_number} not found in repository {self.owner}/{self.repo}") from e
             else:
-                raise ValueError(
-                    f"GitHub API error: {e.data.get('message', str(e))}"
-                ) from e
+                raise ValueError(f"GitHub API error: {e.data.get('message', str(e))}") from e
 
     def fetch_pr_metadata(self, pr: PullRequest) -> PRMetadata:
         # Fetch PR metadata
@@ -291,9 +273,7 @@ class PRFetcher:
             json.dump(pr_metadata.model_dump(), f, indent=2)
         return pr_metadata
 
-    def fetch_pr_comments(
-        self, pr: PullRequest, pr_filter: PRFilter
-    ) -> list[PRComment]:
+    def fetch_pr_comments(self, pr: PullRequest, pr_filter: PRFilter) -> list[PRComment]:
         """Fetch PR comments from GitHub API and save to files."""
         pr_comments_path = self.review_path / "pr_comments.jsonl"
         if pr_comments_path.exists():
@@ -325,9 +305,7 @@ class PRFetcher:
                 f.write("\n".join([x.model_dump_json() for x in pr_comments]))
         return pr_comments
 
-    def fetch_pr_files(
-        self, pr: PullRequest, pr_filter: PRFilter, pr_parser: PRParser
-    ) -> list[PRFile]:
+    def fetch_pr_files(self, pr: PullRequest, pr_filter: PRFilter, pr_parser: PRParser) -> list[PRFile]:
         """Fetch PR files from GitHub API and save to files."""
         pr_files_path = self.review_path / "pr_files.jsonl"
         if pr_files_path.exists():
@@ -353,9 +331,7 @@ class PRFetcher:
                     )
                     pr_files.append(file_obj)
             except GithubException as e:
-                raise ValueError(
-                    f"Failed to fetch PR files: {e.data.get('message', str(e))}"
-                ) from e
+                raise ValueError(f"Failed to fetch PR files: {e.data.get('message', str(e))}") from e
             with pr_files_path.open("w") as f:
                 f.write("\n".join([x.model_dump_json() for x in pr_files]))
         return pr_files

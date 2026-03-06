@@ -44,8 +44,7 @@ def mock_tool_functions() -> Generator[dict[str, Mock], None, None]:
             "clean": mock_clean,
             "deduplicate": mock_deduplicate,
             "validate": mock_validate,
-            "prepare_validation": mock_prepare_validation,
-            "calculate_token": mock_calculate_token,
+            "prepare_validation": mock_prepare_validation
         }
 
 

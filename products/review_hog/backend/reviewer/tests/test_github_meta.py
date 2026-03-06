@@ -85,9 +85,7 @@ class TestIsFilteredFile:
         ]
 
         for filename in lock_files:
-            assert (
-                pr_filter.is_filtered_file(filename) is True
-            ), f"Failed to filter {filename}"
+            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
 
     def test_sum_files(self) -> None:
         """Test that sum/hash files are correctly filtered."""
@@ -99,9 +97,7 @@ class TestIsFilteredFile:
         ]
 
         for filename in sum_files:
-            assert (
-                pr_filter.is_filtered_file(filename) is True
-            ), f"Failed to filter {filename}"
+            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
 
     def test_minified_files(self) -> None:
         """Test that minified files are correctly filtered."""
@@ -116,9 +112,7 @@ class TestIsFilteredFile:
         ]
 
         for filename in minified_files:
-            assert (
-                pr_filter.is_filtered_file(filename) is True
-            ), f"Failed to filter {filename}"
+            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
 
     def test_source_map_files(self) -> None:
         """Test that source map files are correctly filtered."""
@@ -132,9 +126,7 @@ class TestIsFilteredFile:
         ]
 
         for filename in map_files:
-            assert (
-                pr_filter.is_filtered_file(filename) is True
-            ), f"Failed to filter {filename}"
+            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
 
     def test_build_directories(self) -> None:
         """Test that files in build directories are correctly filtered."""
@@ -152,9 +144,7 @@ class TestIsFilteredFile:
         ]
 
         for filename in build_files:
-            assert (
-                pr_filter.is_filtered_file(filename) is True
-            ), f"Failed to filter {filename}"
+            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
 
     def test_non_filtered_files(self) -> None:
         """Test that regular source files are not filtered."""
@@ -177,9 +167,7 @@ class TestIsFilteredFile:
         ]
 
         for filename in regular_files:
-            assert (
-                pr_filter.is_filtered_file(filename) is False
-            ), f"Incorrectly filtered {filename}"
+            assert pr_filter.is_filtered_file(filename) is False, f"Incorrectly filtered {filename}"
 
 
 class TestIsTestFile:
@@ -207,9 +195,7 @@ class TestIsTestFile:
         ]
 
         for filename in test_files:
-            assert (
-                pr_filter.is_test_file(filename) is True
-            ), f"Failed to identify {filename} as test file"
+            assert pr_filter.is_test_file(filename) is True, f"Failed to identify {filename} as test file"
 
     def test_non_test_file_patterns(self) -> None:
         """Test that non-test files are correctly identified."""
@@ -228,9 +214,7 @@ class TestIsTestFile:
         ]
 
         for filename in non_test_files:
-            assert (
-                pr_filter.is_test_file(filename) is False
-            ), f"Incorrectly identified {filename} as test file"
+            assert pr_filter.is_test_file(filename) is False, f"Incorrectly identified {filename} as test file"
 
 
 class TestParsePatch:
@@ -402,9 +386,7 @@ class TestFetchPrData:
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("app.tools.github_meta.Github")
-    def test_fetch_pr_data_success(
-        self, mock_github_class: Mock, temp_review_dir: Path
-    ) -> None:
+    def test_fetch_pr_data_success(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test successful PR data fetching."""
         # Setup mocks
         mock_github = MagicMock()
@@ -457,9 +439,7 @@ class TestFetchPrData:
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("app.tools.github_meta.Github")
-    def test_fetch_pr_data_with_comments_and_files(
-        self, mock_github_class: Mock, temp_review_dir: Path
-    ) -> None:
+    def test_fetch_pr_data_with_comments_and_files(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test fetching PR data with comments and files."""
         # Setup mocks
         mock_github = MagicMock()
@@ -536,35 +516,26 @@ class TestFetchPrData:
         for change in scope_files[0]["changes"]:
             assert "code" not in change
         # Verify line numbers are preserved
-        assert (
-            scope_files[0]["changes"][0]["new_start_line"]
-            == files[0].changes[0].new_start_line
-        )
+        assert scope_files[0]["changes"][0]["new_start_line"] == files[0].changes[0].new_start_line
 
     def test_fetch_pr_data_no_github_token(self, temp_review_dir: Path) -> None:
         """Test that fetching fails without GitHub token."""
         with (
             patch.dict(os.environ, {}, clear=True),
-            pytest.raises(
-                ValueError, match="GITHUB_TOKEN environment variable not set"
-            ),
+            pytest.raises(ValueError, match="GITHUB_TOKEN environment variable not set"),
         ):
             fetcher = PRFetcher("owner", "repo", 123, str(temp_review_dir))
             fetcher.fetch_pr_data()
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "invalid-token"})
     @patch("app.tools.github_meta.Github")
-    def test_fetch_pr_data_invalid_token(
-        self, mock_github_class: Mock, temp_review_dir: Path
-    ) -> None:
+    def test_fetch_pr_data_invalid_token(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test handling of invalid GitHub token."""
         mock_github = MagicMock()
         mock_github_class.return_value = mock_github
 
         # Simulate 401 error on get_repo call
-        mock_github.get_repo.side_effect = GithubException(
-            401, {"message": "Bad credentials"}
-        )
+        mock_github.get_repo.side_effect = GithubException(401, {"message": "Bad credentials"})
 
         # PRFetcher initialization succeeds (token validation happens later)
         fetcher = PRFetcher("owner", "repo", 123, str(temp_review_dir))
@@ -575,9 +546,7 @@ class TestFetchPrData:
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("app.tools.github_meta.Github")
-    def test_fetch_pr_data_pr_not_found(
-        self, mock_github_class: Mock, temp_review_dir: Path
-    ) -> None:
+    def test_fetch_pr_data_pr_not_found(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test handling when PR is not found."""
         mock_github = MagicMock()
         mock_github_class.return_value = mock_github
@@ -614,14 +583,10 @@ class TestFetchPrData:
             )
 
         with pr_files_path.open("w") as f:
-            f.write(
-                '{"filename":"existing.py","status":"modified","additions":10,"deletions":5,"changes":[]}\n'
-            )
+            f.write('{"filename":"existing.py","status":"modified","additions":10,"deletions":5,"changes":[]}\n')
 
         with pr_files_scope_path.open("w") as f:
-            f.write(
-                '{"filename":"existing.py","status":"modified","additions":10,"deletions":5,"changes":[]}\n'
-            )
+            f.write('{"filename":"existing.py","status":"modified","additions":10,"deletions":5,"changes":[]}\n')
 
         # Mock should not be called
         mock_github = MagicMock()
@@ -640,9 +605,7 @@ class TestFetchPrData:
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("app.tools.github_meta.Github")
-    def test_fetch_pr_data_handles_test_files(
-        self, mock_github_class: Mock, temp_review_dir: Path
-    ) -> None:
+    def test_fetch_pr_data_handles_test_files(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
         """Test that test files are properly identified."""
         # Setup mocks
         mock_github = MagicMock()
@@ -704,9 +667,7 @@ class TestSwitchToPrBranch:
     """Test switch_to_pr_branch function."""
 
     @patch("app.tools.github_meta.subprocess.run")
-    def test_switch_to_pr_branch_success(
-        self, mock_run: Mock, pr_metadata: PRMetadata, temp_project_dir: Path
-    ) -> None:
+    def test_switch_to_pr_branch_success(self, mock_run: Mock, pr_metadata: PRMetadata, temp_project_dir: Path) -> None:
         """Test successful branch switching."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
@@ -740,9 +701,7 @@ class TestSwitchToPrBranch:
         self, mock_run: Mock, pr_metadata: PRMetadata, temp_project_dir: Path
     ) -> None:
         """Test handling of git fetch failure."""
-        mock_run.side_effect = subprocess.CalledProcessError(
-            1, ["git", "fetch", "origin"], stderr="fetch failed"
-        )
+        mock_run.side_effect = subprocess.CalledProcessError(1, ["git", "fetch", "origin"], stderr="fetch failed")
 
         with pytest.raises(subprocess.CalledProcessError):
             switch_to_pr_branch(pr_metadata, str(temp_project_dir))
@@ -758,9 +717,7 @@ class TestSwitchToPrBranch:
         # First call (fetch) succeeds, second call (checkout) fails
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),
-            subprocess.CalledProcessError(
-                1, ["git", "checkout"], stderr="checkout failed"
-            ),
+            subprocess.CalledProcessError(1, ["git", "checkout"], stderr="checkout failed"),
         ]
 
         with pytest.raises(subprocess.CalledProcessError):
