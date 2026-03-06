@@ -53,19 +53,20 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   ACTOR="${{ github.actor }}"
-                  if [[ "$ACTOR" != *"[bot]"* ]] && [[ "$ACTOR" != "posthog-bot" ]]; then
+                  if [[ "$ACTOR" != "tests-posthog[bot]" ]] && [[ "$ACTOR" != "posthog-bot" ]]; then
                     exit 0
                   fi
                   FILES=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}" --jq '.files[].filename')
                   if [ -z "$FILES" ]; then
                     exit 0
                   fi
+                  shopt -s nocasematch
                   while IFS= read -r file; do
                     if [[ ! "$file" =~ \.(png|jpg|jpeg|gif|svg)$ ]]; then
                       exit 0
                     fi
                   done <<< "$FILES"
-                  echo "skip=true" >> $GITHUB_OUTPUT
+                  echo "skip=true" >> "$GITHUB_OUTPUT"
                   echo "::notice::Skipping CI - bot commit with only image files"
 
     build-storybook:
