@@ -54,27 +54,28 @@ export interface PlaygroundSetupPayload {
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
 
-export function getLinkedEvaluationLabel(name: string | null, id: string | null): string {
-    if (name) {
-        return `evaluation "${name}"`
-    }
-    if (id) {
-        return `evaluation ${id.slice(0, 8)}`
-    }
-    return 'linked evaluation'
-}
-
+/**
+ * Returns a human-readable label for the linked source, e.g. `prompt "my-prompt"` or `evaluation "my-eval"`.
+ * Returns null when no source is linked.
+ */
 export function getLinkedSourceLabel(source: {
+    type: 'prompt' | 'evaluation' | null
     promptId: string | null
     promptName: string | null
     evaluationId: string | null
     evaluationName: string | null
 }): string | null {
-    if (source.promptId) {
-        return `Editing prompt: ${source.promptName ?? source.promptId}`
+    if (source.type === 'prompt') {
+        const name = source.promptName ?? source.promptId
+        return name ? `prompt "${name}"` : null
     }
-    if (source.evaluationId) {
-        return `Editing evaluation: ${source.evaluationName ?? source.evaluationId.slice(0, 8)}`
+    if (source.type === 'evaluation') {
+        if (source.evaluationName) {
+            return `evaluation "${source.evaluationName}"`
+        }
+        if (source.evaluationId) {
+            return `evaluation ${source.evaluationId.slice(0, 8)}`
+        }
     }
     return null
 }
@@ -702,10 +703,10 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 actions.saveComplete()
                 return
             }
-            const label = linkedSource.promptName ?? 'linked prompt'
+            const label = getLinkedSourceLabel(linkedSource) ?? 'linked prompt'
             try {
                 await api.llmPrompts.update(linkedSource.promptId, { prompt: prompt.systemPrompt })
-                lemonToast.success(`Prompt "${label}" updated`)
+                lemonToast.success(`${label[0].toUpperCase()}${label.slice(1)} updated`)
             } catch {
                 lemonToast.error('Failed to update prompt')
             } finally {
@@ -735,7 +736,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     evaluation_config: { prompt: prompt.systemPrompt },
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
                 })
-                const label = getLinkedEvaluationLabel(linkedSource.evaluationName, linkedSource.evaluationId)
+                const label = getLinkedSourceLabel(linkedSource) ?? 'linked evaluation'
                 lemonToast.success(`${label[0].toUpperCase()}${label.slice(1)} updated`)
             } catch {
                 lemonToast.error('Failed to update evaluation')

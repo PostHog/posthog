@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
-import { getLinkedEvaluationLabel, llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
+import { getLinkedSourceLabel, llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
 
 export function PlaygroundSaveMenu({
     promptId,
@@ -33,16 +33,9 @@ export function PlaygroundSaveMenu({
     const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
     const isEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
-    const {
-        promptId: linkedPromptId,
-        promptName: linkedPromptName,
-        evaluationId: linkedEvaluationId,
-        evaluationName: linkedEvaluationName,
-    } = linkedSource
+    const { promptId: linkedPromptId, promptName: linkedPromptName, evaluationId: linkedEvaluationId } = linkedSource
     const hasLinkedSource = !!linkedPromptId || !!linkedEvaluationId
-
-    const linkedPromptLabel = linkedPromptName ?? 'linked prompt'
-    const linkedEvaluationLabel = getLinkedEvaluationLabel(linkedEvaluationName, linkedEvaluationId)
+    const linkedLabel = getLinkedSourceLabel(linkedSource)
 
     const { source_prompt_id: _, source_evaluation_id: __, ...cleanSearchParams } = searchParams
 
@@ -82,30 +75,20 @@ export function PlaygroundSaveMenu({
         })
     }
 
-    const confirmSaveToLinkedPrompt = (): void => {
-        if (!linkedPromptId) {
+    const confirmSaveToLinkedSource = (): void => {
+        if (!linkedLabel) {
             return
         }
+        const isPrompt = linkedSource.type === 'prompt'
         LemonDialog.open({
-            title: `Save to prompt "${linkedPromptLabel}"?`,
-            description: 'This will overwrite the current prompt with the system prompt from the playground.',
-            primaryButton: { children: 'Save', type: 'primary', onClick: () => saveToLinkedPrompt() },
-            secondaryButton: { children: 'Cancel', type: 'secondary' },
-        })
-    }
-
-    const confirmSaveToLinkedEvaluation = (): void => {
-        if (!linkedEvaluationId) {
-            return
-        }
-        LemonDialog.open({
-            title: `Save to ${linkedEvaluationLabel}?`,
-            description:
-                'This will overwrite the evaluation prompt and model configuration with the current playground state.',
+            title: `Save to ${linkedLabel}?`,
+            description: isPrompt
+                ? 'This will overwrite the current prompt with the system prompt from the playground.'
+                : 'This will overwrite the evaluation prompt and model configuration with the current playground state.',
             primaryButton: {
                 children: 'Save',
                 type: 'primary',
-                onClick: () => saveToLinkedEvaluation(modelConfig),
+                onClick: () => (isPrompt ? saveToLinkedPrompt() : saveToLinkedEvaluation(modelConfig)),
             },
             secondaryButton: { children: 'Cancel', type: 'secondary' },
         })
@@ -120,41 +103,22 @@ export function PlaygroundSaveMenu({
     const saveAsNewActions: JSX.Element[] = []
     const loadActions: JSX.Element[] = []
 
-    if (linkedPromptId && linkedPromptName && isPromptManagementEnabled) {
-        linkedActions.push(
-            <LemonButton
-                key="save-linked-prompt"
-                type="tertiary"
-                size="small"
-                fullWidth
-                className="justify-start"
-                onClick={confirmSaveToLinkedPrompt}
-            >
-                <span
-                    className="block w-full whitespace-normal break-all text-left"
-                    title={`Save to prompt "${linkedPromptLabel}"`}
-                >
-                    Save to prompt "{linkedPromptLabel}"
-                </span>
-            </LemonButton>
-        )
-    }
+    const isLinkedSourceEnabled =
+        (linkedSource.type === 'prompt' && linkedPromptName && isPromptManagementEnabled) ||
+        (linkedSource.type === 'evaluation' && linkedEvaluationId && isEvaluationsEnabled)
 
-    if (linkedEvaluationId && isEvaluationsEnabled) {
+    if (linkedLabel && isLinkedSourceEnabled) {
         linkedActions.push(
             <LemonButton
-                key="save-linked-evaluation"
+                key="save-linked-source"
                 type="tertiary"
                 size="small"
                 fullWidth
                 className="justify-start"
-                onClick={confirmSaveToLinkedEvaluation}
+                onClick={confirmSaveToLinkedSource}
             >
-                <span
-                    className="block w-full whitespace-normal break-all text-left"
-                    title={`Save to ${linkedEvaluationLabel}`}
-                >
-                    Save to {linkedEvaluationLabel}
+                <span className="block w-full whitespace-normal break-all text-left" title={`Save to ${linkedLabel}`}>
+                    Save to {linkedLabel}
                 </span>
             </LemonButton>
         )
