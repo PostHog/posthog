@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import secrets
@@ -895,6 +896,9 @@ def toolbar_oauth_callback(request):
 
     if not (code and state):
         return HttpResponse("Missing code or state", status=400)
+
+    if not re.match(r"^[A-Za-z0-9._~-]+$", code):
+        return HttpResponse("Invalid authorization code format", status=400)
 
     if not request.user.is_authenticated:
         return HttpResponse("Not authenticated", status=401)

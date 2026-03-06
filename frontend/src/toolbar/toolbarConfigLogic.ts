@@ -132,6 +132,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 actions.openUiHostConfigModal()
                 return
             }
+
             // Don't start OAuth while the reachability check is still in flight.
             if (values.uiHostCheckStatus === 'checking') {
                 return
