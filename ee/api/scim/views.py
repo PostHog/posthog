@@ -174,7 +174,7 @@ class SCIMBaseView(APIView):
                 }
                 SCIMRequestLog.objects.create(
                     organization_domain=organization_domain,
-                    request_method=drf_request.method,
+                    request_method=drf_request.method or "",
                     request_path=drf_request.path,
                     request_headers=mask_headers(raw_headers),
                     request_body=masked_body,

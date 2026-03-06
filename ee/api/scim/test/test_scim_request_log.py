@@ -48,6 +48,7 @@ class TestSCIMRequestLogCapture(APILicensedTest):
         assert logs.count() == 1
 
         log = logs.first()
+        assert log is not None
         assert log.request_method == "GET"
         assert f"/scim/v2/{self.domain.id}/Users" in log.request_path
         assert log.response_status == 200
@@ -79,6 +80,7 @@ class TestSCIMRequestLogCapture(APILicensedTest):
             HTTP_AUTHORIZATION=f"Bearer {self.plain_token}",
         )
         log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
+        assert log is not None
         auth_header = log.request_headers.get("Authorization", "")
         assert self.plain_token not in auth_header
         assert auth_header.startswith("Bearer ...")
@@ -89,6 +91,7 @@ class TestSCIMRequestLogCapture(APILicensedTest):
             HTTP_AUTHORIZATION=f"Bearer {self.plain_token}",
         )
         log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
+        assert log is not None
         assert log.response_body is not None
         assert "schemas" in log.response_body
 
@@ -98,6 +101,7 @@ class TestSCIMRequestLogCapture(APILicensedTest):
             HTTP_AUTHORIZATION=f"Bearer {self.plain_token}",
         )
         log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
+        assert log is not None
         assert log.duration_ms is not None
         assert isinstance(log.duration_ms, int)
         assert log.duration_ms >= 0
