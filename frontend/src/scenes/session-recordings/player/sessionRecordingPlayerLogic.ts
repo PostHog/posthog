@@ -253,6 +253,23 @@ function isUserActivity(snapshot: eventWithTime): boolean {
     )
 }
 
+type MetaSnapshotWithResolution = eventWithTime & {
+    type: EventType.Meta
+    data: {
+        width: number
+        height: number
+    }
+}
+
+function isMetaSnapshotWithResolution(snapshot: eventWithTime): snapshot is MetaSnapshotWithResolution {
+    if (snapshot.type !== EventType.Meta || !snapshot.data || typeof snapshot.data !== 'object') {
+        return false
+    }
+
+    const data = snapshot.data as Record<string, unknown>
+    return typeof data.width === 'number' && typeof data.height === 'number'
+}
+
 const updatePlayerTimeTracking = (
     current: PlayerTimeTracking,
     newState: PlayerTimeTracking['state'],
@@ -1022,17 +1039,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 const currIndex = findLastIndex(
                     snapshots,
-                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
+                    (s: eventWithTime) => s.timestamp < currentTimestamp && isMetaSnapshotWithResolution(s)
                 )
 
                 if (currIndex === -1) {
                     return null
                 }
                 const snapshot = snapshots[currIndex]
+                if (!isMetaSnapshotWithResolution(snapshot)) {
+                    return null
+                }
 
                 const resolution = {
-                    width: snapshot.data?.['width'],
-                    height: snapshot.data?.['height'],
+                    width: snapshot.data.width,
+                    height: snapshot.data.height,
                 }
 
                 // For video export: expose resolution via global variable
