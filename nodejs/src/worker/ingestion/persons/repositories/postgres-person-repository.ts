@@ -234,7 +234,12 @@ export class PostgresPersonRepository
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
-                posthog_person.last_seen_at
+                posthog_person.last_seen_at,
+                posthog_person.group_0_key,
+                posthog_person.group_1_key,
+                posthog_person.group_2_key,
+                posthog_person.group_3_key,
+                posthog_person.group_4_key
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
                 posthog_persondistinctid.person_id = posthog_person.id
@@ -299,6 +304,11 @@ export class PostgresPersonRepository
                 posthog_person.version,
                 posthog_person.is_identified,
                 posthog_person.last_seen_at,
+                posthog_person.group_0_key,
+                posthog_person.group_1_key,
+                posthog_person.group_2_key,
+                posthog_person.group_3_key,
+                posthog_person.group_4_key,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
@@ -358,7 +368,12 @@ export class PostgresPersonRepository
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
-                posthog_person.last_seen_at
+                posthog_person.last_seen_at,
+                posthog_person.group_0_key,
+                posthog_person.group_1_key,
+                posthog_person.group_2_key,
+                posthog_person.group_3_key,
+                posthog_person.group_4_key
             FROM posthog_person
             WHERE (posthog_person.team_id, posthog_person.uuid) IN (SELECT * FROM UNNEST($1::integer[], $2::uuid[]))`
 
