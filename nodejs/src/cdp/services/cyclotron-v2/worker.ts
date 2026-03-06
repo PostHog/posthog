@@ -115,7 +115,9 @@ export class CyclotronV2Worker {
         // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
         // so re-sort to maintain priority ordering within the batch
         // TODO: Do we care about this in reality?
-        return result.rows.sort((a, b) => a.priority - b.priority || a.scheduled.localeCompare(b.scheduled))
+        return result.rows.sort(
+            (a, b) => a.priority - b.priority || new Date(a.scheduled).getTime() - new Date(b.scheduled).getTime()
+        )
     }
 
     private wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
