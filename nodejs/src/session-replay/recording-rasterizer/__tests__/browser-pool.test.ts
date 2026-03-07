@@ -130,9 +130,14 @@ describe('BrowserPool', () => {
             .mockRejectedValueOnce(new Error('launch failed'))
             .mockResolvedValueOnce(browser3)
 
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+
         pool = new BrowserPool(1)
         const p1 = await pool.getPage()
-        await expect(pool.releasePage(p1)).rejects.toThrow('launch failed')
+        await pool.releasePage(p1)
+
+        expect(consoleSpy).toHaveBeenCalledWith('Browser recycle failed:', expect.any(Error))
+        consoleSpy.mockRestore()
 
         // The recycling promise is reset via finally, so getPage can retry
         const p2 = await pool.getPage()

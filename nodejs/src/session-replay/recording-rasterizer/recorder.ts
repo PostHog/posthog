@@ -237,29 +237,34 @@ export async function rasterizeRecording(
         const recordStarted = Date.now()
 
         await recorder.start(outputPath)
-        await waitForPageReady(page, urlWithSpeed, input.wait_for_css_selector)
+        try {
+            await waitForPageReady(page, urlWithSpeed, input.wait_for_css_selector)
 
-        const readyAt = Date.now()
-        await new Promise((r) => setTimeout(r, 500))
-        await verifyInactivityPeriodsAvailable(page)
+            const readyAt = Date.now()
+            await new Promise((r) => setTimeout(r, 500))
+            await verifyInactivityPeriodsAvailable(page)
 
-        const maxWaitMs =
-            Math.floor((input.recording_duration / playbackSpeed) * 1000) + RECORDING_BUFFER_SECONDS * 1000
-        const segmentStartTimestamps = await waitForRecordingWithSegments(page, maxWaitMs, readyAt)
-        const inactivityPeriods = await detectInactivityPeriods(page, playbackSpeed, segmentStartTimestamps)
+            const maxWaitMs =
+                Math.floor((input.recording_duration / playbackSpeed) * 1000) + RECORDING_BUFFER_SECONDS * 1000
+            const segmentStartTimestamps = await waitForRecordingWithSegments(page, maxWaitMs, readyAt)
+            const inactivityPeriods = await detectInactivityPeriods(page, playbackSpeed, segmentStartTimestamps)
 
-        await recorder.stop()
+            await recorder.stop()
 
-        const preRoll = Math.max(0, (readyAt - recordStarted) / 1000)
+            const preRoll = Math.max(0, (readyAt - recordStarted) / 1000)
 
-        return {
-            video_path: outputPath,
-            pre_roll: preRoll,
-            playback_speed: playbackSpeed,
-            measured_width: width,
-            inactivity_periods: inactivityPeriods,
-            segment_start_timestamps: segmentStartTimestamps,
-            custom_fps: customFps,
+            return {
+                video_path: outputPath,
+                pre_roll: preRoll,
+                playback_speed: playbackSpeed,
+                measured_width: width,
+                inactivity_periods: inactivityPeriods,
+                segment_start_timestamps: segmentStartTimestamps,
+                custom_fps: customFps,
+            }
+        } catch (err) {
+            await recorder.stop().catch(() => {})
+            throw err
         }
     } finally {
         await pool.releasePage(page)

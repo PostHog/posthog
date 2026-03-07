@@ -58,10 +58,16 @@ export class BrowserPool {
         } catch {
             // Page may already be closed
         }
-        this.activePages--
+        if (this.activePages > 0) {
+            this.activePages--
+        }
 
         if (this.usageCount >= this.recycleAfter && this.activePages === 0) {
-            await this.recycle()
+            try {
+                await this.recycle()
+            } catch (err) {
+                console.error('Browser recycle failed:', err)
+            }
         }
     }
 
