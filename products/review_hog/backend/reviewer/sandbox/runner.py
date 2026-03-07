@@ -137,8 +137,9 @@ def _check_logs(task_run) -> tuple[bool, str | None, str | None]:
     if not log_content.strip():
         return False, None, None
 
-    latest_text: str | None = None
     agent_finished = False
+    # Collect all parsed session updates so we can walk backwards at the end.
+    parsed_updates: list[dict] = []
 
     for line in log_content.strip().split("\n"):
         line = line.strip()
@@ -165,13 +166,30 @@ def _check_logs(task_run) -> tuple[bool, str | None, str | None]:
         if not isinstance(update, dict):
             continue
 
-        if update.get("sessionUpdate") not in {"agent_message", "agent_message_chunk"}:
-            continue
+        parsed_updates.append(update)
 
+    # Walk backwards from the end to find the final agent response.
+    # First, skip non-agent entries (e.g. usage_update) to find the last
+    # agent message. Then collect consecutive agent messages until we hit
+    # something else — the agent sometimes splits its response across entries.
+    _AGENT_MSG_TYPES = {"agent_message", "agent_message_chunk"}
+    trailing_parts: list[str] = []
+    found_agent_msg = False
+    for update in reversed(parsed_updates):
+        is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
+        if not found_agent_msg:
+            if is_agent_msg:
+                found_agent_msg = True
+            else:
+                continue
+        if found_agent_msg and not is_agent_msg:
+            break
         text = _extract_text(update)
         if text:
-            latest_text = text
+            trailing_parts.append(text)
 
+    trailing_parts.reverse()
+    latest_text = "".join(trailing_parts) if trailing_parts else None
     return agent_finished, latest_text, log_content
 
 
