@@ -31,6 +31,7 @@ class TaskProcessingContext:
     repository: str
     distinct_id: str
     create_pr: bool = True
+    branch: str | None = None
     state: dict | None = None
 
     @property
@@ -120,5 +121,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=repository_full_name,
         distinct_id=distinct_id,
         create_pr=input.create_pr,
+        branch=task_run.branch,
         state=task_run.state,
     )
