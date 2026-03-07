@@ -1766,7 +1766,14 @@ importers:
 
   products/alerts: {}
 
-  products/analytics_platform: {}
+  products/analytics_platform:
+    dependencies:
+      clsx:
+        specifier: '*'
+        version: 2.1.1
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/batch_exports: {}
 
@@ -21493,8 +21500,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.383.0:
-    resolution: {integrity: sha512-w7TJ3J4XP30fW33U6AUopxallXq05v0v+agNkhaio5Qlf+UM116nvd2jhsBFRfucok/Qi3QXERMaWBpbJ9p1zQ==}
+  unlayer-types@1.384.0:
+    resolution: {integrity: sha512-3/AFoi3iT0MBwaTvj0OXc0CZHf2rGnBeLCtV/OZbDjL5X8Pw+9+d1iprPlyzAUi5fgJ2MmalBbAeRe+xCJMPrA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -44287,7 +44294,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.383.0
+      unlayer-types: 1.384.0
 
   react-error-overlay@6.0.9: {}
 
@@ -46606,7 +46613,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.383.0: {}
+  unlayer-types@1.384.0: {}
 
   unpipe@1.0.0: {}
 

@@ -35,6 +35,7 @@ const deniedPatterns = [
     /scenes\/billing/,
     /scenes\/data-warehouse/,
     /LineGraph/,
+    /ProductExplorer/,
 ]
 
 /**

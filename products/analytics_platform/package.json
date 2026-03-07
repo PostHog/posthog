@@ -2,5 +2,9 @@
     "name": "@posthog/products-analytics-platform",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
+    "peerDependencies": {
+        "clsx": "*",
+        "react": "*"
     }
 }
