@@ -3,10 +3,14 @@ from __future__ import annotations
 import secrets
 from datetime import timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import IntegrityError
+from django.http import HttpResponseRedirect
+from django.http.response import HttpResponseBase
 from django.utils import timezone
 
 import structlog
@@ -23,13 +27,14 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX
+from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_stripe_signature
 
 logger = structlog.get_logger(__name__)
 
 AUTH_CODE_TTL_SECONDS = 300
+PENDING_AUTH_TTL_SECONDS = 600
 
 STRIPE_APP_NAME = "PostHog Stripe App"
 
@@ -192,7 +197,7 @@ def account_requests(request: Request) -> Response:
     existing_user = User.objects.filter(email=email).first()
 
     if existing_user:
-        return _handle_existing_user(request_id, existing_user, confirmation_secret, scopes)
+        return _handle_existing_user(request_id, existing_user, confirmation_secret, scopes, stripe_account_id, region)
 
     return _handle_new_user(request_id, data, email, scopes, stripe_account_id, region)
 
@@ -202,7 +207,20 @@ def _handle_existing_user(
     user: User,
     confirmation_secret: str,
     scopes: list[str],
+    stripe_account_id: str = "",
+    region: str = "US",
 ) -> Response:
+    cache.set(
+        f"{PENDING_AUTH_CACHE_PREFIX}{confirmation_secret}",
+        {
+            "email": user.email,
+            "scopes": scopes,
+            "stripe_account_id": stripe_account_id,
+            "region": region,
+        },
+        timeout=PENDING_AUTH_TTL_SECONDS,
+    )
+
     authorize_url = _build_authorize_url(confirmation_secret, scopes)
     return Response(
         {
@@ -237,7 +255,9 @@ def _handle_new_user(
     except IntegrityError:
         existing = User.objects.filter(email=email).first()
         if existing:
-            return _handle_existing_user(request_id, existing, data.get("confirmation_secret", ""), scopes)
+            return _handle_existing_user(
+                request_id, existing, data.get("confirmation_secret", ""), scopes, stripe_account_id, region
+            )
         return Response(
             {
                 "id": request_id,
@@ -267,12 +287,58 @@ def _handle_new_user(
 
 def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
     base = settings.SITE_URL.rstrip("/")
-    scope_str = " ".join(scopes)
-    oauth_app = _get_stripe_oauth_app()
-    client_id = oauth_app.client_id if oauth_app else ""
-    return (
-        f"{base}/oauth/authorize?response_type=code&client_id={client_id}&state={confirmation_secret}&scope={scope_str}"
+    params = urlencode({"state": confirmation_secret, "scope": " ".join(scopes)})
+    return f"{base}/api/agentic/authorize?{params}"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/agentic/authorize  (A1 interactive OAuth)
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def agentic_authorize(request: Any) -> HttpResponseBase:
+    state = request.GET.get("state", "")
+    if not state:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
+
+    pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
+    pending = cache.get(pending_key)
+    if pending is None:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=expired_or_invalid_state")
+
+    if request.user.email != pending["email"]:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
+
+    cache.delete(pending_key)
+
+    user = request.user
+    membership = user.organization_memberships.first()
+    if not membership:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
+
+    organization = membership.organization
+    team = organization.teams.filter(is_demo=False).first() or organization.teams.first()
+    if not team:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
+
+    code = secrets.token_urlsafe(32)
+    cache.set(
+        f"{AUTH_CODE_CACHE_PREFIX}{code}",
+        {
+            "user_id": user.id,
+            "org_id": str(organization.id),
+            "team_id": team.id,
+            "stripe_account_id": pending.get("stripe_account_id", ""),
+            "scopes": pending.get("scopes", []),
+            "region": pending.get("region", "US"),
+        },
+        timeout=AUTH_CODE_TTL_SECONDS,
     )
+
+    callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
+    params = urlencode({"code": code, "state": state})
+    return HttpResponseRedirect(f"{callback_url}?{params}")
 
 
 # ---------------------------------------------------------------------------

@@ -250,6 +250,11 @@ urlpatterns: list[Any] = [
         name="agentic_provisioning_account_requests",
     ),
     path(
+        "api/agentic/authorize",
+        agentic_provisioning_views.agentic_authorize,
+        name="agentic_authorize",
+    ),
+    path(
         "api/agentic/oauth/token",
         csrf_exempt(agentic_provisioning_views.oauth_token),
         name="agentic_provisioning_oauth_token",
