@@ -256,7 +256,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
         }
         canvas.addEventListener('mouseleave', onMouseLeave)
         return () => canvas.removeEventListener('mouseleave', onMouseLeave)
-    }, [hideTooltip])
+    }, [hideTooltip, canvasRef.current])
 
     if (!boxplotData || boxplotData.length === 0) {
         return <div className="flex items-center justify-center h-full text-muted">No data for this time range</div>

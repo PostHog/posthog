@@ -294,18 +294,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     return
                 }
 
-                // Additional numeric validation check before submitting
-                if (!cohort.is_static) {
-                    for (const group of cohort.filters.properties.values) {
-                        const groupValidation = validateGroup(group)
-                        if (groupValidation.values.some((v) => v.value_property)) {
-                            lemonToast.error('Please fix validation errors before saving.')
-                            scrollToFormError('#cohort-form')
-                            return
-                        }
-                    }
-                }
-
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {
