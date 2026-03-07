@@ -233,7 +233,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="flag definitions cache expiry tracking cleanup",
     )
 
-    # HyperCache verification - split into separate tasks for independent time budgets.
     # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
