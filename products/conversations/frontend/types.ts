@@ -55,10 +55,12 @@ export interface Ticket {
         current_url?: string
         [key: string]: any
     }
+    sla_due_at?: string | null
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
     slack_team_id?: string | null
     person?: TicketPerson | null
+    tags?: string[]
 }
 
 export interface ConversationTicket {
@@ -148,7 +150,7 @@ export const channelOptions: { value: TicketChannel | 'all'; label: string }[] =
     { value: 'all', label: 'All channels' },
     { value: 'widget', label: 'Widget' },
     { value: 'slack', label: 'Slack' },
-    { value: 'email', label: 'Email' },
+    /*{ value: 'email', label: 'Email' }, commented out because we don't support email yet*/
 ]
 
 export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [

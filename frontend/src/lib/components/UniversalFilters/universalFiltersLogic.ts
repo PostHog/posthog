@@ -5,6 +5,7 @@ import {
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EntityTypes } from '~/types'
@@ -16,6 +17,7 @@ import {
     PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
+    SessionRecordingPlaylistType,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
 } from '~/types'
@@ -28,6 +30,12 @@ import {
     quickFilterToPropertyFilters,
 } from '../TaxonomicFilter/types'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
+
+function isApplicableSavedFilter(
+    item: unknown
+): item is SessionRecordingPlaylistType & { filters: NonNullable<SessionRecordingPlaylistType['filters']> } {
+    return typeof item === 'object' && item !== null && 'short_id' in item && 'filters' in item && item.filters != null
+}
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
@@ -141,6 +149,12 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         removeGroupValue: () => props.onChange(values.filterGroup),
 
         addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.ReplaySavedFilters) {
+                if (isApplicableSavedFilter(item)) {
+                    sessionRecordingSavedFiltersLogic.findMounted()?.actions.requestApplySavedFilter(item)
+                }
+                return
+            }
             const newValues = [...values.filterGroup.values]
 
             if (isQuickFilterItem(item)) {

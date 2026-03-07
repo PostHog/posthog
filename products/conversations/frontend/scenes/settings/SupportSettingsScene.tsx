@@ -15,9 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -127,13 +125,7 @@ function AuthorizedDomains(): JSX.Element {
     )
 }
 
-function SlackSection(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SLACK]) {
-        return null
-    }
-
+function SlackSection(): JSX.Element {
     return (
         <SceneSection
             title="SupportHog Slack bot"
@@ -356,7 +348,11 @@ export function SupportSettingsScene(): JSX.Element {
             </SceneSection>
             {currentTeam?.conversations_enabled && (
                 <>
-                    <SceneSection title="Notifications" className="mt-4">
+                    <SceneSection
+                        title="Notifications"
+                        className="mt-4"
+                        description="We recommend using workflows to set custom notifications, e.g. when a new ticket is created or a new message is received."
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>

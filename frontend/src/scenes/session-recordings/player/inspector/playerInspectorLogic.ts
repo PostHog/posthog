@@ -13,6 +13,7 @@ import {
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
@@ -189,6 +190,54 @@ export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicPr
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
+/** Merges adjacent inactivity items into one with a combined duration. */
+function mergeAdjacentInactivity(items: InspectorListItem[]): InspectorListItem[] {
+    return items.reduce((acc, item) => {
+        const previousItem = acc[acc.length - 1]
+        if (item.type === 'inactivity' && previousItem?.type === 'inactivity') {
+            acc[acc.length - 1] = { ...previousItem, durationMs: previousItem.durationMs + item.durationMs }
+            return acc
+        }
+        acc.push(item)
+        return acc
+    }, [] as InspectorListItem[])
+}
+
+export type DisplayGroup = { indices: number[] }
+
+function canGroup(current: InspectorListItem, next: InspectorListItem): boolean {
+    if (current.type !== next.type || current.highlightColor !== next.highlightColor) {
+        return false
+    }
+    switch (current.type) {
+        case 'events':
+            return next.type === 'events' && current.data.event === next.data.event && current.search === next.search
+        case 'console':
+            return next.type === 'console' && current.data.content === next.data.content
+        default:
+            return false
+    }
+}
+
+/** Groups adjacent identical events and console logs into display rows. */
+export function computeDisplayGroups(items: InspectorListItem[], groupSimilar: boolean): DisplayGroup[] {
+    const groups: DisplayGroup[] = []
+
+    for (let i = 0; i < items.length; i++) {
+        if (groupSimilar && groups.length > 0) {
+            const lastGroup = groups[groups.length - 1]
+            if (canGroup(items[lastGroup.indices[0]], items[i])) {
+                lastGroup.indices.push(i)
+                continue
+            }
+        }
+
+        groups.push({ indices: [i] })
+    }
+
+    return groups
+}
+
 function _isCustomSnapshot(x: unknown): x is customEvent {
     return (x as customEvent).type === 5
 }
@@ -292,7 +341,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             miniFiltersLogic,
-            ['showOnlyMatching', 'miniFiltersByKey', 'searchQuery', 'miniFiltersForTypeByKey', 'miniFilters'],
+            [
+                'showOnlyMatching',
+                'groupRepeatedItems',
+                'miniFiltersByKey',
+                'searchQuery',
+                'miniFiltersForTypeByKey',
+                'miniFilters',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'sessionPlayerData',
@@ -429,12 +485,18 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        collapseInspectorItems: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS],
+        ],
+
         processedSnapshotData: [
-            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
+            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID, s.collapseInspectorItems],
             (
                 start,
                 sessionPlayerData,
-                windowNumberForID
+                windowNumberForID,
+                collapseInspectorItems
             ): {
                 offlineStatusChanges: InspectorListOfflineStatusChange[]
                 browserVisibilityChanges: InspectorListBrowserVisibility[]
@@ -593,8 +655,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             if (!consoleLogSeenCache.has(cacheKey)) {
                                 consoleLogSeenCache.add(cacheKey)
 
+                                const collapseConsole = !collapseInspectorItems
                                 const lastLogLine = consoleLogs[consoleLogs.length - 1]
-                                if (lastLogLine?.content === content) {
+                                if (collapseConsole && lastLogLine?.content === content) {
                                     if (lastLogLine.count === undefined) {
                                         lastLogLine.count = 1
                                     } else {
@@ -1026,19 +1089,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     hasEventsToDisplay,
                 })
 
-                // need to collapse adjacent inactivity items
-                // they look wrong next to each other
-                return filteredItems.reduce((acc, item, index) => {
-                    if (item.type === 'inactivity') {
-                        const previousItem = filteredItems[index - 1]
-                        if (previousItem?.type === 'inactivity') {
-                            previousItem.durationMs += item.durationMs
-                            return acc
-                        }
-                    }
-                    acc.push(item)
-                    return acc
-                }, [] as InspectorListItem[])
+                return mergeAdjacentInactivity(filteredItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1205,21 +1256,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         playbackIndicatorIndex: [
-            (s) => [s.currentPlayerTime, s.items],
-            (playerTime, items): number => {
-                // Returns the index of the event that the playback is closest to
+            (s) => [s.currentPlayerTime, s.items, s.displayGroups],
+            (playerTime, items, displayGroups): number => {
                 if (!playerTime) {
                     return 0
                 }
-
                 const timeSeconds = Math.floor(playerTime / 1000)
-                return items.findIndex((x) => Math.floor(x.timeInRecording / 1000) >= timeSeconds)
+                return displayGroups.findIndex(
+                    (g) => Math.floor(items[g.indices[0]].timeInRecording / 1000) >= timeSeconds
+                )
             },
         ],
 
         playbackIndicatorIndexStop: [
-            (s) => [s.playbackIndicatorIndex, s.items],
-            (playbackIndicatorIndex, items): number => (items.length + playbackIndicatorIndex) % items.length,
+            (s) => [s.playbackIndicatorIndex, s.displayGroups],
+            (playbackIndicatorIndex, displayGroups): number =>
+                (displayGroups.length + playbackIndicatorIndex) % displayGroups.length,
         ],
 
         fuse: [
@@ -1242,6 +1294,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     return filteredItems
                 }
                 return fuse.search(searchQuery).map((x) => x.item)
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        displayGroups: [
+            (s) => [s.items, s.groupRepeatedItems, s.collapseInspectorItems],
+            (items, groupRepeatedItems, collapseInspectorItems): DisplayGroup[] => {
+                if (!collapseInspectorItems) {
+                    return items.map((_, i) => ({ indices: [i] }))
+                }
+                return computeDisplayGroups(items, groupRepeatedItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1273,11 +1336,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
-                const item = values.items[index]
+                const group = values.displayGroups[index]
+                const item = values.items[group.indices[0]]
                 actions.reportRecordingInspectorItemExpanded(item.type, index)
 
                 if (item.type === 'events') {
-                    actions.loadFullEventData(item.data)
+                    const eventsToLoad = group.indices.map((i) => (values.items[i] as InspectorListItemEvent).data)
+                    actions.loadFullEventData(eventsToLoad)
                 }
             }
         },

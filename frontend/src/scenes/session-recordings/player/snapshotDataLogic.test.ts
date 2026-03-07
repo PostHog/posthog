@@ -127,14 +127,16 @@ describe('snapshotDataLogic', () => {
         it('isRecordingDeleted is false when no error', () => {
             expect(logic.values.isRecordingDeleted).toBe(false)
             expect(logic.values.recordingDeletedAt).toBe(null)
+            expect(logic.values.recordingDeletedBy).toBe(null)
         })
 
         it('isRecordingDeleted is true when snapshotLoadError is RecordingDeletedError', () => {
-            const error = new RecordingDeletedError(1700000000)
+            const error = new RecordingDeletedError(1700000000, 'admin@example.com')
             logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
 
             expect(logic.values.isRecordingDeleted).toBe(true)
             expect(logic.values.recordingDeletedAt).toBe(1700000000)
+            expect(logic.values.recordingDeletedBy).toBe('admin@example.com')
         })
 
         it('isRecordingDeleted is false for non-deleted errors', () => {
@@ -142,14 +144,16 @@ describe('snapshotDataLogic', () => {
 
             expect(logic.values.isRecordingDeleted).toBe(false)
             expect(logic.values.recordingDeletedAt).toBe(null)
+            expect(logic.values.recordingDeletedBy).toBe(null)
         })
 
         it('recordingDeletedAt is null when deleted_at is not provided', () => {
-            const error = new RecordingDeletedError(null)
+            const error = new RecordingDeletedError(null, null)
             logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
 
             expect(logic.values.isRecordingDeleted).toBe(true)
             expect(logic.values.recordingDeletedAt).toBe(null)
+            expect(logic.values.recordingDeletedBy).toBe(null)
         })
     })
 

@@ -10,10 +10,10 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
 
 import jwt
-import requests
 import structlog
 
 from posthog.models import User
+from posthog.security.outbound_proxy import external_requests
 from posthog.utils import get_ip_address, get_short_user_agent
 
 logger = structlog.get_logger(__name__)
@@ -222,7 +222,7 @@ def _exchange_code_for_token(request: HttpRequest, code: str) -> dict:
         "redirect_uri": request.build_absolute_uri("/admin/oauth2/callback"),
         "grant_type": "authorization_code",
     }
-    response = requests.post(token_url, data=data)
+    response = external_requests.post(token_url, data=data)
     response.raise_for_status()
     return response.json()
 

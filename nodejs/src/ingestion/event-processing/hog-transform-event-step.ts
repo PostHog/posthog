@@ -2,12 +2,16 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { Team } from '../../types'
-import { PipelineResult, drop, ok } from '../pipelines/results'
+import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface HogTransformEventInput {
     event: PluginEvent
     team: Pick<Team, 'id'>
+}
+
+export interface HogTransformEventOutput {
+    transformationsRun: number
 }
 
 /**
@@ -20,13 +24,13 @@ export interface HogTransformEventInput {
  */
 export function createHogTransformEventStep<T extends HogTransformEventInput>(
     hogTransformer: Pick<HogTransformerService, 'transformEventAndProduceMessages'> | null
-): ProcessingStep<T, T> {
-    return async function hogTransformEventStep(input: T): Promise<PipelineResult<T>> {
+): ProcessingStep<T, T & HogTransformEventOutput> {
+    return async function hogTransformEventStep(input) {
         const { event } = input
 
         // If no transformer configured, pass through unchanged
         if (!hogTransformer) {
-            return ok(input)
+            return ok({ ...input, transformationsRun: 0 })
         }
 
         const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -39,6 +43,7 @@ export function createHogTransformEventStep<T extends HogTransformEventInput>(
         return ok({
             ...input,
             event: result.event,
+            transformationsRun: result.invocationResults.length,
         })
     }
 }

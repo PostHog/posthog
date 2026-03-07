@@ -102,7 +102,10 @@ describe('RecordingService', () => {
                 transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
             }
             mockS3Send.mockResolvedValue({ Body: mockBody })
-            mockDecryptor.decryptBlock.mockResolvedValue(Buffer.from('decrypted data'))
+            mockDecryptor.decryptBlock.mockResolvedValue({
+                data: Buffer.from('decrypted data'),
+                sessionState: 'ciphertext',
+            })
 
             const result = await service.getBlock(validParams)
 
@@ -127,7 +130,7 @@ describe('RecordingService', () => {
 
             const result = await service.getBlock(validParams)
 
-            expect(result).toEqual({ ok: false, error: 'deleted', deletedAt: 1700000000 })
+            expect(result).toEqual({ ok: false, error: 'deleted', deletedAt: 1700000000, deletedBy: '' })
         })
 
         it('returns deleted with undefined timestamp when not available', async () => {
@@ -139,7 +142,7 @@ describe('RecordingService', () => {
 
             const result = await service.getBlock(validParams)
 
-            expect(result).toEqual({ ok: false, error: 'deleted', deletedAt: undefined })
+            expect(result).toEqual({ ok: false, error: 'deleted', deletedAt: undefined, deletedBy: '' })
         })
 
         it('returns not_found when S3 throws NoSuchKey', async () => {
@@ -171,7 +174,7 @@ describe('RecordingService', () => {
                 transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
             }
             mockS3Send.mockResolvedValue({ Body: mockBody })
-            mockDecryptor.decryptBlock.mockResolvedValue(Buffer.from('data'))
+            mockDecryptor.decryptBlock.mockResolvedValue({ data: Buffer.from('data'), sessionState: 'ciphertext' })
 
             await service.getBlock(validParams)
 
@@ -187,152 +190,246 @@ describe('RecordingService', () => {
         })
     })
 
-    describe('bulkDeleteRecordings', () => {
-        it('returns all as deleted when all succeed', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
+    describe('deleteRecordings', () => {
+        it('returns empty array when no session IDs provided', async () => {
+            const result = await service.deleteRecordings([], 1, 'test@example.com')
 
-            const result = await service.bulkDeleteRecordings(['session-1', 'session-2'], 1)
-
-            expect(result).toEqual({
-                deleted: ['session-1', 'session-2'],
-                failed: [],
-            })
-        })
-
-        it('treats already_deleted as success', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: false,
-                reason: 'already_deleted',
-                deletedAt: 1700000000,
-            })
-
-            const result = await service.bulkDeleteRecordings(['session-1'], 1)
-
-            expect(result).toEqual({
-                deleted: ['session-1'],
-                failed: [],
-            })
-        })
-
-        it('reports promise rejections as unexpected_error', async () => {
-            mockKeyStore.deleteKey
-                .mockResolvedValueOnce({ deleted: true, deletedAt: 1700000000 })
-                .mockRejectedValueOnce(new Error('Database error'))
-
-            const result = await service.bulkDeleteRecordings(['session-1', 'session-2'], 1)
-
-            expect(result).toEqual({
-                deleted: ['session-1'],
-                failed: [{ session_id: 'session-2', error: 'unexpected_error' }],
-            })
-        })
-
-        it('returns all as failed when all reject', async () => {
-            mockKeyStore.deleteKey.mockRejectedValue(new Error('Database error'))
-
-            const result = await service.bulkDeleteRecordings(['session-1', 'session-2'], 1)
-
-            expect(result).toEqual({
-                deleted: [],
-                failed: [
-                    { session_id: 'session-1', error: 'unexpected_error' },
-                    { session_id: 'session-2', error: 'unexpected_error' },
-                ],
-            })
-        })
-    })
-
-    describe('deleteRecording', () => {
-        it('returns ok, emits deletion event, and deletes postgres records when key is deleted', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
-
-            const result = await service.deleteRecording('session-123', 1)
-
-            expect(result).toEqual({ ok: true, deletedAt: 1700000000 })
-            expect(mockKeyStore.deleteKey).toHaveBeenCalledWith('session-123', 1)
-            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
-                expect.objectContaining({
-                    sessionId: 'session-123',
-                    teamId: 1,
-                    isDeleted: true,
-                }),
-            ])
-            expect(mockPostgres.query).toHaveBeenCalledTimes(3)
-            expect(mockPostgres.query).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.stringContaining('ee_single_session_summary'),
-                [1, 'session-123'],
-                'deleteSessionSummary'
-            )
-        })
-
-        it('returns ok without cleanup when key was already deleted', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({
-                deleted: false,
-                reason: 'already_deleted',
-                deletedAt: 1700000000,
-            })
-
-            const result = await service.deleteRecording('session-123', 1)
-
-            expect(result).toEqual({ ok: true, deletedAt: 1700000000 })
-            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
+            expect(result).toEqual([])
+            expect(mockKeyStore.deleteKey).not.toHaveBeenCalled()
             expect(mockPostgres.query).not.toHaveBeenCalled()
         })
 
-        it('returns cleanup_failed when metadata store fails after key deletion', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
-            const kafkaError = new Error('Kafka connection lost')
-            mockMetadataStore.storeSessionBlocks.mockRejectedValue(kafkaError)
-
-            const result = await service.deleteRecording('session-123', 1)
-
-            expect(result).toEqual({
-                ok: false,
-                error: 'cleanup_failed',
-                metadataError: kafkaError,
-                postgresError: undefined,
+        it('returns ok for all when all succeed', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                status: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
             })
-            // Promise.allSettled runs both independently, so postgres is still called
-            expect(mockPostgres.query).toHaveBeenCalled()
+
+            const result = await service.deleteRecordings(['session-1', 'session-2'], 1, 'test@example.com')
+
+            expect(result).toEqual([
+                {
+                    sessionId: 'session-1',
+                    ok: true,
+                    status: 'deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'test@example.com',
+                },
+                {
+                    sessionId: 'session-2',
+                    ok: true,
+                    status: 'deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'test@example.com',
+                },
+            ])
         })
 
-        it('returns cleanup_failed when postgres fails after key deletion', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
-            mockPostgres.query.mockRejectedValue(new Error('Postgres connection lost'))
+        it('emits kafka events for newly deleted sessions only', async () => {
+            mockKeyStore.deleteKey
+                .mockResolvedValueOnce({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
+                .mockResolvedValueOnce({
+                    status: 'already_deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'original@example.com',
+                })
 
-            const result = await service.deleteRecording('session-123', 1)
+            await service.deleteRecordings(['new', 'already-deleted'], 1, 'test@example.com')
 
-            expect(result).toEqual({
-                ok: false,
-                error: 'cleanup_failed',
-                metadataError: undefined,
-                postgresError: expect.objectContaining({
-                    message: expect.stringContaining('Failed to delete from:'),
-                }),
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
+                expect.objectContaining({ sessionId: 'new', teamId: 1, isDeleted: true }),
+            ])
+        })
+
+        it('batches postgres deletes for all shredded sessions', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                status: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
             })
-            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
-        })
 
-        it('propagates unexpected errors', async () => {
-            mockKeyStore.deleteKey.mockRejectedValue(new Error('Database error'))
+            await service.deleteRecordings(['session-1', 'session-2'], 1, 'test@example.com')
 
-            await expect(service.deleteRecording('session-123', 1)).rejects.toThrow('Database error')
-        })
-
-        it('works without metadata store configured', async () => {
-            const serviceWithoutMetadata = new RecordingService(
-                mockS3Client,
-                'test-bucket',
-                'session_recordings',
-                mockKeyStore,
-                mockDecryptor
+            // 3 DELETE statements + 1 activity log INSERT
+            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('ee_single_session_summary'),
+                [1, ['session-1', 'session-2']],
+                'deleteSessionSummaries'
             )
-            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
+        })
 
-            const result = await serviceWithoutMetadata.deleteRecording('session-123', 1)
+        it('excludes already_deleted sessions from postgres batch', async () => {
+            mockKeyStore.deleteKey
+                .mockResolvedValueOnce({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
+                .mockResolvedValueOnce({
+                    status: 'already_deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'original@example.com',
+                })
 
-            expect(result).toEqual({ ok: true, deletedAt: 1700000000 })
+            await service.deleteRecordings(['new-session', 'already-deleted-session'], 1, 'test@example.com')
+
+            // 3 DELETE statements + 1 activity log INSERT
+            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('ee_single_session_summary'),
+                [1, ['new-session']],
+                'deleteSessionSummaries'
+            )
+        })
+
+        it('returns delete_failed for sessions where key shred throws', async () => {
+            mockKeyStore.deleteKey
+                .mockResolvedValueOnce({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
+                .mockRejectedValueOnce(new Error('DynamoDB error'))
+
+            const result = await service.deleteRecordings(['session-1', 'session-2'], 1, 'test@example.com')
+
+            expect(result).toEqual([
+                {
+                    sessionId: 'session-1',
+                    ok: true,
+                    status: 'deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'test@example.com',
+                },
+                { sessionId: 'session-2', ok: false, status: 'delete_failed' },
+            ])
+        })
+
+        it('reports success when kafka emission fails after shred', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                status: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
+            })
+            mockMetadataStore.storeSessionBlocks.mockRejectedValue(new Error('Kafka down'))
+
+            const result = await service.deleteRecordings(['session-1'], 1, 'test@example.com')
+
+            expect(result).toEqual([
+                {
+                    sessionId: 'session-1',
+                    ok: true,
+                    status: 'deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'test@example.com',
+                },
+            ])
+        })
+
+        it('inserts activity log entries for newly deleted sessions', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                status: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
+            })
+
+            await service.deleteRecordings(['session-1', 'session-2'], 1, 'test@example.com')
+
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_activitylog'),
+                [1, ['session-1', 'session-2'], expect.stringContaining('recording_shredded')],
+                'logRecordingDeletion'
+            )
+        })
+
+        it('does not insert activity log when all sessions were already deleted', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                status: 'already_deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'original@example.com',
+            })
+
+            await service.deleteRecordings(['session-1'], 1, 'test@example.com')
+
+            expect(mockPostgres.query).not.toHaveBeenCalled()
+        })
+
+        it('reports success when logActivity fails after shred', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                status: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
+            })
+            let callCount = 0
+            mockPostgres.query.mockImplementation((() => {
+                if (++callCount === 4) {
+                    return Promise.reject(new Error('Activity log insert failed'))
+                }
+                return Promise.resolve({ rows: [] })
+            }) as any)
+
+            const result = await service.deleteRecordings(['session-1'], 1, 'test@example.com')
+
+            expect(result).toEqual([
+                {
+                    sessionId: 'session-1',
+                    ok: true,
+                    status: 'deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'test@example.com',
+                },
+            ])
+        })
+
+        it('skips postgres when all shreds fail', async () => {
+            mockKeyStore.deleteKey.mockRejectedValue(new Error('DynamoDB error'))
+
+            await service.deleteRecordings(['session-1'], 1, 'test@example.com')
+
+            expect(mockPostgres.query).not.toHaveBeenCalled()
+        })
+
+        it('reports success when postgres cleanup fails after shred', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                status: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
+            })
+            mockPostgres.query.mockRejectedValue(new Error('Postgres down'))
+
+            const result = await service.deleteRecordings(['session-1'], 1, 'test@example.com')
+
+            expect(result).toEqual([
+                {
+                    sessionId: 'session-1',
+                    ok: true,
+                    status: 'deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'test@example.com',
+                },
+            ])
+        })
+
+        it('reports success even when all cleanup steps fail', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                status: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'test@example.com',
+            })
+            mockMetadataStore.storeSessionBlocks.mockRejectedValue(new Error('Kafka down'))
+            mockPostgres.query.mockRejectedValue(new Error('Postgres down'))
+
+            const result = await service.deleteRecordings(['session-1'], 1, 'test@example.com')
+
+            expect(result).toEqual([
+                {
+                    sessionId: 'session-1',
+                    ok: true,
+                    status: 'deleted',
+                    deletedAt: 1700000000,
+                    deletedBy: 'test@example.com',
+                },
+            ])
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
+            expect(mockPostgres.query).toHaveBeenCalled()
         })
     })
 })

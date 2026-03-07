@@ -134,6 +134,7 @@ const Actions = (record: ErrorEventType): JSX.Element => {
                     timestamp={record.timestamp}
                     size="xsmall"
                     data-attr="error-tracking-view-recording"
+                    iconOnly
                 />
             </div>
             {record.properties.$ai_trace_id && (

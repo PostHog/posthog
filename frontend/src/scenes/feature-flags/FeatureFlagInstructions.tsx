@@ -23,6 +23,7 @@ import {
     OPTIONS,
     PAYLOADS_ANCHOR,
     PAYLOAD_LIBRARIES,
+    REMOTE_CONFIG_DOC_URL,
     REMOTE_CONFIGURATION_LIBRARIES,
 } from './FeatureFlagCodeOptions'
 
@@ -88,6 +89,10 @@ export function CodeInstructions({
 
     const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)
     const getDocumentationLink = (): string => {
+        if (remoteConfiguration) {
+            return REMOTE_CONFIG_DOC_URL
+        }
+
         const documentationLink = selectedOption.documentationLink
 
         if (showBootstrapCode) {

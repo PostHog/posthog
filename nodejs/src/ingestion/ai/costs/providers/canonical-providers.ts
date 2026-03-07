@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-25 10:17:31 UTC
+// Generated at: 2026-03-05 20:08:58 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -9,12 +9,10 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
-    | 'ambient-bf16'
     | 'anthropic'
     | 'arcee-ai-bf16'
     | 'arcee-ai-modal'
     | 'arcee-ai-prime'
-    | 'atlas-cloud-bf16'
     | 'atlas-cloud-fast'
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
@@ -27,6 +25,7 @@ export type CanonicalProvider =
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'cirrascale'
+    | 'clarifai'
     | 'clarifai-bf16'
     | 'clarifai-fp4'
     | 'cloudflare'
@@ -58,6 +57,7 @@ export type CanonicalProvider =
     | 'hyperbolic-fp8'
     | 'inception'
     | 'inceptron-fp8'
+    | 'inceptron-int4'
     | 'infermatic'
     | 'infermatic-bf16'
     | 'inflection'
@@ -71,7 +71,6 @@ export type CanonicalProvider =
     | 'minimax-fp8'
     | 'minimax-highspeed'
     | 'mistral'
-    | 'modelrun-fp4'
     | 'moonshotai'
     | 'moonshotai-fp8'
     | 'moonshotai-int4'
@@ -79,7 +78,6 @@ export type CanonicalProvider =
     | 'morph'
     | 'nebius'
     | 'nebius-base'
-    | 'nebius-bf16'
     | 'nebius-fast'
     | 'nebius-fp4'
     | 'nebius-fp8'
@@ -121,7 +119,6 @@ export type CanonicalProvider =
     | 'together'
     | 'together-fp8'
     | 'together-int4'
-    | 'together-turbo'
     | 'upstage'
     | 'venice'
     | 'venice-beta'

@@ -1,3 +1,4 @@
+import uuid
 import socket
 import typing
 import builtins
@@ -31,6 +32,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
 from posthog.batch_exports.service import (
@@ -44,7 +46,6 @@ from posthog.batch_exports.service import (
     backfill_export,
     cancel_running_batch_export_run,
     delete_batch_export,
-    fetch_earliest_backfill_start_at,
     pause_batch_export,
     sync_batch_export,
     sync_cancel_running_batch_export_backfill,
@@ -198,7 +199,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         batch_export_run = self.get_object()
 
         temporal = sync_connect()
-        backfill_workflow_id = backfill_export(
+        backfill_id = backfill_export(
             temporal,
             str(batch_export_run.batch_export.id),
             self.team_id,
@@ -206,7 +207,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             batch_export_run.data_interval_end,
         )
 
-        return response.Response({"backfill_id": backfill_workflow_id})
+        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
@@ -234,7 +235,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
-    integration_id = serializers.PrimaryKeyRelatedField(
+    integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
     )
 
@@ -379,6 +380,7 @@ class HogQLSelectQueryField(serializers.Field):
                     parsed_query,
                     context=HogQLContext(
                         team_id=self.context["team_id"],
+                        user=self.context["request"].user,
                         enable_select_queries=True,
                         modifiers=HogQLQueryModifiers(
                             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
@@ -1199,7 +1201,7 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         if not total_runs:
             return None
 
-        if obj.start_at is None:
+        if obj.start_at is None and obj.adjusted_start_at is None:
             # if it's just a single run, backfilling from the beginning of time, we can't calculate progress based on
             # the number of completed runs so better to return None
             return None
@@ -1231,7 +1233,7 @@ def create_backfill(
         end_at_input: ISO formatted datetime string for backfill end
 
     Returns:
-        The backfill workflow ID
+        The pre-generated backfill ID.
     """
     # Currently, backfills from the beginning of time usually fail due to us hitting ClickHouse memory limits.
     # Therefore, this feature is behind a feature flag while we improve backfilling behavior.
@@ -1262,39 +1264,22 @@ def create_backfill(
     else:
         end_at = None
 
-    if (start_at is not None or end_at is not None) and batch_export.model is not None:
-        try:
-            earliest_backfill_start_at = fetch_earliest_backfill_start_at(
-                team_id=team.pk,
-                model=batch_export.model,
-                interval_time_delta=batch_export.interval_time_delta,
-                exclude_events=batch_export.destination.config.get("exclude_events", []),
-                include_events=batch_export.destination.config.get("include_events", []),
-            )
-            if earliest_backfill_start_at is None:
-                raise ValidationError("There is no data to backfill for this model.")
+    # Note: earliest backfill date validation and adjustment is now done in the Temporal workflow
+    # via the get_backfill_info activity. This allows the potentially slow ClickHouse query to run
+    # asynchronously rather than blocking the HTTP request.
 
-            earliest_backfill_start_at = earliest_backfill_start_at.astimezone(team.timezone_info)
-
-            if end_at is not None and end_at < earliest_backfill_start_at:
-                raise ValidationError(
-                    "The provided backfill date range contains no data. The earliest possible backfill start date is "
-                    f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
-                )
-
-            if start_at is not None and start_at < earliest_backfill_start_at:
-                logger.info(
-                    "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
-                    "to earliest_backfill_start_at",
-                    start_at,
-                    earliest_backfill_start_at,
-                )
-                start_at = earliest_backfill_start_at
-        except NotImplementedError:
-            logger.warning("No backfill check implemented for model: '%s'; skipping", batch_export.model)
+    backfill_id = str(uuid.uuid4())
 
     if start_at is None or end_at is None:
-        return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
+        backfill_export(
+            temporal=temporal,
+            batch_export_id=str(batch_export.pk),
+            team_id=team.pk,
+            start_at=start_at,
+            end_at=end_at,
+            backfill_id=backfill_id,
+        )
+        return backfill_id
 
     if start_at >= end_at:
         raise ValidationError("The initial backfill datetime 'start_at' must be before 'end_at'")
@@ -1302,7 +1287,15 @@ def create_backfill(
         raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 
     try:
-        return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
+        backfill_export(
+            temporal=temporal,
+            batch_export_id=str(batch_export.pk),
+            team_id=team.pk,
+            start_at=start_at,
+            end_at=end_at,
+            backfill_id=backfill_id,
+        )
+        return backfill_id
     except BatchExportWithNoEndNotAllowedError:
         raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
 
@@ -1340,13 +1333,13 @@ class BatchExportBackfillViewSet(
         except BatchExport.DoesNotExist:
             raise NotFound("BatchExport not found.")
 
-        backfill_workflow_id = create_backfill(
+        backfill_id = create_backfill(
             self.team,
             batch_export,
             request.data.get("start_at"),
             request.data.get("end_at"),
         )
-        return response.Response({"backfill_id": backfill_workflow_id})
+        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:

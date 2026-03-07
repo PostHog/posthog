@@ -10,6 +10,8 @@ from collections.abc import Generator
 import httpx
 import openai
 
+from posthog.security.outbound_proxy import external_httpx
+
 from products.llm_analytics.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
@@ -61,7 +63,7 @@ class OpenRouterAdapter(OpenAIAdapter):
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
         try:
-            response = httpx.get(
+            response = external_httpx.get(
                 "https://openrouter.ai/api/v1/auth/key",
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=OpenAIConfig.TIMEOUT,
@@ -82,6 +84,10 @@ class OpenRouterAdapter(OpenAIAdapter):
         except Exception as e:
             logger.exception(f"OpenRouter key validation error: {e}")
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
+
+    @staticmethod
+    def recommended_models() -> set[str]:
+        return set()
 
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:

@@ -119,6 +119,70 @@ class TestStreamingErrorHandling:
         assert exc_info.value.status_code == error_status
 
 
+class TestPreStreamErrors:
+    @pytest.fixture
+    def mock_user(self) -> AuthenticatedUser:
+        return AuthenticatedUser(
+            user_id=123,
+            team_id=456,
+            auth_method="personal_api_key",
+            distinct_id="test-distinct-id",
+            scopes=["llm_gateway:read"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_streaming_timeout_before_first_chunk_raises_504(self, mock_user: AuthenticatedUser) -> None:
+        async def slow_llm_call(**kwargs: Any) -> None:
+            await asyncio.sleep(10)
+
+        with patch("llm_gateway.api.handler.get_settings") as mock_settings:
+            mock_settings.return_value.streaming_timeout = 0.01
+            mock_settings.return_value.request_timeout = 0.01
+
+            with pytest.raises(HTTPException) as exc_info:
+                await handle_llm_request(
+                    request_data={"model": "test", "messages": [], "stream": True},
+                    user=mock_user,
+                    model="test-model",
+                    is_streaming=True,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=slow_llm_call,
+                )
+
+            assert exc_info.value.status_code == 504
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error_status,error_message,error_type",
+        [
+            pytest.param(400, "Invalid request", "invalid_request_error", id="bad_request"),
+            pytest.param(503, "Service unavailable", "service_unavailable", id="unavailable"),
+            pytest.param(529, "Overloaded", "overloaded_error", id="overloaded"),
+        ],
+    )
+    async def test_streaming_provider_error_before_first_chunk_raises_with_status(
+        self, mock_user: AuthenticatedUser, error_status: int, error_message: str, error_type: str
+    ) -> None:
+        async def failing_llm_call(**kwargs: Any) -> None:
+            error = MockProviderError(error_message, status_code=error_status)
+            error.type = error_type  # type: ignore[attr-defined]
+            raise error
+
+        with pytest.raises(HTTPException) as exc_info:
+            await handle_llm_request(
+                request_data={"model": "test", "messages": [], "stream": True},
+                user=mock_user,
+                model="test-model",
+                is_streaming=True,
+                provider_config=ANTHROPIC_CONFIG,
+                llm_call=failing_llm_call,
+            )
+
+        assert exc_info.value.status_code == error_status
+        assert exc_info.value.detail["error"]["message"] == error_message
+        assert exc_info.value.detail["error"]["type"] == error_type
+
+
 class TestStreamingLifecycle:
     @pytest.fixture
     def mock_user(self) -> AuthenticatedUser:

@@ -46,3 +46,8 @@ class Provider(Protocol):
     def list_models(api_key: str | None = None) -> list[str]:
         """List available models for this provider"""
         ...
+
+    @staticmethod
+    def recommended_models() -> set[str]:
+        """Return the set of curated/recommended model IDs for this provider."""
+        ...

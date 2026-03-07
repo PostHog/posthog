@@ -13,7 +13,7 @@ SELECT
     properties.$ai_trace_id AS id,
     any(properties.$ai_session_id) AS ai_session_id,
     min(timestamp) AS first_timestamp,
-    tuple(argMin(person.id, timestamp), argMin(distinct_id, timestamp), argMin(person.created_at, timestamp), argMin(person.properties, timestamp)) AS first_person,
+    tuple(argMin(person.id, timestamp), ifNull(nullIf(argMinIf(distinct_id, timestamp, event = '$ai_trace'), ''), argMin(distinct_id, timestamp)), argMin(person.created_at, timestamp), argMin(person.properties, timestamp)) AS first_person,
     round(if(and(equals(countIf(and(greater(toFloat(properties.$ai_latency), 0), notEquals(event, '$ai_generation'))), 0), greater(countIf(and(greater(toFloat(properties.$ai_latency), 0), equals(event, '$ai_generation'))), 0)), sumIf(toFloat(properties.$ai_latency), and(equals(event, '$ai_generation'), greater(toFloat(properties.$ai_latency), 0))), sumIf(toFloat(properties.$ai_latency), or(equals(properties.$ai_parent_id, NULL), equals(toString(properties.$ai_parent_id), toString(properties.$ai_trace_id))))), 2) AS total_latency,
     sumIf(toFloat(properties.$ai_input_tokens), in(event, tuple('$ai_generation', '$ai_embedding'))) AS input_tokens,
     sumIf(toFloat(properties.$ai_output_tokens), in(event, tuple('$ai_generation', '$ai_embedding'))) AS output_tokens,

@@ -433,6 +433,18 @@ export const DashboardsDestroyFormat = {
     Txt: 'txt',
 } as const
 
+export type DashboardsAnalyzeRefreshResultCreateParams = {
+    format?: DashboardsAnalyzeRefreshResultCreateFormat
+}
+
+export type DashboardsAnalyzeRefreshResultCreateFormat =
+    (typeof DashboardsAnalyzeRefreshResultCreateFormat)[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat]
+
+export const DashboardsAnalyzeRefreshResultCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
 export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat
 }
@@ -441,6 +453,18 @@ export type DashboardsMoveTilePartialUpdateFormat =
     (typeof DashboardsMoveTilePartialUpdateFormat)[keyof typeof DashboardsMoveTilePartialUpdateFormat]
 
 export const DashboardsMoveTilePartialUpdateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsSnapshotCreateParams = {
+    format?: DashboardsSnapshotCreateFormat
+}
+
+export type DashboardsSnapshotCreateFormat =
+    (typeof DashboardsSnapshotCreateFormat)[keyof typeof DashboardsSnapshotCreateFormat]
+
+export const DashboardsSnapshotCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

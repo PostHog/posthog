@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common_cache::NegativeCache;
 use common_database::get_pool;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
@@ -28,7 +29,7 @@ impl ServerHandle {
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
-        let rayon_dispatcher = RayonDispatcher::new(2);
+        let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
             serve(config, listener, rayon_dispatcher, async move {
                 notify.notified().await
@@ -327,7 +328,8 @@ impl ServerHandle {
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,
-                RayonDispatcher::new(2),
+                RayonDispatcher::new(2, None),
+                NegativeCache::new(10_000, 300),
                 config,
             );
 

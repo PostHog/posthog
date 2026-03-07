@@ -101,6 +101,11 @@ class TestFireworksListModels:
         assert mock_openai.call_args.kwargs["base_url"] == FIREWORKS_BASE_URL
 
 
+class TestFireworksRecommendedModels:
+    def test_recommended_models_returns_empty(self):
+        assert FireworksAdapter.recommended_models() == set()
+
+
 class TestFireworksDefaultKey:
     def test_get_api_key_raises(self):
         with pytest.raises(ValueError, match="BYOKEY-only"):

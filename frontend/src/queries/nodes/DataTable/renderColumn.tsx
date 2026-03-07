@@ -7,6 +7,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -82,7 +83,14 @@ export function renderColumn(
     context?: QueryContext<DataTableNode>
 ): JSX.Element | string {
     const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
+    const originalKey = key
     key = isGroupsQuery(query.source) ? extractExpressionComment(key) : removeExpressionComment(key)
+
+    // Look up context/product renderers using both the stripped key and the original key,
+    // since renderers may be registered with the full expression (e.g. "'' -- Sentiment")
+    const contextColumn = context?.columns?.[key] ?? (key !== originalKey ? context?.columns?.[originalKey] : undefined)
+    const productColumn =
+        productColumnRenderers[key] ?? (key !== originalKey ? productColumnRenderers[originalKey] : undefined)
 
     if (value === loadingColumn) {
         return <Spinner />
@@ -101,9 +109,9 @@ export function renderColumn(
                 context={context}
             />
         )
-    } else if (context?.columns?.[key] && context?.columns?.[key].render) {
-        const Component = context?.columns?.[key]?.render
-        return Component ? (
+    } else if (contextColumn?.render) {
+        const Component = contextColumn.render
+        return (
             <Component
                 record={record}
                 columnName={key}
@@ -113,11 +121,9 @@ export function renderColumn(
                 rowCount={rowCount}
                 context={context}
             />
-        ) : (
-            String(value)
         )
-    } else if (productColumnRenderers[key]?.render) {
-        const Component = productColumnRenderers[key].render!
+    } else if (productColumn?.render) {
+        const Component = productColumn.render
         return (
             <Component
                 record={record}
@@ -407,8 +413,24 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
-        const key = (record as any[])[1] // 'key' is the second column in the groups query
-        return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
+        if (typeof value === 'object' && 'display_name' in value && 'key' in value) {
+            return (
+                <div className="flex flex-col min-w-40">
+                    <LemonTableLink
+                        to={urls.group(query.source.group_type_index, value.key)}
+                        title={value.display_name as string}
+                    />
+                    <CopyToClipboardInline
+                        explicitValue={value.key}
+                        iconStyle={{ color: 'var(--color-accent)' }}
+                        description="group id"
+                    >
+                        {value.key}
+                    </CopyToClipboardInline>
+                </div>
+            )
+        }
+        return String(value)
     } else if (trimQuotes(key).endsWith('$virt_mrr') || trimQuotes(key).endsWith('$virt_revenue')) {
         if (value === null || value === undefined) {
             return '—'

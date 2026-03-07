@@ -285,8 +285,14 @@ export type IngestionConsumerConfig = {
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
 
+    // AI event splitting config
+    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
+
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
 
     // Cookieless server hash mode config
@@ -318,6 +324,10 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TTL_SECONDS: number
     LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    REDIS_URL: string
+    REDIS_POOL_MIN_SIZE: number
+    REDIS_POOL_MAX_SIZE: number
+    KAFKA_CLIENT_RACK: string | undefined
 }
 
 export type SessionRecordingApiConfig = {
@@ -377,9 +387,6 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
-    /** Rate (0.0–1.0) at which to verify encrypt→decrypt round-trip integrity during ingestion */
-    SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
-
     // Kafka consumer config (overrides hardcoded defaults when set)
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
     INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
@@ -486,6 +493,8 @@ export interface PluginsServerConfig
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
+    OUTBOUND_PROXY_URL: string
+    OUTBOUND_PROXY_ENABLED: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
@@ -517,6 +526,7 @@ export interface PluginsServerConfig
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
     CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
+    CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
 
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
@@ -786,6 +796,25 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
      * That's because we need it in `property-defs-rs` and not elsewhere.
      */
     project_id: ProjectId
+}
+
+/** Pre-serialization event produced by create-event, before ClickHouse formatting. */
+export interface ProcessedEvent {
+    uuid: string
+    event: string
+    properties: Record<string, unknown>
+    timestamp: ISOTimestamp
+    team_id: TeamId
+    project_id: ProjectId
+    distinct_id: string
+    elements_chain: string
+    created_at: null
+    captured_at: Date | null
+    person_id: string
+    person_properties: Record<string, unknown>
+    person_created_at: DateTime | null
+    person_mode: PersonMode
+    historical_migration?: boolean
 }
 
 /** Parsed event row from ClickHouse. */

@@ -185,7 +185,7 @@ describe('session recording encryption integration', () => {
         // Encrypted block should not be valid snappy data
         await expect(snappy.uncompress(encryptedBlock)).rejects.toThrow()
 
-        const decryptedBlock = await decryptor.decryptBlock(sessionId, teamId, encryptedBlock)
+        const { data: decryptedBlock } = await decryptor.decryptBlock(sessionId, teamId, encryptedBlock)
 
         const decompressed = await snappy.uncompress(decryptedBlock)
         const events: [string, any][] = decompressed
@@ -242,8 +242,8 @@ describe('session recording encryption integration', () => {
 
         expect(Buffer.compare(nonce1, nonce2)).not.toBe(0)
 
-        const decrypted1 = await decryptor.decryptBlock(sessionId, teamId, encryptedBlock1)
-        const decrypted2 = await decryptor.decryptBlock(sessionId, teamId, encryptedBlock2)
+        const { data: decrypted1 } = await decryptor.decryptBlock(sessionId, teamId, encryptedBlock1)
+        const { data: decrypted2 } = await decryptor.decryptBlock(sessionId, teamId, encryptedBlock2)
 
         const events1 = (await snappy.uncompress(decrypted1)).toString().trim().split('\n').map(parseJSON)
         const events2 = (await snappy.uncompress(decrypted2)).toString().trim().split('\n').map(parseJSON)
@@ -264,11 +264,11 @@ describe('session recording encryption integration', () => {
 
         const encryptedBlock = readEncryptedBlockFromBatch(metadata[0])
 
-        const decryptedBefore = await decryptor.decryptBlock(sessionId, teamId, encryptedBlock)
-        expect(decryptedBefore).toBeDefined()
+        const resultBefore = await decryptor.decryptBlock(sessionId, teamId, encryptedBlock)
+        expect(resultBefore.data).toBeDefined()
 
-        const deleted = await keyStore.deleteKey(sessionId, teamId)
-        expect(deleted).toMatchObject({ deleted: true })
+        const deleted = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
+        expect(deleted).toMatchObject({ status: 'deleted' })
 
         await expect(decryptor.decryptBlock(sessionId, teamId, encryptedBlock)).rejects.toThrow(SessionKeyDeletedError)
     })
@@ -292,7 +292,7 @@ describe('session recording encryption integration', () => {
 
         for (const block of metadata) {
             const encryptedBlock = readEncryptedBlockFromBatch(block)
-            const decryptedBlock = await decryptor.decryptBlock(block.sessionId, block.teamId, encryptedBlock)
+            const { data: decryptedBlock } = await decryptor.decryptBlock(block.sessionId, block.teamId, encryptedBlock)
             const events = (await snappy.uncompress(decryptedBlock)).toString().trim().split('\n').map(parseJSON)
 
             expect(events[0][1].data.snapshot.html).toBe(`<div>${block.sessionId}</div>`)

@@ -1140,10 +1140,7 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_redirect_user_to_site_with_toolbar(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_redirect_user_to_site_with_toolbar(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1156,13 +1153,10 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         assert (
             unquote(locationHeader)
-            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_generate_params_for_user_to_load_toolbar(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_generate_params_for_user_to_load_toolbar(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1172,13 +1166,10 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert (
             unquote(response.json()["toolbarParams"])
-            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == '{"action": "ph_authorize", "token": "token123", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_generate_only_param_can_be_falsy(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_generate_only_param_can_be_falsy(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1187,10 +1178,7 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_302_FOUND
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_redirect_user_to_site_with_experiments_toolbar(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_redirect_user_to_site_with_experiments_toolbar(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1203,13 +1191,10 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "productTourId": null, "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "actionId": null, "experimentId": "12", "productTourId": null, "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_redirect_only_to_allowed_urls(self, patched_token):
-        patched_token.return_value = "tokenvalue"
-
+    def test_redirect_only_to_allowed_urls(self):
         self.team.app_urls = [
             "https://www.example.com",
             "https://*.otherexample.com",
@@ -1328,11 +1313,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("error", response.json())
 
-    @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_redirect_to_site_with_toolbar_flags_key(self, patched_token):
-        """Test that redirect_to_site passes toolbarFlagsKey through to params"""
-        patched_token.return_value = "tokenvalue"
-
+    def test_redirect_to_site_with_toolbar_flags_key(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
@@ -1533,7 +1514,7 @@ class TestSessionAuthEndpoints(APIBaseTest):
         self.team.save()
 
     def test_redirect_to_site_rejects_personal_api_key(self):
-        """Personal API Keys should not be able to call redirect_to_site to mint temporary tokens."""
+        """Personal API Keys should not be able to call redirect_to_site."""
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
 

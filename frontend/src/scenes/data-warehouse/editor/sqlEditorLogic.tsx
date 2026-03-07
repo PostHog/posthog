@@ -943,6 +943,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                 })
                 lemonToast.success('Endpoint created')
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
                 router.actions.push(urls.endpoint(endpoint.name))
             } catch {
                 lemonToast.error('Failed to create endpoint')

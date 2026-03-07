@@ -65,7 +65,7 @@ class EventDefinitionGenerator(ABC):
 
         return hashlib.sha256(orjson.dumps(hash_input, option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
 
-    def record_report_generation(self, user, team_id: int, project_id: int) -> None:
+    def record_report_generation(self, user, team_id: int, project_id: int, request=None) -> None:
         """
         A convenience method to structurally report telemetry for code generation.
         """
@@ -78,6 +78,7 @@ class EventDefinitionGenerator(ABC):
                 "team_id": team_id,
                 "project_id": project_id,
             },
+            request=request,
         )
 
     def fetch_event_definitions_and_schemas(

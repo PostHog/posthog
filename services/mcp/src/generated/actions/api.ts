@@ -90,7 +90,7 @@ export const ActionsListResponse = zod.object({
                 created_at: zod.string().datetime({}),
                 created_by: zod.object({
                     id: zod.number(),
-                    uuid: zod.string().uuid(),
+                    uuid: zod.string(),
                     distinct_id: zod.string().max(actionsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
                     first_name: zod.string().max(actionsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
                     last_name: zod.string().max(actionsListResponseResultsItemCreatedByOneLastNameMax).optional(),
@@ -280,7 +280,7 @@ export const ActionsRetrieveResponse = zod
         created_at: zod.string().datetime({}),
         created_by: zod.object({
             id: zod.number(),
-            uuid: zod.string().uuid(),
+            uuid: zod.string(),
             distinct_id: zod.string().max(actionsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
             first_name: zod.string().max(actionsRetrieveResponseCreatedByOneFirstNameMax).optional(),
             last_name: zod.string().max(actionsRetrieveResponseCreatedByOneLastNameMax).optional(),
@@ -453,7 +453,7 @@ export const ActionsUpdateResponse = zod
         created_at: zod.string().datetime({}),
         created_by: zod.object({
             id: zod.number(),
-            uuid: zod.string().uuid(),
+            uuid: zod.string(),
             distinct_id: zod.string().max(actionsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
             first_name: zod.string().max(actionsUpdateResponseCreatedByOneFirstNameMax).optional(),
             last_name: zod.string().max(actionsUpdateResponseCreatedByOneLastNameMax).optional(),
@@ -626,7 +626,7 @@ export const ActionsPartialUpdateResponse = zod
         created_at: zod.string().datetime({}),
         created_by: zod.object({
             id: zod.number(),
-            uuid: zod.string().uuid(),
+            uuid: zod.string(),
             distinct_id: zod.string().max(actionsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
             first_name: zod.string().max(actionsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
             last_name: zod.string().max(actionsPartialUpdateResponseCreatedByOneLastNameMax).optional(),

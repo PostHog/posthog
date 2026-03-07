@@ -1,10 +1,10 @@
 from django.conf import settings
 
-import requests
+from posthog.security.outbound_proxy import external_requests
 
 
 def hubspot_refresh_access_token(refresh_token: str) -> str:
-    res = requests.post(
+    res = external_requests.post(
         "https://api.hubapi.com/oauth/v1/token",
         data={
             "grant_type": "refresh_token",
@@ -22,7 +22,7 @@ def hubspot_refresh_access_token(refresh_token: str) -> str:
 
 
 def get_hubspot_access_token_from_code(code: str, redirect_uri: str) -> tuple[str, str]:
-    res = requests.post(
+    res = external_requests.post(
         "https://api.hubapi.com/oauth/v1/token",
         data={
             "grant_type": "authorization_code",

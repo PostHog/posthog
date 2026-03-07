@@ -153,7 +153,7 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
 fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
-    let threads = ThreadCounts::from_available_parallelism();
+    let threads = ThreadCounts::new(config.thread_pool_cores);
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads.rayon_threads)
@@ -171,16 +171,18 @@ fn main() {
     } else {
         config.max_concurrent_batch_evals
     };
-    let rayon_dispatcher = RayonDispatcher::new(max_concurrent_batch_evals);
+    let semaphore_timeout = if config.rayon_semaphore_timeout_ms == 0 {
+        None
+    } else {
+        Some(std::time::Duration::from_millis(
+            config.rayon_semaphore_timeout_ms,
+        ))
+    };
+    let rayon_dispatcher = RayonDispatcher::new(max_concurrent_batch_evals, semaphore_timeout);
 
     eprintln!(
-        "Initialized thread pools: tokio_workers={}, rayon_threads={}, max_concurrent_batch_evals={} (from {} available cores)",
-        threads.tokio_workers,
-        threads.rayon_threads,
-        max_concurrent_batch_evals,
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1)
+        "Initialized thread pools: tokio_workers={}, rayon_threads={}, max_concurrent_batch_evals={}, semaphore_timeout_ms={}",
+        threads.tokio_workers, threads.rayon_threads, max_concurrent_batch_evals, config.rayon_semaphore_timeout_ms,
     );
 
     tokio_runtime.block_on(async_main(config, rayon_dispatcher))

@@ -70,6 +70,7 @@ cohorts: PostgresTable = PostgresTable(
 dashboards: PostgresTable = PostgresTable(
     name="dashboards",
     postgres_table_name="posthog_dashboard",
+    access_scope="dashboard",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -86,6 +87,7 @@ dashboards: PostgresTable = PostgresTable(
 insights: PostgresTable = PostgresTable(
     name="insights",
     postgres_table_name="posthog_dashboarditem",
+    access_scope="insight",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "short_id": StringDatabaseField(name="short_id"),
@@ -107,6 +109,7 @@ insights: PostgresTable = PostgresTable(
 experiments: PostgresTable = PostgresTable(
     name="experiments",
     postgres_table_name="posthog_experiment",
+    access_scope="experiment",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -129,6 +132,7 @@ experiments: PostgresTable = PostgresTable(
 data_warehouse_sources: PostgresTable = PostgresTable(
     name="data_warehouse_sources",
     postgres_table_name="posthog_externaldatasource",
+    access_scope="external_data_source",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -163,6 +167,7 @@ data_warehouse_tables: PostgresTable = PostgresTable(
 feature_flags: PostgresTable = PostgresTable(
     name="feature_flags",
     postgres_table_name="posthog_featureflag",
+    access_scope="feature_flag",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -218,6 +223,7 @@ insight_variables: PostgresTable = PostgresTable(
 surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
+    access_scope="survey",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -260,6 +266,7 @@ exports: PostgresTable = PostgresTable(
 actions: PostgresTable = PostgresTable(
     name="actions",
     postgres_table_name="posthog_action",
+    access_scope="action",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -273,9 +280,30 @@ actions: PostgresTable = PostgresTable(
     },
 )
 
+hog_flows: PostgresTable = PostgresTable(
+    name="hog_flows",
+    postgres_table_name="posthog_hogflow",
+    access_scope="hog_flow",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "status": StringDatabaseField(name="status"),
+        "version": IntegerDatabaseField(name="version"),
+        "exit_condition": StringDatabaseField(name="exit_condition"),
+        "trigger": StringJSONDatabaseField(name="trigger"),
+        "edges": StringJSONDatabaseField(name="edges"),
+        "actions": StringJSONDatabaseField(name="actions"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 notebooks: PostgresTable = PostgresTable(
     name="notebooks",
     postgres_table_name="posthog_notebook",
+    access_scope="notebook",
     fields={
         "id": StringDatabaseField(name="id"),
         "short_id": StringDatabaseField(name="short_id"),
@@ -295,6 +323,7 @@ notebooks: PostgresTable = PostgresTable(
 error_tracking_issues: PostgresTable = PostgresTable(
     name="error_tracking_issues",
     postgres_table_name="posthog_errortrackingissue",
+    access_scope="error_tracking",
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -321,6 +350,7 @@ class SystemTables(TableNode):
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
+        "hog_flows": TableNode(name="hog_flows", table=hog_flows),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),

@@ -160,6 +160,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `onboarding` - onboarding
  * `research` - research
  * `flags` - flags
+ * `llm_analytics` - llm_analytics
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -174,6 +175,7 @@ export const AgentModeEnumApi = {
     Onboarding: 'onboarding',
     Research: 'research',
     Flags: 'flags',
+    LlmAnalytics: 'llm_analytics',
 } as const
 
 /**
@@ -296,6 +298,8 @@ export const PriorityEnumApi = {
 export interface TicketAssignmentApi {
     readonly id: string
     readonly type: string
+    readonly user: string
+    readonly role: string
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
@@ -312,6 +316,9 @@ export interface TicketPersonApi {
     readonly is_identified: boolean
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
@@ -337,12 +344,15 @@ export interface TicketApi {
     readonly session_id: string | null
     readonly session_context: unknown
     /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
     readonly slack_channel_id: string | null
     /** @nullable */
     readonly slack_thread_ts: string | null
     /** @nullable */
     readonly slack_team_id: string | null
     readonly person: TicketPersonApi | null
+    tags?: unknown[]
 }
 
 export interface PaginatedTicketListApi {
@@ -354,6 +364,9 @@ export interface PaginatedTicketListApi {
     results: TicketApi[]
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
@@ -379,12 +392,24 @@ export interface PatchedTicketApi {
     readonly session_id?: string | null
     readonly session_context?: unknown
     /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
     readonly slack_channel_id?: string | null
     /** @nullable */
     readonly slack_thread_ts?: string | null
     /** @nullable */
     readonly slack_team_id?: string | null
     readonly person?: TicketPersonApi | null
+    tags?: unknown[]
+}
+
+export interface SuggestReplyResponseApi {
+    suggestion: string
+}
+
+export interface SuggestReplyErrorApi {
+    detail: string
+    error_type?: string
 }
 
 export type ConversationsListParams = {

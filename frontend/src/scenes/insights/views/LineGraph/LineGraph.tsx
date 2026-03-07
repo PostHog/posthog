@@ -30,16 +30,19 @@ import {
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -236,6 +239,7 @@ export interface LineGraphProps {
     isStacked?: boolean
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
+    datalabelFormatter?: (value: number, datasetIndex: number) => string
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -250,6 +254,7 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
  * Chart.js in log scale refuses to render points that are 0 - as log(0) is undefined - hence a special value for that case.
  */
 const LOG_ZERO = 1e-10
+const EMPTY_DATES: string[] = []
 
 export function LineGraph_({
     datasets: _datasets,
@@ -281,12 +286,14 @@ export function LineGraph_({
     isStacked = true,
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
+    datalabelFormatter,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
@@ -558,18 +565,14 @@ export function LineGraph_({
                 }
             }
             const hasAnyDottedDataset = processedDatasets.some((dataset) => dataset.dotted)
-            const datalabelTotalsByDatasetIndex = processedDatasets.map((dataset) => {
-                const totalResponses = (dataset as any).totalResponses
-                if (totalResponses !== undefined && totalResponses !== null) {
-                    return totalResponses
-                }
-                return Array.isArray(dataset.data)
+            const datalabelTotalsByDatasetIndex = processedDatasets.map((dataset) =>
+                Array.isArray(dataset.data)
                     ? dataset.data.reduce(
                           (sum: number, value: unknown) => sum + (typeof value === 'number' ? value : 0),
                           0
                       )
                     : 0
-            })
+            )
 
             const tickOptions: Partial<TickOptions> = {
                 color: colors.axisLabel as Color,
@@ -579,6 +582,14 @@ export function LineGraph_({
                     weight: 'normal',
                 },
             }
+            const xAxisTickCallback = featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN]
+                ? createXAxisTickCallback({
+                      interval: interval ?? 'day',
+                      allDays: filteredDatasets[0]?.days ?? [],
+                      timezone,
+                  })
+                : undefined
+
             const gridOptions: Partial<GridLineOptions> = {
                 color: (context) => {
                     if (goalLineValueSet.has(context.tick?.value) || showMultipleYAxes) {
@@ -629,16 +640,23 @@ export function LineGraph_({
                         },
                         display: (context) => {
                             const datum = context.dataset?.data[context.dataIndex]
-                            if (showValuesOnSeries && inSurveyView) {
-                                return true
+                            if (
+                                typeof datum === 'number' &&
+                                datum !== 0 &&
+                                (datalabelFormatter || (showValuesOnSeries && inSurveyView))
+                            ) {
+                                return 'auto'
                             }
                             return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0
                                 ? 'auto'
                                 : false
                         },
                         formatter: (value: number, context) => {
-                            if (value !== 0 && inSurveyView && showValuesOnSeries) {
-                                // Use totalResponses if provided (for per-respondent %), otherwise sum of values
+                            if (typeof value === 'number' && value !== 0 && datalabelFormatter) {
+                                return datalabelFormatter(value, context.datasetIndex)
+                            }
+
+                            if (typeof value === 'number' && value !== 0 && inSurveyView && showValuesOnSeries) {
                                 const total = datalabelTotalsByDatasetIndex[context.datasetIndex] ?? 1
                                 const percentage = ((value / total) * 100).toFixed(1)
                                 return `${value} (${percentage}%)`
@@ -659,6 +677,7 @@ export function LineGraph_({
                         borderWidth: 2,
                         borderRadius: 4,
                         borderColor: 'white',
+                        clamp: true,
                     },
                     legend: legend,
                     annotation: {
@@ -733,6 +752,17 @@ export function LineGraph_({
                                         dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
                                     )
                                 })
+                                const referenceSeriesDatum = seriesData.find(
+                                    (datum) =>
+                                        datum.datasetIndex === referenceDataPoint.datasetIndex &&
+                                        datum.dataIndex === referenceDataPoint.dataIndex
+                                )
+                                const {
+                                    getInspectLabel,
+                                    inspectLabel: staticInspectLabel,
+                                    ...tooltipProps
+                                } = tooltipConfig || {}
+                                const inspectLabel = getInspectLabel?.(referenceSeriesDatum) ?? staticInspectLabel
 
                                 tooltipRoot.render(
                                     <InsightTooltip
@@ -747,7 +777,7 @@ export function LineGraph_({
                                         breakdownFilter={breakdownFilter}
                                         interval={interval}
                                         dateRange={insightData?.resolved_date_range}
-                                        showShiftKeyHint={isBar && isStacked && !isHighlightBarMode}
+                                        showShiftKeyHint={isBar && isStacked && !isHighlightBarMode && !inSurveyView}
                                         renderSeries={(value, datum) => {
                                             const hasBreakdown =
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value
@@ -808,13 +838,15 @@ export function LineGraph_({
                                             })
                                         }
                                         hideInspectActorsSection={!onClick || !showPersonsModal}
-                                        {...tooltipConfig}
+                                        inspectLabel={inspectLabel}
+                                        {...tooltipProps}
                                         groupTypeLabel={
-                                            labelGroupType === 'people'
+                                            tooltipProps.groupTypeLabel ??
+                                            (labelGroupType === 'people'
                                                 ? 'people'
                                                 : labelGroupType === 'none'
                                                   ? ''
-                                                  : aggregationLabel(labelGroupType).plural
+                                                  : aggregationLabel(labelGroupType).plural)
                                         }
                                     />
                                 )
@@ -883,6 +915,9 @@ export function LineGraph_({
                         ticks: {
                             ...tickOptions,
                             precision,
+                            ...(!inSurveyView && xAxisTickCallback
+                                ? { callback: xAxisTickCallback, maxRotation: 0, autoSkipPadding: 20 }
+                                : {}),
                             ...(inSurveyView
                                 ? {
                                       padding: 10,
@@ -913,6 +948,8 @@ export function LineGraph_({
             } else if (type === GraphType.Line) {
                 if (hideXAxis || hideYAxis) {
                     options.layout = { padding: 20 }
+                } else if (showValuesOnSeries) {
+                    options.layout = { padding: { right: 30 } }
                 }
                 const allDatasetsHaveSingleDataPoint =
                     processedDatasets.length > 0 &&
@@ -922,7 +959,12 @@ export function LineGraph_({
                         display: !hideXAxis,
                         beginAtZero: true,
                         offset: allDatasetsHaveSingleDataPoint,
-                        ticks: tickOptions,
+                        ticks: {
+                            ...tickOptions,
+                            ...(xAxisTickCallback
+                                ? { callback: xAxisTickCallback, maxRotation: 0, autoSkipPadding: 20 }
+                                : {}),
+                        },
                         grid: {
                             ...gridOptions,
                             drawOnChartArea: false,
@@ -1057,6 +1099,8 @@ export function LineGraph_({
             hoveredDatasetIndex,
             setHoveredDatasetIndex,
             isHighlightBarMode,
+            interval,
+            timezone,
         ],
     })
 
@@ -1071,7 +1115,7 @@ export function LineGraph_({
             {showAnnotations && chartRef.current && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
                     chart={chartRef.current}
-                    dates={datasets[0]?.days || []}
+                    dates={datasets[0]?.days || EMPTY_DATES}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
                     insightNumericId={insight.id || 'new'}

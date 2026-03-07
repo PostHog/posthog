@@ -14,6 +14,7 @@ import {
     IconEye,
     IconFlask,
     IconHide,
+    IconLeave,
     IconLive,
     IconNight,
     IconPieChart,
@@ -52,7 +53,7 @@ import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
 import { ToolbarButton } from './ToolbarButton'
 
-const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
+const HELP_URL = 'https://posthog.com/docs/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 function EnabledStatusItem({ label, value }: { label: string; value: boolean }): JSX.Element {
     return (
@@ -218,6 +219,8 @@ function MoreMenu(): JSX.Element {
         startGracefulExit,
         openHedgehogOptions,
     } = useActions(toolbarLogic)
+    const { isAuthenticated } = useValues(toolbarConfigLogic)
+    const { logout } = useActions(toolbarConfigLogic)
     const { isTakingScreenshot } = useValues(screenshotUploadLogic)
     const { takeScreenshot } = useActions(screenshotUploadLogic)
 
@@ -291,6 +294,7 @@ function MoreMenu(): JSX.Element {
                                 window.open(HELP_URL, '_blank')?.focus()
                             },
                         },
+                        isAuthenticated ? { icon: <IconLeave />, label: 'Sign out', onClick: logout } : undefined,
                         { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
                     ].filter(Boolean) as LemonMenuItems
                 }

@@ -79,7 +79,7 @@ where
             OrChunkId::Both { inner, id } => (id, Some(inner)),
         };
 
-        let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &id).await? else {
+        let Some(mut record) = SymbolSetRecord::load(&self.pool, team_id, &id).await? else {
             counter!(CHUNK_ID_NOT_FOUND).increment(1);
             let Some(inner) = inner else {
                 return Err(FrameError::MissingChunkIdData(id).into());
@@ -99,17 +99,18 @@ where
             return Err(error.into());
         }
 
-        let Some(storage_ptr) = &record.storage_ptr else {
+        let Some(storage_ptr) = record.storage_ptr.clone() else {
             // It's never valid to have no failure reason and no storage pointer - if we hit this case, just panic
             error!("No storage pointer found for chunk id {}", id);
             panic!("No storage pointer found for chunk id {id}");
         };
 
-        match self.client.get(&self.bucket, storage_ptr).await {
+        record.set_last_used(&self.pool).await?;
+
+        match self.client.get(&self.bucket, &storage_ptr).await {
             Ok(Some(data)) => Ok(data),
             Ok(None) => {
                 // If the chunk ID points to a record that doesn't exist, delete the record and treat it as a frame error
-                let mut record = record;
                 record.delete(&self.pool).await?;
                 return Err(FrameError::MissingChunkIdData(record.set_ref).into());
             }

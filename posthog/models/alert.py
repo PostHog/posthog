@@ -8,11 +8,13 @@ from django.db import models
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
+    from posthog.models.user import User
 
 import pydantic
 
 from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
 
+from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
@@ -138,11 +140,30 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
         super().save(*args, **kwargs)
 
+    def _get_event_properties(self, additional_properties: dict | None = None) -> dict:
+        properties = {
+            "alert_id": self.id,
+            "alert_name": self.name,
+            "condition_type": self.condition.get("type") if self.condition else None,
+            "calculation_interval": self.calculation_interval,
+        }
+        if additional_properties:
+            properties.update(additional_properties)
+        return properties
+
+    def report_created(self, user: User, additional_properties: dict | None = None) -> None:
+        from posthog.event_usage import report_user_action
+
+        report_user_action(user, "alert created", self._get_event_properties(additional_properties))
+
+    def report_updated(self, user: User, additional_properties: dict | None = None) -> None:
+        from posthog.event_usage import report_user_action
+
+        report_user_action(user, "alert updated", self._get_event_properties(additional_properties))
+
     @classmethod
     def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
         """Return an error message if the team has reached its alert limit, else None."""
-        from posthog.constants import AvailableFeature
-
         alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
         existing_count = cls.objects.filter(team_id=team_id).count()
 

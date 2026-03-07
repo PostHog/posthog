@@ -3,13 +3,13 @@ import datetime
 from typing import Any
 
 import dagster
-import requests
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DATA_BACKFILL_SQL, EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.security.outbound_proxy import external_requests
 
 OPEN_EXCHANGE_RATES_API_BASE_URL = "https://openexchangerates.org/api"
 
@@ -64,7 +64,7 @@ def fetch_exchange_rates(
 
     # Make the API request
     context.log.info(f"Fetching exchange rates for {date_str} with params {params}")
-    response = requests.get(url, params=params)
+    response = external_requests.get(url, params=params)
 
     if response.status_code != 200:
         error_msg = f"Failed to fetch exchange rates: {response.status_code} - {response.text}"

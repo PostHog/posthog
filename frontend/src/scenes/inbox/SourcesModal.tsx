@@ -3,13 +3,13 @@ import { useActions, useValues } from 'kea'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { inboxSceneLogic } from './inboxSceneLogic'
 import { SessionAnalysisSetup } from './SessionAnalysisSetup'
+import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesList } from './SourcesList'
 
 export function SourcesModal(): JSX.Element {
-    const { sourcesModalOpen, sessionAnalysisSetupOpen } = useValues(inboxSceneLogic)
-    const { closeSourcesModal, closeSessionAnalysisSetup } = useActions(inboxSceneLogic)
+    const { sourcesModalOpen, sessionAnalysisSetupOpen } = useValues(signalSourcesLogic)
+    const { closeSourcesModal, closeSessionAnalysisSetup } = useActions(signalSourcesLogic)
 
     return (
         <LemonModal

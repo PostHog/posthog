@@ -4,11 +4,13 @@
  * Re-exports shared encryption types from session-replay/types.ts and adds
  * Recording API-specific types.
  */
-import { Hub } from '../../types'
+import { PluginsServerConfig } from '../../types'
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
+    DecryptResult,
     DeleteKeyResult,
+    EncryptResult,
     KeyStore,
     RecordingDecryptor,
     RecordingEncryptor,
@@ -19,11 +21,11 @@ export {
 } from '../shared/types'
 
 /**
- * Subset of Hub configuration required by the Recording API.
+ * Configuration for the Recording API.
+ * Postgres is passed as an explicit constructor param, not included here.
  */
-export type RecordingApiHub = Pick<
-    Hub,
-    | 'postgres'
+export type RecordingApiConfig = Pick<
+    PluginsServerConfig,
     | 'KAFKA_CLIENT_RACK'
     | 'REDIS_POOL_MIN_SIZE'
     | 'REDIS_POOL_MAX_SIZE'

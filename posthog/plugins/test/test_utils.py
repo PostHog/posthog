@@ -23,7 +23,7 @@ from .plugin_archives import (
 )
 
 
-@mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
+@mock.patch("posthog.plugins.utils.external_requests.get", side_effect=mocked_plugin_requests_get)
 class TestPluginsUtils(BaseTest):
     def test_parse_github_urls(self, mock_get):
         parsed_url = parse_url("https://github.com/PostHog/posthog")

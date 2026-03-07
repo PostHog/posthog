@@ -8,7 +8,7 @@ import {
     ReorderDashboardTilesSchema,
     UpdateDashboardInputSchema,
 } from './dashboards'
-import { ErrorDetailsSchema, ListErrorsSchema } from './errors'
+import { ErrorDetailsSchema, ListErrorsSchema, UpdateIssueStatusSchema } from './errors'
 import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
 import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
@@ -55,6 +55,8 @@ export const DocumentationSearchSchema = z.object({
 export const ErrorTrackingDetailsSchema = ErrorDetailsSchema
 
 export const ErrorTrackingListSchema = ListErrorsSchema
+
+export const ErrorTrackingUpdateIssueStatusSchema = UpdateIssueStatusSchema
 
 export const ExperimentGetAllSchema = z.object({
     data: z
@@ -145,7 +147,10 @@ export const ExperimentUpdateInputSchema = z.object({
 
     conclusion_comment: z.string().optional().describe('Comment about experiment conclusion'),
 
-    restart: z.boolean().optional().describe('Restart concluded experiment (clears end_date and conclusion)'),
+    restart: z
+        .boolean()
+        .optional()
+        .describe('Restart concluded experiment as draft (clears start_date, end_date, and conclusion)'),
 
     archive: z.boolean().optional().describe('Archive or unarchive experiment'),
 })
@@ -170,11 +175,6 @@ export const ExperimentCreateSchema = z.object({
         .describe(
             'Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name'
         ),
-
-    type: z
-        .enum(['product', 'web'])
-        .default('product')
-        .describe("Experiment type: 'product' for backend/API changes, 'web' for frontend UI changes"),
 
     // Primary metrics with guidance
     primary_metrics: z
@@ -269,7 +269,7 @@ export const ExperimentCreateSchema = z.object({
     filter_test_accounts: z.boolean().default(true).describe('Whether to filter out internal test accounts'),
 
     target_properties: z
-        .record(z.any())
+        .record(z.string(), z.any())
         .optional()
         .describe('Properties to target specific user segments (e.g., country, subscription type)'),
 
@@ -359,7 +359,7 @@ export const OrganizationGetDetailsSchema = z.object({})
 export const OrganizationGetAllSchema = z.object({})
 
 export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string().uuid(),
+    orgId: z.string(),
 })
 
 export const ProjectGetAllSchema = z.object({})
@@ -476,9 +476,38 @@ export const EntitySearchSchema = z.object({
         ),
 })
 
-// Demo MCP UI Apps
-export const DemoMcpUiAppsSchema = z.object({
-    message: z.string().optional().describe('Optional message to include in the demo data'),
+// Debug MCP UI Apps
+export const DebugMcpUiAppsSchema = z.object({
+    message: z.string().optional().describe('Optional message to include in the debug data'),
+})
+
+// Prompts
+export const PromptListSchema = z.object({
+    search: z.string().optional().describe('Filter prompts by name'),
+})
+
+const PromptNameSchema = z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]+$/, 'Name must only contain letters, numbers, hyphens, or underscores')
+
+export const PromptGetSchema = z.object({
+    name: PromptNameSchema.describe('The name of the prompt to retrieve'),
+    version: z.number().int().positive().optional().describe('Specific version number to retrieve. Omit for latest'),
+})
+
+export const PromptCreateSchema = z.object({
+    name: PromptNameSchema.describe('Unique name (letters, numbers, hyphens, underscores only)'),
+    prompt: z.any().describe('The prompt content (string or JSON object)'),
+})
+
+export const PromptUpdateSchema = z.object({
+    name: PromptNameSchema.describe('The name of the prompt to update'),
+    prompt: z.any().describe('The updated prompt content'),
+    base_version: z
+        .number()
+        .int()
+        .positive()
+        .describe('The version number you are basing this update on (for conflict detection)'),
 })
 
 // PostHog AI tools

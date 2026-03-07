@@ -11,7 +11,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.storage.recordings.errors import RecordingDeletedError
+from posthog.session_recordings.recordings.errors import RecordingDeletedError
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -84,10 +84,10 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
-    @patch("posthog.session_recordings.session_recording_api.encrypted_block_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     def test_blob_v2_with_blob_keys_works(
         self,
-        mock_encrypted_block_storage,
+        mock_recording_api_client,
         mock_list_blocks,
         mock_get_session_recording,
         _mock_exists,
@@ -110,7 +110,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
                 '{"timestamp": 2000, "type": "snapshot2"}',
             ]
         )
-        mock_encrypted_block_storage.return_value.__aenter__.return_value = mock_storage
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1"
 
@@ -325,7 +325,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         }
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.file_storage.file_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_s3_client.recording_s3_client")
     @patch(
         "posthog.session_recordings.session_recording_api.list_blocks",
         side_effect=Exception(
@@ -374,7 +374,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         )
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.file_storage.file_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_s3_client.recording_s3_client")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -420,7 +420,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             (False, "application/octet-stream", 0, 2),
         ]
     )
-    @patch("posthog.session_recordings.session_recording_api.encrypted_block_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -436,7 +436,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
         mock_list_blocks,
-        mock_encrypted_block_storage,
+        mock_recording_api_client,
     ) -> None:
         import snappy
 
@@ -458,7 +458,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage = MagicMock()
         mock_storage.fetch_decompressed_block = AsyncMock(side_effect=[test_data_1, test_data_2])
         mock_storage.fetch_compressed_block = AsyncMock(side_effect=[compressed_data_1, compressed_data_2])
-        mock_encrypted_block_storage.return_value.__aenter__.return_value = mock_storage
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
         decompress_param = f"&decompress={str(decompress).lower()}"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1{decompress_param}"
@@ -469,7 +469,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_storage.fetch_decompressed_block.call_count == expected_fetch_decompressed_block_calls
         assert mock_storage.fetch_compressed_block.call_count == expected_fetch_compressed_block_calls
 
-    @patch("posthog.session_recordings.session_recording_api.encrypted_block_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -481,7 +481,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
         mock_list_blocks,
-        mock_encrypted_block_storage,
+        mock_recording_api_client,
     ) -> None:
         session_id = str(uuid7())
 
@@ -493,7 +493,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage = MagicMock()
         mock_storage.fetch_decompressed_block = AsyncMock(return_value='{"timestamp": 1000, "type": "snapshot1"}')
         mock_storage.fetch_compressed_block = AsyncMock()
-        mock_encrypted_block_storage.return_value.__aenter__.return_value = mock_storage
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
 
@@ -503,7 +503,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_storage.fetch_decompressed_block.call_count == 1
         assert mock_storage.fetch_compressed_block.call_count == 0
 
-    @patch("posthog.session_recordings.session_recording_api.encrypted_block_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -515,7 +515,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
         mock_list_blocks,
-        mock_encrypted_block_storage,
+        mock_recording_api_client,
     ) -> None:
         import struct
 
@@ -543,7 +543,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage.fetch_compressed_block = AsyncMock(
             side_effect=[compressed_data_1, compressed_data_2, compressed_data_3]
         )
-        mock_encrypted_block_storage.return_value.__aenter__.return_value = mock_storage
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=2&decompress=false"
 
@@ -583,7 +583,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         assert offset == len(response_bytes)
 
-    # Tests for Recording API path (encrypted_block_storage)
+    # Tests for Recording API path (recording_api_client)
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -591,10 +591,10 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
-    @patch("posthog.session_recordings.session_recording_api.encrypted_block_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     def test_blob_v2_with_blob_keys_works_via_recording_api(
         self,
-        mock_encrypted_block_storage,
+        mock_recording_api_client,
         mock_list_blocks,
         mock_get_session_recording,
         _mock_exists,
@@ -617,7 +617,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
                 '{"timestamp": 2000, "type": "snapshot2"}',
             ]
         )
-        mock_encrypted_block_storage.return_value.__aenter__.return_value = mock_storage
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1"
 
@@ -636,7 +636,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             (False, "application/octet-stream", 0, 2),
         ]
     )
-    @patch("posthog.session_recordings.session_recording_api.encrypted_block_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -652,7 +652,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
         mock_list_blocks,
-        mock_encrypted_block_storage,
+        mock_recording_api_client,
     ) -> None:
         import snappy
 
@@ -674,7 +674,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage = MagicMock()
         mock_storage.fetch_decompressed_block = AsyncMock(side_effect=[test_data_1, test_data_2])
         mock_storage.fetch_compressed_block = AsyncMock(side_effect=[compressed_data_1, compressed_data_2])
-        mock_encrypted_block_storage.return_value.__aenter__.return_value = mock_storage
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
         decompress_param = f"&decompress={str(decompress).lower()}"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1{decompress_param}"
@@ -685,7 +685,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_storage.fetch_decompressed_block.call_count == expected_fetch_decompressed_block_calls
         assert mock_storage.fetch_compressed_block.call_count == expected_fetch_compressed_block_calls
 
-    @patch("posthog.session_recordings.session_recording_api.encrypted_block_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -697,7 +697,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
         mock_list_blocks,
-        mock_encrypted_block_storage,
+        mock_recording_api_client,
     ) -> None:
         session_id = str(uuid7())
 
@@ -709,7 +709,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage = MagicMock()
         mock_storage.fetch_decompressed_block = AsyncMock(return_value='{"timestamp": 1000, "type": "snapshot1"}')
         mock_storage.fetch_compressed_block = AsyncMock()
-        mock_encrypted_block_storage.return_value.__aenter__.return_value = mock_storage
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
 
@@ -719,7 +719,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_storage.fetch_decompressed_block.call_count == 1
         assert mock_storage.fetch_compressed_block.call_count == 0
 
-    @patch("posthog.session_recordings.session_recording_api.encrypted_block_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -731,7 +731,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
         mock_list_blocks,
-        mock_encrypted_block_storage,
+        mock_recording_api_client,
     ) -> None:
         import struct
 
@@ -759,7 +759,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage.fetch_compressed_block = AsyncMock(
             side_effect=[compressed_data_1, compressed_data_2, compressed_data_3]
         )
-        mock_encrypted_block_storage.return_value.__aenter__.return_value = mock_storage
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=2&decompress=false"
 
@@ -801,7 +801,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
     # Tests for 410 Gone response when recording is deleted
 
-    @patch("posthog.session_recordings.session_recording_api.encrypted_block_storage")
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -813,7 +813,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
         mock_list_blocks,
-        mock_encrypted_block_storage,
+        mock_recording_api_client,
     ):
         session_id = str(uuid7())
 
@@ -825,7 +825,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage.fetch_decompressed_block = AsyncMock(
             side_effect=RecordingDeletedError("recording deleted", deleted_at=1700000000)
         )
-        mock_encrypted_block_storage.return_value.__aenter__.return_value = mock_storage
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
         response = self.client.get(url)

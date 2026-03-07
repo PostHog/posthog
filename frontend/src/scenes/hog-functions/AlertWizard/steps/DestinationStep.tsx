@@ -33,29 +33,39 @@ export function DestinationStep(): JSX.Element {
                 ))}
             </div>
             {extraDestinations.length > 0 && (
-                <details>
-                    <summary className="cursor-pointer text-sm text-secondary hover:text-primary select-none">
-                        More destinations
-                    </summary>
-                    <div className="mt-3 space-y-2">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            {extraDestinations.map((destination: WizardDestination) => (
-                                <button
-                                    key={destination.key}
-                                    type="button"
-                                    onClick={() => setDestinationKey(destination.key)}
-                                    className="group flex cursor-pointer items-center gap-2 rounded-md border border-border bg-bg-light px-3 py-2 text-left transition-all duration-150 hover:border-border-bold hover:shadow-sm active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-                                >
-                                    <HogFunctionIcon src={destination.icon} size="small" />
-                                    <span className="text-sm font-medium truncate transition-colors group-hover:text-link">
-                                        {destination.name}
-                                    </span>
-                                </button>
-                            ))}
+                <>
+                    {extraDestinations.map(
+                        (destination: WizardDestination) =>
+                            destination.icon && (
+                                <img key={destination.key} src={destination.icon} className="hidden" aria-hidden />
+                            )
+                    )}
+                    <details>
+                        <summary className="cursor-pointer text-sm text-secondary hover:text-primary select-none">
+                            More destinations
+                        </summary>
+                        <div className="mt-3 space-y-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                {extraDestinations.map((destination: WizardDestination) => (
+                                    <button
+                                        key={destination.key}
+                                        type="button"
+                                        onClick={() => setDestinationKey(destination.key)}
+                                        className="group flex cursor-pointer items-center gap-2 rounded-md border border-border bg-bg-light px-3 py-2 text-left transition-all duration-150 hover:border-border-bold hover:shadow-sm active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                                    >
+                                        <HogFunctionIcon src={destination.icon} size="small" />
+                                        <span className="text-sm font-medium truncate transition-colors group-hover:text-link">
+                                            {destination.name}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="text-xs text-muted">
+                                More destinations are available in the traditional editor.
+                            </p>
                         </div>
-                        <p className="text-xs text-muted">More destinations are available in the traditional editor.</p>
-                    </div>
-                </details>
+                    </details>
+                </>
             )}
         </div>
     )

@@ -1,6 +1,8 @@
+import datetime as dt
 from typing import Any, Literal
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 
 from posthog.temporal.data_imports.pipelines.common.load import run_post_load_operations, supports_partial_data_loading
@@ -14,9 +16,18 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import
     is_batch_already_processed,
     mark_batch_as_processed,
 )
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    DELTA_ROWS_WRITTEN_TOTAL,
+    DELTA_WRITE_DURATION_SECONDS,
+    IDEMPOTENCY_HIT_TOTAL,
+    PARQUET_READ_DURATION_SECONDS,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
+from posthog.temporal.data_imports.row_tracking import finish_row_tracking
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.utils import get_machine_id
 
+from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
 from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
@@ -144,7 +155,12 @@ async def _handle_partial_data_loading(
 
 
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> None:
-    """Run post-load operations for a final batch whose data was already written to Delta Lake."""
+    """Run post-load operations for a final batch whose data was already written to Delta Lake.
+
+    The batch data (S3 read, partitioning, Delta Lake write) was already handled when
+    the batch was first processed with is_final_batch=False. We only need to run
+    post-load operations (compaction, S3 queryable folder prep, schema validation).
+    """
     job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
         id=export_signal.job_id
     )
@@ -164,11 +180,9 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         return
 
     pa_table = read_parquet(export_signal.s3_path)
-
-    pa_table = _apply_partitioning(export_signal, pa_table, delta_table, schema)
-
     internal_schema = HogQLSchema()
     internal_schema.add_pyarrow_table(pa_table)
+    table_schema_dict = internal_schema.to_hogql_types()
 
     async_to_sync(run_post_load_operations)(
         job=job,
@@ -177,7 +191,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         delta_table_helper=delta_table_helper,
         row_count=export_signal.total_rows or 0,
         file_uris=delta_table.file_uris(),
-        table_schema_dict=internal_schema.to_hogql_types(),
+        table_schema_dict=table_schema_dict,
         resource_name=export_signal.resource_name,
         logger=logger,
     )
@@ -185,137 +199,223 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     logger.debug("post_load_operations_complete_for_already_processed_batch")
 
 
+def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
+    job = update_external_job_status(
+        job_id=export_signal.job_id,
+        team_id=export_signal.team_id,
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+    )
+    job.finished_at = dt.datetime.now(dt.UTC)
+    job.save()
+
+    async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+
+    logger.info(
+        "job_marked_completed",
+        job_id=export_signal.job_id,
+        team_id=export_signal.team_id,
+        schema_id=export_signal.schema_id,
+    )
+
+
+def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
+    job = update_external_job_status(
+        job_id=export_signal.job_id,
+        team_id=export_signal.team_id,
+        status=ExternalDataJob.Status.FAILED,
+        latest_error=str(error),
+    )
+    job.finished_at = dt.datetime.now(dt.UTC)
+    job.save()
+
+    logger.info(
+        "job_marked_failed",
+        job_id=export_signal.job_id,
+        team_id=export_signal.team_id,
+        schema_id=export_signal.schema_id,
+        error=str(error),
+    )
+
+
 def process_message(message: Any) -> None:
     export_signal = ExportSignalMessage.from_dict(message)
 
-    already_processed = is_batch_already_processed(
-        export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
-    )
+    try:
+        team_id_str = str(export_signal.team_id)
+        schema_id_str = str(export_signal.schema_id)
 
-    if already_processed and not export_signal.is_final_batch:
-        logger.info(
-            "batch_already_processed",
-            team_id=export_signal.team_id,
-            schema_id=export_signal.schema_id,
-            run_uuid=export_signal.run_uuid,
-            batch_index=export_signal.batch_index,
+        already_processed = is_batch_already_processed(
+            export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
         )
-        return
 
-    if already_processed and export_signal.is_final_batch:
-        logger.info(
-            "batch_already_processed_running_post_load",
-            team_id=export_signal.team_id,
-            schema_id=export_signal.schema_id,
-            run_uuid=export_signal.run_uuid,
-            batch_index=export_signal.batch_index,
-        )
-        _run_post_load_for_already_processed_batch(export_signal)
-        return
+        if already_processed and not export_signal.is_final_batch:
+            IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc()
+            logger.info(
+                "batch_already_processed",
+                team_id=export_signal.team_id,
+                schema_id=export_signal.schema_id,
+                run_uuid=export_signal.run_uuid,
+                batch_index=export_signal.batch_index,
+            )
+            return
 
-    logger.debug(
-        "message_received",
-        team_id=export_signal.team_id,
-        schema_id=export_signal.schema_id,
-        resource_name=export_signal.resource_name,
-        batch_index=export_signal.batch_index,
-        is_final_batch=export_signal.is_final_batch,
-        row_count=export_signal.row_count,
-        s3_path=export_signal.s3_path,
-        sync_type=export_signal.sync_type,
-    )
+        if already_processed and export_signal.is_final_batch:
+            logger.info(
+                "batch_already_processed_running_post_load",
+                team_id=export_signal.team_id,
+                schema_id=export_signal.schema_id,
+                run_uuid=export_signal.run_uuid,
+                batch_index=export_signal.batch_index,
+            )
+            _run_post_load_for_already_processed_batch(export_signal)
+            _mark_job_completed(export_signal)
+            return
 
-    job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
-        id=export_signal.job_id
-    )
-    schema = job.schema
-    if schema is None:
-        raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
-
-    delta_table_helper = DeltaTableHelper(
-        resource_name=export_signal.resource_name,
-        job=job,
-        logger=logger,
-    )
-
-    pa_table = read_parquet(export_signal.s3_path)
-
-    logger.debug(
-        "parquet_file_read",
-        s3_path=export_signal.s3_path,
-        num_rows=pa_table.num_rows,
-        num_columns=pa_table.num_columns,
-        column_names=pa_table.column_names,
-    )
-
-    existing_delta_table = async_to_sync(delta_table_helper.get_delta_table)()
-
-    pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
-
-    # Capture file URIs before write for partial data loading
-    previous_file_uris = existing_delta_table.file_uris() if existing_delta_table else []
-
-    write_type = _get_write_type(export_signal.sync_type)
-    primary_keys = export_signal.primary_keys
-
-    # First batch should overwrite the table, but only if not resuming
-    should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume
-
-    logger.debug(
-        "writing_to_delta_lake",
-        write_type=write_type,
-        should_overwrite_table=should_overwrite_table,
-        primary_keys=primary_keys,
-        batch_index=export_signal.batch_index,
-    )
-
-    delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
-        data=pa_table,
-        write_type=write_type,
-        should_overwrite_table=should_overwrite_table,
-        primary_keys=primary_keys,
-    )
-
-    internal_schema = HogQLSchema()
-    internal_schema.add_pyarrow_table(pa_table)
-
-    logger.debug(
-        "batch_written_to_delta_lake",
-        batch_index=export_signal.batch_index,
-        file_count=len(delta_table.file_uris()),
-    )
-
-    # Handle partial data loading for first-ever sync
-    async_to_sync(_handle_partial_data_loading)(
-        export_signal=export_signal,
-        job=job,
-        schema=schema,
-        delta_table=delta_table,
-        previous_file_uris=previous_file_uris,
-        internal_schema=internal_schema,
-    )
-
-    if export_signal.is_final_batch:
         logger.debug(
-            "final_batch_received",
-            total_batches=export_signal.total_batches,
-            total_rows=export_signal.total_rows,
+            "message_received",
+            team_id=export_signal.team_id,
+            schema_id=export_signal.schema_id,
+            resource_name=export_signal.resource_name,
+            batch_index=export_signal.batch_index,
+            is_final_batch=export_signal.is_final_batch,
+            row_count=export_signal.row_count,
+            s3_path=export_signal.s3_path,
+            sync_type=export_signal.sync_type,
         )
 
-        async_to_sync(run_post_load_operations)(
+        job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
+            id=export_signal.job_id
+        )
+        schema = job.schema
+        if schema is None:
+            raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
+
+        delta_table_helper = DeltaTableHelper(
+            resource_name=export_signal.resource_name,
+            job=job,
+            logger=logger,
+            is_first_sync=export_signal.is_first_ever_sync,
+        )
+
+        with PARQUET_READ_DURATION_SECONDS.time():
+            pa_table = read_parquet(export_signal.s3_path)
+
+        logger.debug(
+            "parquet_file_read",
+            s3_path=export_signal.s3_path,
+            num_rows=pa_table.num_rows,
+            num_columns=pa_table.num_columns,
+            column_names=pa_table.column_names,
+        )
+
+        existing_delta_table = async_to_sync(delta_table_helper.get_delta_table)()
+
+        pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
+
+        # Capture file URIs before write for partial data loading
+        previous_file_uris = existing_delta_table.file_uris() if existing_delta_table else []
+
+        write_type = _get_write_type(export_signal.sync_type)
+        primary_keys = export_signal.primary_keys
+
+        # First batch should overwrite the table, but only if not resuming
+        should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume
+
+        logger.debug(
+            "writing_to_delta_lake",
+            write_type=write_type,
+            should_overwrite_table=should_overwrite_table,
+            primary_keys=primary_keys,
+            batch_index=export_signal.batch_index,
+        )
+
+        with DELTA_WRITE_DURATION_SECONDS.labels(
+            team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
+        ).time():
+            delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
+                data=pa_table,
+                write_type=write_type,
+                should_overwrite_table=should_overwrite_table,
+                primary_keys=primary_keys,
+            )
+
+        DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
+
+        internal_schema = HogQLSchema()
+        internal_schema.add_pyarrow_table(pa_table)
+
+        logger.debug(
+            "batch_written_to_delta_lake",
+            batch_index=export_signal.batch_index,
+            file_count=len(delta_table.file_uris()),
+        )
+
+        # Handle partial data loading for first-ever sync
+        async_to_sync(_handle_partial_data_loading)(
+            export_signal=export_signal,
             job=job,
             schema=schema,
-            source=schema.source,
-            delta_table_helper=delta_table_helper,
-            row_count=export_signal.total_rows or 0,
-            file_uris=delta_table.file_uris(),
-            table_schema_dict=internal_schema.to_hogql_types(),
-            resource_name=export_signal.resource_name,
-            logger=logger,
+            delta_table=delta_table,
+            previous_file_uris=previous_file_uris,
+            internal_schema=internal_schema,
         )
 
-        logger.debug("post_load_operations_complete")
+        if export_signal.is_final_batch:
+            logger.debug(
+                "final_batch_received",
+                total_batches=export_signal.total_batches,
+                total_rows=export_signal.total_rows,
+            )
 
-    mark_batch_as_processed(
-        export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
-    )
+            async_to_sync(run_post_load_operations)(
+                job=job,
+                schema=schema,
+                source=schema.source,
+                delta_table_helper=delta_table_helper,
+                row_count=export_signal.total_rows or 0,
+                file_uris=delta_table.file_uris(),
+                table_schema_dict=internal_schema.to_hogql_types(),
+                resource_name=export_signal.resource_name,
+                logger=logger,
+            )
+
+            _mark_job_completed(export_signal)
+
+            logger.debug("post_load_operations_complete")
+
+        mark_batch_as_processed(
+            export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
+        )
+
+        if export_signal.is_final_batch:
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_v3_load_completed",
+                properties={
+                    "team_id": export_signal.team_id,
+                    "schema_id": export_signal.schema_id,
+                    "source_id": export_signal.source_id,
+                    "resource_name": export_signal.resource_name,
+                    "sync_type": export_signal.sync_type,
+                    "total_batches": export_signal.total_batches,
+                    "total_rows": export_signal.total_rows,
+                },
+            )
+    except Exception as e:
+        posthoganalytics.capture(
+            distinct_id=get_machine_id(),
+            event="warehouse_v3_load_failed",
+            properties={
+                "team_id": export_signal.team_id,
+                "schema_id": export_signal.schema_id,
+                "source_id": export_signal.source_id,
+                "resource_name": export_signal.resource_name,
+                "sync_type": export_signal.sync_type,
+                "batch_index": export_signal.batch_index,
+                "error_type": type(e).__name__,
+                "error_message": str(e)[:1000],
+            },
+        )
+        _mark_job_failed(export_signal, e)
+        raise

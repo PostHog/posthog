@@ -169,96 +169,38 @@ describe('accessControlsLogic', () => {
 
         const projectLevels = [AccessControlLevel.None, AccessControlLevel.Member, AccessControlLevel.Admin]
 
-        describe('without min/max constraints', () => {
-            it('returns all levels with no disabled reasons', () => {
-                const result = getLevelOptionsForResource(resourceLevels)
-                expect(result.map((o) => o.value)).toEqual(resourceLevels)
-                expect(result.every((o) => o.disabledReason === undefined)).toBe(true)
-            })
-
-            it('works with project levels', () => {
-                const result = getLevelOptionsForResource(projectLevels)
-                expect(result.map((o) => o.value)).toEqual(projectLevels)
-            })
+        it('returns all levels as values', () => {
+            expect(getLevelOptionsForResource(resourceLevels).map((o) => o.value)).toEqual(resourceLevels)
+            expect(getLevelOptionsForResource(projectLevels).map((o) => o.value)).toEqual(projectLevels)
         })
 
-        describe('minimum constraint', () => {
-            it('disables levels below minimum', () => {
-                const result = getLevelOptionsForResource(resourceLevels, {
-                    minimum: AccessControlLevel.Viewer,
-                })
-
-                expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
-                    'Not available for this feature'
-                )
-                expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.disabledReason).toBeUndefined()
-                expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toBeUndefined()
-            })
-
-            it('uses custom disabledReason when provided', () => {
-                const result = getLevelOptionsForResource(resourceLevels, {
-                    minimum: AccessControlLevel.Viewer,
-                    disabledReason: 'Project default is Viewer',
-                })
-
-                expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
-                    'Project default is Viewer'
-                )
-            })
-
-            it('does nothing when minimum is null', () => {
-                const result = getLevelOptionsForResource(resourceLevels, { minimum: null })
-                expect(result.every((o) => o.disabledReason === undefined)).toBe(true)
-            })
+        it('returns no disabled reasons without options', () => {
+            expect(getLevelOptionsForResource(resourceLevels).every((o) => o.disabledReason === undefined)).toBe(true)
         })
 
-        describe('maximum constraint', () => {
-            it('disables levels above maximum', () => {
-                const result = getLevelOptionsForResource(resourceLevels, {
-                    maximum: AccessControlLevel.Editor,
-                })
-
-                expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toBeUndefined()
-                expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toBe(
-                    'Not available for this feature'
-                )
-            })
-
-            it('does nothing when maximum is null', () => {
-                const result = getLevelOptionsForResource(resourceLevels, { maximum: null })
-                expect(result.every((o) => o.disabledReason === undefined)).toBe(true)
-            })
+        it('formats None as "None" and capitalizes others', () => {
+            const result = getLevelOptionsForResource(resourceLevels)
+            expect(result.find((o) => o.value === AccessControlLevel.None)?.label).toBe('None')
+            expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.label).toBe('Viewer')
         })
 
-        describe('min and max together', () => {
-            it('disables levels outside the range', () => {
-                const result = getLevelOptionsForResource(resourceLevels, {
-                    minimum: AccessControlLevel.Viewer,
-                    maximum: AccessControlLevel.Editor,
-                })
-
-                expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
-                    'Not available for this feature'
-                )
-                expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.disabledReason).toBeUndefined()
-                expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toBeUndefined()
-                expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toBe(
-                    'Not available for this feature'
-                )
-            })
-        })
-
-        describe('label formatting', () => {
-            it('formats None level as "None"', () => {
-                const result = getLevelOptionsForResource([AccessControlLevel.None])
-                expect(result[0].label).toBe('None')
+        it('disables levels below minimum and above maximum', () => {
+            const result = getLevelOptionsForResource(resourceLevels, {
+                minimum: AccessControlLevel.Viewer,
+                maximum: AccessControlLevel.Editor,
+                inheritedLevel: null,
+                inheritedReason: null,
+                resourceLabel: 'Dashboards',
             })
 
-            it('capitalizes other level names', () => {
-                const result = getLevelOptionsForResource(resourceLevels)
-                expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.label).toBe('Viewer')
-                expect(result.find((o) => o.value === AccessControlLevel.Editor)?.label).toBe('Editor')
-            })
+            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
+                'Minimum level for Dashboards is Viewer'
+            )
+            expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.disabledReason).toBeUndefined()
+            expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toBeUndefined()
+            expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toBe(
+                'Maximum level for Dashboards is Editor'
+            )
         })
     })
 })

@@ -27,6 +27,7 @@ use crate::{
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use common_cache::NegativeCache;
 use common_database::Client;
 use common_geoip::GeoIpClient;
 use reqwest::header::CONTENT_TYPE;
@@ -192,13 +193,15 @@ async fn test_evaluate_feature_flags() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
-        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
 
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     assert!(!result.errors_while_computing_flags);
     assert!(result.flags.contains_key("test_flag"));
@@ -286,13 +289,15 @@ async fn test_evaluate_feature_flags_with_errors() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
-        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
 
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
     let error_flag = result.flags.get("error-flag");
     assert!(error_flag.is_some());
     assert_eq!(
@@ -694,12 +699,14 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
-        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     assert!(!result.errors_while_computing_flags);
     assert!(result.flags["flag_1"].enabled);
@@ -801,12 +808,14 @@ async fn test_evaluate_feature_flags_details() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
-        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     assert!(!result.errors_while_computing_flags);
 
@@ -960,12 +969,14 @@ async fn test_evaluate_feature_flags_with_overrides() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
-        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     assert!(
         result.flags.contains_key("test_flag"),
@@ -1054,12 +1065,14 @@ async fn test_long_distinct_id() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
-        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
-    let result = evaluate_feature_flags(evaluation_context, request_id).await;
+    let result = evaluate_feature_flags(evaluation_context, request_id)
+        .await
+        .unwrap();
 
     let legacy_response = LegacyFlagsResponse::from_response(result);
 
@@ -1189,6 +1202,7 @@ async fn test_fetch_and_filter_flags() {
         reader.clone(),
         team_hypercache_reader,
         hypercache_reader,
+        NegativeCache::new(100, 300),
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
@@ -1573,10 +1587,12 @@ async fn test_parallel_path_matches_sequential_results() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
-        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
     };
-    let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4()).await;
+    let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
+        .await
+        .unwrap();
 
     // Run parallel (threshold = 1, forces rayon+oneshot for any batch >= 1)
     let parallel_context = FeatureFlagEvaluationContext {
@@ -1596,10 +1612,12 @@ async fn test_parallel_path_matches_sequential_results() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 1,
-        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
     };
-    let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4()).await;
+    let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
+        .await
+        .unwrap();
 
     // Both paths should produce identical flag results
     assert_eq!(

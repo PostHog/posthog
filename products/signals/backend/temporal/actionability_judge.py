@@ -19,8 +19,20 @@ class ActionabilityChoice(str, Enum):
     NOT_ACTIONABLE = "not_actionable"
 
 
+class Priority(str, Enum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
+
 class ActionabilityJudgeResponse(BaseModel):
     choice: ActionabilityChoice = Field(description="The actionability judgment")
+    priority: Priority | None = Field(
+        default=None,
+        description="Task priority, only set when report is actionable",
+    )
     explanation: str = Field(
         description="3-6 sentence explanation of the decision",
     )
@@ -30,6 +42,16 @@ class ActionabilityJudgeResponse(BaseModel):
     def explanation_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("Explanation must not be empty")
+        return v
+
+    @field_validator("priority")
+    @classmethod
+    def priority_required_when_actionable(cls, v: Priority | None, info) -> Priority | None:
+        choice = info.data.get("choice")
+        if choice == ActionabilityChoice.NOT_ACTIONABLE:
+            return None
+        if v is None:
+            raise ValueError("Priority is required when choice != not_actionable")
         return v
 
 
@@ -70,8 +92,26 @@ You must classify the report into one of three categories:
 When in doubt between "immediately_actionable" and "requires_human_input", choose "immediately_actionable" - again, if the coding agent has _any_ unambiguous actions it can take immediately, it should.
 When in doubt between "requires_human_input" and "not_actionable", choose "not_actionable" - we want to filter out noise as much as possible.
 
+## Priority
+
+When the choice is NOT "not_actionable", you must also assign a priority from P0 to P4 indicating how important it is to execute on this report. Think of priority as urgency × impact.
+
+- "P0" — Critical, needs immediate attention. Something is utterly broken or causing significant harm right now.
+  Examples: production errors spiking, a core user flow is completely broken, data loss is occurring, a security vulnerability is exposed.
+- "P1" — High priority, should be addressed soon. Significant user-facing impact, but the situation is not an active emergency.
+  Examples: a feature is partially broken for a segment of users, an experiment shows a statistically significant regression, error rates have risen noticeably but the product is still usable.
+- "P2" — Medium priority, should be addressed in the normal course of work. Clear improvement opportunity or a real but contained issue.
+  Examples: a feature flag is ready for cleanup after a successful rollout, a UX problem is causing friction but has workarounds, a moderately impactful experiment result warrants a code change.
+- "P3" — Low priority, address when convenient. Minor improvement or a real but low-impact issue.
+  Examples: a small UI inconsistency, an experiment with marginal results that could still be worth rolling out, minor code cleanup suggested by usage patterns.
+- "P4" — Minimal priority, nice-to-have. The report is actionable but the impact of acting on it is very small.
+  Examples: cosmetic issues, negligible performance improvements, informational reports that suggest optional investigation.
+
+Do NOT set priority when the choice is "not_actionable".
+
 Respond with a JSON object:
 - "choice": one of "immediately_actionable", "requires_human_input", or "not_actionable"
+- "priority": one of "P0", "P1", "P2", "P3", or "P4" (only when choice is "immediately_actionable" or "requires_human_input", omit otherwise)
 - "explanation": a 3-6 sentence explanation of your reasoning (required for all choices).
 
 Return ONLY valid JSON, no other text. The first token of output must be {"""
@@ -125,6 +165,7 @@ class ActionabilityJudgeInput:
 @dataclass
 class ActionabilityJudgeOutput:
     choice: ActionabilityChoice
+    priority: Priority | None
     explanation: str
 
 
@@ -145,6 +186,7 @@ async def actionability_judge_activity(input: ActionabilityJudgeInput) -> Action
             content=json.dumps(
                 {
                     "choice": result.choice.value,
+                    "priority": result.priority.value if result.priority else None,
                     "explanation": result.explanation,
                 }
             ),
@@ -157,6 +199,7 @@ async def actionability_judge_activity(input: ActionabilityJudgeInput) -> Action
         )
         return ActionabilityJudgeOutput(
             choice=result.choice,
+            priority=result.priority,
             explanation=result.explanation,
         )
     except Exception as e:

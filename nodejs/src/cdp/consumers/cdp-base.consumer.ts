@@ -1,10 +1,14 @@
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2 } from '~/common/redis/redis-v2'
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
+import { HealthCheckResult, PluginServerService, PluginsServerConfig, TeamId } from '../../types'
+import { GeoIPService } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
+import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
+import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { CdpCoreServicesConfig, CdpCoreServicesDeps, createCdpCoreServices } from '../cdp-services'
 import { HogExecutorService } from '../services/hog-executor.service'
-import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -14,87 +18,29 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
-import { EmailService } from '../services/messaging/email.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
-import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 
-/**
- * Combined Hub type for CdpConsumerBase and all CDP consumers.
- * This includes all fields needed by the base consumer and its services.
- */
-export type CdpConsumerBaseHub = Pick<
-    Hub,
-    // Redis config
-    | 'REDIS_URL'
-    | 'REDIS_POOL_MIN_SIZE'
-    | 'REDIS_POOL_MAX_SIZE'
-    | 'CDP_REDIS_HOST'
-    | 'CDP_REDIS_PORT'
-    | 'CDP_REDIS_PASSWORD'
-    // KafkaProducerWrapper.create
-    | 'KAFKA_CLIENT_RACK'
-    // PersonsManagerService needs personRepository
-    | 'personRepository'
-    // QuotaLimiting
-    | 'quotaLimiting'
-    // CDP overflow queue
-    | 'CDP_OVERFLOW_QUEUE_ENABLED'
-    // LegacyPluginExecutorService
-    | 'postgres'
-    | 'geoipService'
-    // HogFlowManagerService
-    | 'pubSub'
-    // HogFunctionManagerService
-    | 'encryptedFields'
-    // HogFunctionMonitoringService
-    | 'teamManager'
-    | 'kafkaProducer'
-    | 'internalCaptureService'
-    | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
-    | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
-    // GroupsManagerService
-    | 'groupRepository'
-    // HogExecutorService
-    | 'integrationManager'
-    | 'ENCRYPTION_SALT_KEYS'
-    | 'SITE_URL'
-    | 'SES_ACCESS_KEY_ID'
-    | 'SES_SECRET_ACCESS_KEY'
-    | 'SES_REGION'
-    | 'SES_ENDPOINT'
-    | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
-    | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
-    | 'CDP_FETCH_RETRIES'
-    | 'CDP_FETCH_BACKOFF_BASE_MS'
-    | 'CDP_FETCH_BACKOFF_MAX_MS'
-    // HogWatcherService
-    | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
-    | 'CDP_WATCHER_HOG_COST_TIMING'
-    | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
-    | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
-    | 'CDP_WATCHER_ASYNC_COST_TIMING'
-    | 'CDP_WATCHER_SEND_EVENTS'
-    | 'CDP_WATCHER_BUCKET_SIZE'
-    | 'CDP_WATCHER_REFILL_RATE'
-    | 'CDP_WATCHER_TTL'
-    | 'CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS'
-    | 'CDP_WATCHER_THRESHOLD_DEGRADED'
-    | 'CDP_WATCHER_STATE_LOCK_TTL'
-    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
-    | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
->
+export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
+    Pick<PluginsServerConfig, 'KAFKA_CLIENT_RACK' | 'CDP_OVERFLOW_QUEUE_ENABLED'>
+
+export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
+    personRepository: PersonRepository
+    geoipService: GeoIPService
+    groupRepository: GroupRepository
+    quotaLimiting: QuotaLimiting
+}
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
     consoleLogIngestionEnabled: boolean
 }
 
-export abstract class CdpConsumerBase<THub extends CdpConsumerBaseHub = CdpConsumerBaseHub> {
+export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = CdpConsumerBaseConfig> {
     redis: RedisV2
     isStopping = false
 
@@ -122,98 +68,31 @@ export abstract class CdpConsumerBase<THub extends CdpConsumerBaseHub = CdpConsu
 
     protected heartbeat = () => {}
 
-    constructor(protected hub: THub) {
-        // CDP consumers use their own Redis instance with fallback to default
-        this.redis = createRedisV2PoolFromConfig({
-            connection: hub.CDP_REDIS_HOST
-                ? {
-                      url: hub.CDP_REDIS_HOST,
-                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                      name: 'cdp-redis',
-                  }
-                : { url: hub.REDIS_URL, name: 'cdp-redis-fallback' },
-            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-        })
-        this.hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
-        this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
-        this.hogWatcher = new HogWatcherService(
-            hub.teamManager,
-            {
-                hogCostTimingLowerMs: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                hogCostTiming: hub.CDP_WATCHER_HOG_COST_TIMING,
-                asyncCostTimingLowerMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
-                asyncCostTimingUpperMs: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
-                asyncCostTiming: hub.CDP_WATCHER_ASYNC_COST_TIMING,
-                sendEvents: hub.CDP_WATCHER_SEND_EVENTS,
-                bucketSize: hub.CDP_WATCHER_BUCKET_SIZE,
-                refillRate: hub.CDP_WATCHER_REFILL_RATE,
-                ttl: hub.CDP_WATCHER_TTL,
-                automaticallyDisableFunctions: hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS,
-                thresholdDegraded: hub.CDP_WATCHER_THRESHOLD_DEGRADED,
-                stateLockTtl: hub.CDP_WATCHER_STATE_LOCK_TTL,
-                observeResultsBufferTimeMs: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
-                observeResultsBufferMaxResults: hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
-            },
-            this.redis
-        )
-        this.hogMasker = new HogMaskerService(this.redis)
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        const emailService = new EmailService(
-            {
-                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                sesRegion: hub.SES_REGION,
-                sesEndpoint: hub.SES_ENDPOINT,
-            },
-            hub.integrationManager,
-            hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
-        )
-        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        this.hogExecutor = new HogExecutorService(
-            {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                fetchRetries: hub.CDP_FETCH_RETRIES,
-                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-            },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService
-        )
-        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub.postgres)
-        this.hogFlowFunctionsService = new HogFlowFunctionsService(
-            this.hub.SITE_URL,
-            this.hogFunctionTemplateManager,
-            this.hogExecutor
-        )
+    constructor(
+        protected config: TConfig,
+        protected deps: CdpConsumerBaseDeps
+    ) {
+        const services = createCdpCoreServices(config, deps)
 
-        this.recipientsManager = new RecipientsManagerService(this.hub.postgres)
-        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
-        this.hogFlowExecutor = new HogFlowExecutorService(
-            this.hogFlowFunctionsService,
-            this.recipientPreferencesService
-        )
+        this.redis = services.redis
+        this.hogFunctionManager = services.hogFunctionManager
+        this.hogFlowManager = services.hogFlowManager
+        this.hogWatcher = services.hogWatcher
+        this.hogExecutor = services.hogExecutor
+        this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
+        this.hogFlowFunctionsService = services.hogFlowFunctionsService
+        this.recipientsManager = services.recipientsManager
+        this.recipientPreferencesService = services.recipientPreferencesService
+        this.hogFlowExecutor = services.hogFlowExecutor
+        this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
+        this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
 
-        this.personsManager = new PersonsManagerService(this.hub.personRepository)
-        this.groupsManager = new GroupsManagerService(this.hub.teamManager, this.hub.groupRepository)
-        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(
-            this.hub.kafkaProducer,
-            this.hub.internalCaptureService,
-            this.hub.teamManager,
-            this.hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-            this.hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
-        )
-        this.pluginDestinationExecutorService = new LegacyPluginExecutorService(
-            this.hub.postgres,
-            this.hub.geoipService
-        )
-        this.nativeDestinationExecutorService = new NativeDestinationExecutorService(this.hub)
-        this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(this.hub)
+        // Base-only services
+        this.hogMasker = new HogMaskerService(services.redis)
+        this.personsManager = new PersonsManagerService(deps.personRepository)
+        this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
+        this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     }
 
     public get service(): PluginServerService {
@@ -236,7 +115,7 @@ export abstract class CdpConsumerBase<THub extends CdpConsumerBaseHub = CdpConsu
     public async start(): Promise<void> {
         // NOTE: This is only for starting shared services
         await Promise.all([
-            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK).then((producer) => {
+            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
         ])

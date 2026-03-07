@@ -96,6 +96,7 @@ describe('Query Integration Tests', () => {
             dashboards: [],
             surveys: [],
             actions: [],
+            cohorts: [],
         }
     })
 

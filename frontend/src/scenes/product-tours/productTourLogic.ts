@@ -388,6 +388,15 @@ export const productTourLogic = kea<productTourLogicType>([
                     }
                 }
 
+                const waitPeriod = content.conditions?.seenTourWaitPeriod
+                if (waitPeriod) {
+                    if (!waitPeriod.types || waitPeriod.types.length === 0) {
+                        errors._form = 'Wait period requires at least one type selected'
+                    } else if (!waitPeriod.days || waitPeriod.days < 1) {
+                        errors._form = 'Wait period requires a number of days'
+                    }
+                }
+
                 return errors
             },
             submit: async (formValues: ProductTourForm) => {
@@ -577,8 +586,13 @@ export const productTourLogic = kea<productTourLogicType>([
 
                 const formValues = tourToFormValues(productTour)
                 const incomingPayload = buildDraftPayload(formValues)
-                const isOwnEcho = values.isEditingProductTour && isEqual(incomingPayload, cache.lastDraftPayload)
-                if (!isOwnEcho) {
+                const hasUnsavedLocalChanges =
+                    values.draftSaveStatus === 'unsaved' || values.draftSaveStatus === 'saving'
+                const isOwnEcho =
+                    values.isEditingProductTour &&
+                    isEqual(incomingPayload, cache.lastSentDraftPayload ?? cache.lastDraftPayload)
+
+                if (!isOwnEcho && !hasUnsavedLocalChanges) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     ;(actions.setProductTourFormValues as any)(formValues)
                     cache.lastDraftPayload = incomingPayload
@@ -617,8 +631,10 @@ export const productTourLogic = kea<productTourLogicType>([
             await breakpoint(1000)
             if (values.isEditingProductTour && values.productTourForm.name && props.id && props.id !== 'new') {
                 actions.setDraftSaveStatus('saving')
+                const payload = buildDraftPayload(values.productTourForm)
+                cache.lastSentDraftPayload = payload
                 try {
-                    await api.productTours.saveDraft(props.id, buildDraftPayload(values.productTourForm))
+                    await api.productTours.saveDraft(props.id, payload)
                     actions.setDraftSaveStatus('saved')
                 } finally {
                     actions.setDraftActionInProgress(null)

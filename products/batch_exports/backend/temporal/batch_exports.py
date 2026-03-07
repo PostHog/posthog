@@ -16,7 +16,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
+from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BackfillDetails,
     BatchExportField,
@@ -24,10 +24,8 @@ from posthog.batch_exports.service import (
     acount_failed_batch_export_runs,
     apause_batch_export,
     cancel_running_batch_export_backfill,
-    create_batch_export_backfill,
     create_batch_export_run,
     running_backfills_for_batch_export,
-    update_batch_export_backfill_status,
     update_batch_export_run,
 )
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -795,85 +793,6 @@ async def cancel_running_backfills(batch_export_id: str) -> int:
         total_cancelled += 1
 
     return total_cancelled
-
-
-@dataclasses.dataclass
-class CreateBatchExportBackfillInputs:
-    team_id: int
-    batch_export_id: str
-    start_at: str | None
-    end_at: str | None
-    status: str
-
-
-@activity.defn
-async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillInputs) -> str:
-    """Activity that creates an BatchExportBackfill.
-
-    Intended to be used in all batch export backfill workflows, usually at the start, to create a
-    model instance to represent them in our database.
-    """
-    bind_contextvars(
-        team_id=inputs.team_id,
-        batch_export_id=inputs.batch_export_id,
-        status=inputs.status,
-        start_at=inputs.start_at,
-        end_at=inputs.end_at,
-    )
-    logger = LOGGER.bind()
-
-    logger.info(
-        "Creating historical export for batches in range %s - %s",
-        inputs.start_at,
-        inputs.end_at,
-    )
-    backfill = await database_sync_to_async(create_batch_export_backfill)(
-        batch_export_id=uuid.UUID(inputs.batch_export_id),
-        start_at=inputs.start_at,
-        end_at=inputs.end_at,
-        status=inputs.status,
-        team_id=inputs.team_id,
-    )
-
-    return str(backfill.id)
-
-
-@dataclasses.dataclass
-class UpdateBatchExportBackfillStatusInputs:
-    """Inputs to the update_batch_export_backfill_status activity."""
-
-    id: str
-    status: str
-
-
-@activity.defn
-async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
-    """Activity that updates the status of an BatchExportBackfill."""
-    bind_contextvars(
-        id=inputs.id,
-        status=inputs.status,
-    )
-    logger = LOGGER.bind()
-
-    backfill = await database_sync_to_async(update_batch_export_backfill_status)(
-        backfill_id=uuid.UUID(inputs.id),
-        status=inputs.status,
-        # we currently only call this once the backfill is finished, so we can set the finished_at here
-        finished_at=dt.datetime.now(dt.UTC),
-    )
-
-    if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
-        logger.error("Historical export failed")
-
-    elif backfill.status == BatchExportBackfill.Status.CANCELLED:
-        logger.warning("Historical export was cancelled.")
-
-    else:
-        logger.info(
-            "Successfully finished exporting historical batches in %s - %s",
-            backfill.start_at,
-            backfill.end_at,
-        )
 
 
 BatchExportActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResult]]

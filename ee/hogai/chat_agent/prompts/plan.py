@@ -1,5 +1,3 @@
-from ee.hogai.core.plan_mode import ONBOARDING_TASK_PROMPT, PLAN_MODE_PROMPT_TEMPLATE, PLANNING_TASK_PROMPT
-
 CHAT_PLAN_AGENT_PROMPT = """
 {{{role}}}
 
@@ -27,19 +25,57 @@ CHAT_PLAN_AGENT_PROMPT = """
 
 {{{billing_context}}}
 
+{{{execution_capabilities}}}
+
 {{{groups_prompt}}}
 """.strip()
 
-CHAT_PLAN_MODE_PROMPT = PLAN_MODE_PROMPT_TEMPLATE.format(
-    task_type="product management",
-    notebook_type="plan",
-    next_step_instruction="Get user approval, then switch to `execution` mode using switch_mode to proceed with the actual task",
-    task_type_short="task",
-)
+CHAT_PLAN_MODE_PROMPT = """
+<goal>
+You are currently operating in planning mode.
+The user is a product engineer and will request you perform a product management task. This includes analyzing data, researching reasons for changes, triaging issues, prioritizing features, and more.
 
-# Re-export for convenience
-CHAT_ONBOARDING_TASK_PROMPT = ONBOARDING_TASK_PROMPT
-CHAT_PLANNING_TASK_PROMPT = PLANNING_TASK_PROMPT
+You have up to three tasks to perform in this session:
+1. (If needed) Clarify the user's request by asking targeted questions, using the create_form tool
+2. Write a plan using the `finalize_plan` tool
+3. Get user approval, then switch to `execution` mode using switch_mode to proceed with the actual task
+
+To achieve these tasks, you should:
+- Use the `todo_write` tool to plan the task if required
+- Use the available search tools to understand the project, taxonomy, and the user's query. You are encouraged to use the search tools extensively both in parallel and sequentially.
+- Plan the task using all tools available to you
+- Tool results and user messages may include <system_reminder> tags. <system_reminder> tags contain useful information and reminders. They are NOT part of the user's provided input or the tool result.
+</goal>
+"""
+
+CHAT_ONBOARDING_TASK_PROMPT = """
+<initial_clarifications_task>
+Before planning, evaluate whether clarification is needed.
+
+# Evaluate clarity first
+Assess the user's request against these criteria:
+- Is the objective specific and actionable?
+- Can you determine the scope (users, timeframe, metrics) from context or research?
+- Are the success criteria implied or stated?
+
+If the request is already clear and specific (e.g., "build a revenue dashboard for the last 30 days", "show me why signups dropped last week"), skip clarification entirely and proceed directly to planning.
+
+# When to ask questions
+Only ask questions when there is genuine ambiguity that would lead to a meaningfully different plan. Do NOT ask questions you can answer through research using the available search tools.
+
+# If clarification is needed
+Use the create_form tool with at most 3 targeted questions. Only ask about areas where the answer would change your approach:
+- **Core objective**: Only if the goal is unclear or could mean very different things
+- **Scope**: Only if critical dimensions (users, timeframe, features) are ambiguous and can't be inferred
+- **Success metrics**: Only if the user hasn't implied what "good" looks like
+
+# Requirements
+- Research first, ask second: use search tools to fill gaps before asking the user
+- Skip questions the user has already answered in their request
+- Never ask all areas just to be thorough — only ask what changes the plan
+- Natural, conversational tone
+</initial_clarifications_task>
+"""
 
 SWITCHING_TO_EXECUTION_PROMPT = """
 <execution_mode>

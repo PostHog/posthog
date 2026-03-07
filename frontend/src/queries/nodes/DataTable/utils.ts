@@ -19,7 +19,7 @@ export const defaultDataTablePersonColumns: HogQLExpression[] = [
     'last_seen_at',
 ]
 
-export const defaultDataTableGroupColumns: HogQLExpression[] = ['group_name', 'key', 'created_at']
+export const defaultDataTableGroupColumns: HogQLExpression[] = ['group_name', 'created_at']
 
 export const defaultDataTableSessionColumns: HogQLExpression[] = [
     'session_id',

@@ -40,33 +40,36 @@ class AnthropicConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
         "claude-opus-4-5",
-        "claude-sonnet-4-5",
         "claude-haiku-4-5",
+        "claude-sonnet-4-5",
         "claude-opus-4-1",
         "claude-opus-4-0",
         "claude-sonnet-4-0",
-        "claude-3-7-sonnet-latest",
     ]
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
         "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-opus-4-5",
         "claude-opus-4-1",
-        "claude-sonnet-4-0",
         "claude-opus-4-0",
-        "claude-3-7-sonnet-latest",
+        "claude-sonnet-4-0",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
         "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-opus-4-5",
         "claude-opus-4-1",
-        "claude-sonnet-4-0",
         "claude-opus-4-0",
-        "claude-3-7-sonnet-latest",
+        "claude-sonnet-4-0",
     ]
 
 
@@ -308,9 +311,31 @@ class AnthropicAdapter:
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
+    def recommended_models() -> set[str]:
+        return set(AnthropicConfig.SUPPORTED_MODELS)
+
+    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
-        """List available Anthropic models."""
-        return AnthropicConfig.SUPPORTED_MODELS
+        """List available Anthropic models.
+
+        Without a key, returns the curated SUPPORTED_MODELS list.
+        With a key, returns SUPPORTED_MODELS first, then remaining Claude models
+        from the API sorted by creation date (newest first).
+        """
+        if not api_key:
+            return AnthropicConfig.SUPPORTED_MODELS
+
+        supported = set(AnthropicConfig.SUPPORTED_MODELS)
+        try:
+            client = anthropic.Anthropic(api_key=api_key, timeout=AnthropicConfig.TIMEOUT)
+            api_models = client.models.list(limit=1000)
+            filtered = [m for m in api_models.data if m.id not in supported and m.id.startswith("claude-")]
+            filtered.sort(key=lambda m: m.created_at, reverse=True)
+            other = [m.id for m in filtered]
+            return list(AnthropicConfig.SUPPORTED_MODELS) + other
+        except Exception:
+            logger.exception("Error fetching Anthropic models from API")
+            return AnthropicConfig.SUPPORTED_MODELS
 
     @staticmethod
     def get_api_key() -> str:

@@ -104,11 +104,15 @@ export function HogFunctionList({
     extraControls,
     hideFeedback = false,
     emptyText,
+    onDeleteHogFunction,
+    onEditHogFunction,
     ...props
 }: HogFunctionListLogicProps & {
     extraControls?: JSX.Element
     hideFeedback?: boolean
     emptyText?: string
+    onDeleteHogFunction?: (hogFunction: HogFunctionType) => void
+    onEditHogFunction?: (hogFunction: HogFunctionType) => void
 }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
@@ -148,6 +152,7 @@ export function HogFunctionList({
                     return (
                         <LemonTableLink
                             to={urlForHogFunction(hogFunction)}
+                            onClick={onEditHogFunction ? () => onEditHogFunction(hogFunction) : undefined}
                             title={
                                 <>
                                     <Tooltip title="Click to update configuration, view metrics, and more">
@@ -258,7 +263,10 @@ export function HogFunctionList({
                                                   {
                                                       label: 'Delete',
                                                       status: 'danger' as const, // for typechecker happiness
-                                                      onClick: () => deleteHogFunction(hogFunction),
+                                                      onClick: () => {
+                                                          onDeleteHogFunction?.(hogFunction)
+                                                          deleteHogFunction(hogFunction)
+                                                      },
                                                   },
                                               ]
                                     }
@@ -292,7 +300,15 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        props.type,
+        humanizedType,
+        toggleEnabled,
+        deleteHogFunction,
+        isManualFunction,
+        onDeleteHogFunction,
+        onEditHogFunction,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-col gap-4">

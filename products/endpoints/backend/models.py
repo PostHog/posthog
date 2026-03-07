@@ -128,6 +128,11 @@ class EndpointVersion(models.Model):
         blank=True,
         help_text="SELECT column names and types. Null means not yet computed; empty list means no columns found.",
     )
+    bucket_overrides = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Per-column bucket function overrides for range variable materialization. E.g. {'timestamp': 'toStartOfHour'}",
+    )
 
     class Meta:
         db_table = "endpoints_endpointversion"

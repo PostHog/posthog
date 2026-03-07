@@ -42,27 +42,36 @@ class OpenAIConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "gpt-5.2-pro",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5-pro",
+        "gpt-5-nano",
+        "gpt-5-mini",
+        "gpt-5",
+        "o3-pro",
+        "gpt-4.1-nano",
+        "gpt-4.1-mini",
+        "gpt-4.1",
+        "o4-mini",
+        "o3",
+        "o1-pro",
+        "o3-mini",
+    ]
+
+    SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "gpt-5.2-pro",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5-pro",
         "gpt-5-nano",
         "gpt-5-mini",
         "gpt-5",
         "o3-pro",
         "o4-mini",
-        "gpt-4.1",
-        "gpt-4.1-mini",
-        "gpt-4.1-nano",
         "o3",
+        "o1-pro",
         "o3-mini",
-        "gpt-4o-mini",
-        "gpt-4o",
-    ]
-
-    SUPPORTED_MODELS_WITH_THINKING: list[str] = [
-        "o3",
-        "o3-pro",
-        "o4-mini",
-        "o3-mini",
-        "gpt-5",
-        "gpt-5-mini",
     ]
 
 
@@ -340,12 +349,16 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
+    def recommended_models() -> set[str]:
+        return set(OpenAIConfig.SUPPORTED_MODELS)
+
+    @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
         """List available OpenAI models.
 
         Without a key, returns the curated SUPPORTED_MODELS list.
         With a key, returns SUPPORTED_MODELS first, then remaining chat-capable
-        models from the API sorted alphabetically.
+        models from the API sorted by creation date (newest first).
         """
         if not api_key:
             return OpenAIConfig.SUPPORTED_MODELS
@@ -354,11 +367,13 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         try:
             client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
             api_models = client.models.list()
-            other = sorted(
-                m.id
+            filtered = [
+                m
                 for m in api_models
                 if m.id not in supported and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
-            )
+            ]
+            filtered.sort(key=lambda m: m.created, reverse=True)
+            other = [m.id for m in filtered]
             return list(OpenAIConfig.SUPPORTED_MODELS) + other
         except Exception:
             logger.exception("Error fetching OpenAI models from API")

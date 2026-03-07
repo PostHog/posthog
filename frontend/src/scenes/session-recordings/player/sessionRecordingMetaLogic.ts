@@ -51,6 +51,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                     'isLoadingSnapshots',
                     'isRecordingDeleted',
                     'recordingDeletedAt',
+                    'recordingDeletedBy',
                 ],
                 registryLogic,
                 ['uuidToIndex', 'getWindowId'],
