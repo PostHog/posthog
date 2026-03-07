@@ -131,7 +131,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             assert repository is not None
             emit_agent_log(ctx.run_id, "info", f"Cloning {repository} into sandbox")
             with StepTimer("repository_clone", used_snapshot=used_snapshot):
-                clone_result = sandbox.clone_repository(repository, github_token=github_token)
+                clone_result = sandbox.clone_repository(ctx.repository, github_token=github_token, branch=ctx.branch)
             if clone_result.exit_code != 0:
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {repository}: {clone_result.stderr}")

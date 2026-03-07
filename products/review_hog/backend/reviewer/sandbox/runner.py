@@ -58,8 +58,7 @@ async def run_review(prompt: str, branch: str = "master") -> tuple[str, str]:
 
     Returns (last_agent_message, full_log_content).
     """
-    full_description = _build_description(prompt, branch)
-    task, task_run = await _create_task_and_trigger(full_description)
+    task, task_run = await _create_task_and_trigger(prompt, branch)
     logger.info("review_hog: started task=%s run=%s", task.id, task_run.id)
     final_status, last_message, full_log = await _poll_until_done(task_run)
     logger.info("review_hog: finished run=%s status=%s", task_run.id, final_status)
@@ -68,17 +67,7 @@ async def run_review(prompt: str, branch: str = "master") -> tuple[str, str]:
     return last_message, full_log or ""
 
 
-def _build_description(prompt: str, branch: str) -> str:
-    if branch and branch != "master":
-        return (
-            f"First, in the repository at /tmp/workspace/repos/posthog/posthog, "
-            f"run: git fetch origin {branch} && git checkout {branch}\n\n"
-            f"Then:\n\n{prompt}"
-        )
-    return prompt
-
-
-async def _create_task_and_trigger(description: str):
+async def _create_task_and_trigger(description: str, branch: str = "master"):
     from products.tasks.backend.models import Task
     from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -95,6 +84,10 @@ async def _create_task_and_trigger(description: str):
     )
 
     task_run = await sync_to_async(task.create_run)(mode="background")
+
+    if branch and branch != "master":
+        task_run.branch = branch
+        await sync_to_async(task_run.save)(update_fields=["branch"])
 
     await sync_to_async(execute_task_processing_workflow)(
         task_id=str(task.id),
