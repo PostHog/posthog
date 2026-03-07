@@ -320,6 +320,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let force_overflow = metadata.force_overflow;
         let skip_person_processing = metadata.skip_person_processing;
         let redirect_to_dlq = metadata.redirect_to_dlq;
+        let redirect_to_topic = metadata.redirect_to_topic;
 
         // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
@@ -349,6 +350,13 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             );
 
             (&self.topics.dlq_topic, Some(event_key.as_str()))
+        } else if let Some(ref topic) = redirect_to_topic {
+            counter!(
+                "capture_events_rerouted_custom_topic",
+                &[("reason", "event_restriction")]
+            )
+            .increment(1);
+            (topic.as_str(), Some(event_key.as_str()))
         } else {
             match data_type {
                 DataType::AnalyticsHistorical => {
@@ -610,6 +618,7 @@ mod tests {
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,
+            redirect_to_topic: None,
         };
 
         let event = ProcessedEvent {
@@ -888,6 +897,7 @@ mod tests {
             force_overflow: bool,
             skip_person_processing: bool,
             redirect_to_dlq: bool,
+            redirect_to_topic: Option<String>,
         }
 
         fn create_test_event(input: &EventInput) -> ProcessedEvent {
@@ -914,6 +924,7 @@ mod tests {
                 force_overflow: input.force_overflow,
                 skip_person_processing: input.skip_person_processing,
                 redirect_to_dlq: input.redirect_to_dlq,
+                redirect_to_topic: input.redirect_to_topic.clone(),
             };
 
             ProcessedEvent { event, metadata }
@@ -974,6 +985,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -992,6 +1004,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
@@ -1011,6 +1024,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
@@ -1030,6 +1044,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -1048,6 +1063,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1067,6 +1083,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1085,6 +1102,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1104,6 +1122,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1125,6 +1144,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
@@ -1144,6 +1164,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
@@ -1162,6 +1183,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
@@ -1180,6 +1202,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1199,6 +1222,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1219,6 +1243,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -1237,6 +1262,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
@@ -1256,6 +1282,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
@@ -1274,6 +1301,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
@@ -1292,6 +1320,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1310,6 +1339,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1331,6 +1361,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
@@ -1349,6 +1380,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
@@ -1367,6 +1399,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
@@ -1385,6 +1418,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1406,6 +1440,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: EXCEPTIONS_TOPIC,
@@ -1424,6 +1459,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: EXCEPTIONS_TOPIC,
@@ -1442,6 +1478,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: EXCEPTIONS_TOPIC,
@@ -1460,6 +1497,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
@@ -1481,6 +1519,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
@@ -1499,6 +1538,7 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
@@ -1517,6 +1557,7 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
@@ -1535,9 +1576,108 @@ mod tests {
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
+                    redirect_to_topic: None,
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        // ==================== RedirectToTopic ====================
+        // redirect_to_topic overrides normal routing but DLQ takes priority
+
+        #[tokio::test]
+        async fn analytics_main_redirect_to_topic() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_dlq_priority_over_redirect_to_topic() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: DLQ_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_redirect_to_topic_priority_over_overflow() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_redirect_to_topic_with_skip_person() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: Some(true),
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn snapshot_redirect_to_topic() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
                     has_key: true,
                     force_disable_person_processing: None,
                 },
@@ -1560,6 +1700,7 @@ mod tests {
                 force_overflow: false,
                 skip_person_processing: false,
                 redirect_to_dlq: true,
+                redirect_to_topic: None,
             });
             sink.send(event).await.unwrap();
 
@@ -1591,6 +1732,7 @@ mod tests {
                 force_overflow: false,
                 skip_person_processing: false,
                 redirect_to_dlq: false,
+                redirect_to_topic: None,
             });
             sink.send(event).await.unwrap();
 
@@ -1616,6 +1758,7 @@ mod tests {
                 force_overflow: false,
                 skip_person_processing: false,
                 redirect_to_dlq: false,
+                redirect_to_topic: None,
             });
             sink.send(event).await.unwrap();
 
@@ -1635,6 +1778,7 @@ mod tests {
                 force_overflow: false,
                 skip_person_processing: false,
                 redirect_to_dlq: true,
+                redirect_to_topic: None,
             });
             sink.send(event).await.unwrap();
 

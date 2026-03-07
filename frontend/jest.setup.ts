@@ -19,6 +19,9 @@ if (typeof AbortSignal.timeout !== 'function') {
         setTimeout(() => controller.abort(new DOMException('TimeoutError', 'TimeoutError')), ms)
         return controller.signal
     }
+// Base UI's ScrollArea calls getAnimations() which jsdom doesn't support
+if (typeof Element.prototype.getAnimations !== 'function') {
+    Element.prototype.getAnimations = () => []
 }
 
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it

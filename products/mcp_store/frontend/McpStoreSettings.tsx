@@ -207,7 +207,7 @@ export function McpStoreSettings(): JSX.Element {
             {recommendedServers.length > 0 && (
                 <>
                     <div className="flex-col items-center justify-between mt-4 mb-2">
-                        <h3 className="mb-4">Recommended servers</h3>
+                        <h3 className="mb-4">Pre-configured servers</h3>
                         <LemonInput
                             type="search"
                             placeholder="Search MCP servers..."
