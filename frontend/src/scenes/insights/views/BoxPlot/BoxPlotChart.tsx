@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import 'scenes/insights/InsightTooltip/InsightTooltip.scss'
 import { Chart, ChartConfiguration, ChartEvent } from 'lib/Chart'
@@ -249,18 +249,26 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
         ],
     })
 
+    const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null)
+    const canvasCallbackRef = useCallback(
+        (node: HTMLCanvasElement | null) => {
+            canvasRef.current = node
+            setCanvasEl(node)
+        },
+        [canvasRef]
+    )
+
     useEffect(() => {
-        const canvas = canvasRef.current
-        if (!canvas) {
+        if (!canvasEl) {
             return
         }
         const onMouseLeave = (): void => {
             activeIndexRef.current = null
             hideTooltip()
         }
-        canvas.addEventListener('mouseleave', onMouseLeave)
-        return () => canvas.removeEventListener('mouseleave', onMouseLeave)
-    }, [hideTooltip, canvasRef.current])
+        canvasEl.addEventListener('mouseleave', onMouseLeave)
+        return () => canvasEl.removeEventListener('mouseleave', onMouseLeave)
+    }, [hideTooltip, canvasEl])
 
     if (!boxplotData || boxplotData.length === 0) {
         return <div className="flex items-center justify-center h-full text-muted">No data for this time range</div>
@@ -268,7 +276,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
 
     return (
         <div className="TrendsInsight w-full h-full" data-attr="box-plot-graph">
-            <canvas ref={canvasRef} />
+            <canvas ref={canvasCallbackRef} />
         </div>
     )
 }
