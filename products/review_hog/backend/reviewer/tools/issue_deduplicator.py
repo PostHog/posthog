@@ -162,6 +162,7 @@ IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema.""
             branch=branch,
             output_path=output_path,
             model_to_validate=IssueDeduplication,
+            step_name="dedup",
         )
         if not success:
             logger.error("Failed to run issue deduplication")

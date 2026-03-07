@@ -172,6 +172,7 @@ IMPORTANT: Return ONLY valid JSON output without any markdown formatting or expl
             branch=branch,
             output_path=str(output_path),
             model_to_validate=ChunkAnalysis,
+            step_name=f"chunk-analysis-{chunk_id}",
         )
         if not success:
             logger.error(f"Failed to analyze chunk {chunk_id} using sandbox")

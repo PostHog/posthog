@@ -289,6 +289,7 @@ async def process_chunk(
             branch=branch,
             output_path=str(output_path),
             model_to_validate=IssuesReview,
+            step_name=f"issues-review-{chunk_id}",
         )
         if not success:
             logger.error(f"Failed to review chunk {chunk_id} using sandbox")
