@@ -26,7 +26,6 @@ import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
@@ -67,7 +66,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
-        logic: [cohortsModel, propertyDefinitionsModel],
+        logic: [cohortsModel],
     })),
 
     actions({

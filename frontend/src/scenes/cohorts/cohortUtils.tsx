@@ -362,11 +362,6 @@ export function validateGroup(
                             PropertyFilterType.Person
                         )
 
-                        // Force mount and get property definitions
-                        if (!propertyDefinitionsModel.isMounted()) {
-                            propertyDefinitionsModel.mount()
-                        }
-
                         const { describeProperty } = propertyDefinitionsModel.values
                         if (
                             describeProperty &&
