@@ -47,6 +47,7 @@ export interface PropertyValueProps {
     preloadValues?: boolean
     forceSingleSelect?: boolean
     validationError?: string | null
+    showInlineValidationErrors?: boolean
 }
 
 export function PropertyValue({
@@ -67,6 +68,7 @@ export function PropertyValue({
     preloadValues = false,
     forceSingleSelect = false,
     validationError = null,
+    showInlineValidationErrors = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -393,7 +395,7 @@ export function PropertyValue({
                     }
                 })}
             />
-            {validationError && (
+            {showInlineValidationErrors && validationError && (
                 <div className="text-danger flex items-center gap-1 text-sm mt-1">
                     <IconErrorOutline className="text-xl shrink-0" /> {validationError}
                 </div>

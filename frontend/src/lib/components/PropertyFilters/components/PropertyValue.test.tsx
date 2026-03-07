@@ -18,7 +18,6 @@ jest.mock('lib/components/AutoSizer', () => ({
 
 describe('PropertyValue', () => {
     let loadPropertyValuesSpy: jest.SpyInstance
-    let describePropertySpy: jest.SpyInstance
 
     beforeEach(() => {
         useMocks({
@@ -40,9 +39,6 @@ describe('PropertyValue', () => {
 
     afterEach(() => {
         cleanup()
-        if (describePropertySpy) {
-            describePropertySpy.mockRestore()
-        }
     })
 
     it('does not re-fetch property values when selecting a value from the dropdown', async () => {
@@ -79,19 +75,24 @@ describe('PropertyValue', () => {
         expect(loadPropertyValuesSpy.mock.calls.length).toBe(callCountAfterLoad)
     })
 
-    it('input transform filters non-numeric characters for numeric properties', () => {
-        // Test the input transform logic directly
-        const numericInputTransform = (input: string): string => input.replace(/[^0-9+\-.]/g, '')
+    it('renders with showInlineValidationErrors prop', () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="test_prop"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                    validationError="Test validation error"
+                    showInlineValidationErrors
+                />
+            </Provider>
+        )
 
-        // Test cases for numeric input transformation
-        expect(numericInputTransform('123.45')).toBe('123.45')
-        expect(numericInputTransform('abc123def')).toBe('123')
-        expect(numericInputTransform('a1b2c3.d4e5f')).toBe('123.45')
-        expect(numericInputTransform('-123.45')).toBe('-123.45')
-        expect(numericInputTransform('+987.65')).toBe('+987.65')
-        expect(numericInputTransform('!@#$%^&*()')).toBe('')
-        expect(numericInputTransform('abc')).toBe('')
-        expect(numericInputTransform('12.34.56')).toBe('12.34.56') // Multiple dots allowed by basic filter
+        // Check that the error message is displayed when showInlineValidationErrors is true
+        expect(screen.getByText('Test validation error')).toBeInTheDocument()
     })
 
     it('displays validation error messages', async () => {
@@ -105,6 +106,7 @@ describe('PropertyValue', () => {
                     onSet={onSet}
                     value={[]}
                     validationError="This is a test error"
+                    showInlineValidationErrors
                 />
             </Provider>
         )

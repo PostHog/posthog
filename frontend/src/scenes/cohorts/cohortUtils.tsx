@@ -356,25 +356,37 @@ export function validateGroup(
                     }
 
                     // Add numeric validation for person property values
-                    if (fieldKey === 'value_property' && 'key' in c && 'type' in c && c.type === 'person') {
+                    if (
+                        fieldKey === 'value_property' &&
+                        'key' in c &&
+                        'type' in c &&
+                        c.type === BehavioralFilterKey.Person
+                    ) {
                         const propertyKey = c.key as string
                         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(
                             PropertyFilterType.Person
                         )
 
-                        const { describeProperty } = propertyDefinitionsModel.values
+                        const mountedModel = propertyDefinitionsModel.findMounted()
                         if (
-                            describeProperty &&
-                            describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+                            mountedModel &&
+                            mountedModel.values.describeProperty &&
+                            mountedModel.values.describeProperty(propertyKey, propertyDefinitionType) ===
+                                PropertyType.Numeric
                         ) {
                             const values = Array.isArray(fieldValue) ? fieldValue : [fieldValue]
                             const invalidValues = values.filter((val) => {
                                 const strVal = String(val).trim()
-                                return strVal !== '' && !/^[+-]?(\d+\.?|\d*\.\d+)$/.test(strVal)
+                                // Empty values are considered valid (handled by required field validation)
+                                if (strVal === '') {
+                                    return false
+                                }
+                                // Strict numeric validation: allow optional sign, digits with optional single decimal point
+                                return !/^[+-]?(\d+\.?|\d*\.\d+)$/.test(strVal)
                             })
 
                             if (invalidValues.length > 0) {
-                                return [fieldKey, 'Please enter valid numeric values only']
+                                return [fieldKey, CohortClientErrors.InvalidNumericPersonPropertyValue]
                             }
                         }
                     }
