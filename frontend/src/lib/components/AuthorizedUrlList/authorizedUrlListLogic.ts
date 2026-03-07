@@ -189,13 +189,27 @@ export function directToolbarUrl(
     return `${appUrl}#__posthog=${state}`
 }
 
+/** Treat www.domain.com and domain.com as equivalent. */
+const stripWww = (host: string): string => (host.startsWith('www.') ? host.slice(4) : host)
+
 export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]): boolean => {
     try {
         const parsedUrl = typeof url === 'string' ? sanitizePossibleWildCardedURL(url) : url
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
-        // Is this domain already in the list of urls?
-        const exactMatch =
-            authorizedUrls.filter((authorizedUrl) => authorizedUrl.indexOf(urlWithoutPath) > -1).length > 0
+        const hostNormalized = stripWww(parsedUrl.hostname)
+
+        const exactMatch = authorizedUrls.some((authorizedUrl) => {
+            if (authorizedUrl.indexOf(urlWithoutPath) > -1) {
+                return true
+            }
+            // www-equivalence: compare hostnames with www. stripped
+            try {
+                const authorizedHost = sanitizePossibleWildCardedURL(authorizedUrl).hostname
+                return stripWww(authorizedHost) === hostNormalized
+            } catch {
+                return false
+            }
+        })
 
         if (exactMatch) {
             return true
