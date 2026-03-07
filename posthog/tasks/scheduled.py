@@ -252,9 +252,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=30 * 60,
     )
 
-    # Flag definitions cache verification - split into two staggered tasks (one per variant)
-    # so each gets its own time budget and they can run in parallel when workers are available.
-    # Minute 10 reduces overlap with team_metadata verification at minute 20.
+    # Verify flag definitions cache without cohorts - hourly at minute 10
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="*", minute="10"),
@@ -262,7 +260,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="verify and fix flag definitions cache (without cohorts)",
     )
 
-    # Flag definitions cache verification (with cohorts) - kept at minute 50 (original schedule).
+    # Flag definitions cache verification (with cohorts) - hourly at minute 50
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="*", minute="50"),
