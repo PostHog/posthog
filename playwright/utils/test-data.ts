@@ -119,3 +119,96 @@ export const customEventsWithBreakdown = {
         firefoxAmountSum: '-15',
     },
 }
+/**
+ * Stickiness-specific pageview data: 10 users with known day-activity patterns.
+ *
+ * - 1 "power user" (sticky-power-0): active on 5 distinct days → Day 5 bucket
+ * - 3 "regular users" (sticky-regular-0..2): active on 3 distinct days → Day 3 bucket
+ * - 6 "casual users" (sticky-casual-0..5): active on 1 day only → Day 1 bucket
+ *
+ * Expected stickiness distribution (10 total unique users):
+ *   Day 1: 60% (6), Day 3: 30% (3), Day 5: 10% (1), all others: 0% (0)
+ */
+const stickyPowerUser = (): string => 'sticky-power-0'
+const stickyRegularUser = (n: number): string => `sticky-regular-${n}`
+const stickyCasualUser = (n: number): string => `sticky-casual-${n}`
+
+export const stickinessPageviews = {
+    events: [
+        // Power user: active on 5 distinct days (daysAgo 0-4)
+        ...createEvent({ event: '$pageview', user: stickyPowerUser, timestamp: daysAgo(0) }).repeat(1),
+        ...createEvent({ event: '$pageview', user: stickyPowerUser, timestamp: daysAgo(1) }).repeat(1),
+        ...createEvent({ event: '$pageview', user: stickyPowerUser, timestamp: daysAgo(2) }).repeat(1),
+        ...createEvent({ event: '$pageview', user: stickyPowerUser, timestamp: daysAgo(3) }).repeat(1),
+        ...createEvent({ event: '$pageview', user: stickyPowerUser, timestamp: daysAgo(4) }).repeat(1),
+        // Regular users (3): active on 3 distinct days (daysAgo 0, 2, 4)
+        ...createEvent({ event: '$pageview', user: stickyRegularUser, timestamp: daysAgo(0) }).repeat(3),
+        ...createEvent({ event: '$pageview', user: stickyRegularUser, timestamp: daysAgo(2) }).repeat(3),
+        ...createEvent({ event: '$pageview', user: stickyRegularUser, timestamp: daysAgo(4) }).repeat(3),
+        // Casual users (6): active on 1 day only (daysAgo 1)
+        ...createEvent({ event: '$pageview', user: stickyCasualUser, timestamp: daysAgo(1) }).repeat(6),
+    ],
+    expected: {
+        day1Percent: '60.0%',
+        day1Count: '(6)',
+        day3Percent: '30.0%',
+        day3Count: '(3)',
+        day5Percent: '10.0%',
+        day5Count: '(1)',
+        zeroPercent: '0.0%',
+        zeroCount: '(0)',
+    },
+}
+
+/**
+ * Stickiness custom events with browser breakdown.
+ *
+ * - 2 Chrome users (sticky-chrome-0..1): active on 3 days → Day 3
+ * - 3 Firefox users (sticky-firefox-0..2): active on 1 day → Day 1
+ *
+ * Without breakdown (5 total):
+ *   Day 1: 60% (3), Day 3: 40% (2)
+ * With breakdown by $browser:
+ *   Chrome: Day 3 = 100% (2)
+ *   Firefox: Day 1 = 100% (3)
+ */
+const stickyChromeUser = (n: number): string => `sticky-chrome-${n}`
+const stickyFirefoxUser = (n: number): string => `sticky-firefox-${n}`
+
+export const stickinessWithBreakdown = {
+    eventName: 'sticky_test_event',
+    events: [
+        // Chrome users (2): active on 3 distinct days (daysAgo 0, 2, 4)
+        ...createEvent({
+            event: 'sticky_test_event',
+            user: stickyChromeUser,
+            timestamp: daysAgo(0),
+            properties: { $browser: 'Chrome' },
+        }).repeat(2),
+        ...createEvent({
+            event: 'sticky_test_event',
+            user: stickyChromeUser,
+            timestamp: daysAgo(2),
+            properties: { $browser: 'Chrome' },
+        }).repeat(2),
+        ...createEvent({
+            event: 'sticky_test_event',
+            user: stickyChromeUser,
+            timestamp: daysAgo(4),
+            properties: { $browser: 'Chrome' },
+        }).repeat(2),
+        // Firefox users (3): active on 1 day only (daysAgo 1)
+        ...createEvent({
+            event: 'sticky_test_event',
+            user: stickyFirefoxUser,
+            timestamp: daysAgo(1),
+            properties: { $browser: 'Firefox' },
+        }).repeat(3),
+    ],
+    expected: {
+        totalDay1Percent: '60.0%',
+        totalDay1Count: '(3)',
+        totalDay3Percent: '40.0%',
+        totalDay3Count: '(2)',
+    },
+}
