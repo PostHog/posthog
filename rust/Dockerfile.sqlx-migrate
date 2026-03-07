@@ -32,4 +32,7 @@ RUN chmod +x /migrations/bin/migrate-entry && \
     chmod +x /migrations/bin/migrate-cyclotron && \
     chmod +x /migrations/bin/migrate-behavioral-cohorts
 
+RUN useradd --system --no-create-home --uid 1000 migrator
+USER migrator
+
 ENTRYPOINT ["/migrations/bin/migrate-entry"]

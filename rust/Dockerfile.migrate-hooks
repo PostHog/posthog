@@ -6,10 +6,13 @@ RUN cargo install sqlx-cli@0.8.3 --locked --no-default-features --features nativ
 FROM debian:bookworm-20241223-slim AS runtime
 WORKDIR /sqlx
 
-RUN apt update && apt install libssl-dev -y && apt clean
+RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev && rm -rf /var/lib/apt/lists/*
 COPY bin /sqlx/bin/
 COPY migrations /sqlx/migrations/
 
 COPY --from=builder /app/target/release/bin/sqlx /usr/local/bin
+
+RUN useradd --system --no-create-home --uid 1000 migrator
+USER migrator
 
 CMD [ "sh", "-c", "sqlx database create && sqlx migrate run" ]
