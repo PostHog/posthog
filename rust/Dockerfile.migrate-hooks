@@ -12,7 +12,7 @@ COPY migrations /sqlx/migrations/
 
 COPY --from=builder /app/target/release/bin/sqlx /usr/local/bin
 
-RUN useradd --system --no-create-home --uid 1000 migrator
+RUN useradd --no-create-home --uid 1000 --user-group migrator
 USER migrator
 
 CMD [ "sh", "-c", "sqlx database create && sqlx migrate run" ]
