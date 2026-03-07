@@ -119,6 +119,7 @@ export const customEventsWithBreakdown = {
         firefoxAmountSum: '-15',
     },
 }
+
 /**
  * Stickiness-specific pageview data: 10 users with known day-activity patterns.
  *
@@ -205,5 +206,94 @@ export const stickinessWithBreakdown = {
         day1: { users: 3, percent: 60 },
         day2: { users: 0, percent: 0 },
         day3: { users: 2, percent: 40 },
+    },
+}
+
+/**
+ * Pageview events with different URLs to produce paths data.
+ * 8 users land on /, all 8 go to /docs, 5 continue to /pricing, 3 to /signup.
+ * Each step is offset by 1 minute so the paths query sees sequential events.
+ */
+const pathUser = (n: number): string => `path-user-${n}`
+
+function minutesAfterDaysAgo(days: number, minutes: number): string {
+    const date = new Date()
+    date.setUTCDate(date.getUTCDate() - days)
+    date.setUTCHours(0, minutes, 0, 0)
+    return date.toISOString()
+}
+
+export const pathPageviews = {
+    events: [
+        // Step 1: 8 users land on /
+        ...createEvent({
+            event: '$pageview',
+            user: pathUser,
+            timestamp: () => minutesAfterDaysAgo(2, 0),
+            properties: { $current_url: 'https://example.com/' },
+        }).repeat(8),
+        // Step 2: same 8 users visit /docs
+        ...createEvent({
+            event: '$pageview',
+            user: pathUser,
+            timestamp: () => minutesAfterDaysAgo(2, 1),
+            properties: { $current_url: 'https://example.com/docs' },
+        }).repeat(8),
+        // Step 3: 5 of those users visit /pricing
+        ...createEvent({
+            event: '$pageview',
+            user: pathUser,
+            timestamp: () => minutesAfterDaysAgo(2, 2),
+            properties: { $current_url: 'https://example.com/pricing' },
+        }).repeat(5),
+        // Step 4: 3 of those users visit /signup
+        ...createEvent({
+            event: '$pageview',
+            user: pathUser,
+            timestamp: () => minutesAfterDaysAgo(2, 3),
+            properties: { $current_url: 'https://example.com/signup' },
+        }).repeat(3),
+    ],
+    expected: {
+        nodes: [
+            { name: '/', count: 8 },
+            { name: '/docs', count: 8 },
+            { name: '/pricing', count: 5 },
+            { name: '/signup', count: 3 },
+        ],
+    },
+}
+/**
+ * Custom events for paths: button_click → form_submit → checkout.
+ * Uses separate users (ce-user-*) so pageview events don't interfere.
+ * 7 users do button_click → form_submit, 4 continue to checkout.
+ * Paths only shows users with at least 2 events (a connected path).
+ */
+const ceUser = (n: number): string => `ce-user-${n}`
+
+export const pathCustomEvents = {
+    events: [
+        ...createEvent({
+            event: 'button_click',
+            user: ceUser,
+            timestamp: () => minutesAfterDaysAgo(2, 10),
+        }).repeat(7),
+        ...createEvent({
+            event: 'form_submit',
+            user: ceUser,
+            timestamp: () => minutesAfterDaysAgo(2, 11),
+        }).repeat(7),
+        ...createEvent({
+            event: 'checkout',
+            user: ceUser,
+            timestamp: () => minutesAfterDaysAgo(2, 12),
+        }).repeat(4),
+    ],
+    expected: {
+        nodes: [
+            { name: 'button_click', count: 7 },
+            { name: 'form_submit', count: 7 },
+            { name: 'checkout', count: 4 },
+        ],
     },
 }
