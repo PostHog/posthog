@@ -100,10 +100,11 @@ def _compute_evaluation_info(flags_data: list[dict]) -> dict[str, bool]:
             requires_experience_continuity = True
 
         if not requires_person_properties:
-            requires_person_properties = any(
+            # Super groups always contain person properties ($feature_enrollment/{key}),
+            # so their presence alone is sufficient.
+            requires_person_properties = bool(filters.get("super_groups")) or any(
                 prop.get("type") in person_property_types
-                for group_key in ("groups", "super_groups")
-                for group in (filters.get(group_key) or [])
+                for group in (filters.get("groups") or [])
                 if group.get("rollout_percentage") != 0
                 for prop in (group.get("properties") or [])
             )
