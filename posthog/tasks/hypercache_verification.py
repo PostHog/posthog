@@ -40,7 +40,7 @@ LOCK_TIMEOUT_SECONDS = 25 * 60  # 25 minutes
 
 # Flag definitions verification lock timeout matches time_limit (30 min) to ensure
 # the lock expires before the next scheduled run if a task crashes without executing
-# its finally block. Each variant runs hourly (with-cohorts at minute 10, without-cohorts
+# its finally block. Each variant runs hourly (without-cohorts at minute 10, with-cohorts
 # at minute 50), so a 30-minute lock expiry guarantees at most 1 run is skipped after a crash.
 FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 
@@ -198,7 +198,7 @@ def verify_and_fix_flag_definitions_cache_task(self: PushGatewayTask) -> None:
     """
     Periodic task to verify the flag definitions (with-cohorts) HyperCache and fix issues.
 
-    Runs hourly at minute 10. Verifies all teams' flag definitions cache entries
+    Runs hourly at minute 50. Verifies all teams' flag definitions cache entries
     that include cohort data, fixing cache misses, mismatches, or expiry tracking issues.
 
     Uses a per-variant distributed lock to skip execution if a previous run is still in progress.
@@ -224,7 +224,7 @@ def verify_and_fix_flag_definitions_without_cohorts_cache_task(self: PushGateway
     """
     Periodic task to verify the flag definitions (without-cohorts) HyperCache and fix issues.
 
-    Runs hourly at minute 50. Verifies all teams' flag definitions cache entries
+    Runs hourly at minute 10. Verifies all teams' flag definitions cache entries
     that exclude cohort data, fixing cache misses, mismatches, or expiry tracking issues.
 
     Uses a per-variant distributed lock to skip execution if a previous run is still in progress.
