@@ -6,9 +6,11 @@ from posthog.models.organization import OrganizationMembership
 
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.access_control_service import (
+    get_resource_name,
     grant_access,
     list_grants,
     resolve_member_by_email,
+    resolve_resource_by_name,
     resolve_role_by_name,
     revoke_access,
     validate_access_level,
@@ -160,3 +162,56 @@ class TestAccessControlService(APIBaseTest):
         grants = list(list_grants(team=self.team, role=self.role))
         assert len(grants) == 1
         assert grants[0].role_id == self.role.id
+
+    def test_resolve_resource_by_name_insight(self):
+        from posthog.models import Insight
+
+        insight = Insight.objects.create(team=self.team, name="My Funnel")
+        result = resolve_resource_by_name(self.team, "insight", "My Funnel")
+        assert result == str(insight.id)
+
+    def test_resolve_resource_by_name_dashboard(self):
+        from posthog.models import Dashboard
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Marketing")
+        result = resolve_resource_by_name(self.team, "dashboard", "Marketing")
+        assert result == str(dashboard.id)
+
+    def test_resolve_resource_by_name_feature_flag(self):
+        from posthog.models.feature_flag import FeatureFlag
+
+        flag = FeatureFlag.objects.create(team=self.team, key="my-flag", created_by=self.user)
+        result = resolve_resource_by_name(self.team, "feature_flag", "my-flag")
+        assert result == str(flag.id)
+
+    def test_resolve_resource_by_name_not_found(self):
+        with self.assertRaises(ValueError, msg="not found"):
+            resolve_resource_by_name(self.team, "insight", "Nonexistent")
+
+    def test_resolve_resource_by_name_ambiguous(self):
+        from posthog.models import Insight
+
+        Insight.objects.create(team=self.team, name="Duplicate")
+        Insight.objects.create(team=self.team, name="Duplicate")
+
+        with self.assertRaises(ValueError, msg="Ambiguous"):
+            resolve_resource_by_name(self.team, "insight", "Duplicate")
+
+    def test_resolve_resource_by_name_unsupported_resource(self):
+        with self.assertRaises(ValueError, msg="does not support"):
+            resolve_resource_by_name(self.team, "query", "something")
+
+    def test_get_resource_name_returns_name(self):
+        from posthog.models import Insight
+
+        insight = Insight.objects.create(team=self.team, name="Revenue Report")
+        result = get_resource_name(self.team, "insight", str(insight.id))
+        assert result == "Revenue Report"
+
+    def test_get_resource_name_not_found(self):
+        result = get_resource_name(self.team, "insight", "nonexistent-id")
+        assert result is None
+
+    def test_get_resource_name_unsupported_resource(self):
+        result = get_resource_name(self.team, "query", "some-id")
+        assert result is None

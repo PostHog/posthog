@@ -98,7 +98,7 @@ class TestCommandParser(BaseTest):
                 None,
             ),
             (
-                "grant_with_resource_id",
+                "grant_with_resource_name",
                 "GRANT manager ON insight 'abc-123' TO ROLE 'Admins'",
                 "manager",
                 "insight",
@@ -126,12 +126,12 @@ class TestCommandParser(BaseTest):
             ),
         ]
     )
-    def test_parse_grant(self, _name, statement, level, resource, resource_id, target_type, target_name):
+    def test_parse_grant(self, _name, statement, level, resource, resource_name, target_type, target_name):
         result = parse_command(statement)
         assert isinstance(result, ast.GrantCommand)
         assert result.access_level == level
         assert result.resource == resource
-        assert result.resource_id == resource_id
+        assert result.resource_name == resource_name
         assert result.target_type == target_type
         assert result.target_name == target_name
 
@@ -168,7 +168,7 @@ class TestCommandParser(BaseTest):
                 None,
             ),
             (
-                "revoke_with_resource_id",
+                "revoke_with_resource_name",
                 "REVOKE ON insight 'abc-123' FROM ROLE 'Admins'",
                 "insight",
                 "abc-123",
@@ -177,11 +177,11 @@ class TestCommandParser(BaseTest):
             ),
         ]
     )
-    def test_parse_revoke(self, _name, statement, resource, resource_id, target_type, target_name):
+    def test_parse_revoke(self, _name, statement, resource, resource_name, target_type, target_name):
         result = parse_command(statement)
         assert isinstance(result, ast.RevokeCommand)
         assert result.resource == resource
-        assert result.resource_id == resource_id
+        assert result.resource_name == resource_name
         assert result.target_type == target_type
         assert result.target_name == target_name
 
@@ -195,7 +195,7 @@ class TestCommandParser(BaseTest):
         [
             ("bare", "SHOW GRANTS", None, None, None, None),
             ("on_resource", "SHOW GRANTS ON insight", "insight", None, None, None),
-            ("on_resource_with_id", "SHOW GRANTS ON insight 'abc-123'", "insight", "abc-123", None, None),
+            ("on_resource_with_name", "SHOW GRANTS ON insight 'abc-123'", "insight", "abc-123", None, None),
             ("for_role", "SHOW GRANTS FOR ROLE 'Data Analyst'", None, None, "role", "Data Analyst"),
             ("for_user", "SHOW GRANTS FOR USER 'user@example.com'", None, None, "user", "user@example.com"),
             (
@@ -208,10 +208,10 @@ class TestCommandParser(BaseTest):
             ),
         ]
     )
-    def test_parse_show_grants(self, _name, statement, resource, resource_id, filter_type, filter_name):
+    def test_parse_show_grants(self, _name, statement, resource, resource_name, filter_type, filter_name):
         result = parse_command(statement)
         assert isinstance(result, ast.ShowGrantsCommand)
         assert result.resource == resource
-        assert result.resource_id == resource_id
+        assert result.resource_name == resource_name
         assert result.filter_type == filter_type
         assert result.filter_name == filter_name

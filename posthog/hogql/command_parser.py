@@ -39,7 +39,7 @@ _SCOPE_ITEM_RE = re.compile(r"'([^']+)'")
 # GRANT <level> ON <resource> '<id>' TO DEFAULT
 _GRANT_RE = re.compile(
     r"^\s*GRANT\s+(?P<level>\w+)\s+ON\s+(?P<resource>\w+)"
-    r"(?:\s+'(?P<resource_id>[^']+)')?"
+    r"(?:\s+'(?P<resource_name>[^']+)')?"
     r"\s+TO\s+(?:(?P<target_type>ROLE|USER)\s+'(?P<target_name>[^']+)'|(?P<default>DEFAULT))"
     r"\s*;?\s*$",
     re.IGNORECASE,
@@ -53,7 +53,7 @@ _GRANT_RE = re.compile(
 # REVOKE ON <resource> '<id>' FROM DEFAULT
 _REVOKE_RE = re.compile(
     r"^\s*REVOKE\s+ON\s+(?P<resource>\w+)"
-    r"(?:\s+'(?P<resource_id>[^']+)')?"
+    r"(?:\s+'(?P<resource_name>[^']+)')?"
     r"\s+FROM\s+(?:(?P<target_type>ROLE|USER)\s+'(?P<target_name>[^']+)'|(?P<default>DEFAULT))"
     r"\s*;?\s*$",
     re.IGNORECASE,
@@ -66,7 +66,7 @@ _REVOKE_RE = re.compile(
 # SHOW GRANTS FOR USER '<email>'
 _SHOW_GRANTS_RE = re.compile(
     r"^\s*SHOW\s+GRANTS"
-    r"(?:\s+ON\s+(?P<resource>\w+)(?:\s+'(?P<resource_id>[^']+)')?)?"
+    r"(?:\s+ON\s+(?P<resource>\w+)(?:\s+'(?P<resource_name>[^']+)')?)?"
     r"(?:\s+FOR\s+(?P<filter_type>ROLE|USER)\s+'(?P<filter_name>[^']+)')?"
     r"\s*;?\s*$",
     re.IGNORECASE,
@@ -118,7 +118,7 @@ def parse_command(statement: str) -> CommandNode:
         return ast.GrantCommand(
             access_level=m.group("level").lower(),
             resource=m.group("resource").lower(),
-            resource_id=m.group("resource_id"),
+            resource_name=m.group("resource_name"),
             target_type=target_type,
             target_name=target_name,
         )
@@ -133,7 +133,7 @@ def parse_command(statement: str) -> CommandNode:
         target_name = m.group("target_name") if not m.group("default") else None
         return ast.RevokeCommand(
             resource=m.group("resource").lower(),
-            resource_id=m.group("resource_id"),
+            resource_name=m.group("resource_name"),
             target_type=target_type,
             target_name=target_name,
         )
@@ -146,7 +146,7 @@ def parse_command(statement: str) -> CommandNode:
             )
         return ast.ShowGrantsCommand(
             resource=m.group("resource").lower() if m.group("resource") else None,
-            resource_id=m.group("resource_id"),
+            resource_name=m.group("resource_name"),
             filter_type=m.group("filter_type").lower() if m.group("filter_type") else None,
             filter_name=m.group("filter_name"),
         )

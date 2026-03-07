@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 from typing import Optional
 
+from django.db import models
 from django.db.models import QuerySet
 
 from rest_framework import exceptions
@@ -15,6 +17,94 @@ from posthog.scopes import API_SCOPE_OBJECTS
 
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
+
+
+@dataclass(frozen=True)
+class ResourceConfig:
+    model_path: str  # "module.path:ClassName"
+    name_field: str  # field used for human-readable lookup
+
+
+# Registry of resource types that support name-based resolution.
+# The name_field is the human-readable identifier users type in GRANT commands.
+RESOURCE_REGISTRY: dict[str, ResourceConfig] = {
+    "action": ResourceConfig("posthog.models.action:Action", "name"),
+    "cohort": ResourceConfig("posthog.models.cohort.cohort:Cohort", "name"),
+    "dashboard": ResourceConfig("posthog.models:Dashboard", "name"),
+    "experiment": ResourceConfig("posthog.models.experiment:Experiment", "name"),
+    "feature_flag": ResourceConfig("posthog.models.feature_flag:FeatureFlag", "key"),
+    "insight": ResourceConfig("posthog.models:Insight", "name"),
+    "notebook": ResourceConfig("products.notebooks.backend.models:Notebook", "title"),
+    "survey": ResourceConfig("posthog.models.surveys.survey:Survey", "name"),
+    "batch_export": ResourceConfig("posthog.batch_exports.models:BatchExport", "name"),
+    "hog_function": ResourceConfig("posthog.models.hog_functions.hog_function:HogFunction", "name"),
+    "session_recording_playlist": ResourceConfig(
+        "posthog.session_recordings.models.session_recording_playlist:SessionRecordingPlaylist", "name"
+    ),
+}
+
+
+def _import_model(model_path: str) -> type[models.Model]:
+    """Import a model class from a 'module.path:ClassName' string."""
+    import importlib
+
+    module_path, class_name = model_path.rsplit(":", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
+
+
+def _get_model_class(resource: str) -> Optional[type[models.Model]]:
+    config = RESOURCE_REGISTRY.get(resource)
+    if not config:
+        return None
+    try:
+        return _import_model(config.model_path)
+    except (ImportError, AttributeError):
+        return None
+
+
+def resolve_resource_by_name(team: Team, resource: str, resource_name: str) -> str:
+    """Resolve a human-readable resource name to its ID.
+
+    Returns the string ID suitable for AccessControl.resource_id.
+    Raises ValueError if not found or ambiguous.
+    """
+    config = RESOURCE_REGISTRY.get(resource)
+    if not config:
+        raise ValueError(f"Resource type '{resource}' does not support name-based lookup")
+
+    model_class = _get_model_class(resource)
+    if model_class is None:
+        raise ValueError(f"Resource type '{resource}' model not available")
+
+    matches = list(
+        model_class.objects.filter(team=team, **{config.name_field: resource_name}).values_list("id", flat=True)[:10]
+    )
+
+    if len(matches) == 0:
+        raise ValueError(f"{resource} '{resource_name}' not found in this project")
+
+    if len(matches) > 1:
+        raise ValueError(
+            f"Ambiguous: found {len(matches)} {resource}s named '{resource_name}'. "
+            f"Use a unique name or rename the duplicates."
+        )
+
+    return str(matches[0])
+
+
+def get_resource_name(team: Team, resource: str, resource_id: str) -> Optional[str]:
+    """Look up the human-readable name for a resource ID. Returns None if not resolvable."""
+    config = RESOURCE_REGISTRY.get(resource)
+    if not config:
+        return None
+
+    model_class = _get_model_class(resource)
+    if model_class is None:
+        return None
+
+    result = model_class.objects.filter(team=team, id=resource_id).values_list(config.name_field, flat=True).first()
+    return result
 
 
 def resolve_role_by_name(organization: Organization, role_name: str) -> Role:
@@ -63,49 +153,20 @@ def _check_grant_permission(
     uac = UserAccessControl(user=user, team=team)
 
     if resource_id:
-        # For object-level grants, look up the object and check manager/admin access
-
-        # Try to find the object by resource type and ID
         obj = _resolve_resource_object(team, resource, resource_id)
         if obj and not uac.check_can_modify_access_levels_for_object(obj):
             required_level = highest_access_level(resource)
             raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
     else:
-        # For project-wide resource defaults, require org admin
         if not uac.check_can_modify_access_levels_for_object(team):
             raise exceptions.PermissionDenied("Must be an Organization admin to modify project-wide permissions.")
 
 
 def _resolve_resource_object(team: Team, resource: str, resource_id: str) -> Optional[object]:
     """Try to resolve a resource object by type and ID for permission checking."""
-
-    # Map resource types to their model classes
-    resource_model_map: dict[str, type] = {}
-
-    try:
-        from posthog.models import Dashboard, Insight
-        from posthog.models.action import Action
-        from posthog.models.experiment import Experiment
-        from posthog.models.feature_flag import FeatureFlag
-        from posthog.models.notebook.notebook import Notebook
-
-        resource_model_map.update(
-            {
-                "dashboard": Dashboard,
-                "insight": Insight,
-                "action": Action,
-                "experiment": Experiment,
-                "feature_flag": FeatureFlag,
-                "notebook": Notebook,
-            }
-        )
-    except ImportError:
-        pass
-
-    model_class = resource_model_map.get(resource)
+    model_class = _get_model_class(resource)
     if not model_class:
         return None
-
     return model_class.objects.filter(team=team, id=resource_id).first()
 
 

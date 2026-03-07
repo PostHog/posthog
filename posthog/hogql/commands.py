@@ -97,6 +97,24 @@ def _execute_alter_api_key_roll(node: ast.AlterApiKeyRollCommand, user: User) ->
 # --- Access control command handlers ---
 
 
+def _resolve_resource_name_to_id(
+    team: Team,
+    resource: str,
+    resource_name: Optional[str],
+) -> Optional[str]:
+    """Convert a human-readable resource name to an ID, or return None if no name given."""
+    if resource_name is None:
+        return None
+    try:
+        from ee.models.rbac.access_control_service import resolve_resource_by_name
+
+        return resolve_resource_by_name(team, resource, resource_name)
+    except ImportError:
+        raise QueryError("Access control commands require an Enterprise license")
+    except ValueError as e:
+        raise QueryError(str(e))
+
+
 def _execute_access_control_command(
     node: ast.Expr,
     user: User,
@@ -104,6 +122,7 @@ def _execute_access_control_command(
 ) -> HogQLQueryResponse:
     try:
         from ee.models.rbac.access_control_service import (
+            get_resource_name,
             grant_access,
             list_grants,
             resolve_member_by_email,
@@ -114,13 +133,22 @@ def _execute_access_control_command(
         raise QueryError("Access control commands require an Enterprise license")
 
     if isinstance(node, ast.GrantCommand):
-        return _execute_grant(node, user, team, grant_access, resolve_role_by_name, resolve_member_by_email)
+        resource_id = _resolve_resource_name_to_id(team, node.resource, node.resource_name)
+        return _execute_grant(
+            node, user, team, resource_id, grant_access, resolve_role_by_name, resolve_member_by_email
+        )
 
     if isinstance(node, ast.RevokeCommand):
-        return _execute_revoke(node, user, team, revoke_access, resolve_role_by_name, resolve_member_by_email)
+        resource_id = _resolve_resource_name_to_id(team, node.resource, node.resource_name)
+        return _execute_revoke(
+            node, user, team, resource_id, revoke_access, resolve_role_by_name, resolve_member_by_email
+        )
 
     if isinstance(node, ast.ShowGrantsCommand):
-        return _execute_show_grants(node, team, list_grants, resolve_role_by_name, resolve_member_by_email)
+        resource_id = _resolve_resource_name_to_id(team, node.resource, node.resource_name) if node.resource else None
+        return _execute_show_grants(
+            node, team, resource_id, list_grants, get_resource_name, resolve_role_by_name, resolve_member_by_email
+        )
 
     raise QueryError(f"Unknown access control command: {type(node).__name__}")
 
@@ -139,7 +167,7 @@ def _resolve_target(node, team, resolve_role_by_name, resolve_member_by_email):
     return {"role": role, "organization_member": organization_member}
 
 
-def _execute_grant(node, user, team, grant_access, resolve_role_by_name, resolve_member_by_email):
+def _execute_grant(node, user, team, resource_id, grant_access, resolve_role_by_name, resolve_member_by_email):
     try:
         target_kwargs = _resolve_target(node, team, resolve_role_by_name, resolve_member_by_email)
         ac = grant_access(
@@ -147,7 +175,7 @@ def _execute_grant(node, user, team, grant_access, resolve_role_by_name, resolve
             user=user,
             resource=node.resource,
             access_level=node.access_level,
-            resource_id=node.resource_id,
+            resource_id=resource_id,
             **target_kwargs,
         )
     except ValueError as e:
@@ -159,26 +187,26 @@ def _execute_grant(node, user, team, grant_access, resolve_role_by_name, resolve
         results=[
             [
                 ac.resource,
-                ac.resource_id,
+                node.resource_name or ac.resource_id,
                 ac.access_level,
                 node.target_type,
                 node.target_name,
                 "granted",
             ]
         ],
-        columns=["resource", "resource_id", "access_level", "target_type", "target_name", "status"],
+        columns=["resource", "resource_name", "access_level", "target_type", "target_name", "status"],
         types=["String", "String", "String", "String", "String", "String"],
     )
 
 
-def _execute_revoke(node, user, team, revoke_access, resolve_role_by_name, resolve_member_by_email):
+def _execute_revoke(node, user, team, resource_id, revoke_access, resolve_role_by_name, resolve_member_by_email):
     try:
         target_kwargs = _resolve_target(node, team, resolve_role_by_name, resolve_member_by_email)
         deleted = revoke_access(
             team=team,
             user=user,
             resource=node.resource,
-            resource_id=node.resource_id,
+            resource_id=resource_id,
             **target_kwargs,
         )
     except ValueError as e:
@@ -191,18 +219,20 @@ def _execute_revoke(node, user, team, revoke_access, resolve_role_by_name, resol
         results=[
             [
                 node.resource,
-                node.resource_id,
+                node.resource_name,
                 node.target_type,
                 node.target_name,
                 status,
             ]
         ],
-        columns=["resource", "resource_id", "target_type", "target_name", "status"],
+        columns=["resource", "resource_name", "target_type", "target_name", "status"],
         types=["String", "String", "String", "String", "String"],
     )
 
 
-def _execute_show_grants(node, team, list_grants, resolve_role_by_name, resolve_member_by_email):
+def _execute_show_grants(
+    node, team, resource_id, list_grants, get_resource_name, resolve_role_by_name, resolve_member_by_email
+):
     try:
         role = None
         organization_member = None
@@ -214,7 +244,7 @@ def _execute_show_grants(node, team, list_grants, resolve_role_by_name, resolve_
         grants = list_grants(
             team=team,
             resource=node.resource,
-            resource_id=node.resource_id,
+            resource_id=resource_id,
             role=role,
             organization_member=organization_member,
         )
@@ -232,10 +262,16 @@ def _execute_show_grants(node, team, list_grants, resolve_role_by_name, resolve_
             target_type = "user"
             target_name = g.organization_member.user.email if g.organization_member else str(g.organization_member_id)
 
+        # Resolve the stored resource_id back to a human-readable name
+        display_name = None
+        if g.resource_id and g.resource:
+            display_name = get_resource_name(team, g.resource, g.resource_id)
+        display_name = display_name or g.resource_id
+
         rows.append(
             [
                 g.resource,
-                g.resource_id,
+                display_name,
                 g.access_level,
                 target_type,
                 target_name,
@@ -245,6 +281,6 @@ def _execute_show_grants(node, team, list_grants, resolve_role_by_name, resolve_
 
     return HogQLQueryResponse(
         results=rows,
-        columns=["resource", "resource_id", "access_level", "target_type", "target_name", "created_at"],
+        columns=["resource", "resource_name", "access_level", "target_type", "target_name", "created_at"],
         types=["String", "String", "String", "String", "String", "DateTime"],
     )

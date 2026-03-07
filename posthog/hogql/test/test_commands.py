@@ -83,7 +83,6 @@ class TestApiKeyCommandExecutor(BaseTest):
 class TestAccessControlCommandExecutor(BaseTest):
     def setUp(self):
         super().setUp()
-        # Make user an org admin
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -104,7 +103,14 @@ class TestAccessControlCommandExecutor(BaseTest):
         )
         response = execute_command(node, self.user, team=self.team)
 
-        assert response.columns == ["resource", "resource_id", "access_level", "target_type", "target_name", "status"]
+        assert response.columns == [
+            "resource",
+            "resource_name",
+            "access_level",
+            "target_type",
+            "target_name",
+            "status",
+        ]
         assert len(response.results) == 1
         row = response.results[0]
         assert row[0] == "insight"
@@ -134,6 +140,67 @@ class TestAccessControlCommandExecutor(BaseTest):
 
         assert response.results[0][3] == "default"
         assert response.results[0][5] == "granted"
+
+    def test_grant_with_resource_name(self):
+        from posthog.models import Insight
+
+        insight = Insight.objects.create(team=self.team, name="My Conversion Funnel")
+
+        node = ast.GrantCommand(
+            access_level="editor",
+            resource="insight",
+            resource_name="My Conversion Funnel",
+            target_type="role",
+            target_name="Analysts",
+        )
+        response = execute_command(node, self.user, team=self.team)
+
+        assert response.results[0][1] == "My Conversion Funnel"
+        assert response.results[0][5] == "granted"
+
+        from ee.models.rbac.access_control import AccessControl
+
+        ac = AccessControl.objects.get(team=self.team, resource="insight")
+        assert ac.resource_id == str(insight.id)
+
+    def test_grant_with_feature_flag_key(self):
+        from posthog.models.feature_flag import FeatureFlag
+
+        FeatureFlag.objects.create(team=self.team, key="my-flag", created_by=self.user)
+
+        node = ast.GrantCommand(
+            access_level="editor",
+            resource="feature_flag",
+            resource_name="my-flag",
+            target_type="default",
+        )
+        response = execute_command(node, self.user, team=self.team)
+        assert response.results[0][5] == "granted"
+
+    def test_grant_resource_name_not_found(self):
+        node = ast.GrantCommand(
+            access_level="editor",
+            resource="insight",
+            resource_name="Nonexistent Insight",
+            target_type="default",
+        )
+        with self.assertRaises(QueryError, msg="insight 'Nonexistent Insight' not found"):
+            execute_command(node, self.user, team=self.team)
+
+    def test_grant_resource_name_ambiguous(self):
+        from posthog.models import Insight
+
+        Insight.objects.create(team=self.team, name="Duplicate Name")
+        Insight.objects.create(team=self.team, name="Duplicate Name")
+
+        node = ast.GrantCommand(
+            access_level="editor",
+            resource="insight",
+            resource_name="Duplicate Name",
+            target_type="default",
+        )
+        with self.assertRaises(QueryError, msg="Ambiguous"):
+            execute_command(node, self.user, team=self.team)
 
     def test_grant_invalid_resource(self):
         node = ast.GrantCommand(
@@ -167,7 +234,6 @@ class TestAccessControlCommandExecutor(BaseTest):
             execute_command(node, self.user, team=self.team)
 
     def test_revoke_from_role(self):
-        # First grant
         grant_node = ast.GrantCommand(
             access_level="editor",
             resource="insight",
@@ -176,7 +242,6 @@ class TestAccessControlCommandExecutor(BaseTest):
         )
         execute_command(grant_node, self.user, team=self.team)
 
-        # Then revoke
         revoke_node = ast.RevokeCommand(
             resource="insight",
             target_type="role",
@@ -195,8 +260,34 @@ class TestAccessControlCommandExecutor(BaseTest):
         response = execute_command(node, self.user, team=self.team)
         assert response.results[0][4] == "not_found"
 
+    def test_revoke_by_resource_name(self):
+        from posthog.models import Dashboard
+
+        Dashboard.objects.create(team=self.team, name="Marketing Overview")
+
+        execute_command(
+            ast.GrantCommand(
+                access_level="viewer",
+                resource="dashboard",
+                resource_name="Marketing Overview",
+                target_type="default",
+            ),
+            self.user,
+            team=self.team,
+        )
+
+        response = execute_command(
+            ast.RevokeCommand(
+                resource="dashboard",
+                resource_name="Marketing Overview",
+                target_type="default",
+            ),
+            self.user,
+            team=self.team,
+        )
+        assert response.results[0][4] == "revoked"
+
     def test_show_grants(self):
-        # Create some grants
         execute_command(
             ast.GrantCommand(access_level="editor", resource="insight", target_type="role", target_name="Analysts"),
             self.user,
@@ -213,13 +304,34 @@ class TestAccessControlCommandExecutor(BaseTest):
 
         assert response.columns == [
             "resource",
-            "resource_id",
+            "resource_name",
             "access_level",
             "target_type",
             "target_name",
             "created_at",
         ]
         assert len(response.results) == 2
+
+    def test_show_grants_displays_resource_name(self):
+        from posthog.models import Insight
+
+        Insight.objects.create(team=self.team, name="Revenue Dashboard")
+
+        execute_command(
+            ast.GrantCommand(
+                access_level="editor",
+                resource="insight",
+                resource_name="Revenue Dashboard",
+                target_type="default",
+            ),
+            self.user,
+            team=self.team,
+        )
+
+        response = execute_command(ast.ShowGrantsCommand(), self.user, team=self.team)
+
+        assert len(response.results) == 1
+        assert response.results[0][1] == "Revenue Dashboard"
 
     def test_show_grants_filtered_by_resource(self):
         execute_command(
