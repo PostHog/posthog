@@ -8,6 +8,8 @@ from posthog.hogql.errors import SyntaxError
 
 
 class TestCommandParser(BaseTest):
+    # --- API key commands ---
+
     @parameterized.expand(
         [
             ("basic", "CREATE API KEY 'my-key' WITH SCOPES 'query:read'", "my-key", ["query:read"]),
@@ -63,3 +65,153 @@ class TestCommandParser(BaseTest):
     def test_create_no_scopes(self):
         with self.assertRaises(SyntaxError):
             parse_command("CREATE API KEY 'test' WITH SCOPES")
+
+    # --- GRANT commands ---
+
+    @parameterized.expand(
+        [
+            (
+                "grant_to_role",
+                "GRANT editor ON insight TO ROLE 'Data Analyst'",
+                "editor",
+                "insight",
+                None,
+                "role",
+                "Data Analyst",
+            ),
+            (
+                "grant_to_user",
+                "GRANT viewer ON dashboard TO USER 'user@example.com'",
+                "viewer",
+                "dashboard",
+                None,
+                "user",
+                "user@example.com",
+            ),
+            (
+                "grant_to_default",
+                "GRANT editor ON insight TO DEFAULT",
+                "editor",
+                "insight",
+                None,
+                "default",
+                None,
+            ),
+            (
+                "grant_with_resource_id",
+                "GRANT manager ON insight 'abc-123' TO ROLE 'Admins'",
+                "manager",
+                "insight",
+                "abc-123",
+                "role",
+                "Admins",
+            ),
+            (
+                "grant_case_insensitive",
+                "grant Editor on Dashboard to role 'My Role'",
+                "editor",
+                "dashboard",
+                None,
+                "role",
+                "My Role",
+            ),
+            (
+                "grant_trailing_semicolon",
+                "GRANT viewer ON insight TO DEFAULT;",
+                "viewer",
+                "insight",
+                None,
+                "default",
+                None,
+            ),
+        ]
+    )
+    def test_parse_grant(self, _name, statement, level, resource, resource_id, target_type, target_name):
+        result = parse_command(statement)
+        assert isinstance(result, ast.GrantCommand)
+        assert result.access_level == level
+        assert result.resource == resource
+        assert result.resource_id == resource_id
+        assert result.target_type == target_type
+        assert result.target_name == target_name
+
+    def test_invalid_grant_syntax(self):
+        with self.assertRaises(SyntaxError):
+            parse_command("GRANT ON insight TO ROLE 'test'")
+
+    # --- REVOKE commands ---
+
+    @parameterized.expand(
+        [
+            (
+                "revoke_from_role",
+                "REVOKE ON insight FROM ROLE 'Data Analyst'",
+                "insight",
+                None,
+                "role",
+                "Data Analyst",
+            ),
+            (
+                "revoke_from_user",
+                "REVOKE ON dashboard FROM USER 'user@example.com'",
+                "dashboard",
+                None,
+                "user",
+                "user@example.com",
+            ),
+            (
+                "revoke_from_default",
+                "REVOKE ON insight FROM DEFAULT",
+                "insight",
+                None,
+                "default",
+                None,
+            ),
+            (
+                "revoke_with_resource_id",
+                "REVOKE ON insight 'abc-123' FROM ROLE 'Admins'",
+                "insight",
+                "abc-123",
+                "role",
+                "Admins",
+            ),
+        ]
+    )
+    def test_parse_revoke(self, _name, statement, resource, resource_id, target_type, target_name):
+        result = parse_command(statement)
+        assert isinstance(result, ast.RevokeCommand)
+        assert result.resource == resource
+        assert result.resource_id == resource_id
+        assert result.target_type == target_type
+        assert result.target_name == target_name
+
+    def test_invalid_revoke_syntax(self):
+        with self.assertRaises(SyntaxError):
+            parse_command("REVOKE insight FROM ROLE 'test'")
+
+    # --- SHOW GRANTS commands ---
+
+    @parameterized.expand(
+        [
+            ("bare", "SHOW GRANTS", None, None, None, None),
+            ("on_resource", "SHOW GRANTS ON insight", "insight", None, None, None),
+            ("on_resource_with_id", "SHOW GRANTS ON insight 'abc-123'", "insight", "abc-123", None, None),
+            ("for_role", "SHOW GRANTS FOR ROLE 'Data Analyst'", None, None, "role", "Data Analyst"),
+            ("for_user", "SHOW GRANTS FOR USER 'user@example.com'", None, None, "user", "user@example.com"),
+            (
+                "on_resource_for_role",
+                "SHOW GRANTS ON insight FOR ROLE 'Admins'",
+                "insight",
+                None,
+                "role",
+                "Admins",
+            ),
+        ]
+    )
+    def test_parse_show_grants(self, _name, statement, resource, resource_id, filter_type, filter_name):
+        result = parse_command(statement)
+        assert isinstance(result, ast.ShowGrantsCommand)
+        assert result.resource == resource
+        assert result.resource_id == resource_id
+        assert result.filter_type == filter_type
+        assert result.filter_name == filter_name

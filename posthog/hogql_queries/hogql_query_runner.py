@@ -89,8 +89,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             if self.user is None:
                 from posthog.hogql.errors import QueryError
 
-                raise QueryError("Authentication required for API key commands")
-            return execute_command(command_node, self.user)
+                raise QueryError("Authentication required for commands")
+            return execute_command(command_node, self.user, team=self.team)
         except HogQLSyntaxError:
             pass  # Not a command — fall through to normal HogQL execution
 
