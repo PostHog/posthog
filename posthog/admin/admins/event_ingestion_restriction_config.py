@@ -75,21 +75,15 @@ class EventIngestionRestrictionConfigForm(forms.ModelForm):
         restriction_type = cleaned_data.get("restriction_type")
         topic = cleaned_data.get("topic", "").strip()
 
-        if restriction_type == RestrictionType.REDIRECT_TO_TOPIC and not topic:
-            self.add_error("topic", "Topic is required for 'Redirect To Topic' restriction type.")
-
-        return cleaned_data
-
-    def save(self, commit=True):
-        restriction_type = self.cleaned_data.get("restriction_type")
-        topic = self.cleaned_data.get("topic", "").strip()
-
         if restriction_type == RestrictionType.REDIRECT_TO_TOPIC:
-            self.instance.args = {"topic": topic}
+            if not topic:
+                self.add_error("topic", "Topic is required for 'Redirect To Topic' restriction type.")
+            else:
+                self.instance.args = {"topic": topic}
         else:
             self.instance.args = None
 
-        return super().save(commit=commit)
+        return cleaned_data
 
 
 class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
