@@ -34,10 +34,8 @@ logger = structlog.get_logger(__name__)
 CacheType = Literal["flags", "team_metadata"]
 
 # Lock timeout matches time_limit to ensure lock is released if task is killed.
-# Reduced from 1 hour to 25 minutes to enable faster recovery when tasks crash
-# (OOM, deploy kills) without executing their finally block. With 30-minute
-# scheduling and 25-minute lock timeout, a crashed task's lock expires before
-# the next scheduled run, so at most 1 run is skipped after a crash.
+# With 30-minute scheduling and 25-minute lock timeout, a crashed task's lock
+# expires before the next scheduled run, so at most 1 run is skipped after a crash.
 LOCK_TIMEOUT_SECONDS = 25 * 60  # 25 minutes
 
 # Flag definitions verification lock timeout matches time_limit (30 min) to ensure
@@ -47,17 +45,17 @@ LOCK_TIMEOUT_SECONDS = 25 * 60  # 25 minutes
 FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 
 
-def _run_single_flag_definitions_verification(
+def _run_flag_definitions_verification(
     config: HyperCacheManagementConfig,
     include_cohorts: bool,
     variant_name: str,
 ) -> None:
     """
-    Run verification for a single flag definitions cache variant.
+    Run verification for a flag definitions cache variant.
 
-    Acquires a per-variant distributed lock and runs verification for the given
-    config. Each variant (with-cohorts, without-cohorts) runs independently with
-    its own lock, allowing parallel execution when workers are available.
+    Acquires a distributed lock keyed by variant_name and runs verification for
+    the given config. The with-cohorts and without-cohorts variants use separate
+    locks, allowing parallel execution when workers are available.
 
     Note: Unlike the flags cache (which uses FLAGS_REDIS_URL), the flag definitions
     cache uses the default cache backend (REDIS_URL). No special guard needed since
@@ -207,7 +205,7 @@ def verify_and_fix_flag_definitions_cache_task(self: PushGatewayTask) -> None:
 
     Metrics: posthog_hypercache_verify_fixes_total{cache_type="flag_definitions_with-cohorts", issue_type="..."}
     """
-    _run_single_flag_definitions_verification(
+    _run_flag_definitions_verification(
         config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
         include_cohorts=True,
         variant_name="with-cohorts",
@@ -233,7 +231,7 @@ def verify_and_fix_flag_definitions_without_cohorts_cache_task(self: PushGateway
 
     Metrics: posthog_hypercache_verify_fixes_total{cache_type="flag_definitions_without-cohorts", issue_type="..."}
     """
-    _run_single_flag_definitions_verification(
+    _run_flag_definitions_verification(
         config=FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
         include_cohorts=False,
         variant_name="without-cohorts",
