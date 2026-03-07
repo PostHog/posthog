@@ -337,6 +337,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 : item.collapsedTooltip
                                             : undefined
 
+                                        const isHomePage = item.identifier === 'ProjectHomepage'
                                         const iconClassName = 'flex text-tertiary group-hover:text-primary'
 
                                         const listItem = (
@@ -377,7 +378,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 ) : (
                                                     <ButtonGroupPrimitive
                                                         fullWidth
-                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center group"
                                                     >
                                                         <Link
                                                             data-attr={`menu-item-${item.identifier
@@ -388,6 +389,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 className: 'group',
                                                                 iconOnly: isLayoutNavCollapsed,
                                                                 active: isStaticNavItemActive(item.identifier),
+                                                                hasSideActionRight: isHomePage && !isLayoutNavCollapsed,
                                                             }}
                                                             to={item.to}
                                                             tooltip={tooltip}
@@ -399,79 +401,27 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 <span className="truncate">{item.label}</span>
                                                             )}
                                                         </Link>
+                                                        {isHomePage && !isLayoutNavCollapsed && (
+                                                            <ButtonPrimitive
+                                                                iconOnly
+                                                                isSideActionRight
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    showConfigurePinnedTabsModal()
+                                                                }}
+                                                                tooltip="Configure tabs & home"
+                                                                tooltipPlacement="right"
+                                                                className="opacity-0 group-hover:opacity-100 transition-all duration-50"
+                                                            >
+                                                                <IconGear className="size-3 text-tertiary" />
+                                                            </ButtonPrimitive>
+                                                        )}
                                                     </ButtonGroupPrimitive>
                                                 )}
                                             </ListBox.Item>
                                         )
 
-                                        if (item.identifier === 'ProjectHomepage') {
-                                            const homeListItem = !isLayoutNavCollapsed ? (
-                                                <ListBox.Item
-                                                    key={item.identifier}
-                                                    asChild
-                                                    onClick={() => item.onClick?.()}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter') {
-                                                            item.onClick?.(e)
-                                                        }
-                                                    }}
-                                                >
-                                                    <ButtonGroupPrimitive
-                                                        fullWidth
-                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
-                                                    >
-                                                        <Link
-                                                            data-attr={`menu-item-${item.identifier
-                                                                .toString()
-                                                                .toLowerCase()}`}
-                                                            buttonProps={{
-                                                                menuItem: true,
-                                                                className: 'group',
-                                                                active: isStaticNavItemActive(item.identifier),
-                                                                hasSideActionRight: true,
-                                                            }}
-                                                            to={item.to}
-                                                            tooltip={tooltip}
-                                                            tooltipPlacement="right"
-                                                        >
-                                                            <span className={iconClassName}>{item.icon}</span>
-                                                            <span className="truncate">{item.label}</span>
-                                                        </Link>
-                                                        <ButtonPrimitive
-                                                            iconOnly
-                                                            isSideActionRight
-                                                            onClick={(e) => {
-                                                                e.stopPropagation()
-                                                                showConfigurePinnedTabsModal()
-                                                            }}
-                                                            tooltip="Configure tabs & home"
-                                                            tooltipPlacement="right"
-                                                        >
-                                                            <IconGear className="text-tertiary" />
-                                                        </ButtonPrimitive>
-                                                    </ButtonGroupPrimitive>
-                                                </ListBox.Item>
-                                            ) : (
-                                                listItem
-                                            )
-                                            return (
-                                                <ContextMenu key={item.identifier}>
-                                                    <ContextMenuTrigger asChild>{homeListItem}</ContextMenuTrigger>
-                                                    <ContextMenuContent className="max-w-[300px]">
-                                                        <ContextMenuGroup>
-                                                            <ContextMenuItem asChild>
-                                                                <ButtonPrimitive
-                                                                    menuItem
-                                                                    onClick={() => showConfigurePinnedTabsModal()}
-                                                                >
-                                                                    <IconGear /> Configure tabs & home
-                                                                </ButtonPrimitive>
-                                                            </ContextMenuItem>
-                                                        </ContextMenuGroup>
-                                                    </ContextMenuContent>
-                                                </ContextMenu>
-                                            )
-                                        } else if (item.identifier === 'Activity' && item.to) {
+                                        if (item.identifier === 'Activity' && item.to) {
                                             return (
                                                 <ContextMenu key={item.identifier}>
                                                     <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>

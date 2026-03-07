@@ -2219,6 +2219,21 @@ class TestGetTeamsWithFlagsQueryset(BaseTest):
         qs = get_teams_with_flags_queryset()
         assert team_no_flags.id not in qs.values_list("id", flat=True)
 
+    def test_queryset_does_not_include_parent_team_join(self):
+        """The Q() wrapper in get_teams_with_flags_queryset bypasses
+        RootTeamQuerySet.filter() to keep the EXISTS subquery simple.
+        If someone removes the Q() wrapper, the query will regress to
+        include parent_team joins that are unusable at scale."""
+        qs = get_teams_with_flags_queryset()
+        sql = str(qs.query).lower()
+        # Extract the EXISTS subquery — this is where the regression would appear.
+        # The SELECT column list legitimately contains parent_team_id as a Team field.
+        exists_start = sql.index("exists(")
+        subquery_sql = sql[exists_start:]
+        assert "parent_team" not in subquery_sql, (
+            f"EXISTS subquery should not reference parent_team, got: {subquery_sql}"
+        )
+
     def test_team_with_multiple_flags_returned_once(self):
         FeatureFlag.objects.create(team=self.team, key="flag-1", created_by=self.user)
         FeatureFlag.objects.create(team=self.team, key="flag-2", created_by=self.user)

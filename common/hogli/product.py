@@ -216,10 +216,21 @@ def _check_file_exists(backend_dir: Path, path: str) -> bool:
     return False
 
 
+def _is_isolated_product(backend_dir: Path) -> bool:
+    contracts_file = backend_dir / "facade" / "contracts.py"
+    contracts_folder = backend_dir / "facade" / "contracts"
+    return contracts_file.exists() or contracts_folder.exists()
+
+
 def lint_product(name: str, verbose: bool = True) -> list[str]:
     """
-    Check for known files in wrong places.
-    Returns list of issues found.
+    Lint a product's structure. Returns list of issues found.
+
+    Runs in two modes based on whether the product has backend/facade/contracts.py:
+      strict  — isolated product, all structure rules enforced
+      lenient — legacy product, subset of rules enforced (see product_structure.yaml)
+
+    Both modes fail on violations. Lenient just checks fewer things.
     """
     product_dir = PRODUCTS_DIR / name
     backend_dir = product_dir / "backend"
@@ -228,75 +239,91 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
         raise click.ClickException(f"Product '{name}' not found at {product_dir}")
 
     structure = load_structure()
+    issues: list[str] = []
 
-    issues = []
-
-    # First, check if this is an isolated product (has contracts.py)
-    contracts_file = backend_dir / "facade" / "contracts.py"
-    contracts_folder = backend_dir / "facade" / "contracts"
-    is_isolated = contracts_file.exists() or contracts_folder.exists()
+    is_isolated = _is_isolated_product(backend_dir)
+    mode = "strict" if is_isolated else "lenient"
     required_key = "required" if is_isolated else "required_lenient"
 
     if verbose:
-        click.echo("  Checking for isolated architecture...")
-        if is_isolated:
-            click.echo("    ✓ Has backend/facade/contracts.py - running strict checks")
-        else:
-            click.echo("    ○ No backend/facade/contracts.py - legacy product, showing progress toward isolation")
+        click.echo(f"  mode: {mode}" + (" (has backend/facade/contracts.py)" if is_isolated else " (legacy)"))
 
-    # Check for root files (manifest.tsx, package.json, tsconfig.json)
+    # 1. Required root files
     if verbose:
-        click.echo("  Checking for root files...")
+        click.echo("  required root files...")
     root_files = structure.get("root_files", {})
     missing_root = []
     for filename, config in root_files.items():
         if config.get(required_key, False):
-            file_path = product_dir / filename
-            if not file_path.exists():
+            if not (product_dir / filename).exists():
                 missing_root.append(filename)
 
     if verbose:
         if missing_root:
-            click.echo(f"    ✗ Missing {len(missing_root)} required file(s): {', '.join(missing_root)}")
+            click.echo(f"    ✗ missing: {', '.join(missing_root)}")
         else:
-            click.echo("    ✓ All required root files present")
+            click.echo("    ✓ ok")
 
     for f in missing_root:
         issues.append(f"Missing required root file: {f}")
 
-    # Check for misplaced files in backend
-    if verbose:
-        click.echo("  Checking for misplaced backend files...")
-    backend_known_files = structure.get("backend_known_files", {})
-    misplaced = []
+    # 2. backend:test in package.json (if product has backend/)
     if backend_dir.exists():
-        for filename, correct_path in backend_known_files.items():
-            wrong_location = backend_dir / filename
-            correct_location = backend_dir / correct_path
-
-            if wrong_location.exists() and wrong_location.is_file():
-                if correct_location.exists():
-                    misplaced.append(
-                        f"'{filename}' exists at backend/ root but also at correct location '{correct_path}'"
-                    )
-                else:
-                    misplaced.append(f"backend/{filename} should be at backend/{correct_path}")
-
-    if verbose:
-        if misplaced:
-            click.echo(f"    ✗ Found {len(misplaced)} misplaced file(s)")
+        package_json = product_dir / "package.json"
+        if package_json.exists():
+            try:
+                pkg_data = json.loads(package_json.read_text())
+                has_backend_test = "backend:test" in pkg_data.get("scripts", {})
+            except json.JSONDecodeError:
+                has_backend_test = False
+                issues.append("package.json is not valid JSON")
         else:
-            click.echo("    ✓ No misplaced files")
+            has_backend_test = False
 
+        if verbose:
+            click.echo("  backend:test in package.json...")
+        if not has_backend_test:
+            issues.append(
+                "Product has backend/ but package.json is missing 'backend:test' script — "
+                "turbo cannot discover this product for testing"
+            )
+            if verbose:
+                click.echo("    ✗ missing")
+        elif verbose:
+            click.echo("    ✓ ok")
+
+    # 3. Misplaced backend files (strict only — legacy products have flat structure by design)
     if is_isolated:
-        issues.extend(misplaced)
-    elif misplaced and verbose:
-        for m in misplaced:
-            click.echo(f"      → {m}")
+        if verbose:
+            click.echo("  misplaced backend files...")
+        backend_known_files = structure.get("backend_known_files", {})
+        misplaced = []
+        if backend_dir.exists():
+            for filename, correct_path in backend_known_files.items():
+                wrong_location = backend_dir / filename
+                correct_location = backend_dir / correct_path
 
-    # Check for files that can_be_folder violations
+                if wrong_location.exists() and wrong_location.is_file():
+                    if correct_location.exists():
+                        misplaced.append(
+                            f"'{filename}' exists at backend/ root but also at correct location '{correct_path}'"
+                        )
+                    else:
+                        misplaced.append(f"backend/{filename} should be at backend/{correct_path}")
+
+        if verbose:
+            if misplaced:
+                click.echo(f"    ✗ {len(misplaced)} misplaced file(s)")
+                for m in misplaced:
+                    click.echo(f"      → {m}")
+            else:
+                click.echo("    ✓ ok")
+
+        issues.extend(misplaced)
+
+    # 4. File/folder conflicts
     if verbose:
-        click.echo("  Checking for file/folder conflicts...")
+        click.echo("  file/folder conflicts...")
     backend_files_config = _flatten_structure(structure.get("backend_files", {}))
     conflicts = []
     if backend_dir.exists():
@@ -312,40 +339,30 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
 
     if verbose:
         if conflicts:
-            click.echo(f"    ✗ Found {len(conflicts)} conflict(s)")
+            click.echo(f"    ✗ {len(conflicts)} conflict(s)")
+            for c in conflicts:
+                click.echo(f"      → {c}")
         else:
-            click.echo("    ✓ No conflicts")
+            click.echo("    ✓ ok")
 
-    if is_isolated:
-        issues.extend(conflicts)
-    elif conflicts and verbose:
-        for c in conflicts:
-            click.echo(f"      → {c}")
+    issues.extend(conflicts)
 
-    # Show progress toward isolation for legacy products
-    if not is_isolated and verbose:
-        click.echo("  Progress toward isolation...")
+    # 5. Isolation progress (informational, not enforced)
+    if not is_isolated and verbose and backend_dir.exists():
+        click.echo("  isolation progress...")
 
-        # Key isolation files to check
         isolation_files = [
-            ("facade/contracts.py", "Contract types defined"),
-            ("facade/api.py", "Facade API"),
-            ("presentation/views.py", "DRF views in presentation/"),
-            ("presentation/serializers.py", "Serializers in presentation/"),
-            ("presentation/urls.py", "URLs in presentation/"),
+            ("facade/contracts.py", "contracts"),
+            ("facade/api.py", "facade"),
+            ("presentation/views.py", "views"),
+            ("presentation/serializers.py", "serializers"),
+            ("presentation/urls.py", "urls"),
         ]
 
-        present = 0
-        total = len(isolation_files)
-        for path, label in isolation_files:
-            exists = _check_file_exists(backend_dir, path)
-            if exists:
-                present += 1
-                click.echo(f"    ✓ {label}")
-            else:
-                click.echo(f"    ○ {label}")
-
-        click.echo(f"    ({present}/{total} isolation requirements met)")
+        checks = [_check_file_exists(backend_dir, path) for path, _ in isolation_files]
+        present = sum(checks)
+        labels = [f"{'✓' if ok else '○'} {label}" for ok, (_, label) in zip(checks, isolation_files)]
+        click.echo(f"    {', '.join(labels)} ({present}/{len(isolation_files)})")
 
     return issues
 
@@ -360,9 +377,17 @@ def cmd_bootstrap(name: str, dry_run: bool, force: bool) -> None:
 
 
 @cli.command(name="product:lint", help="Check product structure for misplaced files")
-@click.argument("name")
-def cmd_lint(name: str) -> None:
+@click.argument("name", required=False)
+@click.option("--all", "lint_all", is_flag=True, help="Lint all products")
+def cmd_lint(name: str | None, lint_all: bool) -> None:
     """Lint a product's structure."""
+    if lint_all:
+        _lint_all_products()
+        return
+
+    if not name:
+        raise click.UsageError("Provide a product name or use --all")
+
     click.echo(f"Linting product '{name}'...\n")
 
     issues = lint_product(name, verbose=True)
@@ -377,3 +402,34 @@ def cmd_lint(name: str) -> None:
         click.echo(f"  • {issue}")
 
     raise SystemExit(1)
+
+
+def _lint_all_products() -> None:
+    product_dirs = sorted(
+        d
+        for d in PRODUCTS_DIR.iterdir()
+        if d.is_dir() and not d.name.startswith((".", "_")) and (d / "__init__.py").exists()
+    )
+
+    strict = [d.name for d in product_dirs if _is_isolated_product(d / "backend")]
+    lenient = [d.name for d in product_dirs if not _is_isolated_product(d / "backend")]
+
+    click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
+    click.echo("Checks: required root files, backend:test script, misplaced files, file/folder conflicts\n")
+
+    failed: list[str] = []
+
+    for product_dir in product_dirs:
+        click.echo(f"─ {product_dir.name}")
+        issues = lint_product(product_dir.name, verbose=True)
+
+        if issues:
+            failed.append(product_dir.name)
+
+        click.echo("")
+
+    if failed:
+        click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
+        raise SystemExit(1)
+
+    click.echo(f"✓ All {len(product_dirs)} products passed")

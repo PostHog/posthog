@@ -53,7 +53,7 @@ export function UrlConfig({
     })
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-4">
+        <div className="flex flex-col gap-y-2">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">
                     {title} <Since web={{ version: '1.171.0' }} />

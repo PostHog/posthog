@@ -1050,8 +1050,10 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
             # Check if user has the required access level.
             # "project" access is object-level (checked against the Team instance), not resource-level.
+            # For models with a team FK (e.g. Team extensions), use the team for the project check.
             if resource == "project":
-                has_access = user_access_control.check_access_level_for_object(self.instance, required_level)
+                obj_for_check = getattr(self.instance, "team", self.instance)
+                has_access = user_access_control.check_access_level_for_object(obj_for_check, required_level)
             else:
                 has_access = user_access_control.check_access_level_for_resource(resource, required_level)
 

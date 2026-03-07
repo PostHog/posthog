@@ -139,6 +139,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 @extend_schema_view(
     list=extend_schema(exclude=True),
     retrieve=extend_schema(exclude=True),
+    destroy=extend_schema(exclude=True),
 )
 class SignalReportViewSet(
     TeamAndOrgViewSetMixin,
