@@ -50,6 +50,29 @@ kvPair: expression ':' expression ;
 kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
+// Command statements (DDL-like, not sent to ClickHouse)
+command
+    : createApiKeyStmt SEMICOLON? EOF   # CommandCreateApiKey
+    | showApiKeysStmt SEMICOLON? EOF    # CommandShowApiKeys
+    | alterApiKeyStmt SEMICOLON? EOF    # CommandAlterApiKey
+    ;
+
+createApiKeyStmt
+    : CREATE API KEY label=STRING_LITERAL WITH SCOPES scopeList
+    ;
+
+showApiKeysStmt
+    : SHOW API KEYS
+    ;
+
+alterApiKeyStmt
+    : ALTER API KEY label=STRING_LITERAL ROLL
+    ;
+
+scopeList
+    : STRING_LITERAL (COMMA STRING_LITERAL)*
+    ;
+
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) SEMICOLON? EOF;
 
@@ -295,15 +318,15 @@ literal
 interval: SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR;
 keyword
     // except NULL_SQL, INF, NAN_SQL
-    : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
-    | CAST | COHORT | COLLATE | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
+    : ALL | ALTER | AND | ANTI | ANY | API | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
+    | CAST | COHORT | COLLATE | CREATE | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
     | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
     | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
-    | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
+    | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY | KEYS
     | LAST | LEADING | LEFT | LIKE | LIMIT
     | NAME | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
-    | PRECEDING | PREWHERE | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
-    | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
+    | PRECEDING | PREWHERE | RANGE | RECURSIVE | RETURN | RIGHT | ROLL | ROLLUP | ROW
+    | ROWS | SAMPLE | SCOPES | SELECT | SEMI | SETTINGS | SHOW | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
     | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
     ;

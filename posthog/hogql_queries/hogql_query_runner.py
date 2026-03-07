@@ -12,7 +12,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.command_parser import parse_command
+from posthog.hogql.commands import execute_command
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -79,6 +82,18 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def _calculate(self) -> HogQLQueryResponse:
+        # Try to parse as a DDL-like command (e.g. CREATE API KEY, SHOW API KEYS)
+        # before sending to ClickHouse
+        try:
+            command_node = parse_command(self.query.query)
+            if self.user is None:
+                from posthog.hogql.errors import QueryError
+
+                raise QueryError("Authentication required for API key commands")
+            return execute_command(command_node, self.user)
+        except HogQLSyntaxError:
+            pass  # Not a command — fall through to normal HogQL execution
+
         query = self.to_query()
         paginator = None
         if isinstance(query, ast.SelectQuery) and not query.limit:

@@ -1047,6 +1047,22 @@ class HogQLXTag(Expr):
         }
 
 
+@dataclass(kw_only=True)
+class CreateApiKeyCommand(Expr):
+    label: str
+    scopes: list[str]
+
+
+@dataclass(kw_only=True)
+class ShowApiKeysCommand(Expr):
+    pass
+
+
+@dataclass(kw_only=True)
+class AlterApiKeyRollCommand(Expr):
+    label: str
+
+
 def create_ast_classes_mapping() -> dict[str, AST]:
     current_module = sys.modules[__name__]
     ast_classes: dict[str, AST] = {}
