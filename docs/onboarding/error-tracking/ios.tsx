@@ -67,14 +67,11 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                         - **Uncaught NSExceptions**
                         
                         Crashes are persisted to disk and sent as \`$exception\` events with level "fatal" on the next app launch.
+                        
+                        ## Current limitations:
+                        - **System symbols:** PostHog does not currently collect or host Apple OS system symbols. This means that system framework crashes (UIKit, Foundation, etc.) will show memory addresses instead of symbolicated function names for system frames. Your app's frames will still be fully symbolicated.
+                        - **Swift error messages:** Swift crashes currently appear as \`SIGTRAP\` signals without the actual Swift error message. The stack trace and symbolication will still be available, but the specific Swift error context may not be captured.
                     `}
-                </Markdown>
-                <Markdown>
-                    {dedent`
-                    ## Current limitations:
-                    - **System symbols:** PostHog does not currently collect or host Apple OS system symbols. This means that system framework crashes (UIKit, Foundation, etc.) will show memory addresses instead of symbolicated function names for system frames. Your app's frames will still be fully symbolicated.
-                    - **Swift error messages:** Swift crashes currently appear as \`SIGTRAP\` signals without the actual Swift error message. The stack trace and symbolication will still be available, butthe specific Swift error context may not be captured.
-                `}
                 </Markdown>
             </>
         ),
