@@ -21,6 +21,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 _REVIEW_HOG_DIR = Path(__file__).parent.parent.parent
 
 
+# TODO: Make it a parent workflow and spawn steps as child workflows for better visualization
 async def main(pr_url: str) -> None:
     """Main entry point for running PR review tools."""
 
