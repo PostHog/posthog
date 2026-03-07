@@ -2422,6 +2422,24 @@ class TestComputeEvaluationInfo(BaseTest):
         assert result["requires_group_type_mappings"] is expect_group
         assert result["requires_experience_continuity"] is expect_continuity
 
+    def test_group_property_without_aggregation_index_sets_both_flags(self):
+        flags = [
+            {
+                "key": "group-prop-no-agg",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"type": "group", "key": "industry", "value": "tech"}],
+                        }
+                    ]
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is True
+        assert result["requires_group_type_mappings"] is True
+
     def test_non_person_property_types_do_not_trigger_person_properties(self):
         flags = [
             {

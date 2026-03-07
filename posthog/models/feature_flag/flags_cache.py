@@ -102,12 +102,21 @@ def _compute_evaluation_info(flags_data: list[dict]) -> dict[str, bool]:
         if not requires_person_properties:
             # Super groups always contain person properties ($feature_enrollment/{key}),
             # so their presence alone is sufficient.
-            requires_person_properties = bool(filters.get("super_groups")) or any(
-                prop.get("type") in person_property_types
-                for group in (filters.get("groups") or [])
-                if group.get("rollout_percentage") != 0
-                for prop in (group.get("properties") or [])
-            )
+            if filters.get("super_groups"):
+                requires_person_properties = True
+            else:
+                for group in filters.get("groups") or []:
+                    if group.get("rollout_percentage") == 0:
+                        continue
+                    for prop in group.get("properties") or []:
+                        prop_type = prop.get("type")
+                        if prop_type in person_property_types:
+                            requires_person_properties = True
+                            if prop_type == PropertyFilterType.GROUP:
+                                requires_group_type_mappings = True
+                            break
+                    if requires_person_properties:
+                        break
 
         if requires_person_properties and requires_group_type_mappings and requires_experience_continuity:
             break
