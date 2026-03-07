@@ -255,7 +255,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Flag definitions cache verification - split into two staggered tasks (one per variant)
     # so each gets its own time budget and they can run in parallel when workers are available.
-    # Minute 10 avoids colliding with team_metadata verification at minute 20.
+    # Minute 10 reduces overlap with team_metadata verification at minute 20.
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="*", minute="10"),
