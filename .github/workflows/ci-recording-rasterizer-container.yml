@@ -37,9 +37,13 @@ jobs:
                         - 'common/plugin_transpiler/**'
                         - 'common/esbuilder/**'
                         - 'rust/cyclotron-node/**'
+                        - 'rust/cyclotron-core/**'
                         - 'Dockerfile.recording-rasterizer'
                         - '.github/workflows/ci-recording-rasterizer-container.yml'
+                        - 'bin/turbo'
+                        - 'patches/**'
                         - 'turbo.json'
+                        - 'tsconfig.json'
                         - 'package.json'
                         - 'pnpm-lock.yaml'
                         - 'pnpm-workspace.yaml'
@@ -50,6 +54,7 @@ jobs:
         if: |
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.rasterizer_files == 'true') ||
             github.event_name == 'merge_group' ||
+            github.event_name == 'workflow_dispatch' ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.rasterizer_files == 'true')
         runs-on: depot-ubuntu-latest
         permissions:
@@ -130,10 +135,10 @@ jobs:
             - name: Container image digest
               run: |
                   echo "Image digest: ${{ steps.build.outputs.digest }}"
-                  echo "Full image reference: $${{ steps.aws-ecr.outputs.registry }}/posthog-recording-rasterizer:${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                  echo "Full image reference: ${{ steps.aws-ecr.outputs.registry }}/posthog-recording-rasterizer:${{ github.sha }}@${{ steps.build.outputs.digest }}"
                   echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image reference:** \`$${{ steps.aws-ecr.outputs.registry }}/posthog-recording-rasterizer:${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`${{ steps.aws-ecr.outputs.registry }}/posthog-recording-rasterizer:${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY

@@ -13,6 +13,9 @@ export const config = {
     browserRecycleAfter: parseInt(process.env.BROWSER_RECYCLE_AFTER || '100', 10),
     headless: process.env.EXPORTER_HEADLESS !== '0',
 
+    // Encryption
+    secretKey: process.env.DJANGO_SECRET_KEY,
+
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,
     s3Region: process.env.VIDEO_EXPORT_OBJECT_STORAGE_REGION || 'us-east-1',

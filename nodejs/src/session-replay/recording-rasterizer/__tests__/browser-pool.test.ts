@@ -119,4 +119,50 @@ describe('BrowserPool', () => {
         pool = new BrowserPool(100)
         await expect(pool.shutdown()).resolves.not.toThrow()
     })
+
+    it('recovers from failed recycle when launch fails', async () => {
+        const browser1 = mockBrowser()
+        const browser3 = mockBrowser()
+        browser1.newPage.mockResolvedValue(mockPage())
+        browser3.newPage.mockResolvedValue(mockPage())
+        puppeteer.launch
+            .mockResolvedValueOnce(browser1)
+            .mockRejectedValueOnce(new Error('launch failed'))
+            .mockResolvedValueOnce(browser3)
+
+        pool = new BrowserPool(1)
+        const p1 = await pool.getPage()
+        await expect(pool.releasePage(p1)).rejects.toThrow('launch failed')
+
+        // The recycling promise is reset via finally, so getPage can retry
+        const p2 = await pool.getPage()
+        expect(p2).toBeDefined()
+        expect(puppeteer.launch).toHaveBeenCalledTimes(3)
+    })
+
+    it('deduplicates concurrent launch calls', async () => {
+        const browser = mockBrowser()
+        browser.newPage.mockResolvedValue(mockPage())
+        puppeteer.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        await Promise.all([pool.launch(), pool.launch(), pool.launch()])
+
+        expect(puppeteer.launch).toHaveBeenCalledTimes(1)
+    })
+
+    it('deduplicates concurrent recycle calls', async () => {
+        const browser1 = mockBrowser()
+        const browser2 = mockBrowser()
+        browser1.newPage.mockResolvedValue(mockPage())
+        browser2.newPage.mockResolvedValue(mockPage())
+        puppeteer.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
+
+        pool = new BrowserPool(100)
+        await pool.launch()
+        await Promise.all([pool.recycle(), pool.recycle(), pool.recycle()])
+
+        expect(browser1.close).toHaveBeenCalledTimes(1)
+        expect(puppeteer.launch).toHaveBeenCalledTimes(2)
+    })
 })

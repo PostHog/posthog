@@ -14,6 +14,11 @@ import { RasterizeRecordingInput, RecordingResult } from '../types'
 
 const execFileAsync = promisify(execFile)
 
+jest.mock('@temporalio/activity', () => ({
+    Context: {
+        current: () => ({ info: { activityId: 'test-activity-id' } }),
+    },
+}))
 jest.mock('../recorder')
 jest.mock('../storage')
 jest.mock('../postprocess')
@@ -165,7 +170,8 @@ describe('rasterizer integration', () => {
             expect(mockedUploadToS3).toHaveBeenCalledWith(
                 expect.any(String),
                 'my-bucket',
-                'exports/mp4/team-99/task-42'
+                'exports/mp4/team-99/task-42',
+                'test-activity-id'
             )
         })
 
@@ -218,7 +224,8 @@ describe('rasterizer integration', () => {
             expect(mockedUploadToS3).toHaveBeenCalledWith(
                 expect.stringContaining('ph-video-raw-'),
                 'test-bucket',
-                'exports/mp4/team-1/task-1'
+                'exports/mp4/team-1/task-1',
+                'test-activity-id'
             )
             expect(result.file_size_bytes).toBe(512)
         })

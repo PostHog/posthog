@@ -133,8 +133,10 @@ export async function waitForRecordingWithSegments(
                 segmentStartTimestamps[segmentStartTs] = videoTime
                 lastCounter = newCounter
             }
-        } catch {
-            // waitForFunction throws on timeout
+        } catch (err) {
+            if (!(err instanceof Error && err.name === 'TimeoutError')) {
+                console.error('Unexpected error during segment recording:', err)
+            }
             break
         }
     }
@@ -153,7 +155,7 @@ export async function detectInactivityPeriods(
         }
         return r.map((p: any) => ({
             ts_from_s: Number(p.ts_from_s),
-            ts_to_s: p.ts_to_s !== undefined ? Number(p.ts_to_s) : null,
+            ts_to_s: Number.isFinite(p.ts_to_s) ? p.ts_to_s : null,
             active: Boolean(p.active),
         }))
     })

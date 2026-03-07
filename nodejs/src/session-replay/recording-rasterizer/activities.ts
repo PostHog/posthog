@@ -1,3 +1,4 @@
+import * as activity from '@temporalio/activity'
 import { randomUUID } from 'crypto'
 import * as fs from 'fs/promises'
 import * as os from 'os'
@@ -41,7 +42,8 @@ export async function rasterizeRecordingActivity(input: RasterizeRecordingInput)
         }
 
         const videoPath = input.skip_postprocessing ? rawPath : processedPath
-        const s3Key = await uploadToS3(videoPath, input.s3_bucket, input.s3_key_prefix)
+        const activityId = activity.Context.current().info.activityId
+        const s3Key = await uploadToS3(videoPath, input.s3_bucket, input.s3_key_prefix, activityId)
         const stat = await fs.stat(videoPath)
 
         return {

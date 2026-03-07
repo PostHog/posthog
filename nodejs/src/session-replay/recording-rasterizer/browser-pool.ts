@@ -70,8 +70,11 @@ export class BrowserPool {
             return this.recycling
         }
         this.recycling = this._doRecycle()
-        await this.recycling
-        this.recycling = null
+        try {
+            await this.recycling
+        } finally {
+            this.recycling = null
+        }
     }
 
     private async _doRecycle(): Promise<void> {

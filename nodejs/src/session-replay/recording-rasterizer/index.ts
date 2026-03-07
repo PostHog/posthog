@@ -3,13 +3,19 @@ import * as fs from 'fs/promises'
 
 import { rasterizeRecordingActivity, setBrowserPool } from './activities'
 import { BrowserPool } from './browser-pool'
+import { EncryptionCodec } from './codec'
 import { config } from './config'
 
 async function buildTLSConfig() {
     const { temporalClientRootCA, temporalClientCert, temporalClientKey } = config
 
-    if (!(temporalClientRootCA && temporalClientCert && temporalClientKey)) {
+    if (!temporalClientRootCA && !temporalClientCert && !temporalClientKey) {
         return undefined
+    }
+    if (!temporalClientRootCA || !temporalClientCert || !temporalClientKey) {
+        throw new Error(
+            'Partial TLS configuration: all three of TEMPORAL_CLIENT_ROOT_CA, TEMPORAL_CLIENT_CERT, and TEMPORAL_CLIENT_KEY must be set'
+        )
     }
 
     let systemCAs = Buffer.alloc(0)
@@ -31,17 +37,17 @@ async function buildTLSConfig() {
 }
 
 async function main(): Promise<void> {
-    const pool = new BrowserPool()
-    await pool.launch()
-    setBrowserPool(pool)
-
-    console.log('Browser pool launched')
-
     const address = `${config.temporalHost}:${config.temporalPort}`
     const tls = await buildTLSConfig()
 
     const connection = await NativeConnection.connect({ address, tls })
     console.log(`Connected to Temporal at ${address}`)
+
+    const pool = new BrowserPool()
+    await pool.launch()
+    setBrowserPool(pool)
+
+    console.log('Browser pool launched')
 
     const worker = Worker.create({
         connection,
@@ -49,6 +55,7 @@ async function main(): Promise<void> {
         taskQueue: config.taskQueue,
         activities: { 'rasterize-recording': rasterizeRecordingActivity },
         maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
+        dataConverter: config.secretKey ? { payloadCodecs: [new EncryptionCodec(config.secretKey)] } : undefined,
     })
 
     const runningWorker = await worker

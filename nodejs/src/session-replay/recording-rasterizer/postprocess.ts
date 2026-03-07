@@ -67,7 +67,7 @@ export async function postProcessToMp4(opts: PostProcessOptions): Promise<void> 
     args.push(opts.outputPath)
 
     try {
-        await execFileAsync(ffmpegPath, args)
+        await execFileAsync(ffmpegPath, args, { timeout: 600_000 })
     } catch (err: any) {
         const stderr = err.stderr?.trim() || ''
         throw new Error(`ffmpeg failed with exit code ${err.code}${stderr ? `: ${stderr}` : ''}`)

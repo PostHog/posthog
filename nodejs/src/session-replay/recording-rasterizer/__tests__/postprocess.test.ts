@@ -10,10 +10,10 @@ const mockExecFile = execFile as unknown as jest.Mock
 
 describe('postProcessToMp4', () => {
     beforeEach(() => {
-        mockExecFile.mockImplementation(
-            (_cmd: string, _args: string[], cb: (err: unknown, stdout: string, stderr: string) => void) =>
-                cb(null, '', '')
-        )
+        mockExecFile.mockImplementation((...args: any[]) => {
+            const cb = args[args.length - 1] as (err: unknown, stdout: string, stderr: string) => void
+            cb(null, '', '')
+        })
     })
 
     const baseOpts = {
@@ -66,10 +66,10 @@ describe('postProcessToMp4', () => {
     )
 
     it('throws on ffmpeg failure', async () => {
-        mockExecFile.mockImplementation(
-            (_cmd: string, _args: string[], cb: (err: unknown, stdout: string, stderr: string) => void) =>
-                cb({ code: 1, stderr: 'encoding error' }, '', '')
-        )
+        mockExecFile.mockImplementation((...args: any[]) => {
+            const cb = args[args.length - 1] as (err: unknown, stdout: string, stderr: string) => void
+            cb({ code: 1, stderr: 'encoding error' }, '', '')
+        })
 
         await expect(postProcessToMp4(baseOpts)).rejects.toThrow('ffmpeg failed with exit code 1: encoding error')
     })
