@@ -1,0 +1,96 @@
+---
+config:
+  flowchart:
+    nodeSpacing: 20
+    subGraphTitleMargin:
+      top: 5
+      bottom: 5
+---
+flowchart TD
+    PR["PR #1234<br/>20 files changed"]
+
+    %% Step 1: Fetch
+    PR --> FETCH["1. Fetch PR data<br/>(GitHub API)"]
+    FETCH --> META["PR metadata, comments,<br/>and file diffs artifacts"]
+
+    %% Step 2: Chunk
+    META --> CHUNK_AGENT{{"2. Chunking agent<br/>(sandbox)"}}
+    CHUNK_AGENT --> CHUNKS["Chunks artifact — 3 chunks"]
+
+    %% Step 3: Analyze - fan out
+    CHUNKS --> A1{{"3a. Analysis agent"}}
+    CHUNKS --> A2{{"3b. Analysis agent"}}
+    CHUNKS --> A3{{"3c. Analysis agent"}}
+    A1 --> AN1["Business logic — 7 files<br/>API, query helpers, models"]
+    A2 --> AN2["Refactoring — 6 files<br/>management cmd, utils"]
+    A3 --> AN3["Frontend — 7 files<br/>logics, scenes, api client"]
+
+    %% Step 4: Review passes - sequential passes, parallel chunks within each
+    AN1 & AN2 & AN3 --> PASS1
+
+    subgraph PASS1["4a. Logic + Correctness"]
+        P1C1{{"Agent: Chunk 1"}}
+        P1C2{{"Agent: Chunk 2"}}
+        P1C3{{"Agent: Chunk 3"}}
+    end
+
+    PASS1 -->|"pass 1 context"| PASS2
+
+    subgraph PASS2["4b. Contracts + Security"]
+        P2C1{{"Agent: Chunk 1"}}
+        P2C2{{"Agent: Chunk 2"}}
+        P2C3{{"Agent: Chunk 3"}}
+    end
+
+    PASS2 -->|"pass 1+2 context"| PASS3
+
+    subgraph PASS3["4c. Perf + Reliability"]
+        P3C1{{"Agent: Chunk 1"}}
+        P3C2{{"Agent: Chunk 2"}}
+        P3C3{{"Agent: Chunk 3"}}
+    end
+
+    %% Step 5-6: Combine and clean
+    PASS3 --> COMBINE["5. Combine — 24 issues total"]
+    COMBINE --> CLEAN["6. Clean — filter out-of-scope, 18 remain"]
+
+    %% Step 7: Dedup (sandbox)
+    CLEAN --> DEDUP{{"7. Dedup agent (sandbox)"}}
+    META -.->|"pr_comments used to<br/>skip points already<br/>raised by other reviewers/bots"| DEDUP
+    DEDUP --> DEDUPED["14 unique issues"]
+
+    %% Step 8: Validate - fan out
+    DEDUPED --> V1{{"8a. Validation agent"}}
+    DEDUPED --> V2{{"8b. Validation agent"}}
+    DEDUPED --> VN{{"8c-n. Validation agents"}}
+    V1 & V2 & VN --> VALIDATED["9 validated issues"]
+
+    %% Step 9-10: Report and publish
+    VALIDATED --> MARKDOWN["9. Build markdown report"]
+    MARKDOWN --> PUBLISH["10. Publish review (GitHub API)"]
+    PUBLISH --> RESULT["PR review posted<br/>9 inline comments"]
+
+    %% Styling
+    classDef agent fill:#4a90d9,stroke:#2c5f8a,color:#fff
+    classDef local fill:#6ab04c,stroke:#3d7a2a,color:#fff
+    classDef data fill:#f5f5f5,stroke:#999,color:#333
+    classDef api fill:#e17055,stroke:#b34230,color:#fff
+    classDef result fill:#fdcb6e,stroke:#c7991b,color:#333
+
+    class CHUNK_AGENT,A1,A2,A3,P1C1,P1C2,P1C3,P2C1,P2C2,P2C3,P3C1,P3C2,P3C3,DEDUP,V1,V2,VN agent
+    class COMBINE,CLEAN,MARKDOWN local
+    class META,CHUNKS,AN1,AN2,AN3,DEDUPED,VALIDATED data
+    class FETCH,PUBLISH api
+    class PR,RESULT result
+
+    %% Legend
+    subgraph LEGEND["Legend"]
+        L1{{"Sandbox agent"}}
+        L2["Local script"]
+        L3["GitHub API"]
+        L4["Data artifact"]
+    end
+    class L1 agent
+    class L2 local
+    class L3 api
+    class L4 data
