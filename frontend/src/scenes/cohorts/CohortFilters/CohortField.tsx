@@ -175,7 +175,6 @@ export function CohortPersonPropertiesValuesField({
                 onChange({ [fieldKey]: newValue })
             }}
             placeholder="Enter value..."
-            validationError={null}
         />
     )
 }
