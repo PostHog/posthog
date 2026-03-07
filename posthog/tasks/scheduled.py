@@ -261,7 +261,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="10"),
         verify_and_fix_flag_definitions_cache_task.s(),
         name="verify and fix flag definitions cache (with cohorts)",
-        expires_seconds=30 * 60,
     )
 
     add_periodic_task_with_expiry(
@@ -269,7 +268,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="50"),
         verify_and_fix_flag_definitions_without_cohorts_cache_task.s(),
         name="verify and fix flag definitions cache (without cohorts)",
-        expires_seconds=30 * 60,
     )
 
     # Update events table partitions twice a week
