@@ -63,17 +63,36 @@ def _get_model_class(resource: str) -> Optional[type[models.Model]]:
         return None
 
 
-def resolve_resource_by_name(team: Team, resource: str, resource_name: str) -> str:
-    """Resolve a human-readable resource name to its ID.
+def _looks_like_id(value: str) -> bool:
+    """Check if a value looks like a resource ID (UUID or integer)."""
+    import re
 
+    if re.fullmatch(r"\d+", value):
+        return True
+    if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", value, re.IGNORECASE):
+        return True
+    return False
+
+
+def resolve_resource_by_name(team: Team, resource: str, resource_name: str) -> str:
+    """Resolve a human-readable resource name or ID to a verified resource ID.
+
+    Accepts either a human-readable name or a direct resource ID (UUID or integer).
     Returns the string ID suitable for AccessControl.resource_id.
     Raises ValueError if not found or ambiguous.
     """
+    model_class = _get_model_class(resource)
+
+    # If it looks like an ID, verify the resource exists and return it directly
+    if _looks_like_id(resource_name):
+        if model_class is not None and model_class.objects.filter(team=team, id=resource_name).exists():
+            return resource_name
+        # Fall through to name-based lookup — the value might be a name that happens to look like a number
+
     config = RESOURCE_REGISTRY.get(resource)
     if not config:
         raise ValueError(f"Resource type '{resource}' does not support name-based lookup")
 
-    model_class = _get_model_class(resource)
     if model_class is None:
         raise ValueError(f"Resource type '{resource}' model not available")
 

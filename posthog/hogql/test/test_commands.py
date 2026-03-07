@@ -177,6 +177,46 @@ class TestAccessControlCommandExecutor(BaseTest):
         response = execute_command(node, self.user, team=self.team)
         assert response.results[0][5] == "granted"
 
+    def test_grant_with_resource_id(self):
+        from posthog.models import Insight
+
+        insight = Insight.objects.create(team=self.team, name="Some Insight")
+
+        node = ast.GrantCommand(
+            access_level="editor",
+            resource="insight",
+            resource_name=str(insight.id),
+            target_type="role",
+            target_name="Analysts",
+        )
+        response = execute_command(node, self.user, team=self.team)
+
+        assert response.results[0][5] == "granted"
+
+        from ee.models.rbac.access_control import AccessControl
+
+        ac = AccessControl.objects.get(team=self.team, resource="insight")
+        assert ac.resource_id == str(insight.id)
+
+    def test_grant_with_uuid_resource_id(self):
+        from posthog.models.surveys.survey import Survey
+
+        survey = Survey.objects.create(team=self.team, name="My Survey", created_by=self.user)
+
+        node = ast.GrantCommand(
+            access_level="editor",
+            resource="survey",
+            resource_name=str(survey.id),
+            target_type="default",
+        )
+        response = execute_command(node, self.user, team=self.team)
+        assert response.results[0][5] == "granted"
+
+        from ee.models.rbac.access_control import AccessControl
+
+        ac = AccessControl.objects.get(team=self.team, resource="survey")
+        assert ac.resource_id == str(survey.id)
+
     def test_grant_resource_name_not_found(self):
         node = ast.GrantCommand(
             access_level="editor",
