@@ -134,6 +134,11 @@ export class InsightPage {
         // panel container to be visible so callers know the panel has mounted and
         // the portal target is registered.
         await this.page.locator('#side-panel').waitFor({ state: 'visible' })
+        // The danger zone (delete button) is rendered via createPortal into a ref
+        // registered by SidePanelInfo. The #side-panel being visible does not
+        // guarantee the portal target is mounted. Wait for the portal content to
+        // be attached to the DOM before proceeding.
+        await this.page.locator('.scene-panel-actions-section').first().waitFor({ state: 'attached' })
     }
 
     async clickDeleteInsight(): Promise<void> {
@@ -142,6 +147,9 @@ export class InsightPage {
         // opening the info panel the button may not be in the DOM yet, so
         // explicitly wait for it to become visible before clicking.
         const deleteButton = this.page.getByTestId('insight-delete')
+        // Scroll into view in case the button is below the visible area of the
+        // side panel (nested overflow-hidden containers can clip it).
+        await deleteButton.scrollIntoViewIfNeeded()
         await deleteButton.waitFor({ state: 'visible' })
         await deleteButton.click()
     }
