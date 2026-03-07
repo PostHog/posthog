@@ -11,6 +11,7 @@ from products.review_hog.backend.reviewer.tools.issue_deduplicator import dedupl
 from products.review_hog.backend.reviewer.tools.issue_validation import validate_issues
 from products.review_hog.backend.reviewer.tools.issues_review import review_chunks
 from products.review_hog.backend.reviewer.tools.prepare_validation_markdown import prepare_validation_markdown
+from products.review_hog.backend.reviewer.tools.publish_review import publish_review
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import split_pr_into_chunks
 
 logger = logging.getLogger(__name__)
@@ -129,3 +130,13 @@ async def main(pr_url: str) -> None:
         pr_metadata=pr_metadata.model_dump(),
     )
     logger.info("Validation markdown preparation completed successfully!")
+
+    # 14. Publish review to GitHub
+    logger.info("Publishing review to GitHub...")
+    publish_review(
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        review_dir=review_dir,
+    )
+    logger.info("Review published successfully!")
