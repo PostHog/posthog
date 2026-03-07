@@ -12,6 +12,11 @@ global.TextEncoder = TextEncoder as any
 window.scrollTo = jest.fn()
 window.matchMedia = jest.fn(() => ({ matches: false, addListener: jest.fn(), removeListener: jest.fn() }) as any)
 
+// Base UI's ScrollArea calls getAnimations() which jsdom doesn't support
+if (typeof Element.prototype.getAnimations !== 'function') {
+    Element.prototype.getAnimations = () => []
+}
+
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it
 if (typeof (globalThis as any).CSS === 'undefined') {
     ;(globalThis as any).CSS = {}
