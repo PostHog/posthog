@@ -8,7 +8,7 @@ from posthog.models import Organization, Team, User
 
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
-from ee.hogai.eval.data_setup import create_core_memory, create_demo_org_team_user
+from ee.hogai.eval.data_setup import create_core_memory, create_isolated_demo_data
 from ee.models.assistant import CoreMemory
 
 from .config import SandboxEvalConfig
@@ -20,7 +20,7 @@ def demo_org_team_user(
     set_up_evals,  # noqa: F811
     django_db_blocker,
 ) -> Generator[tuple[Organization, Team, User], None, None]:
-    yield create_demo_org_team_user(django_db_blocker)
+    yield create_isolated_demo_data(django_db_blocker, label="sandboxed")
 
 
 @pytest.fixture(scope="session", autouse=True)

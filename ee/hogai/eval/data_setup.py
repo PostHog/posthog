@@ -16,45 +16,61 @@ from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 from ee.models.assistant import CoreMemory
 
+EVAL_SEED = "b1ef3c66-5f43-488a-98be-6b46d92fbcef"
 EVAL_USER_FULL_NAME = "Karen Smith"
 
 
-def create_demo_org_team_user(django_db_blocker) -> tuple[Organization, Team, User]:
-    """Create or reuse HedgeboxMatrix demo data for evals.
+def create_isolated_demo_data(
+    django_db_blocker,
+    *,
+    label: str,
+) -> tuple[Organization, Team, User]:
+    """Create an isolated org/team/user with HedgeboxMatrix demo data.
 
-    Uses a deterministic seed so demo data is consistent across runs.
-    If a team already exists from today, it is reused. Otherwise fresh
-    data is generated via ``HedgeboxMatrix`` with 500 clusters and 120 days
-    of history.
+    Uses ``use_pre_save=True`` so the simulation runs once (stored in
+    master team 0) and subsequent calls for different labels only copy
+    ClickHouse data via server-side SQL — much faster than re-simulating
+    and re-ingesting via Kafka.
+
+    Each *label* produces a separate ``Organization`` so eval harnesses
+    don't interfere with each other.
     """
-    with django_db_blocker.unblock():
-        team: Team | None = Team.objects.order_by("-created_at").first()
-        today = datetime.date.today()
-        if not team or team.created_at.date() < today:
-            print("Generating fresh demo data for evals...")  # noqa: T201
+    org_name = f"Hedgebox Inc. ({label})"
+    today = datetime.date.today()
+    email = f"eval-{label}-{today.isoformat()}"
 
-            matrix = HedgeboxMatrix(
-                seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
-                days_past=120,
-                days_future=30,
-                n_clusters=500,
-                group_type_index_offset=0,
-            )
-            matrix_manager = MatrixManager(matrix, print_steps=True)
-            with override_settings(TEST=False):
-                # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
-                # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
-                org, team, user = matrix_manager.ensure_account_and_save(
-                    f"eval-{today.isoformat()}", EVAL_USER_FULL_NAME, "Hedgebox Inc."
-                )
-        else:
-            print("Using existing demo data for evals...")  # noqa: T201
-            org = team.organization
-            membership = org.memberships.first()
+    with django_db_blocker.unblock():
+        # Check for existing data from today
+        existing_org = Organization.objects.filter(name=org_name).order_by("-created_at").first()
+        if existing_org and existing_org.created_at.date() == today:
+            print(f"Using existing demo data for '{label}'...")  # noqa: T201
+            team = existing_org.teams.first()
+            assert team is not None
+            membership = existing_org.memberships.first()
             assert membership is not None
-            user = membership.user
+            return existing_org, team, membership.user
+
+        print(f"Generating demo data for '{label}'...")  # noqa: T201
+        matrix = HedgeboxMatrix(
+            seed=EVAL_SEED,
+            days_past=120,
+            days_future=30,
+            n_clusters=500,
+            group_type_index_offset=0,
+        )
+        matrix_manager = MatrixManager(matrix, use_pre_save=True, print_steps=True)
+        with override_settings(TEST=False):
+            # Simulation saving should occur in non-test mode, so that Kafka isn't mocked.
+            # Normally in tests we don't want to ingest via Kafka, but simulation saving is
+            # specifically designed to use that route for speed.
+            org, team, user = matrix_manager.ensure_account_and_save(email, EVAL_USER_FULL_NAME, org_name)
 
     return org, team, user
+
+
+def create_demo_org_team_user(django_db_blocker) -> tuple[Organization, Team, User]:
+    """Create or reuse demo data for CI evals. Thin wrapper for backward compat."""
+    return create_isolated_demo_data(django_db_blocker, label="ci")
 
 
 def create_core_memory(team: Team, django_db_blocker) -> CoreMemory:
