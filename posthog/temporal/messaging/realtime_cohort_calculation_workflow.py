@@ -82,6 +82,9 @@ ROW_PROCESSING_RATE_HISTOGRAM = Histogram(
 
 LOGGER = get_logger(__name__)
 
+# Sampling rate for Kafka produce duration metrics to reduce overhead
+KAFKA_PRODUCE_METRIC_SAMPLE_RATE = 1000
+
 
 def get_cohort_calculation_success_metric():
     """Counter for successful cohort calculations."""
@@ -251,7 +254,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
     async with Heartbeater(details=(f"Starting to process {num_cohorts_desc}",)) as heartbeater:
         start_time = time.monotonic()
-        cohort_durations = {}  # Collect durations for batch update
+        cohort_durations = {}
+        percentile_bucket = _get_percentile_bucket_label(inputs)
 
         @database_sync_to_async
         def get_cohorts():
@@ -308,7 +312,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 query_build_start_time = time.monotonic()
                 current_members_sql, query_params = await build_query(cohort)
                 query_build_duration = time.monotonic() - query_build_start_time
-                percentile_bucket = _get_percentile_bucket_label(inputs)
                 QUERY_BUILD_DURATION_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(query_build_duration)
 
                 query_params = {
@@ -365,10 +368,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     # Time the ClickHouse query execution
                     query_start_time = time.monotonic()
                     query_execution_complete = False
-                    percentile_bucket = _get_percentile_bucket_label(inputs)
 
-                    # Track row processing rate
-                    row_processing_start_time = time.monotonic()
+                    # Track row processing rate (will be set when first row arrives)
+                    row_processing_start_time = None
                     rows_processed = 0
 
                     async with get_client(team_id=cohort.team_id) as client:
@@ -384,6 +386,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                         percentile_bucket=percentile_bucket
                                     ).observe(query_duration)
                                     query_execution_complete = True
+                                    # Start row processing timer now that query is complete
+                                    row_processing_start_time = time.monotonic()
                                 person_id = row["person_id"]
                                 status = row["status"]
                                 status_counts[status] += 1
@@ -405,9 +409,11 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                         data=payload,
                                     )
                                     produce_duration = time.monotonic() - produce_start_time
-                                    KAFKA_PRODUCE_DURATION_HISTOGRAM.labels(
-                                        percentile_bucket=percentile_bucket
-                                    ).observe(produce_duration)
+                                    # Sample every 1000th row to reduce histogram overhead for large cohorts
+                                    if total_messages % KAFKA_PRODUCE_METRIC_SAMPLE_RATE == 0:
+                                        KAFKA_PRODUCE_DURATION_HISTOGRAM.labels(
+                                            percentile_bucket=percentile_bucket
+                                        ).observe(produce_duration)
 
                                     pending_kafka_messages.append(send_result)
                                     total_messages += 1
@@ -459,7 +465,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         total_flushed += flushed
 
                     # Calculate and record row processing rate
-                    if rows_processed > 0:
+                    if rows_processed > 0 and row_processing_start_time is not None:
                         row_processing_duration = time.monotonic() - row_processing_start_time
                         if row_processing_duration > 0:
                             rows_per_second = rows_processed / row_processing_duration
@@ -486,7 +492,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 duration_ms = int((cohort_end_time - cohort_start_time) * 1000)
 
                 # Record total cohort calculation duration
-                percentile_bucket = _get_percentile_bucket_label(inputs)
                 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(
                     cohort_end_time - cohort_start_time
                 )
@@ -518,7 +523,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             batch_update_duration = time.monotonic() - batch_update_start
 
             # Record batch update timing
-            percentile_bucket = _get_percentile_bucket_label(inputs)
             COHORT_DURATION_UPDATE_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(batch_update_duration)
 
             logger.info(
