@@ -44,6 +44,7 @@ Each pass shares context with subsequent passes to avoid duplicate findings.
    - `tools/issue_deduplicator.py`: Removes duplicate issues using a sandbox agent
    - `tools/issue_validation.py`: Validates each issue against actual code
 6. **Output Generation** (`tools/prepare_validation_markdown.py`): Creates markdown reports
+7. **Publishing** (`tools/publish_review.py`): Posts the review to GitHub as a PR review with inline comments
 
 ### Sandbox Execution
 
