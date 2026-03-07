@@ -20,6 +20,7 @@ async def run_sandbox_review(
     branch: str,
     output_path: str,
     model_to_validate: type[BaseModel],
+    step_name: str = "",
 ) -> bool:
     """Run a review in a sandbox and save validated output locally.
 
@@ -34,7 +35,7 @@ async def run_sandbox_review(
         full_prompt = f"{system_prompt}\n\n{prompt}"
 
         try:
-            last_message, full_log = await run_review(prompt=full_prompt, branch=branch)
+            last_message, full_log = await run_review(prompt=full_prompt, branch=branch, step_name=step_name)
         except Exception as e:
             logger.exception(f"Sandbox execution failed: {e}")
             return False

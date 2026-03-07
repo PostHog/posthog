@@ -41,6 +41,7 @@ async def execute_task_processing_workflow_async(
     slack_thread_context: Optional[Any] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    workflow_id_prefix: Optional[str] = None,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
@@ -93,7 +94,10 @@ async def execute_task_processing_workflow_async(
             logger.warning("task_processing_blocked_feature_flag", extra={"task_id": task_id})
             return
 
-        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
+        if workflow_id_prefix:
+            workflow_id = f"{workflow_id_prefix}-{task_id}-{run_id}"
+        else:
+            workflow_id = TaskRun.get_workflow_id(task_id, run_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(
@@ -141,6 +145,7 @@ def execute_task_processing_workflow(
     slack_thread_context: Optional["SlackThreadContext"] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    workflow_id_prefix: Optional[str] = None,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
@@ -192,7 +197,10 @@ def execute_task_processing_workflow(
             logger.warning("task_processing_blocked_feature_flag", extra={"task_id": task_id})
             return
 
-        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
+        if workflow_id_prefix:
+            workflow_id = f"{workflow_id_prefix}-{task_id}-{run_id}"
+        else:
+            workflow_id = TaskRun.get_workflow_id(task_id, run_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(

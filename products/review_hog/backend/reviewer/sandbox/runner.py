@@ -49,7 +49,7 @@ def _get_defaults() -> tuple[int, int, int, str]:
     return _CLOUD_TEAM_ID, _CLOUD_USER_ID, _CLOUD_GITHUB_INTEGRATION_ID, _CLOUD_REPOSITORY
 
 
-async def run_review(prompt: str, branch: str = "master") -> tuple[str, str]:
+async def run_review(prompt: str, branch: str = "master", step_name: str = "") -> tuple[str, str]:
     """Spawn a sandbox agent with the given prompt and return its last response and full logs.
 
     Creates a Task + TaskRun, triggers the existing Temporal workflow,
@@ -58,8 +58,8 @@ async def run_review(prompt: str, branch: str = "master") -> tuple[str, str]:
 
     Returns (last_agent_message, full_log_content).
     """
-    task, task_run = await _create_task_and_trigger(prompt, branch)
-    logger.info("review_hog: started task=%s run=%s", task.id, task_run.id)
+    task, task_run = await _create_task_and_trigger(prompt, branch, step_name)
+    logger.info("review_hog: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
     final_status, last_message, full_log = await _poll_until_done(task_run)
     logger.info("review_hog: finished run=%s status=%s", task_run.id, final_status)
     if not last_message:
@@ -67,16 +67,17 @@ async def run_review(prompt: str, branch: str = "master") -> tuple[str, str]:
     return last_message, full_log or ""
 
 
-async def _create_task_and_trigger(description: str, branch: str = "master"):
+async def _create_task_and_trigger(description: str, branch: str = "master", step_name: str = ""):
     from products.tasks.backend.models import Task
     from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
     team_id, user_id, github_integration_id, repository = await sync_to_async(_get_defaults)()
 
+    title = f"[reviewhog:{step_name}] {description[:80]}" if step_name else description[:100]
     task = await sync_to_async(Task.objects.create)(
         team_id=team_id,
         created_by_id=user_id,
-        title=description[:100],
+        title=title,
         description=description,
         origin_product=ORIGIN_PRODUCT,
         github_integration_id=github_integration_id,
@@ -89,11 +90,13 @@ async def _create_task_and_trigger(description: str, branch: str = "master"):
         task_run.branch = branch
         await sync_to_async(task_run.save)(update_fields=["branch"])
 
+    workflow_id_prefix = f"reviewhog-{step_name}" if step_name else None
     await sync_to_async(execute_task_processing_workflow)(
         task_id=str(task.id),
         run_id=str(task_run.id),
         team_id=team_id,
         user_id=user_id,
+        workflow_id_prefix=workflow_id_prefix,
     )
 
     return task, task_run

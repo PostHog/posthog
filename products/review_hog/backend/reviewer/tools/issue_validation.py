@@ -168,6 +168,7 @@ IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema.""
             branch=branch,
             output_path=str(output_path),
             model_to_validate=IssueValidation,
+            step_name=f"validation-c{chunk_index}-i{issue_index}",
         )
         if not success:
             logger.error(f"Failed to validate chunk {chunk_index} issue {issue_index}")
