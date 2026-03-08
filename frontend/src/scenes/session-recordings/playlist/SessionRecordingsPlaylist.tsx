@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
@@ -6,7 +5,10 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { cn } from 'lib/utils/css-classes'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
+
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -28,7 +30,8 @@ export function SessionRecordingsPlaylist({
         onlyPinned: props.type === 'collection',
     }
 
-    const { isWindowLessThan } = useWindowSize()
+    const { sidePanelWidth } = useValues(panelLayoutLogic)
+    const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
     const windowSaysVertical = isWindowLessThan('xl')
 
     // Don't switch layout while in fullscreen — it would unmount the fullscreen element
@@ -40,7 +43,7 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className="w-full h-full flex flex-col xl:flex-row xl:gap-2">
+            <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
                 {isVerticalLayout ? <VerticalLayout {...props} /> : <HorizontalLayout {...props} />}
             </div>
         </BindLogic>
@@ -75,12 +78,18 @@ function HorizontalLayout({
         <>
             <div
                 ref={playlistRef}
-                className={clsx('relative flex flex-col shrink-0', {
+                className={cn('relative flex flex-col shrink-0', {
                     'w-3': isPlaylistCollapsed,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
-                    isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 'min-content', maxWidth: '50%' }
+                    isPlaylistCollapsed
+                        ? {}
+                        : {
+                              width: desiredSize ?? 320,
+                              minWidth: 'min-content',
+                              maxWidth: '50%',
+                          }
                 }
             >
                 <Playlist {...props} />
@@ -136,7 +145,7 @@ function VerticalLayout({
                     ) : null
                 }
             />
-            <div className={clsx('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
+            <div className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
                 <Playlist {...props} />
             </div>
         </>
@@ -183,7 +192,7 @@ function PlayerWrapper({
     return (
         <div
             ref={containerRef}
-            className={clsx('Playlist__main relative overflow-hidden', className, 'min-h-96')}
+            className={cn('Playlist__main relative overflow-hidden', className, 'min-h-96')}
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
         >

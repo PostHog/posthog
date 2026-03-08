@@ -19,7 +19,6 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { isDomain, isURL } from 'lib/utils'
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -134,9 +133,7 @@ const _buildToolbarUserIntent = (options?: BuildToolbarParamsOptions): ToolbarUs
 function buildToolbarParams(options?: BuildToolbarParamsOptions): ToolbarParams {
     return {
         userIntent: _buildToolbarUserIntent(options),
-        // Keeping this as backward compatibility, but we don't use it anymore in the toolbar
-        // and instead depend on the `posthog`'s instance configuration
-        apiURL: apiHostOrigin(),
+        uiHost: window.location.origin,
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
         ...(options?.productTourId && options.productTourId !== 'new' ? { productTourId: options.productTourId } : {}),
@@ -169,7 +166,7 @@ export function appEditorUrl(
  * Unlike appEditorUrl which goes through redirect_to_site,
  * this constructs the URL client-side so the toolbar uses OAuth for authentication.
  */
-function directToolbarUrl(
+export function directToolbarUrl(
     appUrl: string,
     options?: BuildToolbarParamsOptions & {
         token?: string
@@ -192,13 +189,27 @@ function directToolbarUrl(
     return `${appUrl}#__posthog=${state}`
 }
 
+/** Treat www.domain.com and domain.com as equivalent. */
+const stripWww = (host: string): string => (host.startsWith('www.') ? host.slice(4) : host)
+
 export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]): boolean => {
     try {
         const parsedUrl = typeof url === 'string' ? sanitizePossibleWildCardedURL(url) : url
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
-        // Is this domain already in the list of urls?
-        const exactMatch =
-            authorizedUrls.filter((authorizedUrl) => authorizedUrl.indexOf(urlWithoutPath) > -1).length > 0
+        const hostNormalized = stripWww(parsedUrl.hostname)
+
+        const exactMatch = authorizedUrls.some((authorizedUrl) => {
+            if (authorizedUrl.indexOf(urlWithoutPath) > -1) {
+                return true
+            }
+            // www-equivalence: compare hostnames with www. stripped
+            try {
+                const authorizedHost = sanitizePossibleWildCardedURL(authorizedUrl).hostname
+                return stripWww(authorizedHost) === hostNormalized
+            } catch {
+                return false
+            }
+        })
 
         if (exactMatch) {
             return true

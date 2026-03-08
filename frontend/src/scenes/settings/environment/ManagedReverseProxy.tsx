@@ -24,6 +24,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { isKeyOf } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { ProxyRecord, proxyLogic } from './proxyLogic'
@@ -75,7 +76,7 @@ export function ManagedReverseProxy(): JSX.Element {
                         )}
                     >
                         {status === 'issuing' && <Spinner />}
-                        <span className="capitalize">{statusText[status] || status}</span>
+                        <span className="capitalize">{isKeyOf(status, statusText) ? statusText[status] : status}</span>
                         {status === 'waiting' && (
                             <Tooltip title="Waiting for DNS records to be created">
                                 <IconInfo className="cursor-pointer" />

@@ -8,6 +8,7 @@ import structlog
 
 from posthog.models.utils import RootTeamMixin
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL
+from posthog.rbac.decorators import field_access_control
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 logger = structlog.get_logger(__name__)
@@ -41,14 +42,16 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
     group_type = models.CharField(max_length=400, null=False, blank=False)
     group_type_index = models.IntegerField(null=False, blank=False)
     # Used to display in UI
-    name_singular = models.CharField(max_length=400, null=True, blank=True)
-    name_plural = models.CharField(max_length=400, null=True, blank=True)
+    name_singular = field_access_control(models.CharField(max_length=400, null=True, blank=True), "project", "admin")
+    name_plural = field_access_control(models.CharField(max_length=400, null=True, blank=True), "project", "admin")
 
-    default_columns = ArrayField(models.TextField(), null=True, blank=True)
+    default_columns = field_access_control(ArrayField(models.TextField(), null=True, blank=True), "project", "admin")
 
     # DO_NOTHING + db_constraint=False: Dashboard deletion handled manually, may be cross-database
-    detail_dashboard = models.ForeignKey(
-        "Dashboard", on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True
+    detail_dashboard = field_access_control(
+        models.ForeignKey("Dashboard", on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True),
+        "project",
+        "admin",
     )
     created_at = models.DateTimeField(null=True, blank=True)
 

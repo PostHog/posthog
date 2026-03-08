@@ -31,14 +31,50 @@ class TestValidatePendingChangeRequests(BaseTest):
             expires_at=timezone.now() + timedelta(hours=24),
         )
 
-    def test_validation_skips_non_pending_requests(self):
+    def test_skips_non_pending_requests(self):
         self.change_request.state = "approved"
         self.change_request.save()
 
         result = validate_pending_change_requests()
 
-        self.assertEqual(result["validated_count"], 0)
-        self.assertEqual(result["invalidated_count"], 0)
+        self.assertEqual(result["checked_count"], 0)
+        self.assertEqual(result["stale_count"], 0)
+
+    def test_skips_already_stale_requests(self):
+        self.change_request.validation_status = "stale"
+        self.change_request.save()
+
+        result = validate_pending_change_requests()
+
+        self.assertEqual(result["checked_count"], 0)
+        self.assertEqual(result["stale_count"], 0)
+
+    @patch("posthog.approvals.tasks.ChangeRequest.get_action_class")
+    def test_marks_stale_when_resource_changed(self, mock_get_action):
+        mock_action = mock_get_action.return_value
+        mock_action.prepare_context.return_value = {}
+        mock_action.check_staleness.return_value = True
+
+        result = validate_pending_change_requests()
+
+        self.assertEqual(result["stale_count"], 1)
+        self.change_request.refresh_from_db()
+        self.assertEqual(self.change_request.validation_status, "stale")
+        self.assertIsNotNone(self.change_request.validation_errors)
+        self.assertIsNotNone(self.change_request.validated_at)
+
+    @patch("posthog.approvals.tasks.ChangeRequest.get_action_class")
+    def test_leaves_unchanged_when_not_stale(self, mock_get_action):
+        mock_action = mock_get_action.return_value
+        mock_action.prepare_context.return_value = {}
+        mock_action.check_staleness.return_value = False
+
+        result = validate_pending_change_requests()
+
+        self.assertEqual(result["checked_count"], 1)
+        self.assertEqual(result["stale_count"], 0)
+        self.change_request.refresh_from_db()
+        self.assertEqual(self.change_request.validation_status, "valid")
 
 
 class TestExpireOldChangeRequests(BaseTest):

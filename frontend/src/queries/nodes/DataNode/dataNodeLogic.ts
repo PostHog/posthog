@@ -967,11 +967,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 if (!response) {
                     return null
                 }
-                const fields = ['result', 'results']
-                for (const field of fields) {
-                    if (field in response && Array.isArray(response[field])) {
-                        return response[field].length
-                    }
+                if ('result' in response && Array.isArray(response['result'])) {
+                    return response['result'].length
+                }
+                if ('results' in response && Array.isArray(response['results'])) {
+                    return response['results'].length
                 }
                 return null
             },
