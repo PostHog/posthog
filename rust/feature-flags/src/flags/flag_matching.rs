@@ -25,7 +25,7 @@ use crate::metrics::consts::{
     FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
     FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER, TOMBSTONE_COUNTER,
+    PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::properties::property_models::PropertyFilter;
 use crate::rayon_dispatcher::RayonDispatcher;
@@ -309,15 +309,6 @@ impl FeatureFlagMatcher {
 
     pub fn with_skip_writes(mut self, skip_writes: bool) -> Self {
         self.skip_writes = skip_writes;
-        self
-    }
-
-    /// Sets filtered-out flag IDs for tests and lower-level evaluation flows.
-    /// Note: `evaluate_all_feature_flags` overwrites this field from the
-    /// `FeatureFlagList`, so this method only takes effect when calling
-    /// evaluation helpers (e.g. `evaluate_flags_in_order`) directly.
-    pub fn with_filtered_out_flag_ids(mut self, ids: HashSet<i32>) -> Self {
-        self.filtered_out_flag_ids = ids;
         self
     }
 
@@ -856,24 +847,6 @@ impl FeatureFlagMatcher {
                     && !evaluated_flags_map.contains_key(&flag.key)
             })
             .collect();
-
-        // Inactive flags should never reach evaluation — filtered_out_flag_ids must include them.
-        // Fire a tombstone metric if this invariant is violated so we catch it in production.
-        let inactive_count = flags_to_evaluate.iter().filter(|f| !f.active).count();
-        if inactive_count > 0 {
-            inc(
-                TOMBSTONE_COUNTER,
-                &[
-                    ("namespace".to_string(), "feature_flags".to_string()),
-                    (
-                        "operation".to_string(),
-                        "inactive_flag_reached_evaluation".to_string(),
-                    ),
-                    ("component".to_string(), "flag_matching".to_string()),
-                ],
-                inactive_count as u64,
-            );
-        }
 
         let precomputed_property_overrides = self.precompute_property_overrides(
             &flags_to_evaluate,
