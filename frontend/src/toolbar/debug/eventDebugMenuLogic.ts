@@ -26,6 +26,8 @@ function tryRegexMatch(text: string, pattern: string): boolean {
     return text.toLowerCase().includes(pattern.toLowerCase())
 }
 
+const MAX_EVENTS = 5000
+
 export type EventCategory = 'posthog' | 'custom' | 'snapshot'
 
 export function classifyEvent(e: EventType): EventCategory {
@@ -82,21 +84,16 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             '',
             {
                 setSearchText: (_, { searchText }) => searchText,
-                // reset search on toggle
-                setSearchVisible: () => '',
             },
         ],
         selectedEventTypes: [
             ['posthog', 'custom'] as EventCategory[],
             {
                 setSelectedEventType: (state, { eventType, enabled }) => {
-                    const newTypes = [...state]
                     if (enabled) {
-                        newTypes.push(eventType)
-                    } else {
-                        newTypes.splice(newTypes.indexOf(eventType), 1)
+                        return state.includes(eventType) ? state : [...state, eventType]
                     }
-                    return newTypes
+                    return state.filter((t) => t !== eventType)
                 },
             },
         ],
@@ -105,7 +102,8 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             [] as EventType[],
             {
                 addEvent: (state, { event }) => {
-                    return [{ ...event, uuid: event.uuid || uuid() }, ...state]
+                    const next = [{ ...event, uuid: event.uuid || uuid() }, ...state]
+                    return next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next
                 },
                 clearEvents: () => [],
             },
@@ -115,7 +113,8 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             [] as EventType[],
             {
                 addEvent: (state, { event }) => {
-                    return [{ ...event, uuid: event.uuid || uuid() }, ...state]
+                    const next = [{ ...event, uuid: event.uuid || uuid() }, ...state]
+                    return next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next
                 },
                 togglePaused: () => [],
                 clearEvents: () => [],
