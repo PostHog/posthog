@@ -5948,7 +5948,7 @@ mod tests {
         let context = TestContext::new(None).await;
         let router = context.create_postgres_router();
         let cohort_cache = Arc::new(CohortCacheManager::new(
-            context.persons_reader.clone(),
+            context.non_persons_reader.clone(),
             None,
             None,
         ));

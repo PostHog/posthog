@@ -312,6 +312,10 @@ impl FeatureFlagMatcher {
         self
     }
 
+    /// Sets filtered-out flag IDs for tests and lower-level evaluation flows.
+    /// Note: `evaluate_all_feature_flags` overwrites this field from the
+    /// `FeatureFlagList`, so this method only takes effect when calling
+    /// evaluation helpers (e.g. `evaluate_flags_in_order`) directly.
     pub fn with_filtered_out_flag_ids(mut self, ids: HashSet<i32>) -> Self {
         self.filtered_out_flag_ids = ids;
         self
@@ -846,7 +850,9 @@ impl FeatureFlagMatcher {
         let flags_to_evaluate: Vec<FeatureFlag> = flags
             .into_iter()
             .filter(|flag| {
-                !self.filtered_out_flag_ids.contains(&flag.id)
+                !flag.deleted
+                    && flag.active
+                    && !self.filtered_out_flag_ids.contains(&flag.id)
                     && !evaluated_flags_map.contains_key(&flag.key)
             })
             .collect();
