@@ -65,6 +65,6 @@ def _ensure_registered():
         return
 
     from posthog.tasks.alerts.detectors import threshold  # noqa: F401
-    from posthog.tasks.alerts.detectors.statistical import zscore  # noqa: F401
+    from posthog.tasks.alerts.detectors.statistical import mad, zscore  # noqa: F401
 
     _REGISTERED = True

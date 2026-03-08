@@ -4159,15 +4159,6 @@ class TaxonomicFilterGroupType(StrEnum):
     EMPTY = "empty"
 
 
-class ThresholdDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    lower_bound: float | None = Field(default=None, description="Lower bound - values below this are anomalies")
-    type: Literal["threshold"] = "threshold"
-    upper_bound: float | None = Field(default=None, description="Upper bound - values above this are anomalies")
-
-
 class TikTokAdsDefaultSources(StrEnum):
     TIKTOK = "tiktok"
 
@@ -6059,6 +6050,24 @@ class PlanningStep(BaseModel):
     status: PlanningStepStatus
 
 
+class PreprocessingConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    diffs_n: int | None = Field(
+        default=None,
+        description=("Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"),
+    )
+    lags_n: int | None = Field(
+        default=None,
+        description=("Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"),
+    )
+    smooth_n: int | None = Field(
+        default=None,
+        description=("Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"),
+    )
+
+
 class ProductItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7069,6 +7078,18 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
 
 
+class ThresholdDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower_bound: float | None = Field(default=None, description="Lower bound - values below this are anomalies")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    type: Literal["threshold"] = "threshold"
+    upper_bound: float | None = Field(default=None, description="Upper bound - values above this are anomalies")
+
+
 class TraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7477,6 +7498,9 @@ class WebVitalsPathBreakdownResult(BaseModel):
 class ZScoreDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
     )
     threshold: float | None = Field(
         default=None,
@@ -10981,10 +11005,6 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     url_pattern: str
 
 
-class DetectorConfig(RootModel[ZScoreDetectorConfig | ThresholdDetectorConfig]):
-    root: ZScoreDetectorConfig | ThresholdDetectorConfig = Field(..., description="Detector configuration types")
-
-
 class DocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12166,6 +12186,24 @@ class LogsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class MADDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(
+        default=None,
+        description="Modified z-score threshold for anomaly detection (default: 3.5)",
+    )
+    type: Literal["mad"] = "mad"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating median/MAD (default: 30)",
     )
 
 
@@ -15714,6 +15752,12 @@ class Response21(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class DetectorConfig(RootModel[ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig]):
+    root: ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig = Field(
+        ..., description="Detector configuration types"
     )
 
 

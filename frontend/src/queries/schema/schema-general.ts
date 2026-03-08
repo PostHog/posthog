@@ -3864,12 +3864,34 @@ export enum DetectorType {
     ENSEMBLE = 'ensemble',
 }
 
+/** Preprocessing transforms applied to the time series before detection */
+export interface PreprocessingConfig {
+    /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
+    diffs_n?: integer
+    /** Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0) */
+    smooth_n?: integer
+    /** Number of lag features. 0 = none, >0 = include n lagged values (default: 0) */
+    lags_n?: integer
+}
+
 export interface ZScoreDetectorConfig {
     type: 'zscore'
     /** Z-score threshold for anomaly detection (default: 3.0) */
     threshold?: number
     /** Rolling window size for calculating mean/std (default: 30) */
     window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface MADDetectorConfig {
+    type: 'mad'
+    /** Modified z-score threshold for anomaly detection (default: 3.5) */
+    threshold?: number
+    /** Rolling window size for calculating median/MAD (default: 30) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export interface ThresholdDetectorConfig {
@@ -3878,10 +3900,12 @@ export interface ThresholdDetectorConfig {
     upper_bound?: number
     /** Lower bound - values below this are anomalies */
     lower_bound?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 /** Detector configuration types */
-export type DetectorConfig = ZScoreDetectorConfig | ThresholdDetectorConfig
+export type DetectorConfig = ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig
 
 export interface HogCompileResponse {
     bytecode: any[]

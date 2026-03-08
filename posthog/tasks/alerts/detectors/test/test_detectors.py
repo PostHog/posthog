@@ -4,6 +4,7 @@ import numpy as np
 
 from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.registry import get_available_detectors, get_detector
+from posthog.tasks.alerts.detectors.statistical.mad import MADDetector
 from posthog.tasks.alerts.detectors.statistical.zscore import ZScoreDetector
 from posthog.tasks.alerts.detectors.threshold import ThresholdDetector
 
@@ -29,9 +30,15 @@ class TestDetectorRegistry:
         with pytest.raises(ValueError, match="must have a 'type' field"):
             get_detector(config)
 
+    def test_get_mad_detector(self):
+        config = {"type": "mad", "threshold": 3.5, "window": 30}
+        detector = get_detector(config)
+        assert isinstance(detector, MADDetector)
+
     def test_get_available_detectors(self):
         detectors = get_available_detectors()
         assert "zscore" in detectors
+        assert "mad" in detectors
         assert "threshold" in detectors
 
 
@@ -70,6 +77,51 @@ class TestZScoreDetector:
         assert "mean" in result.metadata
         assert "std" in result.metadata
         assert "value" in result.metadata
+
+
+class TestMADDetector:
+    def test_detect_finds_obvious_anomaly(self):
+        detector = MADDetector({"threshold": 3.5, "window": 10})
+        data = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 100])
+        result = detector.detect(data)
+        assert result.is_anomaly
+        assert result.score is not None
+        assert result.score > 3.5
+
+    def test_detect_no_anomaly_in_normal_data(self):
+        detector = MADDetector({"threshold": 3.5, "window": 10})
+        data = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10])
+        result = detector.detect(data)
+        assert not result.is_anomaly
+
+    def test_insufficient_data_returns_no_anomaly(self):
+        detector = MADDetector({"threshold": 3.5, "window": 30})
+        data = np.array([10, 11, 10, 10])
+        result = detector.detect(data)
+        assert not result.is_anomaly
+
+    def test_detect_batch_finds_multiple_anomalies(self):
+        detector = MADDetector({"threshold": 3.5, "window": 5})
+        data = np.array([10, 10, 10, 10, 10, 10, 100, 10, 10, 10, 10, 10, -50])
+        result = detector.detect_batch(data)
+        assert result.is_anomaly
+        assert len(result.triggered_indices) >= 2
+
+    def test_detect_returns_metadata(self):
+        detector = MADDetector({"threshold": 3.5, "window": 10})
+        data = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10])
+        result = detector.detect(data)
+        assert "median" in result.metadata
+        assert "median_abs_deviation" in result.metadata
+        assert "value" in result.metadata
+
+    def test_robust_to_outliers_in_window(self):
+        detector = MADDetector({"threshold": 3.5, "window": 10})
+        # Window has an outlier (100) but MAD baseline stays stable due to median
+        data = np.array([10, 12, 100, 9, 11, 8, 13, 10, 11, 9, 10, 12])
+        result = detector.detect(data)
+        # 12 is close to median (~10), should not be flagged even with outlier in window
+        assert not result.is_anomaly
 
 
 class TestThresholdDetector:
