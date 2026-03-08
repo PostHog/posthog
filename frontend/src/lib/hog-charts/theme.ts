@@ -2,13 +2,6 @@ import { getGraphColors } from 'lib/colors'
 
 import type { HogChartTheme } from './types'
 
-/**
- * The default HogCharts color palette.
- *
- * 15 carefully chosen colors that are distinguishable in both light and dark
- * mode, accessible for common forms of color blindness, and ordered so
- * adjacent colors have high contrast.
- */
 export const hogColors = [
     '#1D4AFF', // blue
     '#CD0F74', // magenta
@@ -27,7 +20,6 @@ export const hogColors = [
     '#B64B02', // rust
 ] as const
 
-/** Lifecycle-specific colors following PostHog conventions. */
 export const lifecycleColors = {
     new: '#1AA35C',
     returning: '#1D4AFF',
@@ -35,7 +27,6 @@ export const lifecycleColors = {
     dormant: '#F04F58',
 } as const
 
-/** Default theme. Uses CSS variables to respect light/dark mode. */
 export const defaultTheme: HogChartTheme = {
     colors: [...hogColors],
     fontFamily:
@@ -54,7 +45,6 @@ export const defaultTheme: HogChartTheme = {
     tooltipBorderRadius: 8,
 }
 
-/** Merge a partial theme with the default. */
 export function mergeTheme(overrides?: Partial<HogChartTheme>): HogChartTheme {
     if (!overrides) {
         return defaultTheme
@@ -62,7 +52,6 @@ export function mergeTheme(overrides?: Partial<HogChartTheme>): HogChartTheme {
     return { ...defaultTheme, ...overrides }
 }
 
-/** Pick the color for a series by index, cycling through the palette. */
 export function seriesColor(theme: HogChartTheme, index: number): string {
     return theme.colors[index % theme.colors.length]
 }

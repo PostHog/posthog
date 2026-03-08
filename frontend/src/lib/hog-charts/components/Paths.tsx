@@ -3,12 +3,6 @@ import { useMemo } from 'react'
 import { mergeTheme } from '../theme'
 import type { PathsProps } from '../types'
 
-/**
- * A Sankey-like paths visualization.
- *
- * Renders an SVG diagram showing user flow between nodes. Nodes are laid out
- * in columns (depth levels) and links are drawn as curved bands between them.
- */
 export function Paths(props: PathsProps): JSX.Element {
     const { nodes, links, maxPaths = 50 } = props
     const theme = mergeTheme(props.theme)
@@ -28,7 +22,6 @@ export function Paths(props: PathsProps): JSX.Element {
     return (
         <div className={props.className} role="figure" aria-label={props.ariaLabel ?? 'Paths'}>
             <svg width={width} height={height} style={{ fontFamily: theme.fontFamily, fontSize: theme.fontSize }}>
-                {/* Links */}
                 {layout.linkPositions.map((link, i) => (
                     <path
                         key={i}
@@ -43,7 +36,6 @@ export function Paths(props: PathsProps): JSX.Element {
                         </title>
                     </path>
                 ))}
-                {/* Nodes */}
                 {layout.nodePositions.map((node) => (
                     <g key={node.name} transform={`translate(${node.x}, ${node.y})`}>
                         <rect
@@ -67,10 +59,6 @@ export function Paths(props: PathsProps): JSX.Element {
         </div>
     )
 }
-
-// ---------------------------------------------------------------------------
-// Layout computation (simplified Sankey)
-// ---------------------------------------------------------------------------
 
 interface NodePosition {
     name: string
@@ -102,7 +90,6 @@ function computeLayout(
     links: { source: string; target: string; value: number }[],
     maxPaths: number
 ): Layout {
-    // Assign depths by BFS from root nodes
     const outgoing = new Map<string, { target: string; value: number }[]>()
     const incoming = new Map<string, Set<string>>()
 
@@ -147,13 +134,11 @@ function computeLayout(
         columns[d].push(name)
     }
 
-    // Build node value map
     const nodeValues = new Map<string, number>()
     for (const n of nodes) {
         nodeValues.set(n.name, n.count)
     }
 
-    // Position nodes
     const chartHeight = 400
     const nodePositions: NodePosition[] = []
     const nodeMap = new Map<string, NodePosition>()
@@ -172,7 +157,6 @@ function computeLayout(
         }
     }
 
-    // Position links
     const linkPositions: LinkPosition[] = []
     const sourceYOffset = new Map<string, number>()
     const targetYOffset = new Map<string, number>()

@@ -1,10 +1,3 @@
-/**
- * Trends-specific utilities for the TrendsChart hog-charts consumer.
- *
- * For shared chart utilities (tooltip bridging, y-axis, goal lines, etc.)
- * see scenes/insights/chartUtils.ts.
- */
-
 import { getBarColorFromStatus } from 'lib/colors'
 import type { Series } from 'lib/hog-charts'
 import { ciRanges, movingAverage } from 'lib/statistics'
@@ -17,7 +10,6 @@ import type { IndexedTrendResult } from 'scenes/trends/types'
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 import type { LifecycleToggle, TrendsFilterType } from '~/types'
 
-// Re-export shared utilities so existing TrendsChart imports don't break
 export { buildGoalLines, buildYAxis, resolveGroupTypeLabel, tooltipPointsToSeriesDatum } from 'scenes/insights/chartUtils'
 
 const MAX_SERIES = 50
@@ -159,7 +151,6 @@ export function getCompareLabels(indexedResults: IndexedTrendResult[]): string[]
     return indexedResults[0]?.labels ?? []
 }
 
-/** Extract the lifecycle status from a label like "Pageview - returning" → "Returning". */
 export function lifecycleSeriesLabel(datum: SeriesDatum): string {
     const parts = datum.label?.split(' - ')
     return capitalizeFirstLetter(parts?.[parts.length - 1] ?? datum.label ?? 'None')
@@ -173,7 +164,6 @@ export interface FormatTooltipCountOptions {
     seriesData: SeriesDatum[]
 }
 
-/** Format a tooltip value with stickiness percentages, percent stack view, or default aggregation. */
 export function formatTooltipCount(value: number, opts: FormatTooltipCountOptions): string {
     if (opts.isStickiness) {
         const datum = opts.seriesData.find((s) => s.count === value)

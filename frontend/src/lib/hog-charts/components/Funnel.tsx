@@ -2,7 +2,6 @@ import { formatValue } from '../format'
 import { mergeTheme, seriesColor } from '../theme'
 import type { FunnelProps, FunnelStep } from '../types'
 
-/** A funnel chart showing step-by-step conversion. */
 export function Funnel(props: FunnelProps): JSX.Element {
     const { steps, layout = 'horizontal', showConversionRates = true, showTime = false } = props
     const theme = mergeTheme(props.theme)
@@ -112,7 +111,6 @@ function FunnelStepRow({
         )
     }
 
-    // Vertical layout
     return (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: 4 }}>
             <div

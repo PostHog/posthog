@@ -2,7 +2,6 @@ import { computeDelta, formatValue } from '../format'
 import { mergeTheme } from '../theme'
 import type { NumberProps } from '../types'
 
-/** A bold KPI number with optional comparison delta. */
 export function Number(props: NumberProps): JSX.Element {
     const { value, previousValue, label, format = 'compact', prefix, suffix, theme: themeOverrides } = props
     const theme = mergeTheme(themeOverrides)

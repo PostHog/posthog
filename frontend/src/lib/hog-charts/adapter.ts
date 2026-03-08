@@ -1,10 +1,3 @@
-/**
- * Chart.js adapter — translates HogCharts props into Chart.js configs.
- *
- * This is the only file that knows about Chart.js. If we ever swap rendering
- * engines, only this file needs to change.
- */
-
 import type { ChartConfiguration, ChartDataset } from 'chart.js'
 
 import { formatValue } from './format'
@@ -32,18 +25,10 @@ import type {
     TooltipPoint,
 } from './types'
 
-// ---------------------------------------------------------------------------
-// Tooltip callback type — used by hooks to bridge Chart.js → HogCharts
-// ---------------------------------------------------------------------------
-
 export interface TooltipCallbacks {
     onShow: (context: TooltipContext) => void
     onHide: () => void
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function resolveColor(series: Series, index: number, theme: HogChartTheme): string {
     return series.color ?? seriesColor(theme, index)
@@ -144,11 +129,9 @@ function baseOptions(
             },
             tooltip: hasCustomTooltip
                 ? {
-                      // Disable Chart.js native tooltip — we use our own portal
-                      enabled: false,
+                                    enabled: false,
                       mode: shared ? 'index' : 'nearest',
                       intersect: !shared,
-                      // External handler is injected by useHogChart via _hogTooltipMeta
                   }
                 : {
                       enabled: true,
@@ -166,17 +149,12 @@ function baseOptions(
         layout: {
             padding: { top: 4, right: 8, bottom: 4, left: 8 },
         },
-        // Stash metadata so the hook can build TooltipContext from Chart.js callbacks
         _hogTooltipMeta: {
             seriesData: seriesData ?? [],
             theme,
         },
     }
 }
-
-// ---------------------------------------------------------------------------
-// Line chart
-// ---------------------------------------------------------------------------
 
 export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
     const theme = mergeTheme(props.theme)
@@ -199,7 +177,6 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
         const color = resolveColor(s, i, theme)
         const isDimmed = highlightIdx !== null && i !== highlightIdx
 
-        // Per-series fill: explicit `s.fill`, or chart-level `isArea`
         const shouldFill = s.fill ?? isArea
         let bgColor: string
         if (isDimmed) {
@@ -214,7 +191,6 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
         const borderDash = s.borderDash
         const segment = incompletenessSegment(data.length, incompletenessOffset)
 
-        // Per-series y-axis ID
         let yAxisID = 'y'
         if (s.yAxisPosition === 'right') {
             yAxisID = 'y1'
@@ -234,7 +210,7 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
             hidden: s.hidden,
             fill: shouldFill ? (stacked || stacked100 ? 'origin' : true) : false,
             yAxisID,
-            type: s.displayType === 'bar' ? 'bar' : undefined, // mixed chart support
+            type: s.displayType === 'bar' ? 'bar' : undefined,
             segment: segment ? { borderDash: segment.borderDash } : undefined,
             _hogMeta: s.meta,
             _hogHideFromTooltip: s.hideFromTooltip,
@@ -271,13 +247,10 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
     const yAxes = buildYAxes(props, theme)
     const opts = baseOptions(props, theme, seriesData)
 
-    // Crosshair config
     const showCrosshair = props.crosshair ?? !seriesData.some((s) => s.displayType === 'bar')
     const crosshairPluginConfig = buildCrosshairPluginConfig(showCrosshair, theme.axisColor)
 
-    // X-axis config
     const xScale = buildScaleConfig(props.xAxis, theme)
-    // Smart date formatting: explicit callback > auto from days
     const tickCallback =
         props.xAxisTickCallback ??
         (props.days?.length
@@ -300,7 +273,6 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
         ;(xScale as Record<string, unknown>).stacked = true
     }
 
-    // Inject stacked into y-axes
     if (stacked || stacked100) {
         for (const key of Object.keys(yAxes)) {
             ;(yAxes as Record<string, Record<string, unknown>>)[key].stacked = true
@@ -342,26 +314,16 @@ function resolvePointRadius(showDots: boolean | 'auto' | undefined, pointCount: 
     if (showDots === false) {
         return 0
     }
-    // 'auto' or undefined
     return pointCount <= 30 ? 3 : 0
 }
 
-// ---------------------------------------------------------------------------
-// Area chart
-// ---------------------------------------------------------------------------
-
 export function buildAreaConfig(props: AreaProps): ChartConfiguration<'line'> {
-    // Area is just Line with isArea=true — delegate
     return buildLineConfig({
         ...props,
         isArea: true,
         fillOpacity: props.fillOpacity ?? 0.1,
     })
 }
-
-// ---------------------------------------------------------------------------
-// Bar chart
-// ---------------------------------------------------------------------------
 
 export function buildBarConfig(props: BarProps): ChartConfiguration<'bar'> {
     const theme = mergeTheme(props.theme)
@@ -403,10 +365,6 @@ export function buildBarConfig(props: BarProps): ChartConfiguration<'bar'> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Pie chart
-// ---------------------------------------------------------------------------
-
 export function buildPieConfig(props: PieProps): ChartConfiguration<'doughnut'> {
     const theme = mergeTheme(props.theme)
     const colors = props.data.map((d, i) => d.color ?? seriesColor(theme, i))
@@ -446,10 +404,6 @@ export function buildPieConfig(props: PieProps): ChartConfiguration<'doughnut'> 
     }
 }
 
-// ---------------------------------------------------------------------------
-// Box plot
-// ---------------------------------------------------------------------------
-
 export function buildBoxPlotConfig(props: BoxPlotProps): ChartConfiguration {
     const theme = mergeTheme(props.theme)
 
@@ -486,10 +440,6 @@ export function buildBoxPlotConfig(props: BoxPlotProps): ChartConfiguration {
         } as never,
     }
 }
-
-// ---------------------------------------------------------------------------
-// Lifecycle (stacked bar with fixed 4 statuses)
-// ---------------------------------------------------------------------------
 
 export function buildLifecycleConfig(props: LifecycleProps): ChartConfiguration<'bar'> {
     const theme = mergeTheme(props.theme)
@@ -536,14 +486,6 @@ export function buildLifecycleConfig(props: LifecycleProps): ChartConfiguration<
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tooltip context builder — translates Chart.js tooltip model → TooltipContext
-// ---------------------------------------------------------------------------
-
-/**
- * Build a HogCharts `TooltipContext` from a Chart.js tooltip model.
- * Called by the external tooltip handler injected in `useHogChart`.
- */
 export function buildTooltipContext(
     tooltipModel: {
         opacity: number
@@ -566,12 +508,10 @@ export function buildTooltipContext(
 
     const points: TooltipPoint[] = tooltipModel.dataPoints
         .filter((dp) => {
-            // Filter out series marked as hidden from tooltip (CI bands, moving averages, etc.)
             const dataset = dp.dataset as { _hogHideFromTooltip?: boolean }
             if (dataset._hogHideFromTooltip) {
                 return false
             }
-            // Also check the seriesData fallback
             const seriesDatum = seriesData[dp.datasetIndex]
             if (seriesDatum?.hideFromTooltip) {
                 return false
@@ -582,7 +522,6 @@ export function buildTooltipContext(
             const color = Array.isArray(dp.dataset.borderColor)
                 ? dp.dataset.borderColor[dp.dataIndex]
                 : (dp.dataset.borderColor ?? '#888')
-            // Prefer meta from the dataset (stashed during config build), fall back to seriesData
             const meta = dp.dataset._hogMeta ?? seriesData[dp.datasetIndex]?.meta
             return {
                 seriesIndex: dp.datasetIndex,
@@ -601,10 +540,6 @@ export function buildTooltipContext(
         chartBounds,
     }
 }
-
-// ---------------------------------------------------------------------------
-// Y-axis helpers (supports dual y-axes)
-// ---------------------------------------------------------------------------
 
 function buildYAxes(
     props: TimeSeriesProps,

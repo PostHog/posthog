@@ -4,12 +4,6 @@ import { formatValue } from '../format'
 import { mergeTheme } from '../theme'
 import type { WorldMapProps } from '../types'
 
-/**
- * A choropleth world map.
- *
- * Uses a simplified SVG world map with countries colored by value.
- * The actual country paths are loaded lazily to keep the bundle small.
- */
 export function WorldMap(props: WorldMapProps): JSX.Element {
     const { data } = props
     const theme = mergeTheme(props.theme)
@@ -49,7 +43,6 @@ export function WorldMap(props: WorldMapProps): JSX.Element {
                     Range: {formatValue(minVal, 'compact')} – {formatValue(maxVal, 'compact')}
                 </text>
             </svg>
-            {/* Legend */}
             <div
                 style={{
                     position: 'absolute',

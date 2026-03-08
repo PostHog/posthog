@@ -5,7 +5,6 @@ import { useHogChart } from '../hooks'
 import type { BaseChartProps } from '../types'
 import { TooltipPortal, useTooltipState } from './Tooltip'
 
-/** Shared wrapper that renders a <canvas> and manages the Chart.js lifecycle + tooltip portal. */
 export function ChartCanvas<TType extends ChartType = ChartType>({
     config,
     width = '100%',

@@ -1,7 +1,6 @@
 import { mergeTheme } from '../theme'
 import type { RetentionProps } from '../types'
 
-/** A retention matrix heatmap showing cohort retention over time. */
 export function Retention(props: RetentionProps): JSX.Element {
     const { data, periodLabels, showPercentages = true, showCounts = false } = props
     const theme = mergeTheme(props.theme)
@@ -100,7 +99,6 @@ function cellStyle(theme: ReturnType<typeof mergeTheme>): React.CSSProperties {
 }
 
 function retentionCellColor(pct: number, baseColor: string): string {
-    // Convert pct (0-1) to opacity hex
     const opacity = Math.round(pct * 200 + 10)
         .toString(16)
         .padStart(2, '0')

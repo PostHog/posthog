@@ -1,32 +1,3 @@
-/**
- * HogCharts — A charting library for PostHog data.
- *
- * @example Quick start
- * ```tsx
- * import { Line, Bar, Pie, Funnel, Number, HogChart } from 'lib/hog-charts'
- *
- * // Typed chart component
- * <Line
- *     data={[{ label: 'Users', data: [100, 200, 300, 250] }]}
- *     labels={['Mon', 'Tue', 'Wed', 'Thu']}
- * />
- *
- * // Universal component (type determined at runtime)
- * <HogChart type="bar" data={data} labels={labels} />
- *
- * // Big KPI number with comparison
- * <Number value={42069} previousValue={38000} label="Weekly active users" />
- *
- * // Funnel
- * <Funnel steps={[
- *     { label: 'Visit', count: 10000 },
- *     { label: 'Sign up', count: 3000 },
- *     { label: 'Purchase', count: 400 },
- * ]} />
- * ```
- */
-
-// -- Chart components -------------------------------------------------------
 export { Area } from './components/Area'
 export { Bar } from './components/Bar'
 export { BoxPlot } from './components/BoxPlot'
@@ -41,17 +12,13 @@ export { Pie } from './components/Pie'
 export { Retention } from './components/Retention'
 export { WorldMap } from './components/WorldMap'
 
-// -- Tooltip ----------------------------------------------------------------
 export { DefaultTooltip } from './components/Tooltip'
 
-// -- Theme & colors ---------------------------------------------------------
 export { defaultTheme, hogColors, lifecycleColors, mergeTheme, seriesColor } from './theme'
 
-// -- Formatting utilities ---------------------------------------------------
 export { computeDelta, formatValue } from './format'
 export { createXAxisTickCallback } from './formatXAxisTick'
 
-// -- Types ------------------------------------------------------------------
 export type {
     Annotation,
     AreaProps,

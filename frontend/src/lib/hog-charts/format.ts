@@ -1,6 +1,5 @@
 import type { AxisFormat } from './types'
 
-/** Format a numeric value according to the given axis format. */
 export function formatValue(
     value: number,
     format: AxisFormat = 'number',
@@ -109,7 +108,6 @@ function formatDateTime(timestamp: number): string {
     })
 }
 
-/** Compute the delta between current and previous, as a signed fraction. */
 export function computeDelta(current: number, previous: number): number {
     if (previous === 0) {
         return current === 0 ? 0 : Infinity

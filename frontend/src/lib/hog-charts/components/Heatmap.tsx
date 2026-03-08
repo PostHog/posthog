@@ -4,7 +4,6 @@ import { formatValue } from '../format'
 import { mergeTheme } from '../theme'
 import type { HeatmapProps } from '../types'
 
-/** A 2D heatmap grid. */
 export function Heatmap(props: HeatmapProps): JSX.Element {
     const { data, xLabels, yLabels, showValues = true, borderRadius = 2 } = props
     const theme = mergeTheme(props.theme)
@@ -40,7 +39,6 @@ export function Heatmap(props: HeatmapProps): JSX.Element {
     return (
         <div className={props.className} style={style} role="figure" aria-label={props.ariaLabel ?? 'Heatmap'}>
             <div style={{ display: 'inline-block' }}>
-                {/* Column headers */}
                 <div style={{ display: 'flex', marginLeft: 80 }}>
                     {xLabels.map((xl) => (
                         <div
@@ -59,7 +57,6 @@ export function Heatmap(props: HeatmapProps): JSX.Element {
                         </div>
                     ))}
                 </div>
-                {/* Rows */}
                 {yLabels.map((yl) => (
                     <div key={yl} style={{ display: 'flex', alignItems: 'center' }}>
                         <div
@@ -117,7 +114,6 @@ function interpolateColor(range: string[], value: number, min: number, max: numb
     if (range.length === 2) {
         return lerpColor(range[0], range[1], t)
     }
-    // 3-stop gradient
     if (t <= 0.5) {
         return lerpColor(range[0], range[1], t * 2)
     }

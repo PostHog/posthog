@@ -12,23 +12,6 @@ import { Pie } from './Pie'
 import { Retention } from './Retention'
 import { WorldMap } from './WorldMap'
 
-/**
- * Universal chart component — renders any HogChart type via a discriminated
- * `type` prop.
- *
- * For maximum type safety, prefer importing the specific chart component
- * (e.g. `<Line />`, `<Bar />`). Use `<HogChart>` when the chart type is
- * determined at runtime.
- *
- * @example
- * ```tsx
- * <HogChart
- *     type="line"
- *     data={[{ label: 'Pageviews', data: [100, 200, 300] }]}
- *     labels={['Mon', 'Tue', 'Wed']}
- * />
- * ```
- */
 export function HogChart(props: HogChartProps): JSX.Element {
     switch (props.type) {
         case 'line': {

@@ -1,23 +1,5 @@
-/**
- * Shared chart infrastructure extracted from both LineGraph implementations.
- *
- * This file contains the 18 patterns that were duplicated across:
- * - scenes/insights/views/LineGraph/LineGraph.tsx (1,126 lines)
- * - queries/nodes/DataVisualization/Components/Charts/LineGraph.tsx (690 lines)
- *
- * Consumers should use these through the HogCharts wrappers, not directly.
- */
-
-// ---------------------------------------------------------------------------
-// 1. CSS variable color resolution (was: resolveVariableColor)
-// ---------------------------------------------------------------------------
-
 const RESOLVED_COLOR_CACHE = new Map<string, string>()
 
-/**
- * Resolve a CSS variable or hex color to a concrete hex value.
- * Caches results to avoid repeated `getComputedStyle` calls.
- */
 export function resolveColor(color: string | undefined): string | undefined {
     if (!color) {
         return color
@@ -26,7 +8,7 @@ export function resolveColor(color: string | undefined): string | undefined {
         return RESOLVED_COLOR_CACHE.get(color)
     }
     if (color.startsWith('var(--')) {
-        const varName = color.slice(4, -1) // strip var( and )
+        const varName = color.slice(4, -1)
         const computed = getComputedStyle(document.documentElement).getPropertyValue(varName).trim()
         RESOLVED_COLOR_CACHE.set(color, computed)
         return computed
@@ -34,10 +16,6 @@ export function resolveColor(color: string | undefined): string | undefined {
     RESOLVED_COLOR_CACHE.set(color, color)
     return color
 }
-
-// ---------------------------------------------------------------------------
-// 2. Tick options (identical in both)
-// ---------------------------------------------------------------------------
 
 export interface TickOptions {
     color: string
@@ -59,10 +37,6 @@ export function defaultTickOptions(axisLabelColor: string): TickOptions {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 3. Grid options (shared pattern)
-// ---------------------------------------------------------------------------
-
 export interface GridOptions {
     color: string
     tickColor: string
@@ -77,11 +51,7 @@ export function defaultGridOptions(axisLineColor: string): GridOptions {
     }
 }
 
-/**
- * Grid options that suppress lines at goal line y-values.
- * Used by the insights LineGraph to avoid double-lines where a grid line
- * and a goal line annotation overlap.
- */
+/** Suppresses grid lines at goal line y-values to avoid visual overlap. */
 export function gridOptionsWithGoalLines(
     axisLineColor: string,
     goalLineValues: Set<number | string>,
@@ -104,10 +74,6 @@ export function gridOptionsWithGoalLines(
     }
 }
 
-// ---------------------------------------------------------------------------
-// 4. Crosshair plugin config (identical in both)
-// ---------------------------------------------------------------------------
-
 export function crosshairConfig(
     enabled: boolean,
     crosshairColor: string | null | undefined
@@ -124,10 +90,6 @@ export function crosshairConfig(
         },
     }
 }
-
-// ---------------------------------------------------------------------------
-// 5. Goal line / annotation building (shared pattern)
-// ---------------------------------------------------------------------------
 
 export interface GoalLineInput {
     value: number
@@ -166,12 +128,11 @@ export function buildGoalLineAnnotations(
         if (options?.scaleID) {
             annotation.scaleID = options.scaleID
             annotation.value = gl.value
-            // Remove yMin/yMax when using scaleID+value model
+            // chartjs-plugin-annotation uses scaleID+value instead of yMin/yMax
             delete annotation.yMin
             delete annotation.yMax
         }
 
-        // Tooltip hiding on goal line hover (both implementations do this)
         if (options?.tooltipElementId) {
             const tooltipElId = options.tooltipElementId
             annotation.enter = () => {
@@ -193,10 +154,6 @@ export function buildGoalLineAnnotations(
 
     return annotations
 }
-
-// ---------------------------------------------------------------------------
-// 6. Data label plugin config (shared base, both use same anchor/bg)
-// ---------------------------------------------------------------------------
 
 export function baseDataLabelsConfig(options?: {
     showValues?: boolean
@@ -224,21 +181,9 @@ export function baseDataLabelsConfig(options?: {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 7. Highlight bar mode (identical in both)
-// ---------------------------------------------------------------------------
-
-/**
- * Determine whether bar highlighting mode is active.
- * Both LineGraphs use the exact same formula.
- */
 export function isHighlightBarMode(isBar: boolean, isStacked: boolean, isShiftPressed: boolean): boolean {
     return isBar && isStacked && isShiftPressed
 }
-
-// ---------------------------------------------------------------------------
-// 8. Hover mode config (shared pattern)
-// ---------------------------------------------------------------------------
 
 export function hoverConfig(
     isBar: boolean,
@@ -251,10 +196,6 @@ export function hoverConfig(
     }
 }
 
-// ---------------------------------------------------------------------------
-// 9. Tooltip mode config (shared pattern)
-// ---------------------------------------------------------------------------
-
 export function tooltipModeConfig(highlightMode: boolean): Record<string, unknown> {
     return {
         enabled: false,
@@ -262,10 +203,6 @@ export function tooltipModeConfig(highlightMode: boolean): Record<string, unknow
         intersect: highlightMode,
     }
 }
-
-// ---------------------------------------------------------------------------
-// 10. Chart base options (identical structure)
-// ---------------------------------------------------------------------------
 
 export function chartBaseOptions(): Record<string, unknown> {
     return {
@@ -277,14 +214,6 @@ export function chartBaseOptions(): Record<string, unknown> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 11. Dataset highlight dimming (shared pattern)
-// ---------------------------------------------------------------------------
-
-/**
- * Apply dimming to a series color when another series is highlighted.
- * Both LineGraphs dim non-hovered bars to 20% opacity.
- */
 export function dimColorIfNeeded(
     color: string,
     seriesIndex: number,
@@ -296,7 +225,6 @@ export function dimColorIfNeeded(
     return color
 }
 
-// Inline hex→rgba since both files import it from lib/utils
 function hexToRGBA(hex: string, alpha: number): string {
     const clean = hex.replace('#', '')
     let r: number, g: number, b: number
@@ -312,14 +240,6 @@ function hexToRGBA(hex: string, alpha: number): string {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-// ---------------------------------------------------------------------------
-// 12. Series capping with warning
-// ---------------------------------------------------------------------------
-
-/**
- * Cap the number of series and optionally show a warning.
- * DataViz caps at 200 with a toast, Insights caps at 50 silently.
- */
 export function capSeries<T>(
     data: T[],
     max: number,
@@ -332,14 +252,7 @@ export function capSeries<T>(
     return data.slice(0, max)
 }
 
-// ---------------------------------------------------------------------------
-// 13. Incompleteness segment pattern (used by Insights LineGraph)
-// ---------------------------------------------------------------------------
-
-/**
- * Build a Chart.js `segment` config that renders trailing points as dotted.
- * Used to indicate the current, still-accumulating time period.
- */
+/** Returns a Chart.js segment config that renders trailing points as dotted (in-progress period). */
 export function incompletenessSegment(
     dataLength: number,
     offset: number
@@ -354,14 +267,6 @@ export function incompletenessSegment(
     }
 }
 
-// ---------------------------------------------------------------------------
-// 14. Pinstripe pattern for incomplete area data
-// ---------------------------------------------------------------------------
-
-/**
- * Create a canvas pinstripe pattern for incomplete area fill.
- * Used by Insights LineGraph when isArea + isInProgress.
- */
 export function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPattern {
     const stripeWidth = 8
     const stripeAngle = -22.5

@@ -11,21 +11,9 @@ import chartTrendline from 'chartjs-plugin-trendline'
 import { buildTooltipContext } from './adapter'
 import type { BaseChartProps, ClickEvent, LineProps, Series, TooltipContext } from './types'
 
-// Register global plugins once
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
 
-/**
- * Internal hook that creates and manages a Chart.js instance with integrated
- * tooltip support.
- *
- * - Destroys and recreates the chart when `config` changes (value equality
- *   via JSON.stringify to avoid unnecessary rebuilds).
- * - Guards against multiple charts on the same canvas (React strict mode).
- * - Wires up click handlers that translate Chart.js events into `ClickEvent`.
- * - Wires up the external tooltip handler when `tooltip.render` is provided,
- *   bridging Chart.js tooltip callbacks into `TooltipContext`.
- */
 export function useHogChart<TType extends ChartType = ChartType>(
     config: ChartConfiguration<TType> | null,
     props: BaseChartProps,
@@ -42,7 +30,6 @@ export function useHogChart<TType extends ChartType = ChartType>(
     const chartRef = useRef<InstanceType<typeof Chart> | null>(null)
     const configKey = JSON.stringify(config)
 
-    // Keep callbacks in refs so the Chart.js handler always calls the latest version
     const tooltipCallbacksRef = useRef(tooltipCallbacks)
     tooltipCallbacksRef.current = tooltipCallbacks
     const propsRef = useRef(props)
@@ -55,7 +42,6 @@ export function useHogChart<TType extends ChartType = ChartType>(
 
         const canvas = canvasRef.current
 
-        // Destroy any existing chart on this canvas
         const existing = Chart.getChart(canvas)
         if (existing) {
             existing.destroy()
@@ -68,7 +54,6 @@ export function useHogChart<TType extends ChartType = ChartType>(
         const mergedConfig = { ...config }
         const mergedOptions = { ...(mergedConfig.options as Record<string, unknown>) }
 
-        // -- Inject external tooltip handler --
         const hasCustomTooltip = !!propsRef.current.tooltip?.render
         if (hasCustomTooltip) {
             const plugins = { ...(mergedOptions.plugins as Record<string, unknown>) }
@@ -107,12 +92,10 @@ export function useHogChart<TType extends ChartType = ChartType>(
             mergedOptions.plugins = plugins
         }
 
-        // -- Inject onHover handler for cursor + series highlighting --
         mergedOptions.onHover = (
             event: { native?: Event },
             elements: Array<{ datasetIndex: number; index: number }>
         ) => {
-            // Cursor: pointer when hovering clickable elements
             if (event.native) {
                 const target = event.native.target as HTMLElement | null
                 if (target) {
@@ -120,7 +103,6 @@ export function useHogChart<TType extends ChartType = ChartType>(
                         propsRef.current.onClick && elements.length > 0 ? 'pointer' : 'default'
                 }
             }
-            // Series highlighting (shift-hover on stacked bars)
             const currentProps = propsRef.current as LineProps
             if (currentProps.onHighlightChange) {
                 const newIdx = elements.length > 0 ? elements[0].datasetIndex : null
@@ -128,7 +110,6 @@ export function useHogChart<TType extends ChartType = ChartType>(
             }
         }
 
-        // -- Inject onClick handler --
         if (propsRef.current.onClick) {
             const hogMeta = (mergedOptions._hogTooltipMeta as { seriesData: Series[] }) ?? { seriesData: [] }
             mergedOptions.onClick = (
@@ -159,7 +140,6 @@ export function useHogChart<TType extends ChartType = ChartType>(
 
         mergedConfig.options = mergedOptions as never
 
-        // Inject per-chart plugins (not globally registered)
         const perChartPlugins: unknown[] = [ChartDataLabels]
         const hasTrendline = (mergedConfig.data?.datasets ?? []).some(
             (ds: Record<string, unknown>) => !!ds.trendlineLinear

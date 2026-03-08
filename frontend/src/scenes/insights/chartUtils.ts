@@ -1,10 +1,3 @@
-/**
- * Shared utilities for hog-charts insight consumers.
- *
- * Bridges hog-charts types ↔ PostHog insight types. Reusable across
- * TrendsChart, ActionsPie, ActionsHorizontalBar, WorldMap, etc.
- */
-
 import type { GoalLine, LineProps, TooltipPoint } from 'lib/hog-charts'
 
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -12,7 +5,6 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 import type { CompareLabelType } from '~/types'
 
-/** Convert hog-charts TooltipPoints to InsightTooltip's SeriesDatum format. */
 export function tooltipPointsToSeriesDatum(points: TooltipPoint[]): SeriesDatum[] {
     return points
         .filter((p) => !p.meta?.auxiliary)
@@ -36,7 +28,6 @@ export function tooltipPointsToSeriesDatum(points: TooltipPoint[]): SeriesDatum[
         .sort((a, b) => b.count - a.count || (a.label ?? '').localeCompare(b.label ?? ''))
 }
 
-/** Build hog-charts y-axis config from common insight display flags. */
 export function buildYAxis(
     isLog10: boolean,
     isPercentStackView: boolean,
@@ -63,7 +54,6 @@ interface GoalLineInput {
     borderColor?: string | null
 }
 
-/** Convert alert threshold lines and schema goal lines to hog-charts GoalLine format. */
 export function buildGoalLines(
     alertThresholdLines: GoalLineInput[],
     schemaGoalLines: SchemaGoalLine[] | undefined
@@ -77,7 +67,6 @@ export function buildGoalLines(
     }))
 }
 
-/** Resolve the group type label for tooltips. */
 export function resolveGroupTypeLabel(
     contextLabel: string | undefined,
     labelGroupType: string | number | null | undefined,

@@ -6,11 +6,6 @@ import { formatValue } from '../format'
 import { mergeTheme } from '../theme'
 import type { HogChartTheme, TooltipConfig, TooltipContext } from '../types'
 
-// ---------------------------------------------------------------------------
-// Default built-in tooltip
-// ---------------------------------------------------------------------------
-
-/** Clean, minimal tooltip rendered when no custom `render` function is provided. */
 export function DefaultTooltip({
     context,
     theme: themeOverrides,
@@ -82,29 +77,16 @@ export function DefaultTooltip({
     )
 }
 
-// ---------------------------------------------------------------------------
-// Tooltip portal & positioning system
-// ---------------------------------------------------------------------------
-
 interface TooltipPortalProps {
     context: TooltipContext | null
     config?: TooltipConfig
     theme?: Partial<HogChartTheme>
-    /** The chart wrapper element — used for scoping the portal. */
     containerRef: React.RefObject<HTMLElement>
 }
 
-/**
- * Manages the tooltip lifecycle:
- * - Creates a portal element attached to document.body
- * - Positions it relative to the chart using canvas coordinates
- * - Renders either the custom `render` function or the default tooltip
- * - Handles show/hide with proper cleanup
- */
 export function TooltipPortal({ context, config, theme, containerRef }: TooltipPortalProps): JSX.Element | null {
     const portalRef = useRef<HTMLDivElement | null>(null)
 
-    // Lazily create the portal container
     if (!portalRef.current) {
         const el = document.createElement('div')
         el.className = 'hog-charts-tooltip-portal'
@@ -113,7 +95,6 @@ export function TooltipPortal({ context, config, theme, containerRef }: TooltipP
         portalRef.current = el
     }
 
-    // Clean up portal on unmount
     useEffect(() => {
         const el = portalRef.current
         return () => {
@@ -123,7 +104,6 @@ export function TooltipPortal({ context, config, theme, containerRef }: TooltipP
         }
     }, [])
 
-    // Show/hide portal container based on context
     useEffect(() => {
         if (!portalRef.current) {
             return
@@ -156,10 +136,6 @@ export function TooltipPortal({ context, config, theme, containerRef }: TooltipP
     )
 }
 
-// ---------------------------------------------------------------------------
-// Positioning logic
-// ---------------------------------------------------------------------------
-
 function TooltipPositioner({
     context,
     containerRef,
@@ -182,17 +158,14 @@ function TooltipPositioner({
         const caretX = bounds.left + window.scrollX + context.position.x
         const caretY = bounds.top + window.scrollY + context.position.y
 
-        // Position to the right of the cursor by default
         let left = caretX + 12
         const top = caretY - tooltip.offsetHeight / 2
 
-        // Flip to the left if we'd overflow the viewport
         const viewportRight = window.scrollX + document.documentElement.clientWidth
         if (tooltip.offsetWidth > 0 && left + tooltip.offsetWidth > viewportRight - 8) {
             left = caretX - tooltip.offsetWidth - 12
         }
 
-        // Clamp to viewport edges
         left = Math.max(window.scrollX + 8, left)
         const viewportBottom = window.scrollY + document.documentElement.clientHeight
         const clampedTop = Math.min(
@@ -221,18 +194,6 @@ function TooltipPositioner({
     )
 }
 
-// ---------------------------------------------------------------------------
-// Hook for Chart.js integration
-// ---------------------------------------------------------------------------
-
-/**
- * Hook that bridges Chart.js tooltip callbacks to the HogCharts tooltip system.
- *
- * Returns:
- * - `tooltipContext`: current tooltip state (or null when hidden)
- * - `onTooltip`: callback to pass into Chart.js external tooltip handler
- * - `onTooltipHide`: callback for when mouse leaves the chart
- */
 export function useTooltipState(): {
     tooltipContext: TooltipContext | null
     showTooltip: (context: TooltipContext) => void
@@ -250,7 +211,6 @@ export function useTooltipState(): {
     }, [])
 
     const hideTooltip = useCallback(() => {
-        // Small delay to allow moving to the tooltip itself (for interactive tooltips)
         hideTimeoutRef.current = setTimeout(() => {
             setTooltipContext(null)
         }, 100)

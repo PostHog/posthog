@@ -1,15 +1,3 @@
-/**
- * Smart x-axis tick formatting for time-series charts.
- *
- * Automatically detects date intervals and formats ticks with:
- * - Timezone-aware date parsing
- * - Intelligent tick visibility (hides labels when too dense)
- * - Context-appropriate formats (month names, day labels, HH:mm, etc.)
- *
- * This is applied by default in hog-charts when labels look like dates.
- * Consumers can override with `xAxisTickCallback` for custom formatting.
- */
-
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 
@@ -37,9 +25,8 @@ export function createXAxisTickCallback({
         return (value) => String(value)
     }
 
-    // Datetime strings (with time component) are UTC from ClickHouse — convert to project timezone.
-    // Date-only strings are calendar bucket labels — parse as midnight in the project timezone
-    // so that e.g. "2023-07-01" stays July and doesn't drift to June in behind-UTC timezones.
+    // Datetime strings are UTC from ClickHouse — convert to project timezone.
+    // Date-only strings are parsed as midnight in the project timezone to prevent date drift.
     const parsedDates = allDays.map((d) => {
         const s = String(d)
         const hasTime = s.includes(' ') || s.includes('T')
@@ -76,7 +63,6 @@ export function createXAxisTickCallback({
     }
 }
 
-/** Detect whether labels look like date strings (YYYY-MM-DD or datetime). */
 export function looksLikeDateLabels(labels: (string | number)[]): boolean {
     if (labels.length === 0) {
         return false
@@ -85,7 +71,6 @@ export function looksLikeDateLabels(labels: (string | number)[]): boolean {
     if (typeof first !== 'string') {
         return false
     }
-    // Match YYYY-MM-DD or YYYY-MM-DD HH:mm:ss or ISO datetime
     return /^\d{4}-\d{2}-\d{2}/.test(first)
 }
 
