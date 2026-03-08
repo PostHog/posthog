@@ -142,6 +142,52 @@ export interface TrendsAlertConfigApi {
     type?: TrendsAlertConfigApiType
 }
 
+export type ZScoreDetectorConfigApiType = (typeof ZScoreDetectorConfigApiType)[keyof typeof ZScoreDetectorConfigApiType]
+
+export const ZScoreDetectorConfigApiType = {
+    Zscore: 'zscore',
+} as const
+
+export interface ZScoreDetectorConfigApi {
+    /**
+     * Z-score threshold for anomaly detection (default: 3.0)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: ZScoreDetectorConfigApiType
+    /**
+     * Rolling window size for calculating mean/std (default: 30)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type ThresholdDetectorConfigApiType =
+    (typeof ThresholdDetectorConfigApiType)[keyof typeof ThresholdDetectorConfigApiType]
+
+export const ThresholdDetectorConfigApiType = {
+    Threshold: 'threshold',
+} as const
+
+export interface ThresholdDetectorConfigApi {
+    /**
+     * Lower bound - values below this are anomalies
+     * @nullable
+     */
+    lower_bound?: number | null
+    type?: ThresholdDetectorConfigApiType
+    /**
+     * Upper bound - values above this are anomalies
+     * @nullable
+     */
+    upper_bound?: number | null
+}
+
+/**
+ * Detector configuration types
+ */
+export type DetectorConfigApi = ZScoreDetectorConfigApi | ThresholdDetectorConfigApi
+
 /**
  * * `hourly` - hourly
  * `daily` - daily
@@ -179,6 +225,7 @@ export interface AlertApi {
     readonly next_check_at: string | null
     readonly checks: readonly AlertCheckApi[]
     config?: TrendsAlertConfigApi | null
+    detector_config?: DetectorConfigApi | null
     calculation_interval?: CalculationIntervalEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     snoozed_until?: string | null
@@ -219,6 +266,7 @@ export interface PatchedAlertApi {
     readonly next_check_at?: string | null
     readonly checks?: readonly AlertCheckApi[]
     config?: TrendsAlertConfigApi | null
+    detector_config?: DetectorConfigApi | null
     calculation_interval?: CalculationIntervalEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     snoozed_until?: string | null
