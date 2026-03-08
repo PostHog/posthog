@@ -223,30 +223,31 @@ function minutesAfterDaysAgo(days: number, minutes: number): string {
     return date.toISOString()
 }
 
-export const pathPageviews = {
+/**
+ * Sequential pageviews across 4 URLs with decreasing user counts:
+ * / (8) → /docs (8) → /pricing (5) → /signup (3).
+ * Each step is offset by 1 minute so queries see sequential events.
+ */
+export const sequentialPageviews = {
     events: [
-        // Step 1: 8 users land on /
         ...createEvent({
             event: '$pageview',
             user: pathUser,
             timestamp: () => minutesAfterDaysAgo(2, 0),
             properties: { $current_url: 'https://example.com/' },
         }).repeat(8),
-        // Step 2: same 8 users visit /docs
         ...createEvent({
             event: '$pageview',
             user: pathUser,
             timestamp: () => minutesAfterDaysAgo(2, 1),
             properties: { $current_url: 'https://example.com/docs' },
         }).repeat(8),
-        // Step 3: 5 of those users visit /pricing
         ...createEvent({
             event: '$pageview',
             user: pathUser,
             timestamp: () => minutesAfterDaysAgo(2, 2),
             properties: { $current_url: 'https://example.com/pricing' },
         }).repeat(5),
-        // Step 4: 3 of those users visit /signup
         ...createEvent({
             event: '$pageview',
             user: pathUser,
@@ -263,15 +264,15 @@ export const pathPageviews = {
         ],
     },
 }
-/**
- * Custom events for paths: button_click → form_submit → checkout.
- * Uses separate users (ce-user-*) so pageview events don't interfere.
- * 7 users do button_click → form_submit, 4 continue to checkout.
- * Paths only shows users with at least 2 events (a connected path).
- */
+
 const ceUser = (n: number): string => `ce-user-${n}`
 
-export const pathCustomEvents = {
+/**
+ * Sequential custom events with decreasing user counts:
+ * button_click (7) → form_submit (7) → checkout (4).
+ * Uses separate users (ce-user-*) so pageview data doesn't interfere.
+ */
+export const sequentialCustomEvents = {
     events: [
         ...createEvent({
             event: 'button_click',

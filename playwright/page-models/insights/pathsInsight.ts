@@ -28,11 +28,9 @@ export class PathsInsight {
         this.pathNodes = this.container.getByTestId('path-node-card-button')
     }
 
-    /** Wait for the insight to finish loading after a filter change. */
     async waitForChart(): Promise<void> {
         await this.container.waitFor({ state: 'attached', timeout: 15000 })
         const loading = this.page.getByTestId('insight-loading-waiting-message')
-        // Wait briefly for loading to appear (it may already be visible or flash quickly)
         await loading.waitFor({ state: 'attached', timeout: 5000 }).catch(() => {})
         await loading.waitFor({ state: 'detached', timeout: 15000 })
         await expect(this.container).toBeVisible()
@@ -45,14 +43,12 @@ export class PathsInsight {
 
     async selectEventType(type: 'Page views' | 'Screen views' | 'Custom event'): Promise<void> {
         await this.eventTypeButton.click()
-        // Check the desired type first to avoid the "at least one must be selected" disabled state
         const desiredTestId = EVENT_TYPE_ATTRS[type]
         const desiredItem = this.page.getByTestId(desiredTestId)
         const isDesiredChecked = await desiredItem.getByRole('checkbox').isChecked()
         if (!isDesiredChecked) {
             await desiredItem.click()
         }
-        // Then uncheck all other types
         for (const [name, testId] of Object.entries(EVENT_TYPE_ATTRS)) {
             if (name === type) {
                 continue

@@ -3,12 +3,11 @@ import { InsightType } from '~/types'
 import { InsightPage } from '../../../page-models/insightPage'
 import { PathNode } from '../../../page-models/insights/pathsInsight'
 import { randomString } from '../../../utils'
-import { pathCustomEvents, pathPageviews } from '../../../utils/test-data'
+import { sequentialCustomEvents, sequentialPageviews } from '../../../utils/test-data'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
-const events = [...pathPageviews.events, ...pathCustomEvents.events]
+const events = [...sequentialPageviews.events, ...sequentialCustomEvents.events]
 
-/** Assert that actual nodes contain all expected nodes (name + count). */
 function expectNodesToMatch(actual: PathNode[], expected: { name: string; count: number }[]): void {
     for (const exp of expected) {
         const match = actual.find((n) => n.name.includes(exp.name))
@@ -46,15 +45,14 @@ test.describe('User Paths insights', () => {
 
         await test.step('verify path nodes match seeded pageview data', async () => {
             const nodes = await insight.paths.getNodes()
-            expectNodesToMatch(nodes, pathPageviews.expected.nodes)
+            expectNodesToMatch(nodes, sequentialPageviews.expected.nodes)
         })
 
         await test.step('change step count to 3 and verify fewer nodes', async () => {
             await insight.paths.selectSteps(3)
             await insight.paths.waitForNodes()
             const nodes = await insight.paths.getNodes()
-            // With 3 steps we should see /, /docs, /pricing but not /signup
-            expectNodesToMatch(nodes, pathPageviews.expected.nodes.slice(0, 3))
+            expectNodesToMatch(nodes, sequentialPageviews.expected.nodes.slice(0, 3))
             const signupNode = nodes.find((n) => n.name.includes('/signup'))
             expect(signupNode, '/signup should not appear with 3 steps').toBeUndefined()
         })
@@ -71,7 +69,7 @@ test.describe('User Paths insights', () => {
             await expect(insight.editButton).toBeVisible()
             await expect(insight.paths.stepsButton).toContainText('3 Steps')
             const nodes = await insight.paths.getNodes()
-            expectNodesToMatch(nodes, pathPageviews.expected.nodes.slice(0, 3))
+            expectNodesToMatch(nodes, sequentialPageviews.expected.nodes.slice(0, 3))
         })
     })
 
@@ -86,21 +84,21 @@ test.describe('User Paths insights', () => {
 
         await test.step('verify initial pageview nodes', async () => {
             const nodes = await insight.paths.getNodes()
-            expectNodesToMatch(nodes, pathPageviews.expected.nodes)
+            expectNodesToMatch(nodes, sequentialPageviews.expected.nodes)
         })
 
         await test.step('switch to Custom event and verify custom event nodes', async () => {
             await insight.paths.selectEventType('Custom event')
             await insight.paths.waitForNodes()
             const nodes = await insight.paths.getNodes()
-            expectNodesToMatch(nodes, pathCustomEvents.expected.nodes)
+            expectNodesToMatch(nodes, sequentialCustomEvents.expected.nodes)
         })
 
         await test.step('switch back to Page views and verify pageview nodes return', async () => {
             await insight.paths.selectEventType('Page views')
             await insight.paths.waitForNodes()
             const nodes = await insight.paths.getNodes()
-            expectNodesToMatch(nodes, pathPageviews.expected.nodes)
+            expectNodesToMatch(nodes, sequentialPageviews.expected.nodes)
         })
 
         await test.step('save and verify view mode', async () => {
