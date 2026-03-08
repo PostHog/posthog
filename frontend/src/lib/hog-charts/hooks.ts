@@ -1,18 +1,27 @@
 import type React from 'react'
 import { useEffect, useRef } from 'react'
 
-import { Chart } from 'lib/Chart'
-import type { ChartConfiguration, ChartType } from 'lib/Chart'
+import { Chart, registerables } from 'chart.js'
+import type { ChartConfiguration, ChartType } from 'chart.js'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 
-import { buildTooltipContext } from './adapter'
+import { buildTooltipContext } from './adapters'
 import type { BaseChartProps, ClickEvent, LineProps, Series, TooltipContext } from './types'
 
-Chart.register(annotationPlugin)
-Chart.register(ChartjsPluginStacked100)
+let pluginsRegistered = false
+function ensurePluginsRegistered(): void {
+    if (!pluginsRegistered) {
+        if (registerables) {
+            Chart.register(...registerables)
+        }
+        Chart.register(annotationPlugin)
+        Chart.register(ChartjsPluginStacked100)
+        pluginsRegistered = true
+    }
+}
 
 export function useHogChart<TType extends ChartType = ChartType>(
     config: ChartConfiguration<TType> | null,
@@ -25,6 +34,7 @@ export function useHogChart<TType extends ChartType = ChartType>(
     canvasRef: React.RefObject<HTMLCanvasElement>
     containerRef: React.RefObject<HTMLDivElement>
 } {
+    ensurePluginsRegistered()
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<InstanceType<typeof Chart> | null>(null)

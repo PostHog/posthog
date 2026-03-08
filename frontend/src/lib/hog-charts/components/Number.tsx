@@ -2,7 +2,7 @@ import { computeDelta, formatValue } from '../format'
 import { mergeTheme } from '../theme'
 import type { NumberProps } from '../types'
 
-export function Number(props: NumberProps): JSX.Element {
+export function BigNumber(props: NumberProps): JSX.Element {
     const { value, previousValue, label, format = 'compact', prefix, suffix, theme: themeOverrides } = props
     const theme = mergeTheme(themeOverrides)
 
@@ -15,7 +15,7 @@ export function Number(props: NumberProps): JSX.Element {
         const isZero = delta === 0
         const deltaColor = isZero ? theme.axisColor : isPositive ? '#1AA35C' : '#F04F58'
         const arrow = isZero ? '' : isPositive ? '\u2191' : '\u2193'
-        const deltaText = globalThis.Number.isFinite(delta)
+        const deltaText = Number.isFinite(delta)
             ? `${arrow} ${Math.abs(delta * 100).toFixed(1)}%`
             : `${arrow} \u221E`
 

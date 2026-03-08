@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { buildLifecycleConfig } from '../adapter'
+import { buildLifecycleConfig } from '../adapters'
 import type { LifecycleProps } from '../types'
 import { ChartCanvas } from './ChartCanvas'
 

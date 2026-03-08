@@ -75,9 +75,7 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
                     : 'left',
             fill: opts.isArea,
             trendLine: opts.showTrendLines,
-            borderDash: isPrevious ? [6, 4] : undefined,
-            borderWidth: opts.isBar ? 0 : 2,
-            pointRadius: Array.isArray(data) && data.length === 1 ? 4 : 0,
+            lineStyle: isPrevious ? 'dashed' : undefined,
             hideFromTooltip: (dataset as any).hideTooltip ?? false,
             meta: {
                 datasetIndex: index,
@@ -105,8 +103,6 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
                 label: `${dataset.label} (CI lower)`,
                 data: lower,
                 color,
-                borderWidth: 0,
-                pointRadius: 0,
                 hideFromTooltip: true,
                 meta: { auxiliary: true },
             })
@@ -115,8 +111,6 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
                 data: upper,
                 color: hexToRGBA(color, 0.2),
                 fill: true,
-                borderWidth: 0,
-                pointRadius: 0,
                 hideFromTooltip: true,
                 meta: { auxiliary: true },
             })
@@ -128,9 +122,7 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
                 label: `${dataset.label} (Moving avg)`,
                 data: movingAvgData,
                 color,
-                borderDash: [10, 3],
-                borderWidth: 2,
-                pointRadius: 0,
+                lineStyle: 'dashed',
                 hideFromTooltip: true,
                 meta: { auxiliary: true },
             })

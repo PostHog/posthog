@@ -85,40 +85,34 @@ interface TooltipPortalProps {
 }
 
 export function TooltipPortal({ context, config, theme, containerRef }: TooltipPortalProps): JSX.Element | null {
-    const portalRef = useRef<HTMLDivElement | null>(null)
+    const [portalEl, setPortalEl] = useState<HTMLDivElement | null>(null)
 
-    if (!portalRef.current) {
+    useEffect(() => {
         const el = document.createElement('div')
         el.className = 'hog-charts-tooltip-portal'
         el.setAttribute('data-attr', 'hog-charts-tooltip')
         document.body.appendChild(el)
-        portalRef.current = el
-    }
-
-    useEffect(() => {
-        const el = portalRef.current
+        setPortalEl(el)
         return () => {
-            if (el) {
-                el.remove()
-            }
+            el.remove()
         }
     }, [])
 
     useEffect(() => {
-        if (!portalRef.current) {
+        if (!portalEl) {
             return
         }
         if (context) {
-            portalRef.current.style.opacity = '1'
-            portalRef.current.style.pointerEvents = 'none'
+            portalEl.style.opacity = '1'
+            portalEl.style.pointerEvents = 'none'
         } else {
-            portalRef.current.style.opacity = '0'
-            portalRef.current.style.pointerEvents = 'none'
+            portalEl.style.opacity = '0'
+            portalEl.style.pointerEvents = 'none'
             config?.onHide?.()
         }
-    }, [context, config])
+    }, [context, config, portalEl])
 
-    if (!context || !portalRef.current) {
+    if (!context || !portalEl) {
         return null
     }
 
@@ -132,7 +126,7 @@ export function TooltipPortal({ context, config, theme, containerRef }: TooltipP
         <TooltipPositioner context={context} containerRef={containerRef}>
             {content}
         </TooltipPositioner>,
-        portalRef.current
+        portalEl
     )
 }
 

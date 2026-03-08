@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { buildPieConfig } from '../adapter'
+import { buildPieConfig } from '../adapters'
 import type { PieProps } from '../types'
 import { ChartCanvas } from './ChartCanvas'
 

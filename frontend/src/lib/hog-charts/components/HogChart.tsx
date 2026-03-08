@@ -6,7 +6,7 @@ import { Funnel } from './Funnel'
 import { Heatmap } from './Heatmap'
 import { Lifecycle } from './Lifecycle'
 import { Line } from './Line'
-import { Number } from './Number'
+import { BigNumber } from './Number'
 import { Paths } from './Paths'
 import { Pie } from './Pie'
 import { Retention } from './Retention'
@@ -32,7 +32,7 @@ export function HogChart(props: HogChartProps): JSX.Element {
         }
         case 'number': {
             const { type: _, ...rest } = props
-            return <Number {...rest} />
+            return <BigNumber {...rest} />
         }
         case 'funnel': {
             const { type: _, ...rest } = props

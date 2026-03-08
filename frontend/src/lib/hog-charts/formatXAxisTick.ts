@@ -5,7 +5,7 @@ import type { ChartInterval } from './types'
 
 interface CreateXAxisTickCallbackArgs {
     interval?: ChartInterval
-    allDays: (string | number)[]
+    dates: (string | number)[]
     timezone: string
 }
 
@@ -18,16 +18,16 @@ type TickMode =
 
 export function createXAxisTickCallback({
     interval,
-    allDays,
+    dates,
     timezone,
 }: CreateXAxisTickCallbackArgs): (value: string | number, index: number) => string | null {
-    if (allDays.length === 0 || typeof allDays[0] !== 'string') {
+    if (dates.length === 0 || typeof dates[0] !== 'string') {
         return (value) => String(value)
     }
 
     // Datetime strings are UTC from ClickHouse — convert to project timezone.
     // Date-only strings are parsed as midnight in the project timezone to prevent date drift.
-    const parsedDates = allDays.map((d) => {
+    const parsedDates = dates.map((d) => {
         const s = String(d)
         const hasTime = s.includes(' ') || s.includes('T')
         if (hasTime) {

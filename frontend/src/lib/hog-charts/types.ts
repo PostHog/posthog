@@ -12,9 +12,7 @@ export interface Series {
     yAxisPosition?: 'left' | 'right'
     trendLine?: boolean
     fill?: boolean
-    borderDash?: number[]
-    borderWidth?: number
-    pointRadius?: number
+    lineStyle?: 'solid' | 'dashed' | 'dotted'
     /** Rendered but excluded from tooltips (for CI bounds, moving averages, etc.). */
     hideFromTooltip?: boolean
 }
@@ -141,7 +139,7 @@ export interface TimeSeriesProps extends BaseChartProps {
     showTrendLine?: boolean
 
     /** Raw date strings from the query — enables smart x-axis tick formatting. */
-    days?: (string | number)[]
+    dates?: (string | number)[]
     interval?: ChartInterval
     timezone?: string
     xAxisTickCallback?: (value: string | number, index: number) => string | null
@@ -156,30 +154,26 @@ export interface LineProps extends TimeSeriesProps {
     showDots?: boolean | 'auto'
     lineWidth?: number
     stacked?: boolean
-    stacked100?: boolean
+    percentStacked?: boolean
     isArea?: boolean
     fillOpacity?: number
     hideXAxis?: boolean
     hideYAxis?: boolean
     crosshair?: boolean
     /** Trailing data points rendered as dotted (in-progress time period). */
-    incompletenessOffset?: number
+    incompletePoints?: number
     highlightSeriesIndex?: number | null
     onHighlightChange?: (seriesIndex: number | null) => void
     maxSeries?: number
 }
 
-export interface AreaProps extends LineProps {
-    fillOpacity?: number
-    stacked?: boolean
-    stacked100?: boolean
-}
+export type AreaProps = LineProps
 
 export type BarOrientation = 'vertical' | 'horizontal'
 
 export interface BarProps extends TimeSeriesProps {
     stacked?: boolean
-    stacked100?: boolean
+    percentStacked?: boolean
     orientation?: BarOrientation
     borderRadius?: number
     barGap?: number
@@ -336,9 +330,7 @@ export interface LifecycleProps extends BaseChartProps {
     showValues?: boolean
 }
 
-export interface StickinessProps extends TimeSeriesProps {
-    xAxis?: AxisConfig
-}
+export type StickinessProps = TimeSeriesProps
 
 export type HogChartProps =
     | ({ type: 'line' } & LineProps)

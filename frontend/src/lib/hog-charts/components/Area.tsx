@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { buildAreaConfig } from '../adapter'
+import { buildAreaConfig } from '../adapters'
 import type { AreaProps } from '../types'
 import { ChartCanvas } from './ChartCanvas'
 

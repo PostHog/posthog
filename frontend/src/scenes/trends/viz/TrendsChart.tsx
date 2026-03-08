@@ -5,6 +5,7 @@ import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { getGraphColors } from 'lib/colors'
 import { Line } from 'lib/hog-charts'
 import type { ClickEvent, LineProps, TooltipContext } from 'lib/hog-charts'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
@@ -262,18 +263,23 @@ function TrendsChartInner({
         })
     }
 
+    const graphColors = getGraphColors()
     const lineProps: LineProps = {
+        theme: {
+            axisColor: graphColors.axisLabel ?? '#94949480',
+            gridColor: graphColors.axisLine ?? '#94949420',
+        },
         data: series,
         labels,
         yAxis,
         goalLines,
         className: 'TrendsChart w-full grow relative overflow-hidden',
         stacked: isStacked,
-        stacked100: isPercentStackView,
+        percentStacked: isPercentStackView,
         isArea,
         fillOpacity: isPercentStackView ? 1 : 0.5,
         crosshair: !isBar,
-        incompletenessOffset:
+        incompletePoints:
             isInProgress && incompletenessOffsetFromEnd < 0 ? Math.abs(incompletenessOffsetFromEnd) : 0,
         hideXAxis: false,
         hideYAxis: false,
@@ -285,7 +291,7 @@ function TrendsChartInner({
         onHighlightChange: isHighlightBarMode
             ? (idx) => setHoveredDatasetIndex(idx)
             : undefined,
-        days: indexedResults[0]?.days,
+        dates: indexedResults[0]?.days,
         interval: interval ?? undefined,
         timezone,
     }

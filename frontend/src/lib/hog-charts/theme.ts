@@ -1,5 +1,3 @@
-import { getGraphColors } from 'lib/colors'
-
 import type { HogChartTheme } from './types'
 
 export const hogColors = [
@@ -33,12 +31,8 @@ export const defaultTheme: HogChartTheme = {
         '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
     fontSize: 12,
     backgroundColor: 'transparent',
-    get axisColor() {
-        return getGraphColors().axisLabel ?? '#94949480'
-    },
-    get gridColor() {
-        return getGraphColors().axisLine ?? '#94949420'
-    },
+    axisColor: '#94949480',
+    gridColor: '#94949420',
     goalLineColor: '#F04F58',
     tooltipBackground: '#1D1F27',
     tooltipColor: '#EEEEEE',

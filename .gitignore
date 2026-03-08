@@ -181,3 +181,4 @@ junit.xml
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/
+charting-rfc/*

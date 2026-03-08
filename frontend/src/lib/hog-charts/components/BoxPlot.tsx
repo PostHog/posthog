@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { buildBoxPlotConfig } from '../adapter'
+import { buildBoxPlotConfig } from '../adapters'
 import type { BoxPlotProps } from '../types'
 import { ChartCanvas } from './ChartCanvas'
 

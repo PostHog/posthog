@@ -7,7 +7,7 @@ that hides Chart.js internals behind strongly-typed components.
 ## Quick start
 
 ```tsx
-import { Line, Bar, Number, HogChart } from 'lib/hog-charts'
+import { Line, Bar, BigNumber, HogChart } from 'lib/hog-charts'
 
 // Simple line chart
 <Line
@@ -16,15 +16,20 @@ import { Line, Bar, Number, HogChart } from 'lib/hog-charts'
 />
 
 // KPI number with comparison
-<Number value={42069} previousValue={38000} label="WAU" />
+<BigNumber value={42069} previousValue={38000} label="WAU" />
 
 // Universal component (runtime dispatch by type)
 <HogChart type="bar" data={data} labels={labels} stacked />
 ```
 
+## Architecture
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full data flow
+from backend API through kea logics to chart rendering.
+
 ## Chart components
 
-HogCharts exports 12 typed chart components plus one universal `HogChart` dispatcher.
+12 typed chart components plus one universal `HogChart` dispatcher.
 
 | Component | Props type | Rendering |
 | --- | --- | --- |
@@ -34,7 +39,7 @@ HogCharts exports 12 typed chart components plus one universal `HogChart` dispat
 | `Pie` | `PieProps` | Canvas (Chart.js) |
 | `BoxPlot` | `BoxPlotProps` | Canvas (Chart.js) |
 | `Lifecycle` | `LifecycleProps` | Canvas (Chart.js) |
-| `Number` | `NumberProps` | HTML |
+| `BigNumber` | `NumberProps` | HTML |
 | `Funnel` | `FunnelProps` | HTML |
 | `Retention` | `RetentionProps` | HTML table |
 | `Paths` | `PathsProps` | SVG |
@@ -61,20 +66,17 @@ All time-series charts (`Line`, `Bar`, `Area`, `Lifecycle`, `Stickiness`) share 
 
 ```ts
 interface Series {
-  label: string              // Human-readable name
-  data: number[]             // One value per x-axis label
-  pointLabels?: string[]     // Per-point label overrides
-  color?: string             // Hex, CSS var, or preset token
-  hidden?: boolean           // Rendered but hidden by default
-  meta?: Record<string, unknown>  // Opaque metadata for tooltips/clicks
-  displayType?: 'line' | 'bar'   // Per-series override for mixed charts
+  label: string
+  data: number[]
+  color?: string
+  hidden?: boolean
+  meta?: Record<string, unknown>  // opaque — passed through to tooltips/clicks
+  displayType?: 'line' | 'bar'
   yAxisPosition?: 'left' | 'right'
   trendLine?: boolean
   fill?: boolean
-  borderDash?: number[]
-  borderWidth?: number
-  pointRadius?: number
-  hideFromTooltip?: boolean  // Exclude from tooltips (CI bounds, moving averages)
+  lineStyle?: 'solid' | 'dashed' | 'dotted'
+  hideFromTooltip?: boolean
 }
 ```
 
@@ -85,67 +87,29 @@ for previous-period overlays.
 
 ```ts
 // Pie / Donut
-interface PieSlice {
-  label: string
-  value: number
-  color?: string
-  meta?: Record<string, unknown>
-}
+interface PieSlice { label: string; value: number; color?: string; meta?: Record<string, unknown> }
 
 // Funnel
-interface FunnelStep {
-  label: string
-  count: number
-  breakdown?: { label: string; count: number }[]
-  medianTime?: number  // seconds from previous step
-}
+interface FunnelStep { label: string; count: number; breakdown?: { label: string; count: number }[]; medianTime?: number }
 
-// Retention
-interface RetentionCohort {
-  label: string
-  date: string
-  values: number[]  // index 0 = cohort size, rest = retention counts
-}
+// Retention — index 0 is cohort size, rest are retention counts
+interface RetentionCohort { label: string; date: string; values: number[] }
 
 // Paths (Sankey)
 interface PathNode { name: string; count: number }
-interface PathLink {
-  source: string
-  target: string
-  value: number
-  averageTime?: number
-}
+interface PathLink { source: string; target: string; value: number; averageTime?: number }
 
 // World map
-interface MapDataPoint {
-  code: string   // ISO 3166-1 alpha-2
-  value: number
-  label?: string
-}
+interface MapDataPoint { code: string; value: number; label?: string }  // code: ISO 3166-1 alpha-2
 
 // Box plot
-interface BoxPlotDatum {
-  label: string
-  min: number; q1: number; median: number; q3: number; max: number
-  mean?: number
-  outliers?: number[]
-}
+interface BoxPlotDatum { label: string; min: number; q1: number; median: number; q3: number; max: number; mean?: number; outliers?: number[] }
 
 // Heatmap
-interface HeatmapCell {
-  x: string | number
-  y: string | number
-  value: number
-}
+interface HeatmapCell { x: string | number; y: string | number; value: number }
 
 // Lifecycle
-interface LifecycleBucket {
-  label: string
-  new: number
-  returning: number
-  resurrecting: number
-  dormant: number
-}
+interface LifecycleBucket { label: string; new: number; returning: number; resurrecting: number; dormant: number }
 ```
 
 ## Common props (BaseChartProps)
@@ -170,16 +134,14 @@ Every chart component accepts these base props:
 type AxisFormat = 'number' | 'compact' | 'percent' | 'duration'
                | 'duration_ms' | 'date' | 'datetime' | 'none'
 
-type AxisScale = 'linear' | 'logarithmic'
-
 interface AxisConfig {
   label?: string
   format?: AxisFormat
   prefix?: string         // e.g. "$"
   suffix?: string         // e.g. "%"
   decimalPlaces?: number
-  scale?: AxisScale       // default: linear
-  startAtZero?: boolean   // default: true for bar
+  scale?: 'linear' | 'logarithmic'
+  startAtZero?: boolean
   gridLines?: boolean
   min?: number
   max?: number
@@ -310,23 +272,25 @@ Each `TooltipPoint` has `seriesIndex`, `pointIndex`, `value`,
 | --- | --- | --- | --- |
 | `cumulative` | `boolean` | `false` | Running total mode |
 | `interpolation` | `'linear' \| 'smooth' \| 'step'` | `'linear'` | Curve style |
-| `showDots` | `boolean \| 'auto'` | `'auto'` | Show points (auto = shown when <= 30 points) |
+| `showDots` | `boolean \| 'auto'` | `'auto'` | Show points (auto = shown when ≤ 30 points) |
 | `lineWidth` | `number` | `2` | Line width |
 | `stacked` | `boolean` | `false` | Stack series |
-| `stacked100` | `boolean` | `false` | 100% stacked (implies stacked) |
+| `percentStacked` | `boolean` | `false` | 100% stacked (implies stacked) |
 | `isArea` | `boolean` | `false` | Fill under series |
 | `fillOpacity` | `number` | `0.5` | Fill opacity |
 | `crosshair` | `boolean` | `true` | Show vertical crosshair on hover |
-| `incompletenessOffset` | `number` | `0` | Dotted line for in-progress data |
+| `incompletePoints` | `number` | `0` | Trailing dotted points for in-progress data |
 | `highlightSeriesIndex` | `number \| null` | — | Highlight a specific series |
 | `compare` | `ComparisonSeries[]` | — | Previous period overlay |
+| `dates` | `(string \| number)[]` | — | Raw date strings for smart tick formatting |
+| `interval` | `ChartInterval` | — | Time interval for tick formatting |
 
 ### Bar
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `stacked` | `boolean` | `false` | Stack bars |
-| `stacked100` | `boolean` | `false` | 100% stacked |
+| `percentStacked` | `boolean` | `false` | 100% stacked |
 | `orientation` | `'vertical' \| 'horizontal'` | `'vertical'` | Bar direction |
 | `borderRadius` | `number` | `4` | Corner rounding |
 | `barGap` | `number` | `0.3` | Gap fraction (0-1) |
@@ -340,10 +304,10 @@ Each `TooltipPoint` has `seriesIndex`, `pointIndex`, `value`,
 | `showLabels` | `boolean` | `true` | Show slice labels |
 | `showValues` | `boolean` | `false` | Show values |
 
-### Number
+### BigNumber
 
 ```tsx
-<Number
+<BigNumber
   value={42069}
   previousValue={38000}  // shows +10.7% delta
   label="Weekly active users"
@@ -361,9 +325,8 @@ Each `TooltipPoint` has `seriesIndex`, `pointIndex`, `value`,
     { label: 'Sign up', count: 3000 },
     { label: 'Purchase', count: 400, medianTime: 86400 },
   ]}
-  layout="horizontal"       // or "vertical"
-  vizType="steps"            // "steps" | "time_to_convert" | "trends"
-  showConversionRates        // default: true
+  layout="horizontal"
+  showConversionRates
   showTime={false}
 />
 ```
@@ -378,7 +341,7 @@ Each `TooltipPoint` has `seriesIndex`, `pointIndex`, `value`,
   ]}
   periodLabels={['Week 0', 'Week 1', 'Week 2', 'Week 3']}
   period="week"
-  showPercentages   // default: true
+  showPercentages
 />
 ```
 
@@ -396,7 +359,6 @@ Each `TooltipPoint` has `seriesIndex`, `pointIndex`, `value`,
     { source: '/pricing', target: '/signup', value: 800 },
   ]}
   maxPaths={50}
-  highlightPath={['/home', '/pricing', '/signup']}
 />
 ```
 
@@ -447,27 +409,5 @@ formatValue(1234, 'compact')     // "1.2K"
 formatValue(0.456, 'percent')    // "45.6%"
 formatValue(3723, 'duration')    // "1h 2m"
 
-computeDelta(420, 380)           // { value: 0.1053, formatted: "+10.5%" }
+computeDelta(420, 380)           // 0.1053 (10.53%)
 ```
-
-## Architecture
-
-```
-HogChart (universal dispatcher)
-  |
-  +-- Canvas charts (Line, Bar, Area, Pie, BoxPlot, Lifecycle)
-  |     |
-  |     +-- adapter.ts: buildXxxConfig(props) -> Chart.js config
-  |     +-- ChartCanvas: manages Chart.js instance via useHogChart hook
-  |     +-- TooltipPortal: positioned tooltip with DefaultTooltip or custom render
-  |
-  +-- DOM charts (Number, Funnel, Retention, Paths, WorldMap, Heatmap)
-  |     rendered directly as HTML/SVG
-  |
-  Consumers (TrendsChart, DataVisualization, etc.)
-        map PostHog data shapes -> Series[] -> chart components directly
-```
-
-The adapter layer (`adapter.ts`) is the only file
-that knows about Chart.js. All other code works
-with the HogCharts type system.

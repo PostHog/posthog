@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { buildBarConfig } from '../adapter'
+import { buildBarConfig } from '../adapters'
 import type { BarProps } from '../types'
 import { ChartCanvas } from './ChartCanvas'
 

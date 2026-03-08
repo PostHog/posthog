@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { buildLineConfig } from '../adapter'
+import { buildLineConfig } from '../adapters'
 import type { LineProps } from '../types'
 import { ChartCanvas } from './ChartCanvas'
 
