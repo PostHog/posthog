@@ -29,27 +29,26 @@ export class PathsInsight {
     }
 
     async waitForChart(): Promise<void> {
-        // Wait for the paths container to appear in the DOM first (handles slow page loads)
-        await this.container.waitFor({ state: 'attached', timeout: 30000 })
+        await this.container.waitFor({ state: 'attached', timeout: 15000 })
         const loading = this.page.getByTestId('insight-loading-waiting-message')
-        await loading.waitFor({ state: 'attached', timeout: 2000 }).catch(() => {})
-        await loading.waitFor({ state: 'detached', timeout: 30000 })
-        await expect(this.container).toBeVisible({ timeout: 15000 })
+        await loading.waitFor({ state: 'detached', timeout: 15000 })
+        await expect(this.container).toBeVisible()
     }
 
     async waitForNodes(): Promise<void> {
         await this.waitForChart()
-        await expect(this.pathNodes.first()).toBeVisible({ timeout: 30000 })
+        await expect(this.pathNodes.first()).toBeVisible({ timeout: 15000 })
     }
 
     async selectEventType(type: 'Page views' | 'Screen views' | 'Custom event'): Promise<void> {
         await this.eventTypeButton.click()
-        // Check the desired type first (so it's not the only one),
-        // then uncheck "Page views" if switching away from it.
-        const targetItem = this.page.getByTestId(EVENT_TYPE_ATTRS[type])
-        await targetItem.click()
-        if (type !== 'Page views') {
-            await this.page.getByTestId(EVENT_TYPE_ATTRS['Page views']).click()
+        for (const [name, testId] of Object.entries(EVENT_TYPE_ATTRS)) {
+            const item = this.page.getByTestId(testId)
+            const isChecked = await item.getByRole('checkbox').isChecked()
+            const shouldBeChecked = name === type
+            if (isChecked !== shouldBeChecked) {
+                await item.click()
+            }
         }
         await this.page.keyboard.press('Escape')
     }
@@ -59,7 +58,6 @@ export class PathsInsight {
         await this.page.getByRole('menuitem', { name: `${steps} Steps` }).click()
     }
 
-    /** Extract structured node data: name (path/event) and person count. */
     async getNodes(): Promise<PathNode[]> {
         const count = await this.pathNodes.count()
         const nodes: PathNode[] = []
