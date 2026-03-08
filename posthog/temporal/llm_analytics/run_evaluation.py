@@ -803,6 +803,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                             "skip_reason": error_type,
                             "message": e.cause.message,
                             "evaluation_id": evaluation["id"],
+                            "evaluation_type": evaluation_type,
                         }
 
                     # Update key state for API-related errors
@@ -914,5 +915,6 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
+            "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
         }
