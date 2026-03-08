@@ -24,6 +24,7 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
+from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
@@ -7628,9 +7629,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(
             LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="body")._value.get(), before_body
         )
-    def test_feature_flag_activity_respects_access_control(self) -> None:
-        from posthog.constants import AvailableFeature
 
+    def test_feature_flag_detail_actions_respect_access_control(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -7654,6 +7654,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         activity_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/activity/")
         self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        status_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/status/")
+        self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
