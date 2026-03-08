@@ -1507,7 +1507,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = self.dashboard_api.get_dashboard(dashboard_id)
         assert len(dashboard["tiles"]) == 1
 
-    def test_move_tile_respects_access_control(self) -> None:
+    @parameterized.expand([("source",), ("target",)])
+    def test_move_tile_respects_access_control(self, blocked_dashboard: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -1524,41 +1525,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_one = self.dashboard_api.get_dashboard(dashboard_one_id)
         tile = dashboard_one["tiles"][0]
 
-        AccessControl.objects.create(
-            resource="dashboard", resource_id=dashboard_one_id, team=self.team, access_level="none"
-        )
-
-        self.client.force_login(user2)
-
-        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/")
-        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
-
-        move_response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
-            {"tile": tile, "toDashboard": dashboard_two_id},
-        )
-        self.assertEqual(move_response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_move_tile_respects_target_dashboard_access_control(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
-        ]
-        self.organization.save()
-
-        user2 = self._create_user("test2@posthog.com", level=OrganizationMembership.Level.MEMBER)
-
-        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard one"})
-        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard two"})
-        self.dashboard_api.create_insight(
-            {"filters": {"events": [{"id": "$pageview"}], "insight": "TRENDS"}, "dashboards": [dashboard_one_id]}
-        )
-        dashboard_one = self.dashboard_api.get_dashboard(dashboard_one_id)
-        tile = dashboard_one["tiles"][0]
-
-        AccessControl.objects.create(
-            resource="dashboard", resource_id=dashboard_two_id, team=self.team, access_level="none"
-        )
+        blocked_id = dashboard_one_id if blocked_dashboard == "source" else dashboard_two_id
+        AccessControl.objects.create(resource="dashboard", resource_id=blocked_id, team=self.team, access_level="none")
 
         self.client.force_login(user2)
 
