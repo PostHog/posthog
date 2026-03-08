@@ -7,9 +7,11 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -45,11 +47,14 @@ export function Annotations(): JSX.Element {
 
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
-    const { filteredAnnotations, shouldShowEmptyState, annotationsLoading, scope } = useValues(annotationsLogic)
-    const { setScope } = useActions(annotationsLogic)
+    const { filteredAnnotations, shouldShowEmptyState, annotationsLoading, scope, searchTerm, allTags, filterByTag } =
+        useValues(annotationsLogic)
+    const { setScope, setSearchTerm, setFilterByTag } = useActions(annotationsLogic)
 
     const { loadingNext, next } = useValues(annotationsModel)
     const { loadAnnotationsNext } = useActions(annotationsModel)
+
+    const tagOptions = [{ value: null, label: 'Any' }, ...allTags.map((tag) => ({ value: tag, label: tag }))]
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -57,20 +62,27 @@ export function Annotations(): JSX.Element {
             key: 'annotation',
             render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
                 return (
-                    <Tooltip
-                        title={
-                            <TextContent
-                                text={annotation.content ?? ''}
-                                data-attr="annotation-scene-comment-title-rendered-content"
-                            />
-                        }
-                    >
-                        <div className="font-semibold line-clamp-2">
-                            <Link subtle to={urls.annotation(annotation.id)}>
-                                {annotation.content ?? ''}
-                            </Link>
-                        </div>
-                    </Tooltip>
+                    <div>
+                        <Tooltip
+                            title={
+                                <TextContent
+                                    text={annotation.content ?? ''}
+                                    data-attr="annotation-scene-comment-title-rendered-content"
+                                />
+                            }
+                        >
+                            <div className="font-semibold line-clamp-2">
+                                <Link subtle to={urls.annotation(annotation.id)}>
+                                    {annotation.content ?? ''}
+                                </Link>
+                            </div>
+                        </Tooltip>
+                        {annotation.tags && annotation.tags.length > 0 && (
+                            <div className="mt-1">
+                                <ObjectTags tags={annotation.tags} staticOnly />
+                            </div>
+                        )}
+                    </div>
                 )
             },
         },
@@ -117,7 +129,7 @@ export function Annotations(): JSX.Element {
             sorter: (a, b) => annotationScopeToLevel[a.scope] - annotationScopeToLevel[b.scope],
         },
         {
-            title: 'Created by',
+            title: 'Created by',
             dataIndex: 'created_by',
             render: function Render(_: any, item) {
                 const { created_by, creation_type } = item
@@ -175,9 +187,24 @@ export function Annotations(): JSX.Element {
                     </AppShortcut>
                 }
             />
-            <div className="flex flex-row items-center gap-2 justify-end">
-                <div>Scope:</div>
-                <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
+            <div className="flex flex-row items-center gap-2 justify-between">
+                <LemonInput
+                    type="search"
+                    placeholder="Search annotations..."
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                    className="min-w-64"
+                />
+                <div className="flex flex-row items-center gap-2">
+                    {allTags.length > 0 && (
+                        <>
+                            <div>Tag:</div>
+                            <LemonSelect options={tagOptions} value={filterByTag} onSelect={setFilterByTag} />
+                        </>
+                    )}
+                    <div>Scope:</div>
+                    <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
+                </div>
             </div>
             <div data-attr="annotations-content">
                 <div className={cn('mt-4 mb-0 empty:hidden')}>

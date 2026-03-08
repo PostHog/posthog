@@ -11,7 +11,9 @@ import { AnnotationType, RawAnnotationType } from '~/types'
 
 import type { annotationsModelType } from './annotationsModelType'
 
-export type AnnotationData = Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+export type AnnotationData = Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'> & {
+    tags?: string[]
+}
 export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'>
 
 export function deserializeAnnotation(annotation: RawAnnotationType, projectTimezone: string): AnnotationType {

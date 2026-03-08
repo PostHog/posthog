@@ -13,6 +13,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation, Dashboard, Insight
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
@@ -30,10 +31,11 @@ class AnnotationContext(ActivityContextBase):
     recording_id: Optional[str] = None
 
 
-class AnnotationSerializer(serializers.ModelSerializer):
+class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     dashboard_id = serializers.IntegerField(required=False, allow_null=True)
     dashboard_item = TeamScopedPrimaryKeyRelatedField(queryset=Insight.objects.all(), required=False, allow_null=True)
+    tags = serializers.ListField(required=False)
 
     class Meta:
         model = Annotation
@@ -53,6 +55,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "scope",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -67,7 +70,10 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
-        return super().update(instance, validated_data)
+        validated_data.pop("tags", None)
+        instance = super().update(instance, validated_data)
+        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        return instance
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
@@ -87,12 +93,14 @@ class AnnotationSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
+        validated_data.pop("tags", None)
         annotation = Annotation.objects.create(
             organization_id=team.organization_id,
             team_id=team.id,
             created_by=request.user,
             **validated_data,
         )
+        self._attempt_set_tags(self.initial_data.get("tags"), annotation)
         return annotation
 
 
@@ -101,7 +109,7 @@ class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
 
 
 @extend_schema(tags=["core"])
-class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class AnnotationsViewSet(TeamAndOrgViewSetMixin, TaggedItemViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
     """
