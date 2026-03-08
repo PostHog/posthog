@@ -143,6 +143,7 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const anomalyDetectionEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_ANOMALY_DETECTION]
     const inlineNotificationsEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS]
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
@@ -252,31 +253,33 @@ export function EditAlertModal({
                                         </Group>
                                     </div>
 
-                                    <LemonSegmentedButton
-                                        fullWidth
-                                        value={alertMode}
-                                        onChange={(value) => {
-                                            if (value === 'detector') {
-                                                setAlertFormValue('detector_config', {
-                                                    type: 'zscore',
-                                                    threshold: 3.0,
-                                                    window: 30,
-                                                })
-                                            } else {
-                                                setAlertFormValue('detector_config', null)
-                                            }
-                                        }}
-                                        options={[
-                                            {
-                                                value: 'threshold',
-                                                label: 'Threshold',
-                                            },
-                                            {
-                                                value: 'detector',
-                                                label: 'Anomaly detection',
-                                            },
-                                        ]}
-                                    />
+                                    {anomalyDetectionEnabled && (
+                                        <LemonSegmentedButton
+                                            fullWidth
+                                            value={alertMode}
+                                            onChange={(value) => {
+                                                if (value === 'detector') {
+                                                    setAlertFormValue('detector_config', {
+                                                        type: 'zscore',
+                                                        threshold: 3.0,
+                                                        window: 30,
+                                                    })
+                                                } else {
+                                                    setAlertFormValue('detector_config', null)
+                                                }
+                                            }}
+                                            options={[
+                                                {
+                                                    value: 'threshold',
+                                                    label: 'Threshold',
+                                                },
+                                                {
+                                                    value: 'detector',
+                                                    label: 'Anomaly detection',
+                                                },
+                                            ]}
+                                        />
+                                    )}
 
                                     {alertMode === 'threshold' ? (
                                         <>
