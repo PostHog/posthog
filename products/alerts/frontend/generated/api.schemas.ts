@@ -159,24 +159,6 @@ export interface TrendsAlertConfigApi {
     type?: TrendsAlertConfigApiType
 }
 
-export interface PreprocessingConfigApi {
-    /**
-     * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
-     * @nullable
-     */
-    diffs_n?: number | null
-    /**
-     * Number of lag features. 0 = none, >0 = include n lagged values (default: 0)
-     * @nullable
-     */
-    lags_n?: number | null
-    /**
-     * Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)
-     * @nullable
-     */
-    smooth_n?: number | null
-}
-
 export type ZScoreDetectorConfigApiType = (typeof ZScoreDetectorConfigApiType)[keyof typeof ZScoreDetectorConfigApiType]
 
 export const ZScoreDetectorConfigApiType = {
@@ -184,8 +166,6 @@ export const ZScoreDetectorConfigApiType = {
 } as const
 
 export interface ZScoreDetectorConfigApi {
-    /** Preprocessing transforms applied before detection */
-    preprocessing?: PreprocessingConfigApi | null
     /**
      * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
      * @nullable
@@ -206,8 +186,6 @@ export const MADDetectorConfigApiType = {
 } as const
 
 export interface MADDetectorConfigApi {
-    /** Preprocessing transforms applied before detection */
-    preprocessing?: PreprocessingConfigApi | null
     /**
      * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
      * @nullable
@@ -216,6 +194,26 @@ export interface MADDetectorConfigApi {
     type?: MADDetectorConfigApiType
     /**
      * Rolling window size for calculating median/MAD (default: 30)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type IQRDetectorConfigApiType = (typeof IQRDetectorConfigApiType)[keyof typeof IQRDetectorConfigApiType]
+
+export const IQRDetectorConfigApiType = {
+    Iqr: 'iqr',
+} as const
+
+export interface IQRDetectorConfigApi {
+    /**
+     * IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)
+     * @nullable
+     */
+    multiplier?: number | null
+    type?: IQRDetectorConfigApiType
+    /**
+     * Rolling window size for calculating quartiles (default: 30)
      * @nullable
      */
     window?: number | null
@@ -234,8 +232,6 @@ export interface ThresholdDetectorConfigApi {
      * @nullable
      */
     lower_bound?: number | null
-    /** Preprocessing transforms applied before detection */
-    preprocessing?: PreprocessingConfigApi | null
     type?: ThresholdDetectorConfigApiType
     /**
      * Upper bound - values above this are anomalies
@@ -244,6 +240,7 @@ export interface ThresholdDetectorConfigApi {
     upper_bound?: number | null
 }
 
+<<<<<<< HEAD
 export type EnsembleOperatorApi = (typeof EnsembleOperatorApi)[keyof typeof EnsembleOperatorApi]
 
 export const EnsembleOperatorApi = {
@@ -264,16 +261,108 @@ export interface EnsembleDetectorConfigApi {
     /** How to combine sub-detector results */
     operator: EnsembleOperatorApi
     type?: EnsembleDetectorConfigApiType
+=======
+export type ECODDetectorConfigApiType = (typeof ECODDetectorConfigApiType)[keyof typeof ECODDetectorConfigApiType]
+
+export const ECODDetectorConfigApiType = {
+    Ecod: 'ecod',
+} as const
+
+export interface ECODDetectorConfigApi {
+    /**
+     * Expected proportion of outliers (default: 0.1)
+     * @nullable
+     */
+    contamination?: number | null
+    type?: ECODDetectorConfigApiType
+}
+
+export type COPODDetectorConfigApiType = (typeof COPODDetectorConfigApiType)[keyof typeof COPODDetectorConfigApiType]
+
+export const COPODDetectorConfigApiType = {
+    Copod: 'copod',
+} as const
+
+export interface COPODDetectorConfigApi {
+    /**
+     * Expected proportion of outliers (default: 0.1)
+     * @nullable
+     */
+    contamination?: number | null
+    type?: COPODDetectorConfigApiType
+}
+
+export type IsolationForestDetectorConfigApiType =
+    (typeof IsolationForestDetectorConfigApiType)[keyof typeof IsolationForestDetectorConfigApiType]
+
+export const IsolationForestDetectorConfigApiType = {
+    IsolationForest: 'isolation_forest',
+} as const
+
+export interface IsolationForestDetectorConfigApi {
+    /**
+     * Expected proportion of outliers (default: 0.1)
+     * @nullable
+     */
+    contamination?: number | null
+    /**
+     * Number of trees in the forest (default: 100)
+     * @nullable
+     */
+    n_estimators?: number | null
+    type?: IsolationForestDetectorConfigApiType
+}
+
+export type MethodApi = (typeof MethodApi)[keyof typeof MethodApi]
+
+export const MethodApi = {
+    Largest: 'largest',
+    Mean: 'mean',
+    Median: 'median',
+} as const
+
+export type KNNDetectorConfigApiType = (typeof KNNDetectorConfigApiType)[keyof typeof KNNDetectorConfigApiType]
+
+export const KNNDetectorConfigApiType = {
+    Knn: 'knn',
+} as const
+
+export interface KNNDetectorConfigApi {
+    /**
+     * Expected proportion of outliers (default: 0.1)
+     * @nullable
+     */
+    contamination?: number | null
+    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+    method?: MethodApi | null
+    /**
+     * Number of neighbors to consider (default: 5)
+     * @nullable
+     */
+    n_neighbors?: number | null
+    type?: KNNDetectorConfigApiType
+>>>>>>> 9b51198b0cb (chore: update OpenAPI generated types)
 }
 
 /**
  * Detector configuration types
  */
 export type DetectorConfigApi =
+<<<<<<< HEAD
     | EnsembleDetectorConfigApi
     | ZScoreDetectorConfigApi
     | MADDetectorConfigApi
     | ThresholdDetectorConfigApi
+=======
+    | ZScoreDetectorConfigApi
+    | MADDetectorConfigApi
+    | IQRDetectorConfigApi
+    | ThresholdDetectorConfigApi
+    | ECODDetectorConfigApi
+    | COPODDetectorConfigApi
+    | IsolationForestDetectorConfigApi
+    | KNNDetectorConfigApi
+>>>>>>> 9b51198b0cb (chore: update OpenAPI generated types)
 
 /**
  * * `hourly` - hourly
