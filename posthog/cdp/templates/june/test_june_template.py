@@ -5,7 +5,6 @@ from posthog.cdp.templates.june.template_june import template as template_june
 def create_inputs(**kwargs):
     inputs = {
         "apiKey": "abcdef123456",
-        "include_all_properties": False,
         "properties": {"name": "Max AI", "email": "max@posthog.com"},
     }
     inputs.update(kwargs)
@@ -102,108 +101,6 @@ class TestTemplateJune(BaseHogFunctionTemplateTest):
                         "locale": "test13",
                         "timezone": "test18",
                         "userAgent": "test19",
-                    },
-                    "messageId": "151234234",
-                    "userId": "abc123",
-                },
-            },
-        )
-
-    def test_body_includes_all_properties_if_set(self):
-        self.run_function(
-            inputs=create_inputs(include_all_properties=True),
-            globals={
-                "event": {
-                    "event": "$pageview",
-                    "uuid": "151234234",
-                    "distinct_id": "abc123",
-                    "timestamp": "2024-10-24T23:03:50.941Z",
-                    "properties": {
-                        "$is_identified": True,
-                        "$current_url": "https://hedgebox.net/faq?billing",
-                        "$pathname": "/faq",
-                        "title": "Hedgebox",
-                    },
-                },
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[0] == (
-            "https://api.june.so/sdk/page",
-            {
-                "method": "POST",
-                "headers": {
-                    "Authorization": "Basic abcdef123456",
-                    "Content-Type": "application/json",
-                },
-                "body": {
-                    "properties": {
-                        "url": "https://hedgebox.net/faq?billing",
-                        "path": "/faq",
-                        "title": "Hedgebox",
-                        "search": "?billing",
-                    },
-                    "traits": {"name": "Max AI", "email": "max@posthog.com", "title": "Hedgebox"},
-                    "timestamp": "2024-10-24T23:03:50.941Z",
-                    "context": {
-                        "app": {},
-                        "campaign": {},
-                        "device": {},
-                        "os": {},
-                        "referrer": {},
-                        "screen": {},
-                    },
-                    "messageId": "151234234",
-                    "userId": "abc123",
-                },
-            },
-        )
-
-        self.run_function(
-            inputs=create_inputs(include_all_properties=False),
-            globals={
-                "event": {
-                    "event": "$pageview",
-                    "uuid": "151234234",
-                    "distinct_id": "abc123",
-                    "timestamp": "2024-10-24T23:03:50.941Z",
-                    "properties": {
-                        "$is_identified": True,
-                        "$current_url": "https://hedgebox.net/faq?billing",
-                        "$pathname": "/faq",
-                        "title": "Hedgebox",
-                    },
-                },
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[0] == (
-            "https://api.june.so/sdk/page",
-            {
-                "method": "POST",
-                "headers": {
-                    "Authorization": "Basic abcdef123456",
-                    "Content-Type": "application/json",
-                },
-                "body": {
-                    "properties": {
-                        "url": "https://hedgebox.net/faq?billing",
-                        "path": "/faq",
-                        "title": "Hedgebox",
-                        "search": "?billing",
-                    },
-                    "traits": {
-                        "name": "Max AI",
-                        "email": "max@posthog.com",
-                    },
-                    "timestamp": "2024-10-24T23:03:50.941Z",
-                    "context": {
-                        "app": {},
-                        "campaign": {},
-                        "device": {},
-                        "os": {},
-                        "referrer": {},
-                        "screen": {},
                     },
                     "messageId": "151234234",
                     "userId": "abc123",

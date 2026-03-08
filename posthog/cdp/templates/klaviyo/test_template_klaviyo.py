@@ -17,7 +17,6 @@ class TestTemplateKlaviyoUser(BaseHogFunctionTemplateTest):
             "apiKey": "API_KEY",
             "email": "max@posthog.com",
             "externalId": "EXTERNAL_ID",
-            "include_all_properties": False,
             "customProperties": {
                 "first_name": "Max",
                 "last_name": "AI",
@@ -67,33 +66,6 @@ class TestTemplateKlaviyoUser(BaseHogFunctionTemplateTest):
             },
         )
 
-    def test_body_includes_all_properties_if_set(self):
-        self.run_function(
-            inputs=self.create_inputs(include_all_properties=False),
-            globals={"person": {"properties": {"$geoip_country_name": "United States", "plan": "pay-as-you-go"}}},
-        )
-
-        assert self.get_mock_fetch_calls()[0][1]["body"]["data"]["attributes"]["properties"] == {
-            "first_name": "Max",
-            "last_name": "AI",
-            "title": "Hedgehog in Residence",
-            "organization": "PostHog",
-            "phone_number": "+0123456789",
-        }
-
-        self.run_function(
-            inputs=self.create_inputs(include_all_properties=True),
-            globals={"person": {"properties": {"$geoip_country_name": "United States", "plan": "pay-as-you-go"}}},
-        )
-        assert self.get_mock_fetch_calls()[0][1]["body"]["data"]["attributes"]["properties"] == {
-            "first_name": "Max",
-            "last_name": "AI",
-            "title": "Hedgehog in Residence",
-            "organization": "PostHog",
-            "phone_number": "+0123456789",
-            "plan": "pay-as-you-go",
-        }
-
     def test_function_requires_identifier(self):
         self.run_function(inputs=self.create_inputs(email=None, externalId=""))
 
@@ -113,7 +85,6 @@ class TestTemplateKlaviyoEvent(BaseHogFunctionTemplateTest):
             "apiKey": "API_KEY",
             "email": "max@posthog.com",
             "externalId": "EXTERNAL_ID",
-            "include_all_properties": False,
             "attributes": {"price": "25.99", "currency": "USD"},
         }
         inputs.update(kwargs)
@@ -158,31 +129,6 @@ class TestTemplateKlaviyoEvent(BaseHogFunctionTemplateTest):
                 },
             },
         )
-
-    def test_body_includes_all_properties_if_set(self):
-        self.run_function(
-            inputs=self.create_inputs(include_all_properties=False),
-            globals={
-                "event": {"event": "purchase", "properties": {"customerType": "B2C"}},
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[0][1]["body"]["data"]["attributes"]["properties"] == {
-            "price": "25.99",
-            "currency": "USD",
-        }
-
-        self.run_function(
-            inputs=self.create_inputs(include_all_properties=True),
-            globals={
-                "event": {"event": "purchase", "properties": {"customerType": "B2C"}},
-            },
-        )
-        assert self.get_mock_fetch_calls()[0][1]["body"]["data"]["attributes"]["properties"] == {
-            "price": "25.99",
-            "currency": "USD",
-            "customerType": "B2C",
-        }
 
     def test_function_requires_identifier(self):
         self.run_function(inputs=self.create_inputs(email=None, externalId=""))

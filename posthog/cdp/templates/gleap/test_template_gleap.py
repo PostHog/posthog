@@ -5,7 +5,6 @@ from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 def create_inputs(**kwargs):
     inputs = {
         "apiKey": "uB6Jymn60NN5EEIWgiUzZx13geVlEx26",
-        "include_all_properties": False,
         "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
         "attributes": {"name": "example", "email": "example@posthog.com"},
     }
@@ -41,34 +40,6 @@ class TestTemplateGleap(BaseHogFunctionTemplateTest):
                 },
             },
         )
-
-    def test_body_includes_all_properties_if_set(self):
-        self.run_function(
-            inputs=create_inputs(include_all_properties=False),
-            globals={
-                "person": {"properties": {"account_status": "paid"}},
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[0][1]["body"] == {
-            "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
-            "name": "example",
-            "email": "example@posthog.com",
-        }
-
-        self.run_function(
-            inputs=create_inputs(include_all_properties=True),
-            globals={
-                "person": {"properties": {"account_status": "paid"}},
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[0][1]["body"] == {
-            "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
-            "account_status": "paid",
-            "name": "example",
-            "email": "example@posthog.com",
-        }
 
     def test_function_requires_identifier(self):
         self.run_function(inputs=create_inputs(userId=""))

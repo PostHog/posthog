@@ -18,9 +18,8 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     code="""
 let host := inputs.host
 let token := inputs.token
-let include_all_properties := inputs.include_all_properties
 let propertyOverrides := inputs.properties
-let properties := include_all_properties ? event.properties : {}
+let properties := {}
 
 for (let key, value in propertyOverrides) {
     properties[key] := value
@@ -59,15 +58,6 @@ fetch(f'{host}/e', {
             "required": True,
         },
         {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all properties by default",
-            "description": "If set, all event properties will be included in the payload. Individual properties can be overridden below.",
-            "default": True,
-            "secret": False,
-            "required": True,
-        },
-        {
             "key": "properties",
             "type": "dictionary",
             "label": "Property overrides",
@@ -98,7 +88,6 @@ class TemplatePostHogMigrator(HogFunctionTemplateMigrator):
         hf["inputs"] = {
             "host": {"value": host},
             "token": {"value": project_api_key},
-            "include_all_properties": {"value": True},
             "properties": {"value": {"$geoip_disable": True} if disable_geoip else {}},
         }
 

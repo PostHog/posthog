@@ -19,7 +19,7 @@ if (empty(inputs.userId)) {
     return
 }
 
-let attributes := inputs.include_all_properties ? person.properties : {}
+let attributes := {}
 
 attributes['userId'] := inputs.userId
 
@@ -58,15 +58,6 @@ if (res.status >= 400) {
             "label": "User ID",
             "description": "You can choose to fill this from an `email` property or an `id` property. If the value is empty nothing will be sent. See here for more information: https://docs.gleap.io/server/rest-api",
             "default": "{person.id}",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all properties as attributes",
-            "description": "If set, all person properties will be included as attributes. Individual attributes can be overridden below.",
-            "default": False,
             "secret": False,
             "required": True,
         },

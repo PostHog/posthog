@@ -93,7 +93,6 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             "oauth": {"access_token": "TOKEN"},
             "eventName": "purchase",
             "email": "example@posthog.com",
-            "include_all_properties": False,
             "properties": {
                 "price": 50,
                 "currency": "USD",
@@ -121,31 +120,6 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-    def test_body_includes_all_properties_if_set(self):
-        self.mock_fetch_response = lambda *args: EVENT_DEFINITION_RESPONSE  # type: ignore
-
-        self.run_function(
-            inputs=self._inputs(include_all_properties=False, event="purchase subscription"),
-            globals={
-                "event": {"properties": {"product": "CDP"}},
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[1][1]["body"]["properties"] == {"price": 50, "currency": "USD"}
-
-        self.run_function(
-            inputs=self._inputs(include_all_properties=True),
-            globals={
-                "event": {"event": "purchase subscription", "properties": {"product": "CDP"}},
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[1][1]["body"]["properties"] == {
-            "price": 50,
-            "currency": "USD",
-            "product": "CDP",
-        }
-
     def test_new_event_creation(self):
         self.fetch_responses = {
             "https://api.hubapi.com/events/v3/event-definitions/sign_up/?includeProperties=true": {
@@ -159,12 +133,9 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         }
 
         self.run_function(
-            inputs=self._inputs(include_all_properties=True, eventName="sign_up"),
-            globals={
-                "event": {
-                    "properties": {"price": 50, "currency": "USD", "expressDelivery": True},
-                },
-            },
+            inputs=self._inputs(
+                eventName="sign_up", properties={"price": 50, "currency": "USD", "expressDelivery": True}
+            ),
         )
 
         assert self.get_mock_fetch_calls()[1] == (
@@ -242,18 +213,15 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         }
 
         self.run_function(
-            inputs=self._inputs(include_all_properties=True, event="purchase"),
-            globals={
-                "event": {
-                    "properties": {
-                        "price": 50,
-                        "currency": "USD",
-                        "expressDelivery": True,
-                        "location": "Planet Earth",
-                        "timestamp": "2024-11-11T17:25:59.812Z",
-                    },
-                },
-            },
+            inputs=self._inputs(
+                properties={
+                    "price": 50,
+                    "currency": "USD",
+                    "expressDelivery": True,
+                    "location": "Planet Earth",
+                    "timestamp": "2024-11-11T17:25:59.812Z",
+                }
+            ),
         )
 
         assert self.get_mock_fetch_calls()[1] == (
@@ -343,12 +311,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
         }
         with pytest.raises(UncaughtHogVMException) as e:
             self.run_function(
-                inputs=self._inputs(include_all_properties=True, event="purchase"),
-                globals={
-                    "event": {
-                        "properties": {"price": "50 coins"},
-                    },
-                },
+                inputs=self._inputs(properties={"price": "50 coins", "currency": "USD"}),
             )
 
         assert len(self.get_mock_fetch_calls()) == 1

@@ -72,14 +72,6 @@ for (let key, value in inputs.properties) {
     }
 }
 
-if (inputs.include_all_properties) {
-    for (let key, value in (type == 'identify' ? person.properties : event.properties)) {
-        if (not empty(value) and not key like '$%') {
-            traits[key] := value
-        }
-    }
-}
-
 let body := {
     'properties': properties,
     'traits': traits,
@@ -115,15 +107,6 @@ if (res.status >= 400) {
             "type": "string",
             "label": "June.so Write API key",
             "secret": True,
-            "required": True,
-        },
-        {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all properties as attributes",
-            "description": "If set, all event properties will be included as traits. Individual traits can be overridden below. For identify events the Person properties will be used.",
-            "default": False,
-            "secret": False,
             "required": True,
         },
         {

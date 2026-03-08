@@ -19,7 +19,6 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
                 "app.region": "US",
             },
             "email": "max@posthog.com",
-            "include_all_properties": False,
             "properties": {
                 "name": "Max AI",
                 "phone": "+1234567890",
@@ -73,78 +72,6 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
                     "name": "Max AI",
                     "phone": "+1234567890",
                     "last_seen_at": "1234567890",
-                },
-            },
-        )
-
-    def test_body_includes_all_properties_if_set(self):
-        self.mock_fetch_response = lambda url, options: {  # type: ignore
-            "status": 200,
-            "body": {"total_count": 1, "data": [{"id": "123"}]},
-        }
-
-        self.run_function(
-            inputs=self.create_inputs(
-                include_all_properties=False, customProperties={"custom_property": "custom_value"}
-            ),
-            globals={
-                "person": {"properties": {"plan": "pay-as-you-go", "company": "PostHog"}},
-            },
-        )
-
-        res = self.get_mock_fetch_calls()[1]
-        res[1]["body"]["last_seen_at"] = "1234567890"
-
-        assert res == (
-            "https://api.intercom.io/contacts/123",
-            {
-                "method": "PUT",
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Intercom-Version": "2.11",
-                    "Accept": "application/json",
-                    "Authorization": "Bearer ACCESS_TOKEN",
-                },
-                "body": {
-                    "email": "max@posthog.com",
-                    "custom_attributes": {
-                        "custom_property": "custom_value",
-                    },
-                    "name": "Max AI",
-                    "phone": "+1234567890",
-                    "last_seen_at": "1234567890",
-                },
-            },
-        )
-
-        self.run_function(
-            inputs=self.create_inputs(include_all_properties=True),
-            globals={
-                "person": {"properties": {"plan": "pay-as-you-go", "company": "PostHog"}},
-            },
-        )
-
-        res = self.get_mock_fetch_calls()[1]
-        res[1]["body"]["last_seen_at"] = "1234567890"
-
-        assert self.get_mock_fetch_calls()[1] == (
-            "https://api.intercom.io/contacts/123",
-            {
-                "method": "PUT",
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Intercom-Version": "2.11",
-                    "Accept": "application/json",
-                    "Authorization": "Bearer ACCESS_TOKEN",
-                },
-                "body": {
-                    "email": "max@posthog.com",
-                    "custom_attributes": {},
-                    "name": "Max AI",
-                    "phone": "+1234567890",
-                    "last_seen_at": "1234567890",
-                    "plan": "pay-as-you-go",
-                    "company": "PostHog",
                 },
             },
         )
@@ -206,7 +133,6 @@ class TestTemplateIntercomEvent(BaseHogFunctionTemplateTest):
             "email": "max@posthog.com",
             "eventName": "purchase",
             "eventTime": "1234567890",
-            "include_all_properties": False,
             "properties": {
                 "revenue": "50",
                 "currency": "USD",
@@ -265,74 +191,6 @@ class TestTemplateIntercomEvent(BaseHogFunctionTemplateTest):
                     "created_at": "1234567890",
                     "email": "max@posthog.com",
                     "metadata": {"revenue": "50", "currency": "USD"},
-                },
-            },
-        )
-
-    def test_body_includes_all_properties_if_set(self):
-        self.mock_fetch_response = lambda url, options: {  # type: ignore
-            "status": 200,
-            "body": {"total_count": 1, "data": [{"id": "123"}]},
-        }
-
-        self.run_function(
-            inputs=self.create_inputs(include_all_properties=False),
-            globals={
-                "event": {
-                    "event": "purchase",
-                    "properties": {"customerType": "B2C"},
-                },
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[1] == (
-            "https://api.intercom.io/events",
-            {
-                "method": "POST",
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Intercom-Version": "2.11",
-                    "Accept": "application/json",
-                    "Authorization": "Bearer ACCESS_TOKEN",
-                },
-                "body": {
-                    "event_name": "purchase",
-                    "created_at": "1234567890",
-                    "email": "max@posthog.com",
-                    "metadata": {"revenue": "50", "currency": "USD"},
-                },
-            },
-        )
-
-        self.run_function(
-            inputs=self.create_inputs(include_all_properties=True),
-            globals={
-                "event": {
-                    "event": "purchase",
-                    "properties": {"customerType": "B2C"},
-                },
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[1] == (
-            "https://api.intercom.io/events",
-            {
-                "method": "POST",
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Intercom-Version": "2.11",
-                    "Accept": "application/json",
-                    "Authorization": "Bearer ACCESS_TOKEN",
-                },
-                "body": {
-                    "event_name": "purchase",
-                    "created_at": "1234567890",
-                    "email": "max@posthog.com",
-                    "metadata": {
-                        "revenue": "50",
-                        "currency": "USD",
-                        "customerType": "B2C",
-                    },
                 },
             },
         )

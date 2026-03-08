@@ -12,7 +12,6 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
         inputs = {
             "apiKey": "1cac089e00a708680bdb1ed9f082d5bf",
             "email": "max@posthog.com",
-            "include_all_properties": False,
             "properties": {"firstName": "Max", "lastName": "AI"},
         }
         inputs.update(kwargs)
@@ -46,35 +45,6 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
             },
         )
 
-    def test_include_all_properties(self):
-        self.run_function(
-            inputs=self._inputs(include_all_properties=True),
-            globals={
-                "person": {
-                    "id": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                    "properties": {"company": "PostHog"},
-                },
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[0] == (
-            "https://app.loops.so/api/v1/contacts/update",
-            {
-                "method": "POST",
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
-                },
-                "body": {
-                    "email": "max@posthog.com",
-                    "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                    "company": "PostHog",
-                    "firstName": "Max",
-                    "lastName": "AI",
-                },
-            },
-        )
-
     def test_function_requires_identifier(self):
         self.run_function(
             inputs=self._inputs(email=""),
@@ -91,7 +61,6 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
         inputs = {
             "apiKey": "1cac089e00a708680bdb1ed9f082d5bf",
             "email": "max@posthog.com",
-            "include_all_properties": False,
             "properties": {"product": "PostHog"},
         }
         inputs.update(kwargs)
@@ -126,41 +95,6 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
                     "eventName": "pageview",
                     "eventProperties": {
                         "product": "PostHog",
-                    },
-                },
-            },
-        )
-
-    def test_include_all_properties(self):
-        self.run_function(
-            inputs=self._inputs(include_all_properties=True),
-            globals={
-                "person": {
-                    "id": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                    "properties": {"company": "PostHog"},
-                },
-                "event": {
-                    "event": "pageview",
-                    "properties": {"pathname": "/pricing"},
-                },
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[0] == (
-            "https://app.loops.so/api/v1/events/send",
-            {
-                "method": "POST",
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
-                },
-                "body": {
-                    "email": "max@posthog.com",
-                    "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
-                    "eventName": "pageview",
-                    "eventProperties": {
-                        "product": "PostHog",
-                        "pathname": "/pricing",
                     },
                 },
             },

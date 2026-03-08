@@ -37,14 +37,6 @@ if (not empty(person.properties.$geoip_time_zone)) body.data.attributes.location
 if (not empty(inputs.email)) body.data.attributes.email := inputs.email
 if (not empty(inputs.externalId)) body.data.attributes.external_id := inputs.externalId
 
-if (inputs.include_all_properties) {
-    for (let key, value in person.properties) {
-        if (not empty(value) and not key like '$%') {
-            body.data.attributes.properties[key] := value
-        }
-    }
-}
-
 for (let key, value in inputs.customProperties) {
     if (not empty(value)) {
         body.data.attributes.properties[key] := value
@@ -97,15 +89,6 @@ print(f'{action} profile successfully: id={profileId}')
             "label": "External ID",
             "description": "A unique identifier used to associate Klaviyo profiles with profiles in an external system",
             "default": "{person.id}",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all person properties as custom properties",
-            "description": "If set, all event properties will be included as attributes. Individual attributes can be overridden below. For identify events the Person properties will be used.",
-            "default": False,
             "secret": False,
             "required": True,
         },
@@ -177,14 +160,6 @@ let body := {
 if (not empty(inputs.email)) body.data.attributes.profile.data.attributes.email := inputs.email
 if (not empty(inputs.externalId)) body.data.attributes.profile.data.attributes.external_id := inputs.externalId
 
-if (inputs.include_all_properties) {
-    for (let key, value in event.properties) {
-        if (not empty(value) and not key like '$%') {
-            body.data.attributes.properties[key] := value
-        }
-    }
-}
-
 for (let key, value in inputs.attributes) {
     if (not empty(value)) {
         body.data.attributes.properties[key] := value
@@ -231,15 +206,6 @@ if (res.status >= 400) {
             "label": "External ID",
             "description": "A unique identifier used to associate Klaviyo profiles with profiles in an external system",
             "default": "{person.id}",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all event properties as event attributes",
-            "description": "If set, all event properties will be included as attributes. Individual attributes can be overridden below.",
-            "default": False,
             "secret": False,
             "required": True,
         },
