@@ -14,6 +14,21 @@
             "readOnlyHint": false
         }
     },
+    "add-text-card-to-dashboard": {
+        "description": "Add a text card to a dashboard. Text cards are used to add context, descriptions, or headers to organize insights on a dashboard. Supports markdown formatting and optional background colors (white, blue, green, purple, black).",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Add a text card to a dashboard.",
+        "title": "Add text card to dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-create": {
         "description": "Create a new dashboard in the project. Requires name and optional description, tags, and other properties.",
         "category": "Dashboards",

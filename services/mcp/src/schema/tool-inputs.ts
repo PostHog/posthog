@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { CreateActionInputSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
 import {
     AddInsightToDashboardSchema,
+    AddTextCardToDashboardSchema,
     CreateDashboardInputSchema,
     ListDashboardsSchema,
     ReorderDashboardTilesSchema,
@@ -47,6 +48,10 @@ export const DashboardUpdateSchema = z.object({
 })
 
 export const DashboardReorderTilesSchema = ReorderDashboardTilesSchema
+
+export const DashboardAddTextCardSchema = z.object({
+    data: AddTextCardToDashboardSchema,
+})
 
 export const DocumentationSearchSchema = z.object({
     query: z.string(),

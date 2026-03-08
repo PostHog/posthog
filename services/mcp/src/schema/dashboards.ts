@@ -39,9 +39,24 @@ export const ReorderDashboardTilesSchema = z.object({
         .describe('Array of tile IDs in the desired order from top to bottom'),
 })
 
+// Input schema for adding text card to dashboard
+export const AddTextCardToDashboardSchema = z.object({
+    dashboardId: z.number().int().positive().describe('The ID of the dashboard to add the text card to'),
+    body: z
+        .string()
+        .min(1, 'Text body is required')
+        .max(4000, 'Text body cannot exceed 4000 characters')
+        .describe('The text content for the card. Supports markdown formatting.'),
+    color: z
+        .enum(['white', 'blue', 'green', 'purple', 'black'])
+        .optional()
+        .describe('Optional background color for the text card'),
+})
+
 // Type exports
 export type CreateDashboardInput = z.infer<typeof CreateDashboardInputSchema>
 export type UpdateDashboardInput = z.infer<typeof UpdateDashboardInputSchema>
 export type ListDashboardsData = z.infer<typeof ListDashboardsSchema>
 export type AddInsightToDashboardInput = z.infer<typeof AddInsightToDashboardSchema>
 export type ReorderDashboardTilesInput = z.infer<typeof ReorderDashboardTilesSchema>
+export type AddTextCardToDashboardInput = z.infer<typeof AddTextCardToDashboardSchema>

@@ -8,6 +8,7 @@ import getAllActions from './actions/getAll'
 import updateAction from './actions/update'
 // Dashboards
 import addInsightToDashboard from './dashboards/addInsight'
+import addTextCardToDashboard from './dashboards/addTextCard'
 import createDashboard from './dashboards/create'
 import deleteDashboard from './dashboards/delete'
 import getDashboard from './dashboards/get'
@@ -150,6 +151,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-delete': deleteDashboard,
     'dashboard-reorder-tiles': reorderDashboardTiles,
     'add-insight-to-dashboard': addInsightToDashboard,
+    'add-text-card-to-dashboard': addTextCardToDashboard,
 
     // LLM Observability
     'get-llm-total-costs-for-project': getLLMCosts,

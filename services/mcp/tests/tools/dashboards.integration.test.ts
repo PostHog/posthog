@@ -14,6 +14,7 @@ import {
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import addInsightToDashboardTool from '@/tools/dashboards/addInsight'
+import addTextCardToDashboardTool from '@/tools/dashboards/addTextCard'
 import createDashboardTool from '@/tools/dashboards/create'
 import deleteDashboardTool from '@/tools/dashboards/delete'
 import getDashboardTool from '@/tools/dashboards/get'
@@ -312,6 +313,93 @@ describe('Dashboards', { concurrent: false }, () => {
             expect(reorderResponse.message).toContain('Successfully reordered')
             expect(reorderResponse.tiles).toBeTruthy()
             expect(reorderResponse.url).toContain('/dashboard/')
+
+            // Clean up
+            await deleteDashboard.handler(context, { dashboardId: dashboard.id })
+            createdResources.dashboards = createdResources.dashboards.filter((id) => id !== dashboard.id)
+        })
+    })
+
+    describe('add-text-card-to-dashboard tool', () => {
+        const createDashboard = createDashboardTool()
+        const addTextCard = addTextCardToDashboardTool()
+        const getDashboard = getDashboardTool()
+        const deleteDashboard = deleteDashboardTool()
+
+        it('should add a text card to a dashboard', async () => {
+            // Create a dashboard
+            const dashboardResult = await createDashboard.handler(context, {
+                data: {
+                    name: generateUniqueKey('Text Card Test Dashboard'),
+                    description: 'Dashboard for testing text cards',
+                    pinned: false,
+                },
+            })
+            const dashboard = parseToolResponse(dashboardResult)
+            createdResources.dashboards.push(dashboard.id)
+
+            // Add a text card
+            const textCardResult = await addTextCard.handler(context, {
+                data: {
+                    dashboardId: dashboard.id,
+                    body: '## Welcome\n\nThis is a text card with **markdown** support.',
+                },
+            })
+            const textCardResponse = parseToolResponse(textCardResult)
+
+            expect(textCardResponse.dashboard_url).toContain('/dashboard/')
+            expect(textCardResponse.body).toBe('## Welcome\n\nThis is a text card with **markdown** support.')
+
+            // Verify the text card was added by getting the dashboard
+            const dashboardWithCardResult = await getDashboard.handler(context, {
+                dashboardId: dashboard.id,
+            })
+            const dashboardWithCard = parseToolResponse(dashboardWithCardResult)
+
+            expect(dashboardWithCard.tiles).toBeTruthy()
+            expect(dashboardWithCard.tiles.length).toBe(1)
+
+            const textTile = dashboardWithCard.tiles[0]
+            expect(textTile.text).toBeTruthy()
+            expect(textTile.text.body).toBe('## Welcome\n\nThis is a text card with **markdown** support.')
+
+            // Clean up
+            await deleteDashboard.handler(context, { dashboardId: dashboard.id })
+            createdResources.dashboards = createdResources.dashboards.filter((id) => id !== dashboard.id)
+        })
+
+        it('should add a text card with color', async () => {
+            // Create a dashboard
+            const dashboardResult = await createDashboard.handler(context, {
+                data: {
+                    name: generateUniqueKey('Text Card Color Test'),
+                    description: 'Dashboard for testing text card colors',
+                    pinned: false,
+                },
+            })
+            const dashboard = parseToolResponse(dashboardResult)
+            createdResources.dashboards.push(dashboard.id)
+
+            // Add a text card with color
+            const textCardResult = await addTextCard.handler(context, {
+                data: {
+                    dashboardId: dashboard.id,
+                    body: 'Important notice',
+                    color: 'blue',
+                },
+            })
+            const textCardResponse = parseToolResponse(textCardResult)
+
+            expect(textCardResponse.color).toBe('blue')
+
+            // Verify the color was set
+            const dashboardWithCardResult = await getDashboard.handler(context, {
+                dashboardId: dashboard.id,
+            })
+            const dashboardWithCard = parseToolResponse(dashboardWithCardResult)
+
+            const textTile = dashboardWithCard.tiles[0]
+            expect(textTile.color).toBe('blue')
 
             // Clean up
             await deleteDashboard.handler(context, { dashboardId: dashboard.id })
