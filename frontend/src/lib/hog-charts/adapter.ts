@@ -8,6 +8,12 @@
 import type { ChartConfiguration, ChartDataset } from 'chart.js'
 
 import { formatValue } from './format'
+import { createXAxisTickCallback } from './formatXAxisTick'
+import {
+    chartBaseOptions,
+    crosshairConfig as buildCrosshairPluginConfig,
+    incompletenessSegment,
+} from './shared'
 import { mergeTheme, seriesColor } from './theme'
 import type {
     AreaProps,
@@ -71,7 +77,7 @@ function buildScaleConfig(
         min: merged.min,
         max: merged.max,
         beginAtZero: merged.startAtZero,
-        type: merged.scale === 'logarithmic' ? 'logarithmic' : 'linear',
+        type: merged.scale === 'logarithmic' ? 'logarithmic' : merged.scale === 'linear' ? 'linear' : 'category',
     }
 }
 
@@ -112,13 +118,21 @@ function baseOptions(
     const hasCustomTooltip = !!props.tooltip?.render
     const shared = props.tooltip?.shared ?? true
 
+    const base = chartBaseOptions()
     return {
-        responsive: true,
-        maintainAspectRatio: false,
+        ...base,
         animation: props.animate ? undefined : false,
+        interaction: {
+            includeInvisible: true,
+        },
+        hover: {
+            mode: shared ? 'index' : 'nearest',
+            axis: 'x',
+            intersect: false,
+        },
         plugins: {
             legend: {
-                display: (props.legend?.position ?? 'bottom') !== 'none',
+                display: (props.legend?.position ?? 'none') !== 'none',
                 position: props.legend?.position ?? 'bottom',
                 labels: {
                     color: theme.axisColor,
@@ -166,25 +180,74 @@ function baseOptions(
 
 export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
     const theme = mergeTheme(props.theme)
-    const datasets: ChartDataset<'line'>[] = props.data.map((s, i) => {
+    const maxSeries = props.maxSeries ?? Infinity
+    const seriesData = props.data.slice(0, maxSeries)
+    const isArea = props.isArea ?? false
+    const fillOpacity = props.fillOpacity ?? 0.5
+    const stacked = props.stacked ?? false
+    const stacked100 = props.stacked100 ?? false
+    const incompletenessOffset = props.incompletenessOffset ?? 0
+    const highlightIdx = props.highlightSeriesIndex ?? null
+
+    const datasets: ChartDataset<'line'>[] = seriesData.map((s, i) => {
         let data = s.data
         if (props.cumulative) {
             let sum = 0
             data = data.map((v) => (sum += v))
         }
+
+        const color = resolveColor(s, i, theme)
+        const isDimmed = highlightIdx !== null && i !== highlightIdx
+
+        // Per-series fill: explicit `s.fill`, or chart-level `isArea`
+        const shouldFill = s.fill ?? isArea
+        let bgColor: string
+        if (isDimmed) {
+            bgColor = `${color}33`
+        } else if (shouldFill) {
+            const hex = Math.round(fillOpacity * 255).toString(16).padStart(2, '0')
+            bgColor = `${color}${hex}`
+        } else {
+            bgColor = `${color}18`
+        }
+
+        const borderDash = s.borderDash
+        const segment = incompletenessSegment(data.length, incompletenessOffset)
+
+        // Per-series y-axis ID
+        let yAxisID = 'y'
+        if (s.yAxisPosition === 'right') {
+            yAxisID = 'y1'
+        }
+
         return {
             label: s.label,
             data,
-            borderColor: resolveColor(s, i, theme),
-            backgroundColor: `${resolveColor(s, i, theme)}18`,
-            borderWidth: props.lineWidth ?? 2,
-            pointRadius: resolvePointRadius(props.showDots, props.data[0]?.data.length ?? 0),
+            borderColor: isDimmed ? `${color}55` : color,
+            backgroundColor: bgColor,
+            borderWidth: s.borderWidth ?? props.lineWidth ?? 2,
+            borderDash,
+            pointRadius: s.pointRadius ?? resolvePointRadius(props.showDots, seriesData[0]?.data.length ?? 0),
             pointHoverRadius: 5,
             tension: props.interpolation === 'smooth' ? 0.35 : 0,
             stepped: props.interpolation === 'step' ? 'before' : false,
             hidden: s.hidden,
-            fill: false,
+            fill: shouldFill ? (stacked || stacked100 ? 'origin' : true) : false,
+            yAxisID,
+            type: s.displayType === 'bar' ? 'bar' : undefined, // mixed chart support
+            segment: segment ? { borderDash: segment.borderDash } : undefined,
             _hogMeta: s.meta,
+            _hogHideFromTooltip: s.hideFromTooltip,
+            ...(s.trendLine
+                ? {
+                      trendlineLinear: {
+                          colorMin: `${color}99`,
+                          colorMax: `${color}99`,
+                          lineStyle: 'dotted',
+                          width: 2,
+                      },
+                  }
+                : {}),
         } as ChartDataset<'line'>
     })
 
@@ -200,31 +263,76 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
                 pointRadius: 0,
                 hidden: cs.hidden,
                 fill: false,
-            })
+                _hogMeta: cs.meta,
+            } as ChartDataset<'line'>)
         }
     }
 
     const yAxes = buildYAxes(props, theme)
+    const opts = baseOptions(props, theme, seriesData)
 
-    const opts = baseOptions(props, theme, props.data)
-    return {
-        type: 'line',
+    // Crosshair config
+    const showCrosshair = props.crosshair ?? !seriesData.some((s) => s.displayType === 'bar')
+    const crosshairPluginConfig = buildCrosshairPluginConfig(showCrosshair, theme.axisColor)
+
+    // X-axis config
+    const xScale = buildScaleConfig(props.xAxis, theme)
+    // Smart date formatting: explicit callback > auto from days
+    const tickCallback =
+        props.xAxisTickCallback ??
+        (props.days?.length
+            ? createXAxisTickCallback({
+                  interval: props.interval ?? 'day',
+                  allDays: props.days,
+                  timezone: props.timezone ?? 'UTC',
+              })
+            : undefined)
+    if (tickCallback) {
+        const ticks = (xScale as Record<string, Record<string, unknown>>).ticks
+        ticks.callback = tickCallback
+        ticks.maxRotation = 0
+        ticks.autoSkipPadding = 20
+    }
+    if (props.hideXAxis) {
+        ;(xScale as Record<string, unknown>).display = false
+    }
+    if (stacked || stacked100) {
+        ;(xScale as Record<string, unknown>).stacked = true
+    }
+
+    // Inject stacked into y-axes
+    if (stacked || stacked100) {
+        for (const key of Object.keys(yAxes)) {
+            ;(yAxes as Record<string, Record<string, unknown>>)[key].stacked = true
+        }
+    }
+    if (props.hideYAxis) {
+        for (const key of Object.keys(yAxes)) {
+            ;(yAxes as Record<string, Record<string, unknown>>)[key].display = false
+        }
+    }
+
+    const chartConfig = {
+        type: 'line' as const,
         data: { labels: props.labels, datasets },
         options: {
             ...opts,
             scales: {
-                x: buildScaleConfig(props.xAxis, theme) as never,
+                x: xScale as never,
                 ...yAxes,
             },
             plugins: {
                 ...(opts.plugins as Record<string, unknown>),
+                ...crosshairPluginConfig,
                 annotation: {
                     annotations: buildGoalLineAnnotations(props.goalLines, theme),
                 },
+                stacked100: stacked100 ? { enable: true, precision: 1 } : undefined,
                 datalabels: props.showValues ? { display: true, color: theme.axisColor } : { display: false },
             },
         } as never,
     }
+    return chartConfig
 }
 
 function resolvePointRadius(showDots: boolean | 'auto' | undefined, pointCount: number): number {
@@ -243,28 +351,12 @@ function resolvePointRadius(showDots: boolean | 'auto' | undefined, pointCount: 
 // ---------------------------------------------------------------------------
 
 export function buildAreaConfig(props: AreaProps): ChartConfiguration<'line'> {
-    const config = buildLineConfig(props)
-    const opacity = Math.round((props.fillOpacity ?? 0.1) * 255)
-        .toString(16)
-        .padStart(2, '0')
-    const theme = mergeTheme(props.theme)
-
-    for (const [i, ds] of config.data.datasets.entries()) {
-        ;(ds as ChartDataset<'line'>).fill = props.stacked || props.stacked100 ? 'origin' : true
-        ;(ds as ChartDataset<'line'>).backgroundColor = `${resolveColor(props.data[i] ?? props.data[0], i, theme)}${opacity}`
-    }
-
-    if (props.stacked || props.stacked100) {
-        const scales = (config.options as Record<string, unknown>).scales as Record<string, Record<string, unknown>>
-        if (scales.y) {
-            scales.y.stacked = true
-        }
-        if (scales.x) {
-            scales.x.stacked = true
-        }
-    }
-
-    return config
+    // Area is just Line with isArea=true — delegate
+    return buildLineConfig({
+        ...props,
+        isArea: true,
+        fillOpacity: props.fillOpacity ?? 0.1,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -460,7 +552,7 @@ export function buildTooltipContext(
             datasetIndex: number
             dataIndex: number
             raw: number
-            dataset: { label?: string; borderColor?: string | string[]; _hogMeta?: Record<string, unknown> }
+            dataset: { label?: string; borderColor?: string | string[]; _hogMeta?: Record<string, unknown>; _hogHideFromTooltip?: boolean }
         }>
         caretX: number
         caretY: number
@@ -472,21 +564,35 @@ export function buildTooltipContext(
         return null
     }
 
-    const points: TooltipPoint[] = tooltipModel.dataPoints.map((dp) => {
-        const color = Array.isArray(dp.dataset.borderColor)
-            ? dp.dataset.borderColor[dp.dataIndex]
-            : (dp.dataset.borderColor ?? '#888')
-        // Prefer meta from the dataset (stashed during config build), fall back to seriesData
-        const meta = dp.dataset._hogMeta ?? seriesData[dp.datasetIndex]?.meta
-        return {
-            seriesIndex: dp.datasetIndex,
-            pointIndex: dp.dataIndex,
-            value: dp.raw,
-            seriesLabel: dp.dataset.label ?? '',
-            color,
-            meta,
-        }
-    })
+    const points: TooltipPoint[] = tooltipModel.dataPoints
+        .filter((dp) => {
+            // Filter out series marked as hidden from tooltip (CI bands, moving averages, etc.)
+            const dataset = dp.dataset as { _hogHideFromTooltip?: boolean }
+            if (dataset._hogHideFromTooltip) {
+                return false
+            }
+            // Also check the seriesData fallback
+            const seriesDatum = seriesData[dp.datasetIndex]
+            if (seriesDatum?.hideFromTooltip) {
+                return false
+            }
+            return true
+        })
+        .map((dp) => {
+            const color = Array.isArray(dp.dataset.borderColor)
+                ? dp.dataset.borderColor[dp.dataIndex]
+                : (dp.dataset.borderColor ?? '#888')
+            // Prefer meta from the dataset (stashed during config build), fall back to seriesData
+            const meta = dp.dataset._hogMeta ?? seriesData[dp.datasetIndex]?.meta
+            return {
+                seriesIndex: dp.datasetIndex,
+                pointIndex: dp.dataIndex,
+                value: dp.raw,
+                seriesLabel: dp.dataset.label ?? '',
+                color,
+                meta,
+            }
+        })
 
     return {
         label: tooltipModel.title?.[0] ?? '',

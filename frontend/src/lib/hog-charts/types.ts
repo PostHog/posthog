@@ -7,6 +7,8 @@
  * - Impossible to misuse (chart-specific data has chart-specific types)
  */
 
+import type React from 'react'
+
 // ---------------------------------------------------------------------------
 // Universal primitives
 // ---------------------------------------------------------------------------
@@ -32,6 +34,32 @@ export interface Series {
      * data (e.g. action definitions, breakdown values, person URLs).
      */
     meta?: Record<string, unknown>
+
+    // -- Per-series overrides (for mixed charts and advanced config) ----------
+
+    /**
+     * Override the display type for this individual series.
+     * Enables mixed charts (e.g. some series as lines, others as bars).
+     * When omitted, inherits from the chart component used.
+     */
+    displayType?: 'line' | 'bar'
+    /** Which y-axis this series belongs to. Defaults to `"left"`. */
+    yAxisPosition?: 'left' | 'right'
+    /** Show a trend line for this specific series. */
+    trendLine?: boolean
+    /** Fill area under this series. When on a Line chart, creates a mixed line+area. */
+    fill?: boolean
+    /** Custom border dash pattern (e.g. `[6, 4]` for dashed). */
+    borderDash?: number[]
+    /** Override border width for this series. */
+    borderWidth?: number
+    /** Override point radius for this series. */
+    pointRadius?: number
+    /**
+     * When `true`, this series is rendered but excluded from tooltips.
+     * Useful for CI bounds, moving averages, and other auxiliary series.
+     */
+    hideFromTooltip?: boolean
 }
 
 /** A comparison series displayed alongside the primary data. */
@@ -43,6 +71,9 @@ export interface ComparisonSeries extends Series {
 // ---------------------------------------------------------------------------
 // Axis configuration
 // ---------------------------------------------------------------------------
+
+/** Time interval granularity for time-series charts. */
+export type ChartInterval = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export type AxisFormat =
     | 'number'
@@ -261,6 +292,36 @@ export interface TimeSeriesProps extends BaseChartProps {
     showValues?: boolean
     /** Show a trend line for each series. */
     showTrendLine?: boolean
+
+    // -- Time context (enables smart x-axis formatting) ----------------------
+
+    /**
+     * Raw date/datetime strings for each data point (e.g. `"2025-03-01"` or
+     * `"2025-03-01 14:00:00"`). When provided, hog-charts auto-formats x-axis
+     * ticks with smart date labels (month names, day labels, HH:mm, etc.).
+     *
+     * These are the raw ISO dates from the query, not the display labels.
+     * The `labels` prop is still used as Chart.js category labels.
+     */
+    days?: (string | number)[]
+    /**
+     * Time interval granularity of the data. Helps hog-charts pick the right
+     * tick format (month names vs day labels vs HH:mm). When omitted, the
+     * interval is inferred from the `days` spacing.
+     */
+    interval?: ChartInterval
+    /**
+     * IANA timezone string (e.g. `"America/New_York"`, `"UTC"`).
+     * Used for timezone-aware x-axis tick formatting. Defaults to `"UTC"`.
+     */
+    timezone?: string
+
+    /**
+     * Custom x-axis tick callback. When provided, overrides the default
+     * smart date formatting. Receives the raw tick value and index, returns
+     * the formatted label string or `null` to hide the tick.
+     */
+    xAxisTickCallback?: (value: string | number, index: number) => string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +340,53 @@ export interface LineProps extends TimeSeriesProps {
     showDots?: boolean | 'auto'
     /** Line width in px. Defaults to `2`. */
     lineWidth?: number
+
+    // -- Stacking ------------------------------------------------------------
+
+    /** Stack all series. Defaults to `false`. */
+    stacked?: boolean
+    /** Show as 100% stacked (percent stack view). Implies `stacked: true`. */
+    stacked100?: boolean
+
+    // -- Area fill -----------------------------------------------------------
+
+    /** Fill under all series (area chart mode). Defaults to `false`. */
+    isArea?: boolean
+    /** Fill opacity when `isArea` is true. Defaults to `0.5`. */
+    fillOpacity?: number
+
+    // -- Axis visibility & scale ---------------------------------------------
+
+    /** Hide the x-axis entirely. */
+    hideXAxis?: boolean
+    /** Hide the y-axis entirely. */
+    hideYAxis?: boolean
+
+    // -- Crosshair -----------------------------------------------------------
+
+    /** Show a vertical crosshair on hover. Defaults to `true` for line, `false` for bar. */
+    crosshair?: boolean
+
+    // -- Incompleteness (in-progress data) -----------------------------------
+
+    /**
+     * Number of data points at the end of each series to render as
+     * "incomplete" (dotted line). Used for the current, still-accumulating
+     * time period. Set to `0` to disable. Defaults to `0`.
+     */
+    incompletenessOffset?: number
+
+    // -- Series highlighting (shift-hover on stacked bars) -------------------
+
+    /** Index of the series to visually highlight. `null` = no highlight. */
+    highlightSeriesIndex?: number | null
+    /** Called when hover state changes. Used for shift-hover bar highlighting. */
+    onHighlightChange?: (seriesIndex: number | null) => void
+
+    // -- Limits --------------------------------------------------------------
+
+    /** Maximum number of datasets to render. Excess series are dropped. */
+    maxSeries?: number
 }
 
 // ---------------------------------------------------------------------------

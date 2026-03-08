@@ -1,9 +1,19 @@
+import type React from 'react'
 import { useEffect, useRef } from 'react'
 
+import { Chart } from 'lib/Chart'
 import type { ChartConfiguration, ChartType } from 'lib/Chart'
+import annotationPlugin from 'chartjs-plugin-annotation'
+import ChartDataLabels from 'chartjs-plugin-datalabels'
+import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
+import chartTrendline from 'chartjs-plugin-trendline'
 
 import { buildTooltipContext } from './adapter'
-import type { BaseChartProps, ClickEvent, Series, TooltipContext } from './types'
+import type { BaseChartProps, ClickEvent, LineProps, Series, TooltipContext } from './types'
+
+// Register global plugins once
+Chart.register(annotationPlugin)
+Chart.register(ChartjsPluginStacked100)
 
 /**
  * Internal hook that creates and manages a Chart.js instance with integrated
@@ -29,7 +39,7 @@ export function useHogChart<TType extends ChartType = ChartType>(
 } {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
-    const chartRef = useRef<InstanceType<typeof import('lib/Chart').Chart> | null>(null)
+    const chartRef = useRef<InstanceType<typeof Chart> | null>(null)
     const configKey = JSON.stringify(config)
 
     // Keep callbacks in refs so the Chart.js handler always calls the latest version
@@ -43,95 +53,123 @@ export function useHogChart<TType extends ChartType = ChartType>(
             return
         }
 
-        const initChart = async (): Promise<void> => {
-            const { Chart } = await import('lib/Chart')
-            const canvas = canvasRef.current
-            if (!canvas) {
-                return
-            }
+        const canvas = canvasRef.current
 
-            // Destroy any existing chart on this canvas
-            const existing = Chart.getChart(canvas)
-            if (existing) {
-                existing.destroy()
-            }
-            if (chartRef.current) {
-                chartRef.current.destroy()
-                chartRef.current = null
-            }
-
-            const mergedConfig = { ...config }
-            const mergedOptions = { ...(mergedConfig.options as Record<string, unknown>) }
-
-            // -- Inject external tooltip handler --
-            const hasCustomTooltip = !!propsRef.current.tooltip?.render
-            if (hasCustomTooltip) {
-                const plugins = { ...(mergedOptions.plugins as Record<string, unknown>) }
-                const tooltipOpts = { ...(plugins.tooltip as Record<string, unknown>) }
-
-                tooltipOpts.external = (ctx: { tooltip: unknown; chart: { canvas: HTMLCanvasElement } }) => {
-                    const tooltipModel = ctx.tooltip as {
-                        opacity: number
-                        title?: string[]
-                        dataPoints?: Array<{
-                            datasetIndex: number
-                            dataIndex: number
-                            raw: number
-                            dataset: {
-                                label?: string
-                                borderColor?: string | string[]
-                                _hogMeta?: Record<string, unknown>
-                            }
-                        }>
-                        caretX: number
-                        caretY: number
-                    }
-
-                    const meta = (mergedOptions._hogTooltipMeta as { seriesData: Series[] }) ?? { seriesData: [] }
-                    const chartBounds = ctx.chart.canvas.getBoundingClientRect()
-                    const context = buildTooltipContext(tooltipModel, chartBounds, meta.seriesData)
-
-                    if (context) {
-                        tooltipCallbacksRef.current?.onShow(context)
-                    } else {
-                        tooltipCallbacksRef.current?.onHide()
-                    }
-                }
-
-                plugins.tooltip = tooltipOpts
-                mergedOptions.plugins = plugins
-            }
-
-            // -- Inject onClick handler --
-            if (propsRef.current.onClick) {
-                const hogMeta = (mergedOptions._hogTooltipMeta as { seriesData: Series[] }) ?? { seriesData: [] }
-                mergedOptions.onClick = (
-                    _event: unknown,
-                    elements: Array<{ datasetIndex: number; index: number }>
-                ) => {
-                    if (elements.length > 0) {
-                        const el = elements[0]
-                        const dataset = config.data.datasets[el.datasetIndex]
-                        const seriesMeta = hogMeta.seriesData[el.datasetIndex]?.meta
-                        const clickEvent: ClickEvent = {
-                            seriesIndex: el.datasetIndex,
-                            pointIndex: el.index,
-                            value: (dataset.data as number[])[el.index],
-                            label: String((config.data.labels as string[])?.[el.index] ?? ''),
-                            seriesLabel: String(dataset.label ?? ''),
-                            meta: seriesMeta,
-                        }
-                        propsRef.current.onClick?.(clickEvent)
-                    }
-                }
-            }
-
-            mergedConfig.options = mergedOptions as never
-
-            chartRef.current = new Chart(canvas, mergedConfig as ChartConfiguration) as never
+        // Destroy any existing chart on this canvas
+        const existing = Chart.getChart(canvas)
+        if (existing) {
+            existing.destroy()
+        }
+        if (chartRef.current) {
+            chartRef.current.destroy()
+            chartRef.current = null
         }
 
-        void initChart()
+        const mergedConfig = { ...config }
+        const mergedOptions = { ...(mergedConfig.options as Record<string, unknown>) }
+
+        // -- Inject external tooltip handler --
+        const hasCustomTooltip = !!propsRef.current.tooltip?.render
+        if (hasCustomTooltip) {
+            const plugins = { ...(mergedOptions.plugins as Record<string, unknown>) }
+            const tooltipOpts = { ...(plugins.tooltip as Record<string, unknown>) }
+
+            tooltipOpts.external = (ctx: { tooltip: unknown; chart: { canvas: HTMLCanvasElement } }) => {
+                const tooltipModel = ctx.tooltip as {
+                    opacity: number
+                    title?: string[]
+                    dataPoints?: Array<{
+                        datasetIndex: number
+                        dataIndex: number
+                        raw: number
+                        dataset: {
+                            label?: string
+                            borderColor?: string | string[]
+                            _hogMeta?: Record<string, unknown>
+                        }
+                    }>
+                    caretX: number
+                    caretY: number
+                }
+
+                const meta = (mergedOptions._hogTooltipMeta as { seriesData: Series[] }) ?? { seriesData: [] }
+                const chartBounds = ctx.chart.canvas.getBoundingClientRect()
+                const context = buildTooltipContext(tooltipModel, chartBounds, meta.seriesData)
+
+                if (context) {
+                    tooltipCallbacksRef.current?.onShow(context)
+                } else {
+                    tooltipCallbacksRef.current?.onHide()
+                }
+            }
+
+            plugins.tooltip = tooltipOpts
+            mergedOptions.plugins = plugins
+        }
+
+        // -- Inject onHover handler for cursor + series highlighting --
+        mergedOptions.onHover = (
+            event: { native?: Event },
+            elements: Array<{ datasetIndex: number; index: number }>
+        ) => {
+            // Cursor: pointer when hovering clickable elements
+            if (event.native) {
+                const target = event.native.target as HTMLElement | null
+                if (target) {
+                    target.style.cursor =
+                        propsRef.current.onClick && elements.length > 0 ? 'pointer' : 'default'
+                }
+            }
+            // Series highlighting (shift-hover on stacked bars)
+            const currentProps = propsRef.current as LineProps
+            if (currentProps.onHighlightChange) {
+                const newIdx = elements.length > 0 ? elements[0].datasetIndex : null
+                currentProps.onHighlightChange(newIdx)
+            }
+        }
+
+        // -- Inject onClick handler --
+        if (propsRef.current.onClick) {
+            const hogMeta = (mergedOptions._hogTooltipMeta as { seriesData: Series[] }) ?? { seriesData: [] }
+            mergedOptions.onClick = (
+                event: { native?: Event },
+                _elements: unknown[],
+                chart: { getElementsAtEventForMode: (e: Event, mode: string, opts: object, useFinalPosition: boolean) => Array<{ datasetIndex: number; index: number }> }
+            ) => {
+                if (!event.native) {
+                    return
+                }
+                const elements = chart.getElementsAtEventForMode(event.native, 'index', { intersect: false }, true)
+                if (elements.length > 0) {
+                    const el = elements[0]
+                    const dataset = config.data.datasets[el.datasetIndex]
+                    const seriesMeta = hogMeta.seriesData[el.datasetIndex]?.meta
+                    const clickEvent: ClickEvent = {
+                        seriesIndex: el.datasetIndex,
+                        pointIndex: el.index,
+                        value: (dataset.data as number[])[el.index],
+                        label: String((config.data.labels as string[])?.[el.index] ?? ''),
+                        seriesLabel: String(dataset.label ?? ''),
+                        meta: seriesMeta,
+                    }
+                    propsRef.current.onClick?.(clickEvent)
+                }
+            }
+        }
+
+        mergedConfig.options = mergedOptions as never
+
+        // Inject per-chart plugins (not globally registered)
+        const perChartPlugins: unknown[] = [ChartDataLabels]
+        const hasTrendline = (mergedConfig.data?.datasets ?? []).some(
+            (ds: Record<string, unknown>) => !!ds.trendlineLinear
+        )
+        if (hasTrendline) {
+            perChartPlugins.push(chartTrendline)
+        }
+        ;(mergedConfig as Record<string, unknown>).plugins = perChartPlugins
+
+        chartRef.current = new Chart(canvas, mergedConfig as ChartConfiguration) as never
 
         return () => {
             chartRef.current?.destroy()

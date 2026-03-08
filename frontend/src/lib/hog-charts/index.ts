@@ -49,12 +49,14 @@ export { defaultTheme, hogColors, lifecycleColors, mergeTheme, seriesColor } fro
 
 // -- Formatting utilities ---------------------------------------------------
 export { computeDelta, formatValue } from './format'
+export { createXAxisTickCallback } from './formatXAxisTick'
 
 // -- Types ------------------------------------------------------------------
 export type {
     Annotation,
     AreaProps,
     AxisConfig,
+    ChartInterval,
     AxisFormat,
     AxisScale,
     BarOrientation,

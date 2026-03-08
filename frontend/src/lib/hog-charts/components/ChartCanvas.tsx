@@ -1,3 +1,4 @@
+import type React from 'react'
 import type { ChartConfiguration, ChartType } from 'chart.js'
 
 import { useHogChart } from '../hooks'

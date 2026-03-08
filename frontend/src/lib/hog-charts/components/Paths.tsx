@@ -24,7 +24,6 @@ export function Paths(props: PathsProps): JSX.Element {
 
     const colWidth = width / layout.columns.length
     const nodeWidth = 16
-    const nodePadding = 8
 
     return (
         <div className={props.className} role="figure" aria-label={props.ariaLabel ?? 'Paths'}>

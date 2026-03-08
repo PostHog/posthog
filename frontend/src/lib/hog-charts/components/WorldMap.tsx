@@ -11,17 +11,14 @@ import type { WorldMapProps } from '../types'
  * The actual country paths are loaded lazily to keep the bundle small.
  */
 export function WorldMap(props: WorldMapProps): JSX.Element {
-    const { data, showLabels = true } = props
+    const { data } = props
     const theme = mergeTheme(props.theme)
     const colorRange = props.colorRange ?? ['#E8E8E8', theme.colors[0]]
 
-    const { valueMap, minVal, maxVal } = useMemo(() => {
-        const vm = new Map<string, number>()
+    const { minVal, maxVal } = useMemo(() => {
         let min = Infinity
         let max = -Infinity
         for (const d of data) {
-            const code = d.code.toUpperCase()
-            vm.set(code, d.value)
             if (d.value < min) {
                 min = d.value
             }
@@ -29,7 +26,7 @@ export function WorldMap(props: WorldMapProps): JSX.Element {
                 max = d.value
             }
         }
-        return { valueMap: vm, minVal: min, maxVal: max }
+        return { minVal: min, maxVal: max }
     }, [data])
 
     const width = typeof props.width === 'number' ? props.width : 800

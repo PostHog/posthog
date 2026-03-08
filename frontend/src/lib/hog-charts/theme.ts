@@ -1,3 +1,5 @@
+import { getGraphColors } from 'lib/colors'
+
 import type { HogChartTheme } from './types'
 
 /**
@@ -33,15 +35,19 @@ export const lifecycleColors = {
     dormant: '#F04F58',
 } as const
 
-/** Default theme. All values can be overridden per-chart. */
+/** Default theme. Uses CSS variables to respect light/dark mode. */
 export const defaultTheme: HogChartTheme = {
     colors: [...hogColors],
     fontFamily:
-        '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif',
+        '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
     fontSize: 12,
     backgroundColor: 'transparent',
-    axisColor: '#94949480',
-    gridColor: '#94949420',
+    get axisColor() {
+        return getGraphColors().axisLabel ?? '#94949480'
+    },
+    get gridColor() {
+        return getGraphColors().axisLine ?? '#94949420'
+    },
     goalLineColor: '#F04F58',
     tooltipBackground: '#1D1F27',
     tooltipColor: '#EEEEEE',

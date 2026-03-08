@@ -1,3 +1,4 @@
+import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -122,9 +123,15 @@ export function TooltipPortal({ context, config, theme, containerRef }: TooltipP
         }
     }, [])
 
-    // Hide when context is null
+    // Show/hide portal container based on context
     useEffect(() => {
-        if (!context && portalRef.current) {
+        if (!portalRef.current) {
+            return
+        }
+        if (context) {
+            portalRef.current.style.opacity = '1'
+            portalRef.current.style.pointerEvents = 'none'
+        } else {
             portalRef.current.style.opacity = '0'
             portalRef.current.style.pointerEvents = 'none'
             config?.onHide?.()
