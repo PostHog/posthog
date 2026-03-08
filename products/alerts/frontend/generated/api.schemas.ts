@@ -142,6 +142,24 @@ export interface TrendsAlertConfigApi {
     type?: TrendsAlertConfigApiType
 }
 
+export interface PreprocessingConfigApi {
+    /**
+     * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
+     * @nullable
+     */
+    diffs_n?: number | null
+    /**
+     * Number of lag features. 0 = none, >0 = include n lagged values (default: 0)
+     * @nullable
+     */
+    lags_n?: number | null
+    /**
+     * Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)
+     * @nullable
+     */
+    smooth_n?: number | null
+}
+
 export type ZScoreDetectorConfigApiType = (typeof ZScoreDetectorConfigApiType)[keyof typeof ZScoreDetectorConfigApiType]
 
 export const ZScoreDetectorConfigApiType = {
@@ -149,6 +167,8 @@ export const ZScoreDetectorConfigApiType = {
 } as const
 
 export interface ZScoreDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
     /**
      * Z-score threshold for anomaly detection (default: 3.0)
      * @nullable
@@ -157,6 +177,28 @@ export interface ZScoreDetectorConfigApi {
     type?: ZScoreDetectorConfigApiType
     /**
      * Rolling window size for calculating mean/std (default: 30)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type MADDetectorConfigApiType = (typeof MADDetectorConfigApiType)[keyof typeof MADDetectorConfigApiType]
+
+export const MADDetectorConfigApiType = {
+    Mad: 'mad',
+} as const
+
+export interface MADDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Modified z-score threshold for anomaly detection (default: 3.5)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: MADDetectorConfigApiType
+    /**
+     * Rolling window size for calculating median/MAD (default: 30)
      * @nullable
      */
     window?: number | null
@@ -175,6 +217,8 @@ export interface ThresholdDetectorConfigApi {
      * @nullable
      */
     lower_bound?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
     type?: ThresholdDetectorConfigApiType
     /**
      * Upper bound - values above this are anomalies
@@ -186,7 +230,7 @@ export interface ThresholdDetectorConfigApi {
 /**
  * Detector configuration types
  */
-export type DetectorConfigApi = ZScoreDetectorConfigApi | ThresholdDetectorConfigApi
+export type DetectorConfigApi = ZScoreDetectorConfigApi | MADDetectorConfigApi | ThresholdDetectorConfigApi
 
 /**
  * * `hourly` - hourly
