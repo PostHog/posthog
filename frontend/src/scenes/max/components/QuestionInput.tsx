@@ -203,6 +203,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     return (
         <div
             className={clsx(
+                'bg-surface-primary',
                 containerClassName,
                 !isSticky && !isThreadVisible
                     ? 'px-3 w-[min(40rem,100%)]'
