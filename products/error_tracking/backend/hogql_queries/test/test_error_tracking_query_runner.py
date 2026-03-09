@@ -834,9 +834,6 @@ class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, Clickho
             ],
         )
 
-    # The assignee tests produce SQL with `assignment.user_id = <N>` where N increments
-    # every run (no RESTART IDENTITY). generalize_sql only normalizes team_id, so we
-    # override without @snapshot_clickhouse_queries to keep pure result assertions.
     @freeze_time("2022-01-10T12:11:00")
     def test_user_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
