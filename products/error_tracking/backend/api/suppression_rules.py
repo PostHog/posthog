@@ -5,13 +5,15 @@ import posthoganalytics
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
+from posthog.schema import PropertyGroupFilterValue
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
-from .utils import RuleReorderingMixin
+from .utils import RuleReorderingMixin, generate_byte_code
 
 logger = structlog.get_logger(__name__)
 
@@ -19,7 +21,7 @@ logger = structlog.get_logger(__name__)
 class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSuppressionRule
-        fields = ["id", "filters", "order_key"]
+        fields = ["id", "filters", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
 
@@ -35,11 +37,14 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
     @override
     def update(self, request, *args, **kwargs) -> Response:
         suppression_rule = self.get_object()
-        filters = request.data.get("filters")
+        json_filters = request.data.get("filters")
 
-        if filters:
-            suppression_rule.filters = filters
+        if json_filters:
+            parsed_filters = PropertyGroupFilterValue(**json_filters)
+            suppression_rule.filters = json_filters
+            suppression_rule.bytecode = generate_byte_code(self.team, parsed_filters)
 
+        suppression_rule.disabled_data = None
         suppression_rule.save()
 
         posthoganalytics.capture(
@@ -62,14 +67,18 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
 
     @override
     def create(self, request, *args, **kwargs) -> Response:
-        filters = request.data.get("filters")
+        json_filters = request.data.get("filters")
 
-        if not filters:
+        if not json_filters:
             return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        parsed_filters = PropertyGroupFilterValue(**json_filters)
+        bytecode = generate_byte_code(self.team, parsed_filters)
 
         suppression_rule = ErrorTrackingSuppressionRule.objects.create(
             team=self.team,
-            filters=filters,
+            filters=json_filters,
+            bytecode=bytecode,
             order_key=0,
         )
 

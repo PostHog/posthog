@@ -1,0 +1,245 @@
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+use common_types::TeamId;
+use hogvm::{ExecutionContext, Program, StepOutcome, VmError};
+use serde::Serialize;
+use serde_json::Value;
+use sqlx::PgConnection;
+use uuid::Uuid;
+
+use crate::{
+    error::UnhandledError,
+    metric_consts::{
+        SUPPRESSION_RULES_DISABLED, SUPPRESSION_RULES_FOUND, SUPPRESSION_RULES_PROCESSING_TIME,
+        SUPPRESSION_RULES_TRIED,
+    },
+    teams::TeamManager,
+    types::RawErrProps,
+};
+
+#[derive(Debug, Clone)]
+pub struct SuppressionRule {
+    pub id: Uuid,
+    pub team_id: TeamId,
+    pub order_key: i32,
+    pub bytecode: Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl SuppressionRule {
+    pub async fn load_for_team<'c, E>(conn: E, team_id: TeamId) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        sqlx::query_as!(
+            SuppressionRule,
+            r#"
+                SELECT id, team_id, order_key, bytecode, created_at, updated_at
+                FROM posthog_errortrackingsuppressionrule
+                WHERE team_id = $1 AND disabled_data IS NULL AND bytecode IS NOT NULL
+            "#,
+            team_id
+        )
+        .fetch_all(conn)
+        .await
+    }
+
+    pub async fn disable<'c, E>(
+        &self,
+        conn: E,
+        message: String,
+        props: Value,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        #[derive(Serialize)]
+        struct DisabledData {
+            message: String,
+            props: Value,
+        }
+
+        let data = DisabledData { message, props };
+
+        sqlx::query!(
+            r#"
+                UPDATE posthog_errortrackingsuppressionrule
+                SET disabled_data = $1, updated_at = NOW()
+                WHERE id = $2
+            "#,
+            serde_json::to_value(data).expect("Can serialize"),
+            self.id
+        )
+        .execute(conn)
+        .await?;
+
+        metrics::counter!(SUPPRESSION_RULES_DISABLED).increment(1);
+        Ok(())
+    }
+
+    pub fn try_match(&self, props: &Value) -> Result<bool, VmError> {
+        let rule_bytecode = match &self.bytecode {
+            Value::Array(ops) => ops,
+            _ => {
+                return Err(VmError::Other(format!(
+                    "Invalid rule bytecode - expected array, got {:?}",
+                    self.bytecode
+                )))
+            }
+        };
+
+        let mut globals = HashMap::new();
+        globals.insert("properties".to_string(), props.clone());
+        let globals: Value = serde_json::to_value(globals)
+            .expect("Can construct a json object from a hashmap of String:JsonValue");
+        let program = Program::new(rule_bytecode.clone())?;
+        let context = ExecutionContext::with_defaults(program).with_globals(globals);
+        let mut vm = context.to_vm()?;
+
+        metrics::counter!(SUPPRESSION_RULES_TRIED).increment(1);
+
+        let mut i = 0;
+        while i < context.max_steps {
+            let step_result = vm.step()?;
+            match step_result {
+                StepOutcome::Finished(Value::Bool(b)) => return Ok(b),
+                StepOutcome::Finished(res) => {
+                    return Err(VmError::Other(format!(
+                        "Suppression rule returned {res:?}, expected a boolean value"
+                    )))
+                }
+                StepOutcome::NativeCall(name, args) => {
+                    context.execute_native_function_call(&mut vm, &name, args)?
+                }
+                StepOutcome::Continue => {}
+            }
+            i += 1;
+        }
+
+        Err(VmError::OutOfResource("steps".to_string()))
+    }
+}
+
+pub async fn try_suppression_rules(
+    con: &mut PgConnection,
+    team_id: TeamId,
+    team_manager: &TeamManager,
+    exception_properties: &RawErrProps,
+) -> Result<Option<SuppressionRule>, UnhandledError> {
+    let mut props_json = serde_json::to_value(exception_properties)?;
+
+    if let Value::Object(ref mut props) = props_json {
+        let exception_list = &exception_properties.exception_list;
+        props.insert(
+            "$exception_types".to_string(),
+            serde_json::to_value(exception_list.get_unique_types())?,
+        );
+        props.insert(
+            "$exception_values".to_string(),
+            serde_json::to_value(exception_list.get_unique_messages())?,
+        );
+        props.insert(
+            "$exception_releases".to_string(),
+            serde_json::to_value(exception_list.get_release_map())?,
+        );
+        props.insert(
+            "$exception_sources".to_string(),
+            serde_json::to_value(exception_list.get_unique_sources())?,
+        );
+        props.insert(
+            "$exception_functions".to_string(),
+            serde_json::to_value(exception_list.get_unique_functions())?,
+        );
+        props.insert(
+            "$exception_handled".to_string(),
+            serde_json::to_value(exception_list.get_is_handled())?,
+        );
+    }
+
+    evaluate_suppression_rules(con, team_id, team_manager, props_json).await
+}
+
+pub async fn evaluate_suppression_rules(
+    con: &mut PgConnection,
+    team_id: TeamId,
+    team_manager: &TeamManager,
+    props: Value,
+) -> Result<Option<SuppressionRule>, UnhandledError> {
+    let timing = common_metrics::timing_guard(SUPPRESSION_RULES_PROCESSING_TIME, &[]);
+
+    let mut rules = team_manager
+        .get_suppression_rules(&mut *con, team_id)
+        .await?;
+
+    metrics::counter!(SUPPRESSION_RULES_FOUND).increment(rules.len() as u64);
+
+    rules.sort_unstable_by_key(|r| r.order_key);
+
+    for rule in rules {
+        match rule.try_match(&props) {
+            Ok(false) => continue,
+            Ok(true) => {
+                timing.label("outcome", "match").fin();
+                return Ok(Some(rule));
+            }
+            Err(err) => {
+                rule.disable(&mut *con, err.to_string(), props.clone())
+                    .await?
+            }
+        }
+    }
+
+    timing.label("outcome", "no_match").fin();
+    Ok(None)
+}
+
+#[cfg(test)]
+mod test {
+    use chrono::Utc;
+    use serde_json::{json, Value as JsonValue};
+    use uuid::Uuid;
+
+    use super::SuppressionRule;
+
+    fn rule_bytecode() -> JsonValue {
+        // return properties.test_value = 'test_value'
+        json!([
+            "_H", 1, 32, "test_value", 32, "test_value", 32, "properties", 1, 2, 11, 38
+        ])
+    }
+
+    fn get_test_rule() -> SuppressionRule {
+        SuppressionRule {
+            id: Uuid::new_v4(),
+            team_id: 1,
+            order_key: 1,
+            bytecode: rule_bytecode(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_try_match_returns_true_on_match() {
+        let rule = get_test_rule();
+        let props = json!({"test_value": "test_value"});
+        assert!(rule.try_match(&props).unwrap());
+    }
+
+    #[test]
+    fn test_try_match_returns_false_on_no_match() {
+        let rule = get_test_rule();
+        let props = json!({"test_value": "other_value"});
+        assert!(!rule.try_match(&props).unwrap());
+    }
+
+    #[test]
+    fn test_try_match_returns_error_on_invalid_bytecode() {
+        let mut rule = get_test_rule();
+        rule.bytecode = json!("not_an_array");
+        let props = json!({"test_value": "test_value"});
+        assert!(rule.try_match(&props).is_err());
+    }
+}

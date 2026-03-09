@@ -289,9 +289,11 @@ class ErrorTrackingGroupingRule(UUIDTModel):
 class ErrorTrackingSuppressionRule(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    bytecode = models.JSONField(null=True, blank=True)
+    disabled_data = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    # Grouping rules are ordered, and greedily evaluated
+    # Suppression rules are ordered, and greedily evaluated
     order_key = models.IntegerField(null=False, blank=False)
 
     class Meta:

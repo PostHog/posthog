@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT id, team_id, order_key, bytecode, created_at, updated_at\n                FROM posthog_errortrackingsuppressionrule\n                WHERE team_id = $1 AND disabled_data IS NULL AND bytecode IS NOT NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "team_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "order_key",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "bytecode",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "7e6a02ea3ed9fe8421fbacc75df7f2da7dafbb25e75c828d54dafd5ce76a446f"
+}
