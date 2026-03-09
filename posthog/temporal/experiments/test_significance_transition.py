@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -44,7 +44,7 @@ class TestCheckSignificanceTransition(BaseTest):
         previous_significant: object,
         new_significant: bool,
         expect_event: bool,
-        mock_produce: object,
+        mock_produce: MagicMock,
     ) -> None:
         experiment = self._create_experiment()
         metric_uuid = "metric-123"
