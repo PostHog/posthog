@@ -98,6 +98,7 @@ tools:
             destructive: true
             idempotent: false
         title: Delete action
-        description: |
-            Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but historical data is preserved.
+        description: >
+            Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but
+            historical data is preserved.
         soft_delete: true
