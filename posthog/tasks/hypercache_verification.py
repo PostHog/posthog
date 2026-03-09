@@ -69,6 +69,8 @@ def _run_flag_definitions_verification(
         return
 
     try:
+        logger.info("Starting cache verification", cache_type=cache_type)
+        start_time = time.time()
         verify_fn = partial(verify_team_flag_definitions, include_cohorts=include_cohorts)
 
         try:
@@ -82,6 +84,9 @@ def _run_flag_definitions_verification(
             logger.exception("Failed cache verification", cache_type=cache_type, error=str(e))
             capture_exception(e)
             raise
+
+        duration = time.time() - start_time
+        logger.info("Completed cache verification", cache_type=cache_type, duration_seconds=duration)
     finally:
         django_cache.delete(lock_key)
 

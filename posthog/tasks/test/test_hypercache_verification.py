@@ -11,6 +11,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
+
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flag_definitions_without_cohorts_cache_task,
@@ -130,183 +132,140 @@ class TestVerifyAndFixTeamMetadataCacheTaskDisabled(TestCase):
         mock_run_verification.assert_not_called()
 
 
+# Parameterized test configuration for the two flag definitions cache variants.
+# Each tuple: (task_fn, include_cohorts, cache_type, other_cache_type, metric_name_fragment)
+FLAG_DEFINITIONS_VARIANTS = [
+    (
+        "with_cohorts",
+        verify_and_fix_flag_definitions_cache_task,
+        True,
+        "flag_definitions_with-cohorts",
+        "flag_definitions_without-cohorts",
+        "verify_and_fix_flag_definitions_cache_task",
+    ),
+    (
+        "without_cohorts",
+        verify_and_fix_flag_definitions_without_cohorts_cache_task,
+        False,
+        "flag_definitions_without-cohorts",
+        "flag_definitions_with-cohorts",
+        "verify_and_fix_flag_definitions_without_cohorts_cache_task",
+    ),
+]
+
+
 class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCase):
-    """Tests for the flag definitions (with-cohorts) cache verification task."""
+    """Tests for both flag definitions cache verification task variants."""
 
+    @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_verifies_with_cohorts_variant(self, mock_run_verification: MagicMock) -> None:
+    def test_verifies_correct_cache_type(
+        self, _name, task_fn, _include_cohorts, cache_type, _other, _metric, mock_run_verification: MagicMock
+    ) -> None:
         mock_run_verification.return_value = MagicMock()
 
-        verify_and_fix_flag_definitions_cache_task()
+        task_fn()
 
         mock_run_verification.assert_called_once()
         call_kwargs = mock_run_verification.call_args[1]
-        assert call_kwargs["cache_type"] == "flag_definitions_with-cohorts"
+        assert call_kwargs["cache_type"] == cache_type
 
+    @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_verify_fn_passes_include_cohorts_true(self, mock_run_verification: MagicMock) -> None:
+    def test_verify_fn_passes_correct_include_cohorts(
+        self, _name, task_fn, include_cohorts, _cache_type, _other, _metric, mock_run_verification: MagicMock
+    ) -> None:
         from posthog.models.feature_flag.local_evaluation import verify_team_flag_definitions
 
         mock_run_verification.return_value = MagicMock()
 
-        verify_and_fix_flag_definitions_cache_task()
+        task_fn()
 
         verify_fn = mock_run_verification.call_args[1]["verify_team_fn"]
         assert verify_fn.func is verify_team_flag_definitions
-        assert verify_fn.keywords == {"include_cohorts": True}
+        assert verify_fn.keywords == {"include_cohorts": include_cohorts}
 
+    @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification.capture_exception")
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_captures_and_reraises_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
+    def test_captures_and_reraises_error(
+        self,
+        _name,
+        task_fn,
+        _include_cohorts,
+        _cache_type,
+        _other,
+        _metric,
+        mock_run_verification: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
         error = Exception("flag_definitions verification failed")
         mock_run_verification.side_effect = error
 
         with self.assertRaises(Exception) as context:
-            verify_and_fix_flag_definitions_cache_task()
+            task_fn()
 
         mock_capture.assert_called_once_with(error)
         assert context.exception is error
 
+    @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_releases_lock_after_error(self, mock_run_verification: MagicMock) -> None:
+    def test_releases_lock_after_error(
+        self, _name, task_fn, _include_cohorts, cache_type, _other, _metric, mock_run_verification: MagicMock
+    ) -> None:
         from django.core.cache import cache as django_cache
 
         mock_run_verification.side_effect = Exception("boom")
 
         with self.assertRaises(Exception):
-            verify_and_fix_flag_definitions_cache_task()
+            task_fn()
 
-        lock_key = "posthog:hypercache_verification:flag_definitions_with-cohorts:lock"
+        lock_key = f"posthog:hypercache_verification:{cache_type}:lock"
         assert django_cache.add(lock_key, "test", timeout=1) is True
         django_cache.delete(lock_key)
 
+    @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_does_not_interfere_with_without_cohorts_lock(self, mock_run_verification: MagicMock) -> None:
+    def test_does_not_interfere_with_other_variant_lock(
+        self, _name, task_fn, _include_cohorts, _cache_type, other_cache_type, _metric, mock_run_verification: MagicMock
+    ) -> None:
         """Each variant uses its own lock key, so locking one doesn't block the other."""
         from django.core.cache import cache as django_cache
 
-        other_lock_key = "posthog:hypercache_verification:flag_definitions_without-cohorts:lock"
+        other_lock_key = f"posthog:hypercache_verification:{other_cache_type}:lock"
         django_cache.add(other_lock_key, "locked", timeout=60)
         try:
             mock_run_verification.return_value = MagicMock()
-            verify_and_fix_flag_definitions_cache_task()
+            task_fn()
             mock_run_verification.assert_called_once()
         finally:
             django_cache.delete(other_lock_key)
 
+    @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_pushgateway_metrics_recorded_on_success(self, mock_run_verification: MagicMock) -> None:
+    def test_pushgateway_metrics_recorded_on_success(
+        self, _name, task_fn, _include_cohorts, _cache_type, _other, metric_name, mock_run_verification: MagicMock
+    ) -> None:
         mock_run_verification.return_value = MagicMock()
 
-        verify_and_fix_flag_definitions_cache_task()
+        task_fn()
 
-        success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flag_definitions_cache_task_success")
-        duration = self.registry.get_sample_value(
-            "posthog_celery_verify_and_fix_flag_definitions_cache_task_duration_seconds"
-        )
+        success = self.registry.get_sample_value(f"posthog_celery_{metric_name}_success")
+        duration = self.registry.get_sample_value(f"posthog_celery_{metric_name}_duration_seconds")
         assert success == 1
         assert duration is not None and duration >= 0
 
+    @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_skips_when_lock_already_held(self, mock_run_verification: MagicMock) -> None:
+    def test_skips_when_lock_already_held(
+        self, _name, task_fn, _include_cohorts, cache_type, _other, _metric, mock_run_verification: MagicMock
+    ) -> None:
         from django.core.cache import cache as django_cache
 
-        lock_key = "posthog:hypercache_verification:flag_definitions_with-cohorts:lock"
+        lock_key = f"posthog:hypercache_verification:{cache_type}:lock"
         django_cache.add(lock_key, "locked", timeout=60)
         try:
-            verify_and_fix_flag_definitions_cache_task()
+            task_fn()
             mock_run_verification.assert_not_called()
         finally:
             django_cache.delete(lock_key)
-
-
-class TestVerifyAndFixFlagDefinitionsWithoutCohortsCacheTask(PushGatewayTaskTestMixin, TestCase):
-    """Tests for the flag definitions (without-cohorts) cache verification task."""
-
-    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_verifies_without_cohorts_variant(self, mock_run_verification: MagicMock) -> None:
-        mock_run_verification.return_value = MagicMock()
-
-        verify_and_fix_flag_definitions_without_cohorts_cache_task()
-
-        mock_run_verification.assert_called_once()
-        call_kwargs = mock_run_verification.call_args[1]
-        assert call_kwargs["cache_type"] == "flag_definitions_without-cohorts"
-
-    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_verify_fn_passes_include_cohorts_false(self, mock_run_verification: MagicMock) -> None:
-        from posthog.models.feature_flag.local_evaluation import verify_team_flag_definitions
-
-        mock_run_verification.return_value = MagicMock()
-
-        verify_and_fix_flag_definitions_without_cohorts_cache_task()
-
-        verify_fn = mock_run_verification.call_args[1]["verify_team_fn"]
-        assert verify_fn.func is verify_team_flag_definitions
-        assert verify_fn.keywords == {"include_cohorts": False}
-
-    @patch("posthog.tasks.hypercache_verification.capture_exception")
-    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_captures_and_reraises_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
-        error = Exception("flag_definitions verification failed")
-        mock_run_verification.side_effect = error
-
-        with self.assertRaises(Exception) as context:
-            verify_and_fix_flag_definitions_without_cohorts_cache_task()
-
-        mock_capture.assert_called_once_with(error)
-        assert context.exception is error
-
-    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_releases_lock_after_error(self, mock_run_verification: MagicMock) -> None:
-        from django.core.cache import cache as django_cache
-
-        mock_run_verification.side_effect = Exception("boom")
-
-        with self.assertRaises(Exception):
-            verify_and_fix_flag_definitions_without_cohorts_cache_task()
-
-        lock_key = "posthog:hypercache_verification:flag_definitions_without-cohorts:lock"
-        assert django_cache.add(lock_key, "test", timeout=1) is True
-        django_cache.delete(lock_key)
-
-    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_pushgateway_metrics_recorded_on_success(self, mock_run_verification: MagicMock) -> None:
-        mock_run_verification.return_value = MagicMock()
-
-        verify_and_fix_flag_definitions_without_cohorts_cache_task()
-
-        success = self.registry.get_sample_value(
-            "posthog_celery_verify_and_fix_flag_definitions_without_cohorts_cache_task_success"
-        )
-        duration = self.registry.get_sample_value(
-            "posthog_celery_verify_and_fix_flag_definitions_without_cohorts_cache_task_duration_seconds"
-        )
-        assert success == 1
-        assert duration is not None and duration >= 0
-
-    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_skips_when_lock_already_held(self, mock_run_verification: MagicMock) -> None:
-        from django.core.cache import cache as django_cache
-
-        lock_key = "posthog:hypercache_verification:flag_definitions_without-cohorts:lock"
-        django_cache.add(lock_key, "locked", timeout=60)
-        try:
-            verify_and_fix_flag_definitions_without_cohorts_cache_task()
-            mock_run_verification.assert_not_called()
-        finally:
-            django_cache.delete(lock_key)
-
-    @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_does_not_interfere_with_with_cohorts_lock(self, mock_run_verification: MagicMock) -> None:
-        """Each variant uses its own lock key, so locking one doesn't block the other."""
-        from django.core.cache import cache as django_cache
-
-        other_lock_key = "posthog:hypercache_verification:flag_definitions_with-cohorts:lock"
-        django_cache.add(other_lock_key, "locked", timeout=60)
-        try:
-            mock_run_verification.return_value = MagicMock()
-            verify_and_fix_flag_definitions_without_cohorts_cache_task()
-            mock_run_verification.assert_called_once()
-        finally:
-            django_cache.delete(other_lock_key)
