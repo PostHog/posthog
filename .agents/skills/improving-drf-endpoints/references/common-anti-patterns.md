@@ -79,12 +79,13 @@ class LLMProxyViewSet(viewsets.ViewSet):
         # ...
 
 # After — @validated_request handles validation + OpenAPI
+from drf_spectacular.utils import OpenApiResponse
 from posthog.api.mixins import validated_request
 
 class LLMProxyViewSet(viewsets.ViewSet):
     @validated_request(
         request_serializer=LLMProxyCompletionSerializer,
-        responses={200: LLMProxyResponseSerializer},
+        responses={200: OpenApiResponse(response=LLMProxyResponseSerializer, description="LLM completion response")},
         summary="LLM completion",
         description="Proxy a completion request to the configured LLM provider.",
     )

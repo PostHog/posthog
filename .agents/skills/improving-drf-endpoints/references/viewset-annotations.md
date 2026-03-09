@@ -118,6 +118,8 @@ Note: `@extend_schema` goes above `@action` in the decorator stack.
 Generic `OpenApiTypes.OBJECT` tells downstream consumers nothing about the error shape.
 
 ```python
+from drf_spectacular.types import OpenApiTypes
+
 # Bad — agents can't parse error structure
 @extend_schema(
     responses={

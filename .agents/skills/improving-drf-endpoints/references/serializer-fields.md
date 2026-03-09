@@ -78,7 +78,8 @@ class AlertSerializer(serializers.ModelSerializer):
 For simpler cases where a full Pydantic model is overkill, use `OpenApiTypes`:
 
 ```python
-from drf_spectacular.utils import extend_schema_field, OpenApiTypes
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 
 @extend_schema_field(OpenApiTypes.OBJECT)
 class MetadataField(serializers.JSONField):
