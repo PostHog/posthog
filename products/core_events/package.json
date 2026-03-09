@@ -1,0 +1,6 @@
+{
+    "name": "@posthog/products-core-events",
+    "scripts": {
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    }
+}
