@@ -33,7 +33,6 @@ from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     CustomHostnameSSLStatus,
     create_custom_hostname,
-    create_worker_route,
     get_custom_hostname_by_domain,
 )
 from posthog.temporal.proxy_service.common import (
@@ -279,33 +278,9 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
             # Custom hostname already exists
             logger.info("Cloudflare Custom Hostname already exists for domain %s", inputs.domain)
             return
-        raise NonRetriableException(f"Cloudflare API error: {e}") from e
-
-
-@activity.defn
-async def create_cloudflare_worker_route(inputs: CreateCloudflareProxyInputs):
-    """Activity that creates a Worker Route in Cloudflare for the domain."""
-    logger = LOGGER.bind(organization_id=inputs.organization_id)
-    logger.info(
-        "Creating Cloudflare Worker Route for domain %s",
-        inputs.domain,
-    )
-
-    if not await record_exists(inputs.proxy_record_id):
-        raise RecordDeletedException("proxy record was deleted while creating Cloudflare Worker Route")
-
-    try:
-        result = await asyncio.to_thread(create_worker_route, inputs.domain)
-        logger.info(
-            "Created Cloudflare Worker Route %s with pattern %s",
-            result.id,
-            result.pattern,
-        )
-    except CloudflareAPIError as e:
-        if any(err.get("code") == 10020 for err in e.errors):
-            # Route already exists
-            logger.info("Cloudflare Worker Route already exists for domain %s", inputs.domain)
-            return
+        if e.is_rate_limited():
+            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
+            raise
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
 
 
@@ -341,6 +316,9 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise ApplicationError(f"Certificate not yet ready, status: {hostname_info.ssl.status.value}")
 
     except CloudflareAPIError as e:
+        if e.is_rate_limited():
+            # Rate limited by Cloudflare — re-raise to let Temporal retry with backoff
+            raise
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
     except ApplicationError:
         raise
@@ -515,19 +493,6 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     ),
                 )
 
-                # Create Worker Route in Cloudflare
-                await temporalio.workflow.execute_activity(
-                    create_cloudflare_worker_route,
-                    cloudflare_inputs,
-                    schedule_to_close_timeout=dt.timedelta(minutes=5),
-                    start_to_close_timeout=dt.timedelta(minutes=1),
-                    retry_policy=temporalio.common.RetryPolicy(
-                        initial_interval=dt.timedelta(seconds=10),
-                        maximum_attempts=5,
-                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
-                    ),
-                )
-
                 # Wait for Cloudflare certificate to be active
                 await temporalio.workflow.execute_activity(
                     wait_for_cloudflare_certificate,
@@ -613,6 +578,19 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 and hasattr(e.cause, "type")
                 and e.cause.type != "RecordDeletedException"
             ):
+                await temporalio.workflow.execute_activity(
+                    activity_update_proxy_record,
+                    UpdateProxyRecordInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        status=ProxyRecord.Status.ERRORING.value,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=60),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=10,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
                 raise
 
             logger.info(

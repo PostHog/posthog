@@ -33,6 +33,7 @@
     "dependencies": {
         "@modelcontextprotocol/ext-apps": "^1.0.1",
         "@modelcontextprotocol/sdk": "^1.26.0",
+        "@posthog/mosaic": "workspace:*",
         "@toon-format/toon": "^2.1.0",
         "agents": "^0.3.6",
         "ai": "^6.0.0",
@@ -44,6 +45,7 @@
     },
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260120.0",
+        "@tailwindcss/postcss": "^4.1.10",
         "@types/dotenv": "^6.1.1",
         "@types/node": "^22.17.2",
         "@types/react": "^17.0.39",
@@ -57,9 +59,10 @@
         "oxlint": "^1.8.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
+        "tailwindcss": "^4.1.10",
         "tsx": "^4.20.5",
         "typed-openapi": "^2.2.2",
-        "typescript": "^5.2.2",
+        "typescript": "catalog:",
         "vite": "^5.4.21",
         "vite-plugin-singlefile": "^2.3.0",
         "vite-tsconfig-paths": "^5.1.4",

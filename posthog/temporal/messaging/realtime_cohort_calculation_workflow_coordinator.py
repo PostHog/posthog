@@ -446,6 +446,8 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                     inputs=RealtimeCohortCalculationWorkflowInputs(
                         cohort_ids=worker_cohort_ids,
                         cohort_id=inputs.cohort_id,  # Keep for backward compatibility
+                        duration_percentile_min=inputs.duration_percentile_min,
+                        duration_percentile_max=inputs.duration_percentile_max,
                     ),
                     index=i + 1,
                 )
