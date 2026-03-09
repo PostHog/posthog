@@ -40,7 +40,7 @@ export default function SchemaForm(): JSX.Element {
                         Choose which tables should be available for querying in PostHog.
                     </p>
                 )}
-                <div>
+                <div className="max-h-[60vh] overflow-y-auto">
                     <LemonTable
                         emptyState="No schemas found"
                         dataSource={databaseSchema}
