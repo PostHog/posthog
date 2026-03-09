@@ -77,7 +77,7 @@ async function fetchCachedListResponse(path: string, searchParams: Record<string
 }
 
 export const infiniteListLogic = kea<infiniteListLogicType>([
-    props({ showNumericalPropsOnly: false } as InfiniteListLogicProps),
+    props({ showNumericalPropsOnly: false, minSearchQueryLength: undefined } as InfiniteListLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
 
@@ -293,8 +293,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         minSearchQueryLength: [
             (s, p) => [s.group, p.minSearchQueryLength],
-            (group, propsMinSearchQueryLength) =>
-                propsMinSearchQueryLength ?? group?.minSearchQueryLength ?? 0,
+            (group, propsMinSearchQueryLength) => propsMinSearchQueryLength ?? group?.minSearchQueryLength ?? 0,
         ],
         needsMoreSearchCharacters: [
             (s) => [s.minSearchQueryLength, s.searchQuery],

@@ -70,20 +70,12 @@ function CategoryPillContent({
                         <>
                             {': '}
                             {showLoading ? (
-                                <Spinner
-                                    className="text-sm inline-block ml-1"
-                                    textColored
-                                    speed="0.8s"
-                                />
+                                <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
                             ) : (
                                 totalResultCount
                             )}
                             {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
-                            <span
-                                aria-label={
-                                    hasMore ? `${totalResultCount} or more` : `${totalResultCount}`
-                                }
-                            >
+                            <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
                                 {hasMore ? '+' : ''}
                             </span>
                         </>
