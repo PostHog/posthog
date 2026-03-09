@@ -646,7 +646,7 @@ def _error_response(code: str, message: str, resource_id: str = "", status: int 
     return Response({"status": "error", "id": resource_id, "error": {"code": code, "message": message}}, status=status)
 
 
-def _authenticate_bearer(request: Request) -> tuple[Response | None, any, any]:
+def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     """Authenticate via Bearer token. Returns (error_response, user, access_token)."""
     from .authentication import StripeProvisioningBearerAuthentication
 
