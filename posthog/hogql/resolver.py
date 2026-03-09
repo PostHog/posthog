@@ -1119,6 +1119,12 @@ class Resolver(CloningVisitor):
         node.type = ast.BooleanType(nullable=False)
         return node
 
+    def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
+        node = super().visit_is_distinct_from(node)
+        if node is None:
+            return None
+        return node
+
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
         if node is None:

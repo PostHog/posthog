@@ -144,6 +144,12 @@ class TestResolver(BaseTest):
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(resolved.select[0], ast.TryCast)
 
+    def test_resolve_is_distinct_from_unresolved_field(self):
+        expr = self._select("SELECT missing is distinct from 1")
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(str(context.exception), "Unable to resolve field: missing")
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = self._select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")

@@ -142,7 +142,7 @@ winFrameExtend
     : winFrameBound                             # frameStart
     | BETWEEN winFrameBound AND winFrameBound   # frameBetween
     ;
-winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | numberLiteral PRECEDING | numberLiteral FOLLOWING);
+winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | columnExpr PRECEDING | columnExpr FOLLOWING);
 //rangeClause: RANGE LPAREN (MIN identifier MAX identifier | MAX identifier MIN identifier) RPAREN;
 
 // Columns
@@ -220,6 +220,7 @@ columnExpr
                  | operator=NOT_IREGEX                                                    // !~*
                  ) right=columnExpr                                                       # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
+    | columnExpr IS NOT? DISTINCT FROM columnExpr                                         # ColumnExprIsDistinctFrom
     | columnExpr NULLISH columnExpr                                                       # ColumnExprNullish
     | NOT columnExpr                                                                      # ColumnExprNot
     | columnExpr AND columnExpr                                                           # ColumnExprAnd

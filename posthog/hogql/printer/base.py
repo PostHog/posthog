@@ -592,6 +592,12 @@ class HogQLPrinter(Visitor[str]):
 
         return op
 
+    def visit_is_distinct_from(self, node: ast.IsDistinctFrom):
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        not_kw = " NOT" if node.negated else ""
+        return f"{left} IS{not_kw} DISTINCT FROM {right}"
+
     def visit_constant(self, node: ast.Constant):
         # Inline everything in HogQL
         return self._print_escaped_string(node.value)
@@ -1320,10 +1326,14 @@ class HogQLPrinter(Visitor[str]):
             return f"{identifier}({', '.join(exprs)}) OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
-        if node.frame_type == "PRECEDING":
-            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} PRECEDING"
-        elif node.frame_type == "FOLLOWING":
-            return f"{int(str(node.frame_value)) if node.frame_value is not None else 'UNBOUNDED'} FOLLOWING"
+        if node.frame_type in ("PRECEDING", "FOLLOWING"):
+            if node.frame_value is None:
+                value_str = "UNBOUNDED"
+            elif isinstance(node.frame_value, int):
+                value_str = str(node.frame_value)
+            else:
+                value_str = self.visit(node.frame_value)
+            return f"{value_str} {node.frame_type}"
         elif node.frame_type == "CURRENT ROW":
             return "CURRENT ROW"
         else:

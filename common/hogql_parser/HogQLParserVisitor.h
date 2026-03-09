@@ -237,6 +237,8 @@ public:
 
     virtual std::any visitColumnExprTypeCast(HogQLParser::ColumnExprTypeCastContext *context) = 0;
 
+    virtual std::any visitColumnExprIsDistinctFrom(HogQLParser::ColumnExprIsDistinctFromContext *context) = 0;
+
     virtual std::any visitColumnExprSpreadColumnsList(HogQLParser::ColumnExprSpreadColumnsListContext *context) = 0;
 
     virtual std::any visitColumnExprCallSelect(HogQLParser::ColumnExprCallSelectContext *context) = 0;

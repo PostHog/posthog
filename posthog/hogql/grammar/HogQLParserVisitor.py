@@ -554,6 +554,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#ColumnExprIsDistinctFrom.
+    def visitColumnExprIsDistinctFrom(self, ctx:HogQLParser.ColumnExprIsDistinctFromContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#ColumnExprSpreadColumnsList.
     def visitColumnExprSpreadColumnsList(self, ctx:HogQLParser.ColumnExprSpreadColumnsListContext):
         return self.visitChildren(ctx)

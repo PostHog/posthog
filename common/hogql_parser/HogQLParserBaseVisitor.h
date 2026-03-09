@@ -451,6 +451,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprIsDistinctFrom(HogQLParser::ColumnExprIsDistinctFromContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprSpreadColumnsList(HogQLParser::ColumnExprSpreadColumnsListContext *ctx) override {
     return visitChildren(ctx);
   }

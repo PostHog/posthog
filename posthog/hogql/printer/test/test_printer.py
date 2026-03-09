@@ -4433,12 +4433,21 @@ class TestPostgresPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("try_cast(1 AS Int64)", "TRY_CAST(1 AS Int64)"),
-            ("try_cast(1 AS Int64) + 1", "TRY_CAST(1 AS Int64)"),
-            ("try_cast(1 AS time with time zone)", "TRY_CAST(1 AS TIME WITH TIME ZONE)"),
+            ("try_cast(1 AS Int64)", "TRY_CAST(1 AS int64)"),
+            ("try_cast(1 AS Int64) + 1", "TRY_CAST(1 AS int64)"),
         ]
     )
     def test_try_cast(self, expr: str, expected: str):
+        printed = self._select(f"SELECT {expr}")
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            ("1 IS DISTINCT FROM 2", "1 IS DISTINCT FROM 2"),
+            ("1 IS NOT DISTINCT FROM 2", "1 IS NOT DISTINCT FROM 2"),
+        ]
+    )
+    def test_is_distinct_from(self, expr: str, expected: str):
         printed = self._select(f"SELECT {expr}")
         self.assertIn(expected, printed)
 

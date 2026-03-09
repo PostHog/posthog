@@ -1343,7 +1343,7 @@ public:
     antlr4::tree::TerminalNode *UNBOUNDED();
     antlr4::tree::TerminalNode *PRECEDING();
     antlr4::tree::TerminalNode *FOLLOWING();
-    NumberLiteralContext *numberLiteral();
+    ColumnExprContext *columnExpr();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -1930,6 +1930,20 @@ public:
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *DOUBLECOLON();
     IdentifierContext *identifier();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  ColumnExprIsDistinctFromContext : public ColumnExprContext {
+  public:
+    ColumnExprIsDistinctFromContext(ColumnExprContext *ctx);
+
+    std::vector<ColumnExprContext *> columnExpr();
+    ColumnExprContext* columnExpr(size_t i);
+    antlr4::tree::TerminalNode *IS();
+    antlr4::tree::TerminalNode *DISTINCT();
+    antlr4::tree::TerminalNode *FROM();
+    antlr4::tree::TerminalNode *NOT();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };

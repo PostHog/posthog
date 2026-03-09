@@ -697,22 +697,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitWinFrameBound(self, ctx: HogQLParser.WinFrameBoundContext):
         if ctx.PRECEDING():
-            return ast.WindowFrameExpr(
-                frame_type="PRECEDING",
-                frame_value=self.visit(ctx.numberLiteral()).value if ctx.numberLiteral() else None,
-            )
+            frame_value = self.visit(ctx.columnExpr()) if ctx.columnExpr() else None
+            if isinstance(frame_value, ast.Constant) and isinstance(frame_value.value, (int, float)):
+                frame_value = int(frame_value.value)
+            return ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=frame_value)
         if ctx.FOLLOWING():
-            return ast.WindowFrameExpr(
-                frame_type="FOLLOWING",
-                frame_value=self.visit(ctx.numberLiteral()).value if ctx.numberLiteral() else None,
-            )
+            frame_value = self.visit(ctx.columnExpr()) if ctx.columnExpr() else None
+            if isinstance(frame_value, ast.Constant) and isinstance(frame_value.value, (int, float)):
+                frame_value = int(frame_value.value)
+            return ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=frame_value)
         return ast.WindowFrameExpr(frame_type="CURRENT ROW")
 
     def visitExpr(self, ctx: HogQLParser.ExprContext):
         return self.visit(ctx.columnExpr())
 
     def visitColumnTypeExprSimple(self, ctx: HogQLParser.ColumnTypeExprSimpleContext):
-        raise NotImplementedError(f"Unsupported node: ColumnTypeExprSimple")
+        return self.visit(ctx.identifier()).lower()
 
     def visitColumnTypeExprNested(self, ctx: HogQLParser.ColumnTypeExprNestedContext):
         raise NotImplementedError(f"Unsupported node: ColumnTypeExprNested")
@@ -724,7 +724,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnTypeExprComplex")
 
     def visitColumnTypeExprCompound(self, ctx: HogQLParser.ColumnTypeExprCompoundContext):
-        raise NotImplementedError(f"Unsupported node: ColumnTypeExprCompound")
+        return " ".join(self.visit(ident) for ident in ctx.identifier()).lower()
 
     def visitColumnTypeExprParam(self, ctx: HogQLParser.ColumnTypeExprParamContext):
         raise NotImplementedError(f"Unsupported node: ColumnTypeExprParam")
@@ -795,15 +795,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprSubstring")
 
     def visitColumnExprCast(self, ctx: HogQLParser.ColumnExprCastContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprCast")
+        type_name = self.visit(ctx.columnTypeExpr())
+        return ast.TypeCast(expr=self.visit(ctx.columnExpr()), type_name=type_name.lower())
 
     def visitColumnExprTryCast(self, ctx: HogQLParser.ColumnExprTryCastContext):
-        type_expr = ctx.columnTypeExpr()
-        identifiers = type_expr.identifier() if hasattr(type_expr, "identifier") else None
-        if identifiers:
-            type_name = " ".join([identifier.getText() for identifier in identifiers])
-        else:
-            type_name = type_expr.getText()
+        type_name = self.visit(ctx.columnTypeExpr())
         return ast.TryCast(expr=self.visit(ctx.columnExpr()), type_name=type_name)
 
     def visitColumnExprPrecedence1(self, ctx: HogQLParser.ColumnExprPrecedence1Context):
@@ -953,6 +949,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             left=self.visit(ctx.columnExpr()),
             right=ast.Constant(value=None),
             op=ast.CompareOperationOp.NotEq if ctx.NOT() else ast.CompareOperationOp.Eq,
+        )
+
+    def visitColumnExprIsDistinctFrom(self, ctx: HogQLParser.ColumnExprIsDistinctFromContext):
+        return ast.IsDistinctFrom(
+            left=self.visit(ctx.columnExpr(0)),
+            right=self.visit(ctx.columnExpr(1)),
+            negated=bool(ctx.NOT()),
         )
 
     def visitColumnExprTrim(self, ctx: HogQLParser.ColumnExprTrimContext):

@@ -403,7 +403,7 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_try_cast(self):
             self.assertEqual(
                 self._expr("try_cast(1 AS Int64)"),
-                ast.TryCast(expr=ast.Constant(value=1), type_name="Int64"),
+                ast.TryCast(expr=ast.Constant(value=1), type_name="int64"),
             )
 
         def test_call_expr(self):
@@ -616,6 +616,22 @@ def parser_test_factory(backend: HogQLParserBackend):
                     left=ast.Constant(value=1),
                     right=ast.Constant(value=2),
                     op=ast.CompareOperationOp.GtEq,
+                ),
+            )
+            self.assertEqual(
+                self._expr("1 is distinct from 2"),
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    negated=False,
+                ),
+            )
+            self.assertEqual(
+                self._expr("1 is not distinct from 2"),
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    negated=True,
                 ),
             )
 

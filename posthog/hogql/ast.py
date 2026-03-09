@@ -765,6 +765,13 @@ class Not(Expr):
 
 
 @dataclass(kw_only=True)
+class IsDistinctFrom(Expr):
+    left: Expr
+    right: Expr
+    negated: bool = False
+
+
+@dataclass(kw_only=True)
 class BetweenExpr(Expr):
     expr: Expr
     low: Expr
@@ -918,7 +925,7 @@ class JoinExpr(Expr):
 @dataclass(kw_only=True)
 class WindowFrameExpr(Expr):
     frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
-    frame_value: Optional[int] = None
+    frame_value: Optional[Union[int, Expr]] = None
 
 
 @dataclass(kw_only=True)
