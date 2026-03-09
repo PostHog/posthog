@@ -45,6 +45,11 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
         }
     }, [issue, issueFingerprints, loadFingerprintSamples])
 
+    const fingerprintCreatedAt = useMemo(
+        () => new Map((issueFingerprints ?? []).map((f) => [f.fingerprint, f.created_at])),
+        [issueFingerprints]
+    )
+
     const columns = [
         {
             title: 'Exception type',
@@ -114,7 +119,12 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                         rowKey="fingerprint"
                         expandable={{
                             noIndent: true,
-                            expandedRowRender: (record) => <FingerprintStackTrace fingerprint={record.fingerprint} />,
+                            expandedRowRender: (record) => (
+                                <FingerprintStackTrace
+                                    fingerprint={record.fingerprint}
+                                    createdAt={fingerprintCreatedAt.get(record.fingerprint)}
+                                />
+                            ),
                         }}
                     />
                 </div>
@@ -123,7 +133,7 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
     )
 }
 
-function FingerprintStackTrace({ fingerprint }: { fingerprint: string }): JSX.Element {
+function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string; createdAt?: string }): JSX.Element {
     const [properties, setProperties] = useState<ErrorEventProperties | null>(null)
     const [eventId, setEventId] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
@@ -135,6 +145,7 @@ function FingerprintStackTrace({ fingerprint }: { fingerprint: string }): JSX.El
                 kind: NodeKind.EventsQuery,
                 event: '$exception',
                 select: ['uuid', 'properties'],
+                ...(createdAt ? { after: createdAt } : {}),
                 where: [`properties.$exception_fingerprint = '${fingerprint.replace(/'/g, "\\'")}'`],
                 orderBy: ['timestamp DESC'],
                 limit: 1,
