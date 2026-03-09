@@ -10,8 +10,6 @@
  *   src/api/generated.schemas.ts  — flat Orval TS interfaces (auto-generated)
  *   src/api/generated.ts          — re-export barrel: `export * as Schemas from './generated.schemas'`
  *
- * Replaces the legacy update-openapi-client.ts which fetched from live prod via typed-openapi.
- *
  * Invoked by `hogli build:openapi-mcp-types`.
  */
 /* eslint-disable no-console */
@@ -21,65 +19,19 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { preprocessSchema } from '@posthog/openapi-codegen'
+
+import { resolveSchemaPath } from './lib/definitions.mjs'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const mcpRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(mcpRoot, '../..')
 
-const defaultSchemaPath = path.resolve(repoRoot, 'frontend', 'tmp', 'openapi.json')
-const schemaPath = process.env.OPENAPI_SCHEMA_PATH
-    ? path.resolve(repoRoot, process.env.OPENAPI_SCHEMA_PATH)
-    : defaultSchemaPath
+const schemaPath = resolveSchemaPath(repoRoot)
 
 if (!fs.existsSync(schemaPath)) {
     console.error(`OpenAPI schema not found at ${schemaPath}. Run \`hogli build:openapi-schema\` first.`)
     process.exit(1)
-}
-
-// ------------------------------------------------------------------
-// Schema preprocessing (mirrors frontend/bin/generate-openapi-types.mjs)
-// ------------------------------------------------------------------
-
-const SCHEMAS_TO_INLINE = new Set(['TimezoneEnum'])
-
-function inlineSchemaRefs(obj) {
-    if (!obj || typeof obj !== 'object') {
-        return obj
-    }
-    if (obj.$ref && SCHEMAS_TO_INLINE.has(obj.$ref.replace('#/components/schemas/', ''))) {
-        return { type: 'string' }
-    }
-    for (const [key, value] of Object.entries(obj)) {
-        obj[key] = inlineSchemaRefs(value)
-    }
-    return obj
-}
-
-function stripCollidingInlineEnums(obj) {
-    if (!obj || typeof obj !== 'object') {
-        return
-    }
-    if (Array.isArray(obj)) {
-        obj.forEach(stripCollidingInlineEnums)
-        return
-    }
-    if (obj.type === 'string' && Array.isArray(obj.enum)) {
-        const positives = new Set(obj.enum.filter((v) => !v.startsWith('-')))
-        if (obj.enum.some((v) => v.startsWith('-') && positives.has(v.slice(1)))) {
-            delete obj.enum
-        }
-    }
-    for (const value of Object.values(obj)) {
-        stripCollidingInlineEnums(value)
-    }
-}
-
-function preprocessSchema(schema) {
-    inlineSchemaRefs(schema)
-    for (const name of SCHEMAS_TO_INLINE) {
-        delete schema.components?.schemas?.[name]
-    }
-    stripCollidingInlineEnums(schema)
-    return schema
 }
 
 // ------------------------------------------------------------------

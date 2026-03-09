@@ -262,6 +262,7 @@
         "@babel/traverse": "^7.24.0",
         "@parcel/packager-ts": "catalog:",
         "@parcel/transformer-typescript-types": "catalog:",
+        "@posthog/openapi-codegen": "workspace:*",
         "@storybook/addon-actions": "catalog:",
         "@storybook/react": "catalog:",
         "@storybook/testing-library": "catalog:",

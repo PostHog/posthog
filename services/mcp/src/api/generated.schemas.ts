@@ -23,6 +23,380 @@ export const AIEventType = {
 } as const
 
 /**
+ * * `warehouse` - warehouse
+ * `direct` - direct
+ */
+export type AccessMethodEnum = (typeof AccessMethodEnum)[keyof typeof AccessMethodEnum]
+
+export const AccessMethodEnum = {
+    Warehouse: 'warehouse',
+    Direct: 'direct',
+} as const
+
+/**
+ * * `event` - event
+ * `event_metadata` - event_metadata
+ * `feature` - feature
+ * `person` - person
+ * `cohort` - cohort
+ * `element` - element
+ * `static-cohort` - static-cohort
+ * `dynamic-cohort` - dynamic-cohort
+ * `precalculated-cohort` - precalculated-cohort
+ * `group` - group
+ * `recording` - recording
+ * `log_entry` - log_entry
+ * `behavioral` - behavioral
+ * `session` - session
+ * `hogql` - hogql
+ * `data_warehouse` - data_warehouse
+ * `data_warehouse_person_property` - data_warehouse_person_property
+ * `error_tracking_issue` - error_tracking_issue
+ * `log` - log
+ * `log_attribute` - log_attribute
+ * `log_resource_attribute` - log_resource_attribute
+ * `revenue_analytics` - revenue_analytics
+ * `flag` - flag
+ * `workflow_variable` - workflow_variable
+ */
+export type Type19aEnum = (typeof Type19aEnum)[keyof typeof Type19aEnum]
+
+export const Type19aEnum = {
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Feature: 'feature',
+    Person: 'person',
+    Cohort: 'cohort',
+    Element: 'element',
+    StaticCohort: 'static-cohort',
+    DynamicCohort: 'dynamic-cohort',
+    PrecalculatedCohort: 'precalculated-cohort',
+    Group: 'group',
+    Recording: 'recording',
+    LogEntry: 'log_entry',
+    Behavioral: 'behavioral',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+    RevenueAnalytics: 'revenue_analytics',
+    Flag: 'flag',
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
+ */
+export type StringPropertyFilterOperatorEnum =
+    (typeof StringPropertyFilterOperatorEnum)[keyof typeof StringPropertyFilterOperatorEnum]
+
+export const StringPropertyFilterOperatorEnum = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+/**
+ * Matches string values with text-oriented operators.
+ */
+export interface StringPropertyFilter {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnum
+    /** String value to match against. */
+    value: string
+    /** String comparison operator.
+
+* `exact` - exact
+* `is_not` - is_not
+* `icontains` - icontains
+* `not_icontains` - not_icontains
+* `regex` - regex
+* `not_regex` - not_regex */
+    operator?: StringPropertyFilterOperatorEnum
+}
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `gt` - gt
+ * `lt` - lt
+ * `gte` - gte
+ * `lte` - lte
+ */
+export type NumericPropertyFilterOperatorEnum =
+    (typeof NumericPropertyFilterOperatorEnum)[keyof typeof NumericPropertyFilterOperatorEnum]
+
+export const NumericPropertyFilterOperatorEnum = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Gt: 'gt',
+    Lt: 'lt',
+    Gte: 'gte',
+    Lte: 'lte',
+} as const
+
+/**
+ * Matches numeric values with comparison operators.
+ */
+export interface NumericPropertyFilter {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnum
+    /** Numeric value to compare against. */
+    value: number
+    /** Numeric comparison operator.
+
+* `exact` - exact
+* `is_not` - is_not
+* `gt` - gt
+* `lt` - lt
+* `gte` - gte
+* `lte` - lte */
+    operator?: NumericPropertyFilterOperatorEnum
+}
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `in` - in
+ * `not_in` - not_in
+ */
+export type ArrayPropertyFilterOperatorEnum =
+    (typeof ArrayPropertyFilterOperatorEnum)[keyof typeof ArrayPropertyFilterOperatorEnum]
+
+export const ArrayPropertyFilterOperatorEnum = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+/**
+ * Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).
+ */
+export interface ArrayPropertyFilter {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnum
+    /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
+    value: string[]
+    /** Array comparison operator.
+
+* `exact` - exact
+* `is_not` - is_not
+* `in` - in
+* `not_in` - not_in */
+    operator?: ArrayPropertyFilterOperatorEnum
+}
+
+/**
+ * * `is_date_exact` - is_date_exact
+ * `is_date_before` - is_date_before
+ * `is_date_after` - is_date_after
+ */
+export type DatePropertyFilterOperatorEnum =
+    (typeof DatePropertyFilterOperatorEnum)[keyof typeof DatePropertyFilterOperatorEnum]
+
+export const DatePropertyFilterOperatorEnum = {
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+/**
+ * Matches date/datetime values with date-specific operators.
+ */
+export interface DatePropertyFilter {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnum
+    /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
+    value: string
+    /** Date comparison operator.
+
+* `is_date_exact` - is_date_exact
+* `is_date_before` - is_date_before
+* `is_date_after` - is_date_after */
+    operator?: DatePropertyFilterOperatorEnum
+}
+
+/**
+ * * `is_set` - is_set
+ * `is_not_set` - is_not_set
+ */
+export type ExistencePropertyFilterOperatorEnum =
+    (typeof ExistencePropertyFilterOperatorEnum)[keyof typeof ExistencePropertyFilterOperatorEnum]
+
+export const ExistencePropertyFilterOperatorEnum = {
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+/**
+ * Checks whether a property is set or not, without comparing values.
+ */
+export interface ExistencePropertyFilter {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnum
+    /** Existence check operator.
+
+* `is_set` - is_set
+* `is_not_set` - is_not_set */
+    operator: ExistencePropertyFilterOperatorEnum
+}
+
+export type ActionStepPropertyFilter =
+    | StringPropertyFilter
+    | NumericPropertyFilter
+    | ArrayPropertyFilter
+    | DatePropertyFilter
+    | ExistencePropertyFilter
+
+/**
  * * `contains` - contains
  * `regex` - regex
  * `exact` - exact
@@ -39,27 +413,61 @@ export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 export const NullEnum = {} as const
 
-export type ActionStepJSONPropertiesItem = { [key: string]: unknown }
-
 export interface ActionStepJSON {
-    /** @nullable */
+    /**
+     * Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).
+     * @nullable
+     */
     event?: string | null
-    /** @nullable */
-    properties?: ActionStepJSONPropertiesItem[] | null
-    /** @nullable */
+    /**
+     * Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person).
+     * @nullable
+     */
+    properties?: ActionStepPropertyFilter[] | null
+    /**
+     * CSS selector to match the target element (e.g. 'div > button.cta').
+     * @nullable
+     */
     selector?: string | null
     /** @nullable */
     readonly selector_regex: string | null
-    /** @nullable */
+    /**
+     * HTML tag name to match (e.g. "button", "a", "input").
+     * @nullable
+     */
     tag_name?: string | null
-    /** @nullable */
+    /**
+     * Element text content to match.
+     * @nullable
+     */
     text?: string | null
+    /** How to match the text value. Defaults to exact.
+
+* `contains` - contains
+* `regex` - regex
+* `exact` - exact */
     text_matching?: UrlMatchingEnum | NullEnum | null
-    /** @nullable */
+    /**
+     * Link href attribute to match.
+     * @nullable
+     */
     href?: string | null
+    /** How to match the href value. Defaults to exact.
+
+* `contains` - contains
+* `regex` - regex
+* `exact` - exact */
     href_matching?: UrlMatchingEnum | NullEnum | null
-    /** @nullable */
+    /**
+     * Page URL to match.
+     * @nullable
+     */
     url?: string | null
+    /** How to match the URL value. Defaults to contains.
+
+* `contains` - contains
+* `regex` - regex
+* `exact` - exact */
     url_matching?: UrlMatchingEnum | NullEnum | null
 }
 
@@ -124,15 +532,22 @@ export interface UserBasic {
 export interface Action {
     readonly id: number
     /**
+     * Name of the action (must be unique within the project).
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Human-readable description of what this action represents. */
     description?: string
     tags?: unknown[]
+    /** Whether to post a notification to Slack when this action is triggered. */
     post_to_slack?: boolean
-    /** @maxLength 1200 */
+    /**
+     * Custom Slack message format. Supports templates with event properties.
+     * @maxLength 1200
+     */
     slack_message_format?: string
+    /** Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together. */
     steps?: ActionStepJSON[]
     readonly created_at: string
     readonly created_by: UserBasic
@@ -143,7 +558,10 @@ export interface Action {
     readonly is_action: boolean
     /** @nullable */
     readonly bytecode_error: string | null
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
+     * @nullable
+     */
     pinned_at?: string | null
     readonly creation_context: string
     _create_in_folder?: string
@@ -1499,9 +1917,29 @@ export interface PropertyGroupFilter {
     values: PropertyGroupFilterValue[]
 }
 
+export interface BoxPlotDatum {
+    day: string
+    label: string
+    max: number
+    mean: number
+    median: number
+    min: number
+    p25: number
+    p75: number
+    /** @nullable */
+    series_index?: number | null
+    /** @nullable */
+    series_label?: string | null
+}
+
 export type TrendsQueryResponseResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponse {
+    /**
+     * Box plot data when display type is BoxPlot
+     * @nullable
+     */
+    boxplot_data?: BoxPlotDatum[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -1873,6 +2311,7 @@ export const AggregationAxisFormat = {
     Percentage: 'percentage',
     PercentageScaled: 'percentage_scaled',
     Currency: 'currency',
+    Short: 'short',
 } as const
 
 export type DetailedResultsAggregationType =
@@ -1901,6 +2340,7 @@ export const ChartDisplayType = {
     WorldMap: 'WorldMap',
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
+    BoxPlot: 'BoxPlot',
 } as const
 
 export interface TrendsFormulaNode {
@@ -4301,6 +4741,27 @@ export interface ApprovalPolicy {
     readonly updated_at: string | null
 }
 
+export interface ApproveSnapshotInput {
+    identifier: string
+    new_hash: string
+}
+
+export interface ApproveRunRequestInput {
+    snapshots: ApproveSnapshotInput[]
+    commit_to_github?: boolean
+}
+
+export interface Artifact {
+    id: string
+    content_hash: string
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    /** @nullable */
+    download_url: string | null
+}
+
 /**
  * * `first_touch` - First Touch
  * `last_touch` - Last Touch
@@ -4311,6 +4772,43 @@ export const AttributionModeEnum = {
     FirstTouch: 'first_touch',
     LastTouch: 'last_touch',
 } as const
+
+export interface RunSummary {
+    total: number
+    changed: number
+    new: number
+    removed: number
+    unchanged: number
+}
+
+export type RunMetadata = { [key: string]: unknown }
+
+export interface Run {
+    id: string
+    repo_id: string
+    status: string
+    run_type: string
+    commit_sha: string
+    branch: string
+    /** @nullable */
+    pr_number: number | null
+    approved: boolean
+    /** @nullable */
+    approved_at: string | null
+    summary: RunSummary
+    /** @nullable */
+    error_message: string | null
+    created_at: string
+    /** @nullable */
+    completed_at: string | null
+    is_stale?: boolean
+    metadata?: RunMetadata
+}
+
+export interface AutoApproveResult {
+    run: Run
+    baseline_content: string
+}
 
 export type AutocompleteCompletionItemKind =
     (typeof AutocompleteCompletionItemKind)[keyof typeof AutocompleteCompletionItemKind]
@@ -5692,6 +6190,7 @@ export type Style = (typeof Style)[keyof typeof Style]
 export const Style = {
     None: 'none',
     Number: 'number',
+    Short: 'short',
     Percent: 'percent',
 } as const
 
@@ -5775,6 +6274,8 @@ export interface ChartSettings {
     seriesBreakdownColumn?: string | null
     /** @nullable */
     showLegend?: boolean | null
+    /** @nullable */
+    showNullsAsZero?: boolean | null
     /** @nullable */
     showTotalRow?: boolean | null
     /** @nullable */
@@ -6780,6 +7281,53 @@ export interface CreateRecordingResponse {
     readonly updated_at: string
     /** Recall.ai upload token for the desktop SDK */
     upload_token: string
+}
+
+export interface CreateRepoInput {
+    repo_full_name: string
+    /** @nullable */
+    repo_external_id?: number | null
+}
+
+export type CreateRunInputBaselineHashes = { [key: string]: string }
+
+export type CreateRunInputMetadata = { [key: string]: unknown }
+
+export type SnapshotManifestItemMetadata = { [key: string]: unknown }
+
+export interface SnapshotManifestItem {
+    identifier: string
+    content_hash: string
+    /** @nullable */
+    width?: number | null
+    /** @nullable */
+    height?: number | null
+    metadata?: SnapshotManifestItemMetadata
+}
+
+export interface CreateRunInput {
+    repo_id: string
+    run_type: string
+    commit_sha: string
+    branch: string
+    snapshots: SnapshotManifestItem[]
+    /** @nullable */
+    pr_number?: number | null
+    baseline_hashes?: CreateRunInputBaselineHashes
+    metadata?: CreateRunInputMetadata
+}
+
+export type UploadTargetFields = { [key: string]: string }
+
+export interface UploadTarget {
+    content_hash: string
+    url: string
+    fields: UploadTargetFields
+}
+
+export interface CreateRunResult {
+    run_id: string
+    uploads: UploadTarget[]
 }
 
 /**
@@ -7928,8 +8476,6 @@ export interface ErrorTrackingIssue {
     library?: string | null
     /** @nullable */
     name?: string | null
-    /** @nullable */
-    revenue?: number | null
     /** @nullable */
     source?: string | null
     status: ErrorTrackingIssueStatus
@@ -9994,7 +10540,6 @@ export const OrderBy1 = {
     Occurrences: 'occurrences',
     Users: 'users',
     Sessions: 'sessions',
-    Revenue: 'revenue',
 } as const
 
 export type OrderDirection1 = (typeof OrderDirection1)[keyof typeof OrderDirection1]
@@ -10037,24 +10582,6 @@ export interface ErrorTrackingQueryResponse {
     timings?: QueryTiming[] | null
 }
 
-export type RevenueEntity = (typeof RevenueEntity)[keyof typeof RevenueEntity]
-
-export const RevenueEntity = {
-    Person: 'person',
-    Group0: 'group_0',
-    Group1: 'group_1',
-    Group2: 'group_2',
-    Group3: 'group_3',
-    Group4: 'group_4',
-} as const
-
-export type RevenuePeriod = (typeof RevenuePeriod)[keyof typeof RevenuePeriod]
-
-export const RevenuePeriod = {
-    AllTime: 'all_time',
-    Mrr: 'mrr',
-} as const
-
 export interface ErrorTrackingQuery {
     assignee?: ErrorTrackingIssueAssignee | null
     dateRange: DateRange
@@ -10079,8 +10606,6 @@ export interface ErrorTrackingQuery {
     /** @nullable */
     personId?: string | null
     response?: ErrorTrackingQueryResponse | null
-    revenueEntity?: RevenueEntity | null
-    revenuePeriod?: RevenuePeriod | null
     /** @nullable */
     searchQuery?: string | null
     status?: ErrorTrackingIssueStatus | string | null
@@ -12116,41 +12641,6 @@ export interface ErrorTrackingAssignmentRule {
     disabled_data?: unknown | null
 }
 
-/**
- * * `web` - Web
- */
-export type LibraryEnum = (typeof LibraryEnum)[keyof typeof LibraryEnum]
-
-export const LibraryEnum = {
-    Web: 'web',
-} as const
-
-/**
- * * `all` - All
- * `any` - Any
- */
-export type MatchTypeEnum = (typeof MatchTypeEnum)[keyof typeof MatchTypeEnum]
-
-export const MatchTypeEnum = {
-    All: 'all',
-    Any: 'any',
-} as const
-
-export interface ErrorTrackingAutoCaptureControls {
-    readonly id: string
-    readonly library: LibraryEnum
-    match_type?: MatchTypeEnum
-    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
-    sample_rate?: string
-    linked_feature_flag?: unknown | null
-    /** @nullable */
-    event_triggers?: (string | null)[] | null
-    /** @nullable */
-    url_triggers?: (unknown | null)[] | null
-    /** @nullable */
-    url_blocklist?: (unknown | null)[] | null
-}
-
 export type ErrorTrackingBreakdownsQueryKind =
     (typeof ErrorTrackingBreakdownsQueryKind)[keyof typeof ErrorTrackingBreakdownsQueryKind]
 
@@ -12717,6 +13207,19 @@ export const ExperimentTypeEnum = {
 } as const
 
 /**
+ * * `draft` - Draft
+ * `running` - Running
+ * `stopped` - Stopped
+ */
+export type ExperimentStatusEnum = (typeof ExperimentStatusEnum)[keyof typeof ExperimentStatusEnum]
+
+export const ExperimentStatusEnum = {
+    Draft: 'draft',
+    Running: 'running',
+    Stopped: 'stopped',
+} as const
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface Experiment {
@@ -12764,6 +13267,7 @@ export interface Experiment {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    readonly status: ExperimentStatusEnum | NullEnum | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -13868,13 +14372,17 @@ export interface ExternalDataSourceSerializers {
     account_id: string
     readonly source_type: SourceTypeE09Enum
     readonly latest_error: string
-    /** @nullable */
-    readonly prefix: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    readonly access_method: AccessMethodEnum
     readonly last_run_at: string
     readonly schemas: string
     job_inputs?: unknown | null
@@ -14084,23 +14592,19 @@ export interface GenerateResponse {
     steps: GenerateStepResponse[]
 }
 
-export type GenerationSentimentScores = { [key: string]: number }
-
-export type MessageSentimentScores = { [key: string]: number }
-
-export interface MessageSentiment {
-    label: string
-    score: number
-    scores: MessageSentimentScores
+export interface GitHubBranchesResponse {
+    /** List of branch names */
+    branches: string[]
 }
 
-export type GenerationSentimentMessages = { [key: string]: MessageSentiment }
+export interface GitHubRepo {
+    id: number
+    name: string
+    full_name: string
+}
 
-export interface GenerationSentiment {
-    label: string
-    score: number
-    scores: GenerationSentimentScores
-    messages: GenerationSentimentMessages
+export interface GitHubReposResponse {
+    repositories: GitHubRepo[]
 }
 
 export interface Group {
@@ -14384,9 +14888,6 @@ export interface HogFlow {
     readonly abort_action: string | null
     variables?: HogFlowVariablesItem[]
     readonly billable_action_types: unknown | null
-    readonly draft: unknown | null
-    /** @nullable */
-    readonly draft_updated_at: string | null
 }
 
 export interface HogFlowMinimal {
@@ -14409,9 +14910,6 @@ export interface HogFlowMinimal {
     readonly abort_action: string | null
     readonly variables: unknown | null
     readonly billable_action_types: unknown | null
-    readonly draft: unknown | null
-    /** @nullable */
-    readonly draft_updated_at: string | null
 }
 
 export type HogFlowTemplateVariablesItem = { [key: string]: string }
@@ -14534,6 +15032,8 @@ export const HogFunctionTypeEnum = {
  * `integration_field` - integration_field
  * `email` - email
  * `native_email` - native_email
+ * `posthog_assignee` - posthog_assignee
+ * `posthog_ticket_tags` - posthog_ticket_tags
  */
 export type InputsSchemaItemTypeEnum = (typeof InputsSchemaItemTypeEnum)[keyof typeof InputsSchemaItemTypeEnum]
 
@@ -14548,6 +15048,8 @@ export const InputsSchemaItemTypeEnum = {
     IntegrationField: 'integration_field',
     Email: 'email',
     NativeEmail: 'native_email',
+    PosthogAssignee: 'posthog_assignee',
+    PosthogTicketTags: 'posthog_ticket_tags',
 } as const
 
 /**
@@ -16389,6 +16891,17 @@ export const InstallCustomAuthTypeEnum = {
     Oauth: 'oauth',
 } as const
 
+/**
+ * * `posthog` - posthog
+ * `twig` - twig
+ */
+export type InstallSourceEnum = (typeof InstallSourceEnum)[keyof typeof InstallSourceEnum]
+
+export const InstallSourceEnum = {
+    Posthog: 'posthog',
+    Twig: 'twig',
+} as const
+
 export interface InstallCustom {
     /** @maxLength 200 */
     name: string
@@ -16398,6 +16911,8 @@ export interface InstallCustom {
     api_key?: string
     description?: string
     oauth_provider_kind?: string
+    install_source?: InstallSourceEnum
+    twig_callback_url?: string
 }
 
 export interface InterestingNote {
@@ -16423,7 +16938,39 @@ export interface LLMPrompt {
     readonly created_by: UserBasic
     readonly created_at: string
     readonly updated_at: string
-    deleted?: boolean
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+export interface LLMPromptPublic {
+    id: string
+    name: string
+    prompt: unknown
+    version: number
+    created_at: string
+    updated_at: string
+    deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+}
+
+export interface LLMPromptVersionSummary {
+    readonly id: string
+    readonly version: number
+    readonly created_by: UserBasic
+    readonly created_at: string
+    readonly is_latest: boolean
+}
+
+export interface LLMPromptResolveResponse {
+    prompt: LLMPrompt
+    versions: LLMPromptVersionSummary[]
+    has_more: boolean
 }
 
 /**
@@ -16518,6 +17065,7 @@ export interface MCPServerInstallation {
     url?: string
     description?: string
     auth_type?: MCPServerInstallationAuthTypeEnum
+    is_enabled?: boolean
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
     readonly proxy_url: string
@@ -16657,6 +17205,14 @@ export interface MessageMinimal {
     content: string
 }
 
+export type MessageSentimentScores = { [key: string]: number }
+
+export interface MessageSentiment {
+    label: string
+    score: number
+    scores: MessageSentimentScores
+}
+
 export interface MessageTemplateContent {
     templating?: Templating186Enum
     email?: EmailTemplate | null
@@ -16771,7 +17327,7 @@ export interface Node {
 
 export interface Notebook {
     readonly id: string
-    readonly short_id: string
+    short_id?: string
     /**
      * @maxLength 256
      * @nullable
@@ -16816,12 +17372,6 @@ export interface NotebookMinimal {
     _create_in_folder?: string
 }
 
-export interface OAuthCallbackRequest {
-    code: string
-    server_id: string
-    state_token: string
-}
-
 export interface OAuthRedirectResponse {
     redirect_url: string
 }
@@ -16842,47 +17392,6 @@ export interface ObjectMediaPreview {
     /** @nullable */
     event_definition_id?: string | null
 }
-
-/**
- * * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- * `regex` - regex
- * `not_regex` - not_regex
- * `gt` - gt
- * `lt` - lt
- * `gte` - gte
- * `lte` - lte
- * `is_set` - is_set
- * `is_not_set` - is_not_set
- * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
- * `is_date_before` - is_date_before
- * `in` - in
- * `not_in` - not_in
- */
-export type OperatorEnum = (typeof OperatorEnum)[keyof typeof OperatorEnum]
-
-export const OperatorEnum = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-    Gt: 'gt',
-    Lt: 'lt',
-    Gte: 'gte',
-    Lte: 'lte',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-    IsDateExact: 'is_date_exact',
-    IsDateAfter: 'is_date_after',
-    IsDateBefore: 'is_date_before',
-    In: 'in',
-    NotIn: 'not_in',
-} as const
 
 export type OrganizationTeamsItem = { [key: string]: unknown }
 
@@ -17432,15 +17941,6 @@ export interface PaginatedErrorTrackingAssignmentRuleList {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingAssignmentRule[]
-}
-
-export interface PaginatedErrorTrackingAutoCaptureControlsList {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingAutoCaptureControls[]
 }
 
 export interface PaginatedErrorTrackingExternalReferenceList {
@@ -18145,7 +18645,6 @@ export interface RecommendedServer {
     name: string
     url: string
     description: string
-    icon_url: string
     auth_type: RecommendedServerAuthTypeEnum
     oauth_provider_kind?: string
 }
@@ -18157,6 +18656,26 @@ export interface PaginatedRecommendedServerList {
     /** @nullable */
     previous?: string | null
     results: RecommendedServer[]
+}
+
+export type RepoBaselineFilePaths = { [key: string]: string }
+
+export interface Repo {
+    id: string
+    team_id: number
+    repo_external_id: number
+    repo_full_name: string
+    baseline_file_paths: RepoBaselineFilePaths
+    created_at: string
+}
+
+export interface PaginatedRepoList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Repo[]
 }
 
 export interface Role {
@@ -18195,6 +18714,15 @@ export interface PaginatedRoleMembershipList {
     /** @nullable */
     previous?: string | null
     results: RoleMembership[]
+}
+
+export interface PaginatedRunList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Run[]
 }
 
 /**
@@ -18434,6 +18962,52 @@ export interface PaginatedSignalSourceConfigList {
     results: SignalSourceConfig[]
 }
 
+export interface SnapshotHistoryEntry {
+    run_id: string
+    result: string
+    branch: string
+    commit_sha: string
+    created_at: string
+}
+
+export interface PaginatedSnapshotHistoryEntryList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SnapshotHistoryEntry[]
+}
+
+export type SnapshotMetadata = { [key: string]: unknown }
+
+export interface Snapshot {
+    current_artifact?: Artifact | null
+    baseline_artifact?: Artifact | null
+    diff_artifact?: Artifact | null
+    id: string
+    identifier: string
+    result: string
+    /** @nullable */
+    diff_percentage: number | null
+    /** @nullable */
+    diff_pixel_count: number | null
+    review_state: string
+    /** @nullable */
+    reviewed_at: string | null
+    approved_hash: string
+    metadata?: SnapshotMetadata
+}
+
+export interface PaginatedSnapshotList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: Snapshot[]
+}
+
 /**
  * * `email` - Email
  * `slack` - Slack
@@ -18456,6 +19030,7 @@ export interface Subscription {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type: TargetTypeEnum
     target_value: string
     frequency: FrequencyEnum
@@ -18991,6 +19566,8 @@ export const PriorityEnum = {
 export interface TicketAssignment {
     readonly id: string
     readonly type: string
+    readonly user: string
+    readonly role: string
 }
 
 export type TicketPersonProperties = { [key: string]: unknown }
@@ -19007,6 +19584,9 @@ export interface TicketPerson {
     readonly is_identified: boolean
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface Ticket {
     readonly id: string
     readonly ticket_number: number
@@ -19040,6 +19620,7 @@ export interface Ticket {
     /** @nullable */
     readonly slack_team_id: string | null
     readonly person: TicketPerson | null
+    tags?: unknown[]
 }
 
 export interface PaginatedTicketList {
@@ -19321,15 +19902,22 @@ export interface PaginatedWebExperimentsAPIList {
 export interface PatchedAction {
     readonly id?: number
     /**
+     * Name of the action (must be unique within the project).
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Human-readable description of what this action represents. */
     description?: string
     tags?: unknown[]
+    /** Whether to post a notification to Slack when this action is triggered. */
     post_to_slack?: boolean
-    /** @maxLength 1200 */
+    /**
+     * Custom Slack message format. Supports templates with event properties.
+     * @maxLength 1200
+     */
     slack_message_format?: string
+    /** Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together. */
     steps?: ActionStepJSON[]
     readonly created_at?: string
     readonly created_by?: UserBasic
@@ -19340,7 +19928,10 @@ export interface PatchedAction {
     readonly is_action?: boolean
     /** @nullable */
     readonly bytecode_error?: string | null
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
+     * @nullable
+     */
     pinned_at?: string | null
     readonly creation_context?: string
     _create_in_folder?: string
@@ -20124,21 +20715,6 @@ export interface PatchedErrorTrackingAssignmentRule {
     disabled_data?: unknown | null
 }
 
-export interface PatchedErrorTrackingAutoCaptureControls {
-    readonly id?: string
-    readonly library?: LibraryEnum
-    match_type?: MatchTypeEnum
-    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
-    sample_rate?: string
-    linked_feature_flag?: unknown | null
-    /** @nullable */
-    event_triggers?: (string | null)[] | null
-    /** @nullable */
-    url_triggers?: (unknown | null)[] | null
-    /** @nullable */
-    url_blocklist?: (unknown | null)[] | null
-}
-
 export interface PatchedErrorTrackingExternalReference {
     readonly id?: string
     readonly integration?: ErrorTrackingExternalReferenceIntegration
@@ -20282,6 +20858,7 @@ export interface PatchedExperiment {
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
     exposure_preaggregation_enabled?: boolean
+    readonly status?: ExperimentStatusEnum | NullEnum | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -20371,13 +20948,17 @@ export interface PatchedExternalDataSourceSerializers {
     account_id?: string
     readonly source_type?: SourceTypeE09Enum
     readonly latest_error?: string
-    /** @nullable */
-    readonly prefix?: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    readonly access_method?: AccessMethodEnum
     readonly last_run_at?: string
     readonly schemas?: string
     job_inputs?: unknown | null
@@ -20611,9 +21192,6 @@ export interface PatchedHogFlow {
     readonly abort_action?: string | null
     variables?: PatchedHogFlowVariablesItem[]
     readonly billable_action_types?: unknown | null
-    readonly draft?: unknown | null
-    /** @nullable */
-    readonly draft_updated_at?: string | null
 }
 
 export type PatchedHogFlowTemplateVariablesItem = { [key: string]: string }
@@ -20807,16 +21385,10 @@ export interface PatchedIntegration {
     readonly display_name?: string
 }
 
-export interface PatchedLLMPrompt {
-    readonly id?: string
-    /** @maxLength 255 */
-    name?: string
+export interface PatchedLLMPromptPublish {
     prompt?: unknown
-    readonly version?: number
-    readonly created_by?: UserBasic
-    readonly created_at?: string
-    readonly updated_at?: string
-    deleted?: boolean
+    /** @minimum 1 */
+    base_version?: number
 }
 
 export interface PatchedLLMProviderKey {
@@ -20856,6 +21428,7 @@ export interface PatchedLiveDebuggerBreakpoint {
 export interface PatchedMCPServerInstallationUpdate {
     display_name?: string
     description?: string
+    is_enabled?: boolean
 }
 
 export interface PatchedMaterializedColumnSlot {
@@ -20945,7 +21518,7 @@ export interface PatchedNode {
 
 export interface PatchedNotebook {
     readonly id?: string
-    readonly short_id?: string
+    short_id?: string
     /**
      * @maxLength 256
      * @nullable
@@ -21557,6 +22130,7 @@ export interface PatchedSubscription {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type?: TargetTypeEnum
     target_value?: string
     frequency?: FrequencyEnum
@@ -21818,6 +22392,7 @@ export interface PatchedTask {
     readonly slug?: string
     /** @maxLength 255 */
     title?: string
+    title_manually_set?: boolean
     description?: string
     origin_product?: OriginProductEnum
     /**
@@ -22124,6 +22699,9 @@ export interface PatchedTeam {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[]
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface PatchedTicket {
     readonly id?: string
     readonly ticket_number?: number
@@ -22157,6 +22735,17 @@ export interface PatchedTicket {
     /** @nullable */
     readonly slack_team_id?: string | null
     readonly person?: TicketPerson | null
+    tags?: unknown[]
+}
+
+/**
+ * @nullable
+ */
+export type PatchedUpdateRepoRequestInputBaselineFilePaths = { [key: string]: string } | null | null
+
+export interface PatchedUpdateRepoRequestInput {
+    /** @nullable */
+    baseline_file_paths?: PatchedUpdateRepoRequestInputBaselineFilePaths
 }
 
 export type PatchedUserNotificationSettings = { [key: string]: unknown }
@@ -22546,67 +23135,53 @@ export interface ProjectBackwardCompat {
 }
 
 /**
- * * `event` - event
- * `event_metadata` - event_metadata
- * `feature` - feature
- * `person` - person
- * `cohort` - cohort
- * `element` - element
- * `static-cohort` - static-cohort
- * `dynamic-cohort` - dynamic-cohort
- * `precalculated-cohort` - precalculated-cohort
- * `group` - group
- * `recording` - recording
- * `log_entry` - log_entry
- * `behavioral` - behavioral
- * `session` - session
- * `hogql` - hogql
- * `data_warehouse` - data_warehouse
- * `data_warehouse_person_property` - data_warehouse_person_property
- * `error_tracking_issue` - error_tracking_issue
- * `log` - log
- * `log_attribute` - log_attribute
- * `log_resource_attribute` - log_resource_attribute
- * `revenue_analytics` - revenue_analytics
- * `flag` - flag
- * `workflow_variable` - workflow_variable
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
+ * `gt` - gt
+ * `lt` - lt
+ * `gte` - gte
+ * `lte` - lte
+ * `is_set` - is_set
+ * `is_not_set` - is_not_set
+ * `is_date_exact` - is_date_exact
+ * `is_date_after` - is_date_after
+ * `is_date_before` - is_date_before
+ * `in` - in
+ * `not_in` - not_in
  */
-export type PropertyItemTypeEnum = (typeof PropertyItemTypeEnum)[keyof typeof PropertyItemTypeEnum]
+export type PropertyItemOperatorEnum = (typeof PropertyItemOperatorEnum)[keyof typeof PropertyItemOperatorEnum]
 
-export const PropertyItemTypeEnum = {
-    Event: 'event',
-    EventMetadata: 'event_metadata',
-    Feature: 'feature',
-    Person: 'person',
-    Cohort: 'cohort',
-    Element: 'element',
-    StaticCohort: 'static-cohort',
-    DynamicCohort: 'dynamic-cohort',
-    PrecalculatedCohort: 'precalculated-cohort',
-    Group: 'group',
-    Recording: 'recording',
-    LogEntry: 'log_entry',
-    Behavioral: 'behavioral',
-    Session: 'session',
-    Hogql: 'hogql',
-    DataWarehouse: 'data_warehouse',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-    ErrorTrackingIssue: 'error_tracking_issue',
-    Log: 'log',
-    LogAttribute: 'log_attribute',
-    LogResourceAttribute: 'log_resource_attribute',
-    RevenueAnalytics: 'revenue_analytics',
-    Flag: 'flag',
-    WorkflowVariable: 'workflow_variable',
+export const PropertyItemOperatorEnum = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Lt: 'lt',
+    Gte: 'gte',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateAfter: 'is_date_after',
+    IsDateBefore: 'is_date_before',
+    In: 'in',
+    NotIn: 'not_in',
 } as const
 
 export interface PropertyItem {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
-    value: string
-    operator?: OperatorEnum | BlankEnum | NullEnum | null
-    type?: PropertyItemTypeEnum | BlankEnum
+    value: string | number | boolean | (string | number)[]
+    operator?: PropertyItemOperatorEnum | BlankEnum | NullEnum | null
+    type?: Type19aEnum | BlankEnum
 }
 
 export interface Property {
@@ -24837,6 +25412,11 @@ export type QueryResponseAlternative65ResultsItem = { [key: string]: unknown }
 
 export interface QueryResponseAlternative65 {
     /**
+     * Box plot data when display type is BoxPlot
+     * @nullable
+     */
+    boxplot_data?: BoxPlotDatum[] | null
+    /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
      */
@@ -25691,21 +26271,26 @@ export interface RepositoryReadinessResponse {
     scan?: ScanEvidence
 }
 
-export type SentimentResponseScores = { [key: string]: number }
+export interface ReviewStateCounts {
+    needs_review: number
+    clean: number
+    processing: number
+    stale: number
+}
 
-export type SentimentResponseGenerations = { [key: string]: GenerationSentiment }
+export type SentimentResultScores = { [key: string]: number }
 
-export interface SentimentResponse {
-    trace_id: string
+export type SentimentResultMessages = { [key: string]: MessageSentiment }
+
+export interface SentimentResult {
     label: string
     score: number
-    scores: SentimentResponseScores
-    generations: SentimentResponseGenerations
-    generation_count: number
+    scores: SentimentResultScores
+    messages: SentimentResultMessages
     message_count: number
 }
 
-export type SentimentBatchResponseResults = { [key: string]: SentimentResponse }
+export type SentimentBatchResponseResults = { [key: string]: SentimentResult }
 
 export interface SentimentBatchResponse {
     results: SentimentBatchResponseResults
@@ -25716,7 +26301,8 @@ export interface SentimentRequest {
      * @minItems 1
      * @maxItems 5
      */
-    trace_ids: string[]
+    ids: string[]
+    analysis_level?: AnalysisLevelEnum
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null
@@ -26169,6 +26755,12 @@ export interface TaskRunCreateRequest {
 * `interactive` - interactive
 * `background` - background */
     mode?: TaskRunCreateRequestModeEnum
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
 }
 
 export interface TaskRunRelayMessageRequest {
@@ -27299,6 +27891,14 @@ export type EnvironmentsIntegrationsListParams = {
     offset?: number
 }
 
+export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
+}
+
 export type EnvironmentsPersistedFolderListParams = {
     /**
      * Number of results to return per page.
@@ -27803,6 +28403,7 @@ export type ApprovalPoliciesListParams = {
 }
 
 export type ChangeRequestsListParams = {
+    action_key?: string
     /**
      * Number of results to return per page.
      */
@@ -27811,6 +28412,13 @@ export type ChangeRequestsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    requester?: number
+    resource_id?: string
+    resource_type?: string
+    /**
+     * Multiple values may be separated by commas.
+     */
+    state?: string[]
 }
 
 export type ColumnConfigurationsListParams = {
@@ -27913,17 +28521,6 @@ export type DesktopRecordingsListParams = {
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingAutocaptureControlsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -28128,6 +28725,34 @@ export type LlmPromptsListParams = {
     offset?: number
 }
 
+export type LlmPromptsNameRetrieveParams = {
+    /**
+     * @minimum 1
+     */
+    version?: number
+}
+
+export type LlmPromptsResolveNameRetrieveParams = {
+    /**
+     * @minimum 1
+     */
+    before_version?: number
+    /**
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * @minimum 1
+     */
+    version?: number
+    version_id?: string
+}
+
 export type MaterializedColumnSlotsListParams = {
     /**
      * Number of results to return per page.
@@ -28151,8 +28776,23 @@ export type McpServerInstallationsListParams = {
 }
 
 export type McpServerInstallationsAuthorizeRetrieveParams = {
+    /**
+     * * `posthog` - posthog
+     * `twig` - twig
+     * @minLength 1
+     */
+    install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource
     server_id: string
+    twig_callback_url?: string
 }
+
+export type McpServerInstallationsAuthorizeRetrieveInstallSource =
+    (typeof McpServerInstallationsAuthorizeRetrieveInstallSource)[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource]
+
+export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
+    Posthog: 'posthog',
+    Twig: 'twig',
+} as const
 
 export type McpServersListParams = {
     /**
@@ -29606,6 +30246,14 @@ export type IntegrationsList2Params = {
     offset?: number
 }
 
+export type IntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
+}
+
 export type LiveDebuggerBreakpointsListParams = {
     filename?: string
     /**
@@ -30401,6 +31049,58 @@ export type TasksRepositoryReadinessRetrieveParams = {
 }
 
 export type UserProductListListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewReposListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by review state
+     */
+    review_state?: string
+}
+
+export type VisualReviewRunsSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsSnapshotsListParams = {
     /**
      * Number of results to return per page.
      */

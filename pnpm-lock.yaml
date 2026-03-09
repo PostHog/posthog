@@ -1116,6 +1116,9 @@ importers:
       '@parcel/transformer-typescript-types':
         specifier: 'catalog:'
         version: 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))(typescript@5.5.4)
+      '@posthog/openapi-codegen':
+        specifier: workspace:*
+        version: link:../tools/openapi-codegen
       '@storybook/addon-actions':
         specifier: 'catalog:'
         version: 7.6.4
@@ -2921,6 +2924,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20260120.0
         version: 4.20260207.0
+      '@posthog/openapi-codegen':
+        specifier: workspace:*
+        version: link:../../tools/openapi-codegen
       '@tailwindcss/postcss':
         specifier: ^4.1.10
         version: 4.2.1
@@ -3027,6 +3033,8 @@ importers:
       jest:
         specifier: ^27.5.1
         version: 27.5.1(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.5.4))
+
+  tools/openapi-codegen: {}
 
 packages:
 

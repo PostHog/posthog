@@ -45,6 +45,7 @@
     },
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260120.0",
+        "@posthog/openapi-codegen": "workspace:*",
         "@tailwindcss/postcss": "^4.1.10",
         "@types/dotenv": "^6.1.1",
         "@types/node": "^22.17.2",
