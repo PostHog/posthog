@@ -33,8 +33,13 @@ export function ErrorIssueListView({ data, onIssueClick }: ErrorIssueListViewPro
             if (!onIssueClick) {
                 return
             }
+
             setViewState({ view: 'loading', name: issue.name })
-            const detail = await onIssueClick(issue)
+            const detail = await onIssueClick(issue).catch((error) => {
+                console.error('Error loading issue detail:', error)
+                return null
+            })
+
             if (detail) {
                 setViewState({ view: 'detail', issue: detail })
             } else {
