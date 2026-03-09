@@ -127,7 +127,7 @@ Respond with JSON: {{"reasoning": "...", "correct": true/false}}
         thoughts = output.get("thoughts")
         thoughts_section = f"\n<classifier_thoughts>\n{thoughts}\n</classifier_thoughts>\n" if thoughts else ""
 
-        response = await client.chat.completions.create(
+        response = await client.chat.completions.create(  # type: ignore[call-overload]
             model=JUDGE_MODEL,
             messages=[
                 {
