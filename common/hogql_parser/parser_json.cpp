@@ -571,6 +571,30 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(SelectStmtWithParens) {
+    if (const auto with_clause_ctx = ctx->withClause()) {
+      Json inner = visitAsJSON(ctx->selectSetStmt());
+      Json ctes = visitAsJSON(with_clause_ctx);
+
+      Json* target = &inner;
+      while (target->isObject() && target->getObject().count("node") &&
+             (*target)["node"].getString() == "SelectSetQuery") {
+        target = &(*target)["initial_select_query"];
+      }
+
+      if (target->isObject() && target->getObject().count("node") &&
+          (*target)["node"].getString() == "SelectQuery") {
+        if ((*target).getObject().count("ctes") && !(*target)["ctes"].isNull()) {
+          for (const auto& cte : ctes.getArray()) {
+            (*target)["ctes"].pushBack(cte);
+          }
+        } else {
+          (*target)["ctes"] = ctes;
+        }
+      }
+
+      return inner;
+    }
+
     if (const auto select_stmt_ctx = ctx->selectStmt()) {
       return visit(select_stmt_ctx);
     }

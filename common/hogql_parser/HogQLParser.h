@@ -607,6 +607,7 @@ public:
     SelectStmtWithParensContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     SelectStmtContext *selectStmt();
+    WithClauseContext *withClause();
     antlr4::tree::TerminalNode *LPAREN();
     SelectSetStmtContext *selectSetStmt();
     antlr4::tree::TerminalNode *RPAREN();

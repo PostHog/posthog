@@ -1561,6 +1561,12 @@ class TestPrinter(BaseTest):
         result = self._select("select sum(event) filter (where event = 'a') from events")
         self.assertIn("FILTER (WHERE", result)
 
+    def test_with_clause_before_parens_select_set_prints(self):
+        self.assertEqual(
+            self._select("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)"),
+            "WITH cte AS (SELECT 1 AS a) SELECT cte.a AS a FROM cte LIMIT 50000 UNION ALL SELECT cte.a AS a FROM cte LIMIT 50000",
+        )
+
         self.assertEqual(
             self._select("select 1 from events where event='name'"),
             f"SELECT 1 FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",

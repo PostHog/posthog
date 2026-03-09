@@ -428,6 +428,19 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return result
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
+        if ctx.withClause():
+            inner = self.visit(ctx.selectSetStmt())
+            ctes = self.visit(ctx.withClause())
+            # Walk into nested SelectSetQuery to find the outermost initial SelectQuery
+            target: ast.SelectQuery | ast.SelectSetQuery = inner
+            while isinstance(target, ast.SelectSetQuery):
+                target = target.initial_select_query
+            if isinstance(target, ast.SelectQuery):
+                if target.ctes:
+                    target.ctes.update(ctes)
+                else:
+                    target.ctes = ctes
+            return inner
         return self.visit(ctx.selectStmt() or ctx.selectSetStmt() or ctx.placeholder())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):

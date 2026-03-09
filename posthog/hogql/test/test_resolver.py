@@ -597,6 +597,13 @@ class TestResolver(BaseTest):
             "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000",
         )
 
+    def test_with_clause_before_parens_select_set(self):
+        printed = self._print_hogql("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)")
+        self.assertEqual(
+            printed,
+            "WITH cte AS (SELECT 1 AS a) SELECT a FROM cte LIMIT 50000 UNION ALL SELECT a FROM cte LIMIT 50000",
+        )
+
     def test_ctes_scalar_subquery(self):
         self.assertEqual(
             self._print_hogql("WITH (SELECT 1) AS x SELECT x FROM events"),

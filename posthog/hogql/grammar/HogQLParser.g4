@@ -53,7 +53,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) SEMICOLON? EOF;
 
-selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
+selectStmtWithParens: selectStmt | withClause LPAREN selectSetStmt RPAREN | LPAREN selectSetStmt RPAREN | placeholder;
 
 subsequentSelectSetClause: (EXCEPT ALL (BY NAME)? | EXCEPT (BY NAME)? | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL (BY NAME)? | INTERSECT DISTINCT (BY NAME)? | INTERSECT (BY NAME)?) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)* limitAndOffsetClauseOptional?;

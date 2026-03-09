@@ -3431,6 +3431,35 @@ def parser_test_factory(backend: HogQLParserBackend):
             assert cte is not None
             assert cte.materialized is False
 
+        def test_with_clause_before_parens_select_set(self):
+            self.assertEqual(
+                self._select("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)"),
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(
+                        select=[ast.Field(chain=["a"])],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["cte"])),
+                        ctes={
+                            "cte": ast.CTE(
+                                name="cte",
+                                expr=ast.SelectQuery(
+                                    select=[ast.Alias(alias="a", expr=ast.Constant(value=1))],
+                                ),
+                                cte_type="subquery",
+                            )
+                        },
+                    ),
+                    subsequent_select_queries=[
+                        ast.SelectSetNode(
+                            set_operator="UNION ALL",
+                            select_query=ast.SelectQuery(
+                                select=[ast.Field(chain=["a"])],
+                                select_from=ast.JoinExpr(table=ast.Field(chain=["cte"])),
+                            ),
+                        )
+                    ],
+                ),
+            )
+
         def test_cte_using_key_is_none_when_omitted(self):
             parsed = self._select("WITH RECURSIVE x(a, b) AS (SELECT 1, 2) SELECT * FROM x;")
             assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
