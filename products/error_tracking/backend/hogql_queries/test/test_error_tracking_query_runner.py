@@ -751,9 +751,9 @@ class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, Clickho
         current_team_id = getattr(self.team, "id", None) if hasattr(self, "team") else None
 
         with connections["default"].cursor() as cursor:
-            # TRUNCATE with CASCADE to handle cross-table FK dependencies automatically.
-            # Explicitly WITHOUT RESTART IDENTITY so postgres sequences keep incrementing
-            # — each test must get a unique team_id for CH data isolation.
+            # TRUNCATE CASCADE (without RESTART IDENTITY) so sequences keep incrementing.
+            # This gives each test a unique team_id — critical for CH data isolation since
+            # CH events from previous tests aren't cleaned between tests.
             cursor.execute("""
                 TRUNCATE
                     posthog_errortrackingissueassignment,
@@ -833,6 +833,32 @@ class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, Clickho
                 "library",
             ],
         )
+
+    # The assignee tests produce SQL with `assignment.user_id = <N>` where N increments
+    # every run (no RESTART IDENTITY). generalize_sql only normalizes team_id, so we
+    # override without @snapshot_clickhouse_queries to keep pure result assertions.
+    @freeze_time("2022-01-10T12:11:00")
+    def test_user_assignee(self):
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
+        self.create_events_and_issue(
+            issue_id=issue_id, fingerprint="assigned_issue_fingerprint", distinct_ids=[self.distinct_id_one]
+        )
+        flush_persons_and_events()
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
+        results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
+        self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_role_assignee(self):
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
+        self.create_events_and_issue(
+            issue_id=issue_id, fingerprint="assigned_issue_fingerprint", distinct_ids=[self.distinct_id_one]
+        )
+        flush_persons_and_events()
+        role = Role.objects.create(name="Test Team", organization=self.organization)
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role, team=self.team)
+        results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
+        self.assertEqual([x["id"] for x in results], [issue_id])
 
     def test_issue_filters(self):
         self.skipTest("Issue property filtering not yet implemented in V2")
