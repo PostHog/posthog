@@ -114,6 +114,16 @@ class AliasCollector(TraversingVisitor):
         return node
 
 
+class FieldCollector(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.fields: list[ast.Field] = []
+
+    def visit_field(self, node: ast.Field):
+        self.fields.append(node)
+        return node
+
+
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
@@ -664,6 +674,7 @@ class Resolver(CloningVisitor):
             table_names = self._get_scope_table_names(scope)
             table_column_aliases = self._get_scope_table_column_aliases(scope)
             table_fields: list[tuple[Optional[str], ast.Expr]] = []
+            excluded_entries: list[tuple[Optional[str], str]] = []
 
             for alias, table_type in scope.tables.items():
                 asterisk_type = ast.AsteriskType(table_type=table_type)
@@ -692,6 +703,8 @@ class Resolver(CloningVisitor):
                     name = str(raw_name)
                     parts = name.split(".")
                     column_name = parts[-1]
+                    qualifier = ".".join(parts[:-1]) if len(parts) > 1 else None
+                    excluded_entries.append((qualifier, column_name))
 
                     if len(parts) > 1:
                         qualifier = ".".join(parts[:-1])
@@ -739,6 +752,63 @@ class Resolver(CloningVisitor):
                     remaining_fields = filtered_fields
 
                 table_fields = remaining_fields
+
+            if node.replace:
+                excluded_column_names = {column_name for _, column_name in excluded_entries}
+                for replace_name in node.replace.keys():
+                    if replace_name in excluded_column_names:
+                        raise QueryError(f'Column "{replace_name}" cannot occur in both EXCLUDE and REPLACE list')
+
+                def matches_excluded(field: ast.Field) -> Optional[str]:
+                    if not all(isinstance(part, str) for part in field.chain):
+                        return None
+                    column_name = cast(str, field.chain[-1])
+                    qualifier = ".".join(cast(list[str], field.chain[:-1])) if len(field.chain) > 1 else None
+                    for excluded_qualifier, excluded_column in excluded_entries:
+                        if excluded_column != column_name:
+                            continue
+                        if excluded_qualifier is None:
+                            return column_name
+                        candidate_aliases = [
+                            alias
+                            for alias in scope.tables.keys()
+                            if alias == excluded_qualifier or table_names.get(alias) == excluded_qualifier
+                        ]
+                        if qualifier in candidate_aliases:
+                            return column_name
+                    return None
+
+                for replace_name, replace_expr in node.replace.items():
+                    collector = FieldCollector()
+                    collector.visit(replace_expr)
+                    for field in collector.fields:
+                        excluded_match = matches_excluded(field)
+                        if excluded_match is not None:
+                            raise QueryError(
+                                f'Replace expression for "{replace_name}" cannot reference excluded column "{excluded_match}"'
+                            )
+
+                replace_match_counts = dict.fromkeys(node.replace.keys(), 0)
+                replaced_fields: list[tuple[Optional[str], ast.Expr]] = []
+                for alias, field in table_fields:
+                    field_name = str(field.chain[-1]) if isinstance(field, ast.Field) else None
+                    if field_name is not None and field_name in node.replace:
+                        replacement = clone_expr(node.replace[field_name])
+                        replace_match_counts[field_name] += 1
+                        replaced_fields.append((alias, ast.Alias(expr=replacement, alias=field_name)))
+                    else:
+                        replaced_fields.append((alias, field))
+
+                missing = [name for name, count in replace_match_counts.items() if count == 0]
+                if missing:
+                    if len(scope.tables) == 1 and len(scope.anonymous_tables) == 0:
+                        [only_alias] = list(scope.tables.keys())
+                        table_label = table_names.get(only_alias, only_alias)
+                    else:
+                        table_label = "the selected tables"
+                    raise QueryError(f'Column "{missing[0]}" in REPLACE list was not found in {table_label}')
+
+                table_fields = replaced_fields
 
             matched_fields = [field for _, field in table_fields]
             if not matched_fields:

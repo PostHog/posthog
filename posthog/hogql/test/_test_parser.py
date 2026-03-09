@@ -1140,6 +1140,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_replace_columns(self):
+            self.assertEqual(
+                self._select("select (* replace (1 as event)) from events"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(all_columns=True, replace={"event": ast.Constant(value=1)})],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
         def test_select_from_placeholder(self):
             self.assertEqual(
                 self._select("select 1 from {placeholder}"),

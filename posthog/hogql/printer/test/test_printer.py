@@ -4787,6 +4787,30 @@ class TestPostgresPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_replace_columns_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT (* REPLACE (1 AS event)) FROM (SELECT 2 AS event, 3 AS other) AS s",
+            ),
+            "SELECT 1 AS event, s.other FROM (SELECT 2 AS event, 3 AS other) AS s LIMIT 50000",
+        )
+
+    def test_replace_columns_with_exclude_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT (* EXCLUDE (b) REPLACE (0 AS a)) FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s",
+            ),
+            "SELECT 0 AS a, s.c FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s LIMIT 50000",
+        )
+
+    def test_replace_columns_with_column_aliases_prints(self):
+        self.assertEqual(
+            self._select(
+                "SELECT (* REPLACE (0 AS a)) FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c)",
+            ),
+            "SELECT 0 AS a, customers.b, customers.c FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c) LIMIT 50000",
+        )
+
     def test_intersect_all(self):
         result = self._select("select 1 as id intersect all select 2 as id")
         self.assertIn("INTERSECT ALL", result)

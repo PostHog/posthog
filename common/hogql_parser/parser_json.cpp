@@ -209,6 +209,15 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   string visitAsString(antlr4::tree::ParseTree* tree) { return any_cast<string>(visit(tree)); }
 
+  Json buildColumnsReplaceJson(HogQLParser::ColumnsReplaceListContext* ctx) {
+    Json replace = Json::object();
+    for (auto item : ctx->columnsReplaceItem()) {
+      string name = visitAsString(item->identifier());
+      replace[name] = visitAsJSON(item->columnExpr());
+    }
+    return replace;
+  }
+
   template <typename T>
   vector<string> visitAsVectorOfStrings(vector<T> tree) {
     vector<string> ret;
@@ -617,16 +626,22 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         } else {
           set_operator = by_name ? "UNION DISTINCT BY NAME" : "UNION DISTINCT";
         }
-      } else if (subsequent->INTERSECT() && subsequent->ALL()) {
-        set_operator = "INTERSECT ALL";
-      } else if (subsequent->INTERSECT() && subsequent->DISTINCT()) {
-        set_operator = "INTERSECT DISTINCT";
       } else if (subsequent->INTERSECT()) {
-        set_operator = "INTERSECT";
-      } else if (subsequent->EXCEPT() && subsequent->ALL()) {
-        set_operator = "EXCEPT ALL";
+        bool by_name = subsequent->BY() && subsequent->NAME();
+        if (subsequent->ALL()) {
+          set_operator = by_name ? "INTERSECT ALL BY NAME" : "INTERSECT ALL";
+        } else if (subsequent->DISTINCT()) {
+          set_operator = by_name ? "INTERSECT DISTINCT BY NAME" : "INTERSECT DISTINCT";
+        } else {
+          set_operator = by_name ? "INTERSECT BY NAME" : "INTERSECT";
+        }
       } else if (subsequent->EXCEPT()) {
-        set_operator = "EXCEPT";
+        bool by_name = subsequent->BY() && subsequent->NAME();
+        if (subsequent->ALL()) {
+          set_operator = by_name ? "EXCEPT ALL BY NAME" : "EXCEPT ALL";
+        } else {
+          set_operator = by_name ? "EXCEPT BY NAME" : "EXCEPT";
+        }
       } else {
         throw SyntaxError(
             "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT ALL, INTERSECT DISTINCT, EXCEPT, and EXCEPT ALL"
@@ -2051,6 +2066,30 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["node"] = "ColumnsExpr";
     if (!is_internal) addPositionInfo(json, ctx);
     json["all_columns"] = true;
+    return json;
+  }
+
+  VISIT(ColumnExprColumnsReplace) {
+    Json json = Json::object();
+    json["node"] = "ColumnsExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["all_columns"] = true;
+    json["replace"] = buildColumnsReplaceJson(ctx->columnsReplaceList());
+    return json;
+  }
+
+  VISIT(ColumnExprColumnsExcludeReplace) {
+    Json json = Json::object();
+    json["node"] = "ColumnsExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["all_columns"] = true;
+    Json exclude = Json::array();
+    vector<string> identifiers = any_cast<vector<string>>(visit(ctx->identifierList()));
+    for (const auto& ident : identifiers) {
+      exclude.pushBack(ident);
+    }
+    json["exclude"] = std::move(exclude);
+    json["replace"] = buildColumnsReplaceJson(ctx->columnsReplaceList());
     return json;
   }
 

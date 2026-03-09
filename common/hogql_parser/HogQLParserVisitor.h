@@ -257,6 +257,8 @@ public:
 
     virtual std::any visitColumnExprSpreadColumnsList(HogQLParser::ColumnExprSpreadColumnsListContext *context) = 0;
 
+    virtual std::any visitColumnExprColumnsExcludeReplace(HogQLParser::ColumnExprColumnsExcludeReplaceContext *context) = 0;
+
     virtual std::any visitColumnExprColumnsExclude(HogQLParser::ColumnExprColumnsExcludeContext *context) = 0;
 
     virtual std::any visitColumnExprColonLambda(HogQLParser::ColumnExprColonLambdaContext *context) = 0;
@@ -272,6 +274,8 @@ public:
     virtual std::any visitColumnExprTryCast(HogQLParser::ColumnExprTryCastContext *context) = 0;
 
     virtual std::any visitColumnExprColumnsList(HogQLParser::ColumnExprColumnsListContext *context) = 0;
+
+    virtual std::any visitColumnExprColumnsReplace(HogQLParser::ColumnExprColumnsReplaceContext *context) = 0;
 
     virtual std::any visitColumnExprSpreadColumnsRegex(HogQLParser::ColumnExprSpreadColumnsRegexContext *context) = 0;
 
@@ -298,6 +302,10 @@ public:
     virtual std::any visitArrowLambda(HogQLParser::ArrowLambdaContext *context) = 0;
 
     virtual std::any visitColonLambda(HogQLParser::ColonLambdaContext *context) = 0;
+
+    virtual std::any visitColumnsReplaceList(HogQLParser::ColumnsReplaceListContext *context) = 0;
+
+    virtual std::any visitColumnsReplaceItem(HogQLParser::ColumnsReplaceItemContext *context) = 0;
 
     virtual std::any visitHogqlxChildElement(HogQLParser::HogqlxChildElementContext *context) = 0;
 

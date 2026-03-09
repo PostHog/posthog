@@ -93,7 +93,7 @@ def _deserialize_node(data: Any) -> Any:
         if key == "ctes" and isinstance(value, list):
             # CTEs are emitted as an array to preserve declaration order
             deserialized_value: Any = {item["name"]: _deserialize_node(item) for item in value}
-        elif isinstance(value, dict) and "node" not in value and key in ("window_exprs", "ctes"):
+        elif isinstance(value, dict) and "node" not in value and key in ("window_exprs", "ctes", "replace"):
             deserialized_value = {k: _deserialize_node(v) for k, v in value.items()}
         else:
             deserialized_value = _deserialize_node(value)

@@ -136,6 +136,9 @@ class TraversingVisitor(Visitor[None]):
         if node.columns:
             for expr in node.columns:
                 self.visit(expr)
+        if node.replace:
+            for expr in node.replace.values():
+                self.visit(expr)
 
     def visit_spread_expr(self, node: ast.SpreadExpr):
         self.visit(node.expr)
@@ -689,6 +692,7 @@ class CloningVisitor(Visitor[Any]):
             columns=[self.visit(col) for col in node.columns] if node.columns else None,
             all_columns=node.all_columns,
             exclude=list(node.exclude) if node.exclude else None,
+            replace={k: self.visit(v) for k, v in node.replace.items()} if node.replace else None,
         )
 
     def visit_spread_expr(self, node: ast.SpreadExpr):

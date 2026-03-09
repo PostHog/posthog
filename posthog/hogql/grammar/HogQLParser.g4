@@ -55,7 +55,7 @@ select: (selectSetStmt | selectStmt | hogqlxTagElement) SEMICOLON? EOF;
 
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
 
-subsequentSelectSetClause: (EXCEPT ALL | EXCEPT | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL | INTERSECT DISTINCT | INTERSECT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT ALL (BY NAME)? | EXCEPT (BY NAME)? | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL (BY NAME)? | INTERSECT DISTINCT (BY NAME)? | INTERSECT (BY NAME)?) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)* limitAndOffsetClauseOptional?;
 limitAndOffsetClauseOptional
     : LIMIT columnExpr PERCENT? (COMMA columnExpr)? (WITH TIES)?
@@ -75,6 +75,7 @@ selectStmt:
     groupByClause? (WITH (CUBE | ROLLUP))? (WITH TOTALS)?
     havingClause?
     qualifyClause?
+    (USING sampleClause)?
     windowClause?
     orderByClause?
     limitByClause?
@@ -134,7 +135,7 @@ joinConstraintClause
     | USING columnExprList
     ;
 
-sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)? (LPAREN identifier RPAREN)?;
+sampleClause: SAMPLE ratioExpr PERCENT? (OFFSET ratioExpr)? (LPAREN identifier RPAREN)?;
 limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
@@ -187,7 +188,13 @@ columnExpr
     | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
     | COLUMNS LPAREN STRING_LITERAL RPAREN                                                # ColumnExprColumnsRegex
     | COLUMNS LPAREN columnExprList RPAREN                                                # ColumnExprColumnsList
+    | (COLUMNS LPAREN ASTERISK EXCLUDE LPAREN identifierList RPAREN REPLACE LPAREN columnsReplaceList RPAREN RPAREN
+      | LPAREN ASTERISK EXCLUDE LPAREN identifierList RPAREN REPLACE LPAREN columnsReplaceList RPAREN RPAREN
+      )                                                                                   # ColumnExprColumnsExcludeReplace
     | COLUMNS LPAREN ASTERISK EXCLUDE LPAREN identifierList RPAREN RPAREN                 # ColumnExprColumnsExclude
+    | (COLUMNS LPAREN ASTERISK REPLACE LPAREN columnsReplaceList RPAREN RPAREN
+      | LPAREN ASTERISK REPLACE LPAREN columnsReplaceList RPAREN RPAREN
+      )                                                                                   # ColumnExprColumnsReplace
     | COLUMNS LPAREN ASTERISK RPAREN                                                      # ColumnExprColumnsAll
     | ASTERISK COLUMNS LPAREN STRING_LITERAL RPAREN                                      # ColumnExprSpreadColumnsRegex
     | ASTERISK COLUMNS LPAREN columnExprList RPAREN                                      # ColumnExprSpreadColumnsList
@@ -265,6 +272,9 @@ columnLambdaExpr:
     ARROW (columnExpr | block)                                                              # ArrowLambda
     | LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr                        # ColonLambda
     ;
+
+columnsReplaceList: columnsReplaceItem (COMMA columnsReplaceItem)*;
+columnsReplaceItem: columnExpr AS identifier;
 
 hogqlxChildElement
     : hogqlxTagElement
@@ -344,7 +354,7 @@ keyword
     | GROUPING | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAMBDA | LAST | LEADING | LEFT | LIKE | LIMIT
     | NAME | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
-    | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
+    | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | REPLACE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TRY_CAST | TO | TOP
     | UNBOUNDED | UNION | UNPIVOT | USING | VALUES | WHEN | WHERE | WINDOW | WITH

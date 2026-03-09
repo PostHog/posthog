@@ -372,6 +372,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 raise SyntaxError(
                     "Set operator must be one of UNION ALL, UNION DISTINCT, UNION [ALL|DISTINCT] BY NAME, INTERSECT, INTERSECT ALL, INTERSECT DISTINCT, EXCEPT, and EXCEPT ALL"
                 )
+            if subsequent.BY() and subsequent.NAME() and not union_type.startswith("UNION"):
+                union_type += " BY NAME"
             select_query = self.visit(subsequent.selectStmtWithParens())
             select_queries.append(
                 SelectSetNode(select_query=select_query, set_operator=cast(ast.SetOperator, union_type))
@@ -1196,6 +1198,23 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprColumnsExclude(self, ctx: HogQLParser.ColumnExprColumnsExcludeContext):
         exclude = self.visit(ctx.identifierList())
         return ast.ColumnsExpr(all_columns=True, exclude=exclude)
+
+    def visitColumnExprColumnsReplace(self, ctx: HogQLParser.ColumnExprColumnsReplaceContext):
+        replace = self._parse_columns_replace_list(ctx.columnsReplaceList())
+        return ast.ColumnsExpr(all_columns=True, replace=replace)
+
+    def visitColumnExprColumnsExcludeReplace(self, ctx: HogQLParser.ColumnExprColumnsExcludeReplaceContext):
+        exclude = self.visit(ctx.identifierList())
+        replace = self._parse_columns_replace_list(ctx.columnsReplaceList())
+        return ast.ColumnsExpr(all_columns=True, exclude=exclude, replace=replace)
+
+    def _parse_columns_replace_list(self, ctx) -> dict[str, ast.Expr]:
+        replace = {}
+        for item in ctx.columnsReplaceItem():
+            name = self.visit(item.identifier())
+            expr = self.visit(item.columnExpr())
+            replace[name] = expr
+        return replace
 
     def visitColumnExprColumnsAll(self, ctx: HogQLParser.ColumnExprColumnsAllContext):
         return ast.ColumnsExpr(all_columns=True)

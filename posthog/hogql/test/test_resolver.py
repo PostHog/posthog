@@ -161,6 +161,88 @@ class TestResolver(BaseTest):
         assert "b" not in selected_names
         assert "c" not in selected_names
 
+    def test_resolve_replace_columns(self):
+        expr = self._select("SELECT (* REPLACE (1 AS event)) FROM events")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "event" not in selected_names
+
+        aliases = [alias for alias in resolved.select if isinstance(alias, ast.Alias)]
+        assert any(
+            alias.alias == "event" and isinstance(alias.expr, ast.Constant) and alias.expr.value == 1
+            for alias in aliases
+        )
+
+    def test_resolve_replace_columns_with_exclude(self):
+        expr = self._select("SELECT (* EXCLUDE (uuid) REPLACE (1 AS event)) FROM events")
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "uuid" not in selected_names
+        assert "event" not in selected_names
+
+        aliases = [alias for alias in resolved.select if isinstance(alias, ast.Alias)]
+        assert any(
+            alias.alias == "event" and isinstance(alias.expr, ast.Constant) and alias.expr.value == 1
+            for alias in aliases
+        )
+
+    def test_resolve_replace_missing_column(self):
+        expr = self._select("SELECT (* REPLACE (1 AS does_not_exist)) FROM events")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            'Column "does_not_exist" in REPLACE list was not found in events',
+        )
+
+    def test_resolve_replace_exclude_same_column(self):
+        expr = self._select("SELECT (* EXCLUDE (event) REPLACE (1 AS event)) FROM events")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            'Column "event" cannot occur in both EXCLUDE and REPLACE list',
+        )
+
+    def test_resolve_replace_expression_references_excluded_column(self):
+        expr = self._select("SELECT (* EXCLUDE (event) REPLACE (concat(event, 'x') AS other)) FROM events")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            'Replace expression for "other" cannot reference excluded column "event"',
+        )
+
+    def test_resolve_replace_with_column_aliases_success(self):
+        expr = self._select(
+            "SELECT (* REPLACE (0 AS a)) FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c)"
+        )
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "a" not in selected_names
+        aliases = [alias for alias in resolved.select if isinstance(alias, ast.Alias)]
+        assert any(
+            alias.alias == "a" and isinstance(alias.expr, ast.Constant) and alias.expr.value == 0 for alias in aliases
+        )
+
+    def test_resolve_replace_with_column_aliases_missing_column(self):
+        expr = self._select(
+            "SELECT (* REPLACE (0 AS customer_id)) FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c)"
+        )
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="postgres")
+        self.assertEqual(
+            str(context.exception),
+            'Column "customer_id" in REPLACE list was not found in customers',
+        )
+
     def test_resolve_lambda_style_dialect_guard(self):
         expr = self._select("SELECT lambda x: x + 1")
 
