@@ -9,7 +9,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
     const installSteps = getIOSStepsPA(ctx, {
         includeExperimentalSpi: true,
         experimentalDescription: dedent`
-            Error tracking is currently experimental. You need to import PostHog with Experimental SPI:
+            Error tracking is currently experimental. You need to import PostHog with the \`Experimental\` SPI group:
             
             \`\`\`swift
             @_spi(Experimental) import PostHog
