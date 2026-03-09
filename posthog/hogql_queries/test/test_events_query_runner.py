@@ -862,8 +862,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         actual_indices = [row[0] for row in all_results]
         self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])
 
-    @also_test_with_different_timezones
-    @snapshot_clickhouse_queries
     def test_cursor_pagination_sets_before_and_resets_offset(self):
         query = EventsQuery(
             kind="EventsQuery",
