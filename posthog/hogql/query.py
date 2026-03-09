@@ -390,7 +390,7 @@ class HogQLQueryExecutor:
         direct_source_ids = self._extract_direct_postgres_sources_from_type(query_type)
 
         if len(direct_source_ids) == 0:
-            if self.connection_id is not None:
+            if self.selected_direct_source_id is not None:
                 raise ExposedHogQLError("Table not found in the selected connection.")
             return
 

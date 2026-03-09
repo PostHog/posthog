@@ -41,6 +41,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.data_warehouse.backend.models import ExternalDataSource
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -295,16 +296,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             status=ExternalDataSource.Status.COMPLETED,
             source_type=ExternalDataSourceType.STRIPE,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
-            prefix="stripe",
         )
 
-        DataWarehouseTable.objects.create(
+        table = DataWarehouseTable.objects.create(
             name="stripe_customers",
             format="Parquet",
             team=self.team,
             external_data_source=selected_source,
             url_pattern="s3://test/stripe_customers",
             columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="customers",
+            source=selected_source,
+            table=table,
+            should_sync=True,
         )
         mock_sync_execute.return_value = ([(1,)], [("id", "Int64")])
 
@@ -315,7 +322,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.results, [(1,)])
-        self.assertIn("stripe_customers", response.clickhouse or "")
+        self.assertIn("s3(", response.clickhouse or "")
         self.assertEqual(mock_sync_execute.call_count, 1)
 
     @pytest.mark.usefixtures("unittest_snapshot")
