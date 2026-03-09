@@ -460,6 +460,49 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         })
     })
 
+    describe('race condition handling', () => {
+        it('discards stale response when a newer loadFeatureFlags is dispatched', async () => {
+            let callIndex = 0
+            useMocks({
+                get: {
+                    '/api/projects/@current/experiments/eligible_feature_flags/': async (req) => {
+                        const thisCall = ++callIndex
+                        const url = new URL(req.url, 'http://localhost')
+                        const search = url.searchParams.get('search') || 'none'
+                        // First call is slow (500ms), second call is fast (0ms).
+                        // Without breakpoint() in the loader, the slow first response
+                        // arrives after the fast second one and overwrites it.
+                        if (thisCall === 1) {
+                            await new Promise((r) => setTimeout(r, 500))
+                        }
+                        return [
+                            200,
+                            {
+                                results: [{ ...mockFeatureFlags[0], key: `result-${search}` }],
+                                count: 1,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            // Dispatch two loads directly to simulate the race:
+            // e.g. openModal fires load #1, then a quick search fires load #2
+            logic.actions.loadFeatureFlags()
+
+            // Small delay so both are in-flight but load #2 starts after load #1
+            await expectLogic(logic).delay(50)
+            logic.actions.setFilters({ search: 'latest' })
+            await expectLogic(logic).delay(350) // wait for debounce to fire load #2
+
+            // Wait for slow first response to also resolve
+            await expectLogic(logic).delay(500)
+
+            // The final value must be the latest search, not the stale slow one
+            expect(logic.values.featureFlags.results[0].key).toBe('result-latest')
+        }, 10000)
+    })
+
     describe('paramsFromFilters selector', () => {
         it('converts filters to API params with limit and offset', async () => {
             await expectLogic(logic, () => {
