@@ -257,7 +257,7 @@ export const sequentialPageviews = {
     ],
     expected: {
         nodes: [
-            { name: '/', count: 8 },
+            { name: 'example.com/', count: 8 },
             { name: '/docs', count: 8 },
             { name: '/pricing', count: 5 },
             { name: '/signup', count: 3 },
