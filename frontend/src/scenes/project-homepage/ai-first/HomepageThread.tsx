@@ -8,6 +8,9 @@ import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { Thread } from 'scenes/max/Thread'
+import { urls } from 'scenes/urls'
+
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -39,7 +42,16 @@ export function HomepageThread(): JSX.Element {
     return (
         <BindLogic logic={maxLogic} props={{ tabId: HOMEPAGE_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <ChatHeader conversationId={conversationId} />
+                <ChatHeader conversationId={conversationId}>
+                    <SceneBreadcrumbBackButton
+                        forceBackTo={{
+                            name: 'Project homepage',
+                            path: urls.projectHomepage(),
+                            type: 'projectTree',
+                            key: 'projectHomepage',
+                        }}
+                    />
+                </ChatHeader>
                 <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0">
                     <ThreadAutoScroller>
                         <Thread className="p-3" />
