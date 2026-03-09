@@ -9,15 +9,20 @@ This module exports:
 - ExecutionResult: Result of command execution
 """
 
+from __future__ import annotations
+
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from django.conf import settings
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
 @dataclass
@@ -74,10 +79,10 @@ class SandboxProtocol(Protocol):
         ...
 
     @staticmethod
-    def create(config: SandboxConfig) -> "SandboxProtocol": ...
+    def create(config: SandboxConfig) -> SandboxProtocol: ...
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "SandboxProtocol": ...
+    def get_by_id(sandbox_id: str) -> SandboxProtocol: ...
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None: ...
@@ -114,6 +119,7 @@ class SandboxProtocol(Protocol):
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -128,7 +134,7 @@ class SandboxProtocol(Protocol):
 
     def is_running(self) -> bool: ...
 
-    def __enter__(self) -> "SandboxProtocol": ...
+    def __enter__(self) -> SandboxProtocol: ...
 
     def __exit__(
         self,

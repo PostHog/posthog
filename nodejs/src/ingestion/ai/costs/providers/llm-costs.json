@@ -1434,7 +1434,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 2.5e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 1e-7,
                 "audio": 7e-7,
                 "internal_reasoning": 4e-7
@@ -1443,7 +1443,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 2.5e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 1e-7,
                 "audio": 7e-7,
                 "input_audio_cache": 1.75e-7,
@@ -1453,7 +1453,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 2.5e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 1e-7,
                 "audio": 7e-7,
                 "input_audio_cache": 1.75e-7,
@@ -1494,7 +1494,7 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
                 "cache_read_token": 3e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 3e-7,
                 "audio": 0.000001,
                 "internal_reasoning": 0.0000025
@@ -1503,7 +1503,7 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
                 "cache_read_token": 3e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 3e-7,
                 "audio": 0.000001,
                 "input_audio_cache": 1e-7,
@@ -1513,7 +1513,7 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
                 "cache_read_token": 3e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 3e-7,
                 "audio": 0.000001,
                 "input_audio_cache": 1e-7,
@@ -1523,7 +1523,7 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
                 "cache_read_token": 3e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 3e-7,
                 "audio": 0.000001,
                 "input_audio_cache": 1e-7,
@@ -1538,7 +1538,7 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
                 "cache_read_token": 3e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 3e-7,
                 "audio": 0.000001,
                 "internal_reasoning": 0.0000025
@@ -1547,7 +1547,7 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
                 "cache_read_token": 3e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 3e-7,
                 "image_output": 0.00003,
                 "audio": 0.000001,
@@ -1558,7 +1558,7 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000025,
                 "cache_read_token": 3e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 3e-7,
                 "image_output": 0.00003,
                 "audio": 0.000001,
@@ -1574,7 +1574,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 1e-7,
                 "audio": 3e-7,
                 "internal_reasoning": 4e-7
@@ -1583,7 +1583,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 1e-7,
                 "audio": 3e-7,
                 "input_audio_cache": 3e-8,
@@ -1593,7 +1593,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 1e-7,
                 "audio": 3e-7,
                 "input_audio_cache": 3e-8,
@@ -1608,7 +1608,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 1e-7,
                 "audio": 3e-7,
                 "internal_reasoning": 4e-7
@@ -1617,7 +1617,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 1e-7,
                 "audio": 3e-7,
                 "input_audio_cache": 3e-8,
@@ -1627,7 +1627,7 @@
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7,
                 "cache_read_token": 1e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 1e-7,
                 "audio": 3e-7,
                 "input_audio_cache": 3e-8,
@@ -1774,7 +1774,7 @@
                 "prompt_token": 5e-7,
                 "completion_token": 0.000003,
                 "cache_read_token": 5e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 5e-7,
                 "audio": 0.000001,
                 "internal_reasoning": 0.000003
@@ -1783,7 +1783,7 @@
                 "prompt_token": 5e-7,
                 "completion_token": 0.000003,
                 "cache_read_token": 5e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 5e-7,
                 "audio": 0.000001,
                 "input_audio_cache": 1e-7,
@@ -1793,7 +1793,7 @@
                 "prompt_token": 5e-7,
                 "completion_token": 0.000003,
                 "cache_read_token": 5e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 5e-7,
                 "audio": 0.000001,
                 "input_audio_cache": 1e-7,
@@ -1897,7 +1897,7 @@
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.0000015,
                 "cache_read_token": 2.5e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 2.5e-7,
                 "audio": 5e-7,
                 "internal_reasoning": 0.0000015
@@ -1906,7 +1906,7 @@
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.0000015,
                 "cache_read_token": 2.5e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 2.5e-7,
                 "audio": 5e-7,
                 "input_audio_cache": 5e-8,
@@ -1916,7 +1916,7 @@
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.0000015,
                 "cache_read_token": 2.5e-8,
-                "cache_write_token": 8.333333333333334e-8,
+                "cache_write_token": 8.333333333e-8,
                 "image": 2.5e-7,
                 "audio": 5e-7,
                 "input_audio_cache": 5e-8,
@@ -2495,8 +2495,8 @@
                 "cache_read_token": 2.5e-8
             },
             "hyperbolic-fp8": {
-                "prompt_token": 1.0000000000000001e-7,
-                "completion_token": 1.0000000000000001e-7
+                "prompt_token": 1e-7,
+                "completion_token": 1e-7
             },
             "nebius-fast": {
                 "prompt_token": 3e-8,
@@ -2562,8 +2562,8 @@
                 "completion_token": 3.4e-7
             },
             "hyperbolic-fp8": {
-                "prompt_token": 1.0000000000000001e-7,
-                "completion_token": 1.0000000000000001e-7
+                "prompt_token": 1e-7,
+                "completion_token": 1e-7
             }
         }
     },
@@ -3567,7 +3567,7 @@
             "fireworks": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.000003,
-                "cache_read_token": 1.0000000000000001e-7
+                "cache_read_token": 1e-7
             },
             "inceptron-int4": {
                 "prompt_token": 5e-7,
@@ -5196,16 +5196,16 @@
         "model": "qwen/qwen-2.5-coder-32b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 2.0000000000000002e-7,
-                "completion_token": 2.0000000000000002e-7
+                "prompt_token": 2e-7,
+                "completion_token": 2e-7
             },
             "cloudflare": {
                 "prompt_token": 6.6e-7,
                 "completion_token": 0.000001
             },
             "hyperbolic-fp8": {
-                "prompt_token": 2.0000000000000002e-7,
-                "completion_token": 2.0000000000000002e-7
+                "prompt_token": 2e-7,
+                "completion_token": 2e-7
             }
         }
     },
@@ -5213,12 +5213,12 @@
         "model": "qwen/qwen-2.5-vl-7b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 2.0000000000000002e-7,
-                "completion_token": 2.0000000000000002e-7
+                "prompt_token": 2e-7,
+                "completion_token": 2e-7
             },
             "hyperbolic-bf16": {
-                "prompt_token": 2.0000000000000002e-7,
-                "completion_token": 2.0000000000000002e-7
+                "prompt_token": 2e-7,
+                "completion_token": 2e-7
             }
         }
     },
@@ -7077,8 +7077,8 @@
             },
             "fireworks": {
                 "prompt_token": 0.000001,
-                "completion_token": 0.0000032000000000000003,
-                "cache_read_token": 2.0000000000000002e-7
+                "completion_token": 0.0000032,
+                "cache_read_token": 2e-7
             },
             "friendli": {
                 "prompt_token": 0.000001,
