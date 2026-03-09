@@ -32,6 +32,7 @@
 
 .LemonModal {
     position: relative;
+    top: 50%;
     display: flex;
     flex-direction: column;
     width: fit-content;
@@ -49,7 +50,7 @@
     transition:
         opacity var(--modal-transition-time) ease-out,
         transform var(--modal-transition-time) ease-out;
-    transform: scale(0.85);
+    transform: translateY(-50%) scale(0.85);
 
     // Transition properties
     will-change: transform;
@@ -66,7 +67,7 @@
 
     &.ReactModal__Content--after-open:not(.ReactModal__Content--before-close) {
         opacity: 1;
-        transform: scale(1);
+        transform: translateY(-50%) scale(1);
     }
 
     .LemonModal__close {
