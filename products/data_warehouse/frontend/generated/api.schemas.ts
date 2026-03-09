@@ -7,20 +7,67 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface DataWarehouseSavedQueryDraftApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
+export interface PaginatedDataWarehouseSavedQueryDraftListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseSavedQueryDraftApi[]
+}
+
+export interface PatchedDataWarehouseSavedQueryDraftApi {
+    readonly id?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
 /**
- * * `Running` - Running
+ * * `Cancelled` - Cancelled
  * `Completed` - Completed
  * `Failed` - Failed
- * `Cancelled` - Cancelled
+ * `Running` - Running
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
 
 export const DataModelingJobStatusEnumApi = {
-    Running: 'Running',
+    Cancelled: 'Cancelled',
     Completed: 'Completed',
     Failed: 'Failed',
-    Cancelled: 'Cancelled',
+    Running: 'Running',
 } as const
 
 export interface DataModelingJobApi {
@@ -55,9 +102,9 @@ export interface PaginatedDataModelingJobListApi {
 export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
 
 export const SyncTypeEnumApi = {
-    full_refresh: 'full_refresh',
-    incremental: 'incremental',
-    append: 'append',
+    FullRefresh: 'full_refresh',
+    Incremental: 'incremental',
+    Append: 'append',
 } as const
 
 /**
@@ -239,10 +286,11 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Brevo` - Brevo
  * `Postmark` - Postmark
  * `Granola` - Granola
+ * `BuildBetter` - BuildBetter
  */
-export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
+export type SourceTypeE09EnumApi = (typeof SourceTypeE09EnumApi)[keyof typeof SourceTypeE09EnumApi]
 
-export const SourceTypeEnumApi = {
+export const SourceTypeE09EnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -255,7 +303,7 @@ export const SourceTypeEnumApi = {
     Salesforce: 'Salesforce',
     MySQL: 'MySQL',
     MongoDB: 'MongoDB',
-    MSSQL: 'MSSQL',
+    Mssql: 'MSSQL',
     Vitally: 'Vitally',
     BigQuery: 'BigQuery',
     Chargebee: 'Chargebee',
@@ -358,7 +406,7 @@ export const SourceTypeEnumApi = {
     OneDrive: 'OneDrive',
     SharePoint: 'SharePoint',
     Box: 'Box',
-    SFTP: 'SFTP',
+    Sftp: 'SFTP',
     MicrosoftTeams: 'MicrosoftTeams',
     Aircall: 'Aircall',
     Webflow: 'Webflow',
@@ -382,6 +430,18 @@ export const SourceTypeEnumApi = {
     Brevo: 'Brevo',
     Postmark: 'Postmark',
     Granola: 'Granola',
+    BuildBetter: 'BuildBetter',
+} as const
+
+/**
+ * * `warehouse` - warehouse
+ * `direct` - direct
+ */
+export type AccessMethodEnumApi = (typeof AccessMethodEnumApi)[keyof typeof AccessMethodEnumApi]
+
+export const AccessMethodEnumApi = {
+    Warehouse: 'warehouse',
+    Direct: 'direct',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -400,15 +460,19 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeEnumApi
+    readonly source_type: SourceTypeE09EnumApi
     readonly latest_error: string
-    /** @nullable */
-    readonly prefix: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    readonly access_method: AccessMethodEnumApi
     readonly last_run_at: string
     readonly schemas: string
     job_inputs?: unknown | null
@@ -440,15 +504,19 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeEnumApi
+    readonly source_type?: SourceTypeE09EnumApi
     readonly latest_error?: string
-    /** @nullable */
-    readonly prefix?: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    readonly access_method?: AccessMethodEnumApi
     readonly last_run_at?: string
     readonly schemas?: string
     job_inputs?: unknown | null
@@ -458,6 +526,37 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface QueryTabStateApi {
+    readonly id: string
+    /**
+            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+            for a user.
+             */
+    state?: unknown | null
+}
+
+export interface PaginatedQueryTabStateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QueryTabStateApi[]
+}
+
+export interface PatchedQueryTabStateApi {
+    readonly id?: string
+    /**
+            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+            for a user.
+             */
+    state?: unknown | null
 }
 
 /**
@@ -473,14 +572,14 @@ export interface PatchedExternalDataSourceSerializersApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -519,6 +618,29 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
+export interface DataWarehouseModelPathApi {
+    readonly id: string
+    path: string
+    team: number
+    /** @nullable */
+    table?: string | null
+    /** @nullable */
+    saved_query?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedDataWarehouseModelPathListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseModelPathApi[]
+}
+
 /**
  * * `Cancelled` - Cancelled
  * `Modified` - Modified
@@ -544,9 +666,9 @@ export const StatusD5cEnumApi = {
 export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
 
 export const OriginEnumApi = {
-    data_warehouse: 'data_warehouse',
-    endpoint: 'endpoint',
-    managed_viewset: 'managed_viewset',
+    DataWarehouse: 'data_warehouse',
+    Endpoint: 'endpoint',
+    ManagedViewset: 'managed_viewset',
 } as const
 
 /**
@@ -683,53 +805,6 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly origin?: OriginEnumApi | NullEnumApi | null
 }
 
-export interface DataWarehouseSavedQueryDraftApi {
-    readonly id: string
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** HogQL query draft */
-    query?: unknown
-    /** @nullable */
-    saved_query_id?: string | null
-    /** @nullable */
-    name?: string | null
-    /**
-     * view history id that the draft branched from
-     * @maxLength 255
-     * @nullable
-     */
-    edited_history_id?: string | null
-}
-
-export interface PaginatedDataWarehouseSavedQueryDraftListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataWarehouseSavedQueryDraftApi[]
-}
-
-export interface PatchedDataWarehouseSavedQueryDraftApi {
-    readonly id?: string
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** HogQL query draft */
-    query?: unknown
-    /** @nullable */
-    saved_query_id?: string | null
-    /** @nullable */
-    name?: string | null
-    /**
-     * view history id that the draft branched from
-     * @maxLength 255
-     * @nullable
-     */
-    edited_history_id?: string | null
-}
-
 /**
  * * `CSV` - CSV
  * `CSVWithNames` - CSVWithNames
@@ -741,7 +816,7 @@ export interface PatchedDataWarehouseSavedQueryDraftApi {
 export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
 
 export const TableFormatEnumApi = {
-    CSV: 'CSV',
+    Csv: 'CSV',
     CSVWithNames: 'CSVWithNames',
     Parquet: 'Parquet',
     JSONEachRow: 'JSONEachRow',
@@ -765,8 +840,10 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeEnumApi
+    readonly source_type: SourceTypeE09EnumApi
 }
+
+export type TableApiOptions = { [key: string]: unknown }
 
 export interface TableApi {
     readonly id: string
@@ -783,6 +860,7 @@ export interface TableApi {
     readonly columns: string
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     readonly external_schema: string
+    options?: TableApiOptions
 }
 
 export interface PaginatedTableListApi {
@@ -833,58 +911,15 @@ export interface ViewLinkValidationApi {
     source_table_key: string
 }
 
-export interface QueryTabStateApi {
-    readonly id: string
-    /** 
-            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-            for a user.
-             */
-    state?: unknown | null
-}
-
-export interface PaginatedQueryTabStateListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: QueryTabStateApi[]
-}
-
-export interface PatchedQueryTabStateApi {
-    readonly id?: string
-    /** 
-            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-            for a user.
-             */
-    state?: unknown | null
-}
-
-export interface DataWarehouseModelPathApi {
-    readonly id: string
-    path: string
-    team: number
-    /** @nullable */
-    table?: string | null
-    /** @nullable */
-    saved_query?: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedDataWarehouseModelPathListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataWarehouseModelPathApi[]
+export type WarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type DataModelingJobsListParams = {
@@ -932,6 +967,28 @@ export type ExternalDataSourcesListParams = {
     search?: string
 }
 
+export type QueryTabStateListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseModelPathsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type WarehouseSavedQueriesListParams = {
     /**
      * A page number within the paginated result set.
@@ -941,17 +998,6 @@ export type WarehouseSavedQueriesListParams = {
      * A search term.
      */
     search?: string
-}
-
-export type WarehouseSavedQueryDraftsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type WarehouseTablesListParams = {
@@ -985,129 +1031,6 @@ export type WarehouseViewLinkListParams = {
 }
 
 export type WarehouseViewLinksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type DataModelingJobsList2Params = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * @nullable
-     */
-    saved_query_id?: string | null
-}
-
-export type ExternalDataSchemasList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type ExternalDataSourcesList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type QueryTabStateListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type WarehouseModelPathsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type WarehouseSavedQueriesList2Params = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type WarehouseTablesList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type WarehouseViewLinkList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type WarehouseViewLinksList2Params = {
     /**
      * Number of results to return per page.
      */

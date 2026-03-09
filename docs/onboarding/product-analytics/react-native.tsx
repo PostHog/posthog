@@ -66,7 +66,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                     export function MyApp() {
                                         return (
                                             <PostHogProvider
-                                                apiKey="<ph_project_api_key>"
+                                                apiKey="<ph_project_token>"
                                                 options={{
                                                     host: "<ph_client_api_host>",
                                                 }}

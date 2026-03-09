@@ -56,7 +56,9 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     const weekStartDay = props.weekStartDay ?? teamWeekStartDay
     const today = dayjs().startOf('day')
 
-    const [leftmostMonth, setLeftmostMonth] = useState<dayjs.Dayjs>((props.leftmostMonth ?? today).startOf('month'))
+    const [leftmostMonth, setLeftmostMonth] = useState<dayjs.Dayjs>(() =>
+        (props.leftmostMonth ?? today).startOf('month')
+    )
     useEffect(() => {
         if (props.leftmostMonth && props.leftmostMonth.isSame(leftmostMonth, 'd')) {
             setLeftmostMonth(props.leftmostMonth)

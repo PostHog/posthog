@@ -10,7 +10,13 @@ import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSo
 import { buildKeaFormDefaultFromSourceDetails, getErrorsForFields } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
-import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    ExternalDataJob,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
 import { externalDataSourcesLogic } from '../../externalDataSourcesLogic'
 import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
@@ -40,6 +46,10 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
+        syncNow: true,
+        setSyncingNow: (syncing: boolean) => ({ syncing }),
+        refreshSchemas: true,
+        setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -141,6 +151,20 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             false as boolean,
             {
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
+            },
+        ],
+        syncingNow: [
+            false as boolean,
+            {
+                setSyncingNow: (_, { syncing }) => syncing,
+                syncNow: () => true,
+            },
+        ],
+        refreshingSchemas: [
+            false as boolean,
+            {
+                setRefreshingSchemas: (_, { refreshing }) => refreshing,
+                refreshSchemas: () => true,
             },
         ],
         sourceConfigLoading: [
@@ -251,6 +275,34 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 return () => clearTimeout(timerId)
             }, 'sourceRefreshTimeout')
         },
+        refreshSchemas: async () => {
+            try {
+                const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
+                actions.loadSource()
+                posthog.capture('schemas refreshed', {
+                    sourceType: values.source?.source_type,
+                    added,
+                    deleted,
+                })
+                const parts = ['Schemas refreshed']
+                if (added > 0 || deleted > 0) {
+                    parts.push(
+                        [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                            .filter(Boolean)
+                            .join(' / ')
+                    )
+                }
+                lemonToast.success(parts.join(', '))
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error("Can't refresh schemas at this time")
+                }
+            } finally {
+                actions.setRefreshingSchemas(false)
+            }
+        },
         loadJobsSuccess: () => {
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
@@ -267,11 +319,24 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 return () => clearTimeout(timerId)
             }, 'jobsRefreshTimeout')
         },
+        syncNow: async () => {
+            try {
+                await api.externalDataSources.reload(values.sourceId)
+                actions.loadSource()
+                actions.loadJobs()
+                lemonToast.success('Sync started')
+                posthog.capture('sync now triggered', { sourceType: values.source?.source_type })
+            } catch (e: any) {
+                lemonToast.error(e.message || "Can't start sync at this time")
+            } finally {
+                actions.setSyncingNow(false)
+            }
+        },
         reloadSchema: async ({ schema }) => {
             // Optimistic UI updates before sending updates to the backend
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-            clonedSource.status = 'Running'
+            clonedSource.status = ExternalDataJobStatus.Running
             clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)
@@ -292,7 +357,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             // Optimistic UI updates before sending updates to the backend
             const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-            clonedSource.status = 'Running'
+            clonedSource.status = ExternalDataJobStatus.Running
             clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
             actions.loadSourceSuccess(clonedSource)

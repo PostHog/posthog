@@ -25,15 +25,17 @@ Manual operations:
     clear_flags_cache(team_id)
 """
 
-import time
 from collections import defaultdict
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -50,7 +52,6 @@ from posthog.models.feature_flag.feature_flag import (
 )
 from posthog.models.tag import Tag
 from posthog.models.team import Team
-from posthog.redis import get_client
 from posthog.storage.cache_expiry_manager import (
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches,
@@ -130,7 +131,6 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         FeatureFlag.objects.filter(
             ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
             team__in=teams,
-            deleted=False,
         ).annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "evaluation_tags__tag__name",
@@ -269,6 +269,7 @@ def verify_team_flags(
             "status": "miss",
             "issue": "CACHE_MISS",
             "details": f"No cache entry found (team has {len(db_flags)} flags in DB)",
+            "db_data": db_data,
         }
 
     # Extract cached flags
@@ -351,6 +352,7 @@ def verify_team_flags(
         "issue": "DATA_MISMATCH",
         "details": f"{', '.join(summary_parts)} flags" if summary_parts else "unknown differences",
         "diff_flags": diff_flags,
+        "db_data": db_data,
     }
 
     if verbose:
@@ -374,25 +376,22 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     return field_diffs
 
 
-def _get_team_ids_with_flags() -> set[int]:
+def get_teams_with_flags_queryset() -> "QuerySet[Team]":
     """
-    Get the set of team IDs that have at least one active, non-deleted flag.
+    Return a queryset of teams that have ever had a feature flag.
 
-    Used by verification to skip expensive DB loads for the ~90% of teams
-    that have zero flags. For those teams, we just verify the cache contains
-    {"flags": []}.
+    Queries via ``objects_including_soft_deleted`` so that teams whose flags
+    were all soft-deleted still get their cache verified (the cache should
+    contain ``{"flags": []}``, not be absent).
+
+    Used as the single source of truth for scoping both Celery verification
+    tasks and management commands to the ~10% of teams that have flags.
     """
-    start_time = time.time()
-    result = set(FeatureFlag.objects.filter(active=True, deleted=False).values_list("team_id", flat=True).distinct())
-    duration_ms = (time.time() - start_time) * 1000
-
-    logger.info(
-        "Loaded team IDs with flags",
-        count=len(result),
-        duration_ms=round(duration_ms, 2),
-    )
-
-    return result
+    # Use Q() to pass team_id as a positional arg, bypassing RootTeamQuerySet.filter()
+    # which intercepts team_id kwargs and adds expensive parent-team JOIN/subquery logic
+    # that makes the correlated EXISTS subquery unusable at scale.
+    has_flags = FeatureFlag.objects_including_soft_deleted.filter(Q(team_id=OuterRef("pk")))
+    return Team.objects.filter(Exists(has_flags))
 
 
 def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
@@ -420,7 +419,7 @@ def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
 
     cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
     return set(
-        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff, active=True, deleted=False)
+        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff, active=True)
         .values_list("team_id", flat=True)
         .distinct()
     )
@@ -431,8 +430,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flags_hypercache,
     update_fn=update_flags_cache,
     cache_name="flags",
-    get_team_ids_needing_full_verification_fn=_get_team_ids_with_flags,
-    empty_cache_value={"flags": []},
+    get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_flags,
 )
 
@@ -451,17 +449,6 @@ def clear_flags_cache(team: Team | int, kinds: list[str] | None = None) -> None:
         return
 
     flags_hypercache.clear_cache(team, kinds=kinds)
-
-    # Remove from expiry tracking sorted set
-    # Note: When team is an int, we use it directly as the identifier. This works
-    # because flags_hypercache is ID-based (token_based=False). For token-based
-    # caches, callers must pass a Team object to derive the correct identifier.
-    try:
-        redis_client = get_client(flags_hypercache.redis_url)
-        identifier = flags_hypercache.get_cache_identifier(team) if isinstance(team, Team) else team
-        redis_client.zrem(FLAGS_CACHE_EXPIRY_SORTED_SET, str(identifier))
-    except Exception as e:
-        logger.warning("Failed to remove from expiry tracking", error=str(e), error_type=type(e).__name__)
 
 
 def get_teams_with_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> list[Team]:

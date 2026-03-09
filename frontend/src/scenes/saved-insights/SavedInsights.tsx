@@ -22,6 +22,8 @@ import {
     IconPlusSmall,
     IconRetention,
     IconRetentionHeatmap,
+    IconHeart,
+    IconHeartFilled,
     IconStar,
     IconStarFilled,
     IconStickiness,
@@ -41,24 +43,27 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { projectLogic } from 'scenes/projectLogic'
-import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { HomeTab } from 'scenes/saved-insights/HomeTab'
 import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -267,12 +272,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         description: 'Direct SQL query.',
         icon: IconBrackets,
         inMenu: true,
-    },
-    [NodeKind.HogQLASTQuery]: {
-        name: 'SQL AST',
-        description: 'Direct SQL AST query.',
-        icon: IconBrackets,
-        inMenu: false,
     },
     [NodeKind.HogQLMetadata]: {
         name: 'SQL Metadata',
@@ -574,6 +573,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.PropertyValuesQuery]: {
+        name: 'Property values',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -691,6 +695,8 @@ export function SavedInsights(): JSX.Element {
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
+    const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
+    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { tab } = filters
 
@@ -724,7 +730,13 @@ export function SavedInsights(): JSX.Element {
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                                 icon={
                                     insight.favorited ? (
-                                        <IconStarFilled className="text-warning" />
+                                        isAIFirst ? (
+                                            <IconHeartFilled className="text-danger" />
+                                        ) : (
+                                            <IconStarFilled className="text-warning" />
+                                        )
+                                    ) : isAIFirst ? (
+                                        <IconHeart className="text-secondary" />
                                     ) : (
                                         <IconStar className="text-secondary" />
                                     )
@@ -774,11 +786,13 @@ export function SavedInsights(): JSX.Element {
                 )
             },
             align: 'right',
+            defaultSortOrder: -1,
             sorter: (a, b) => dayjs(a.created_at || 0).diff(b.created_at || 0),
         },
         {
             title: 'Last modified',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (
@@ -789,6 +803,7 @@ export function SavedInsights(): JSX.Element {
         {
             title: 'Last viewed',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_viewed_at',
             render: function renderLastViewed(last_viewed_at: string | null) {
                 return (
@@ -852,13 +867,26 @@ export function SavedInsights(): JSX.Element {
                                 >
                                     <LemonButton
                                         status="danger"
-                                        onClick={() =>
-                                            void deleteInsightWithUndo({
-                                                object: insight,
-                                                endpoint: `projects/${currentProjectId}/insights`,
-                                                callback: loadInsights,
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Delete insight?',
+                                                description:
+                                                    'Are you sure you want to delete this insight? This action can be undone.',
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () =>
+                                                        void deleteInsightWithUndo({
+                                                            object: insight,
+                                                            endpoint: `projects/${currentProjectId}/insights`,
+                                                            callback: loadInsights,
+                                                        }),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
                                             })
-                                        }
+                                        }}
                                         data-attr={`insight-item-${insight.short_id}-dropdown-remove`}
                                         fullWidth
                                     >
@@ -888,7 +916,22 @@ export function SavedInsights(): JSX.Element {
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
-                    { key: SavedInsightsTabs.All, label: 'All insights' },
+                    ...(showHomeTab
+                        ? [
+                              {
+                                  key: SavedInsightsTabs.Home,
+                                  label: (
+                                      <div className="flex items-center gap-2">
+                                          Home
+                                          <LemonTag type="warning" size="small">
+                                              BETA
+                                          </LemonTag>
+                                      </div>
+                                  ),
+                              },
+                          ]
+                        : []),
+                    { key: SavedInsightsTabs.All, label: 'Insights' },
                     {
                         key: SavedInsightsTabs.Alerts,
                         label: <div className="flex items-center gap-2">Alerts</div>,
@@ -898,7 +941,9 @@ export function SavedInsights(): JSX.Element {
                 sceneInset
             />
 
-            {tab === SavedInsightsTabs.History ? (
+            {tab === SavedInsightsTabs.Home ? (
+                <HomeTab />
+            ) : tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : tab === SavedInsightsTabs.Alerts ? (
                 <Alerts alertId={alertModalId} />

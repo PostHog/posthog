@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useRef } from 'react'
+import { useState } from 'react'
 
 import { Fade } from 'lib/components/Fade/Fade'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
@@ -21,18 +21,22 @@ export function ToolbarContainer(): JSX.Element {
     // spread it in. 🤷‍
     const themeProps = { theme }
 
-    const ref = useRef<HTMLDivElement | null>(null)
+    const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
 
     return (
         <Fade visible={buttonVisible} className="toolbar-global-fade-container">
-            <FloatingContainerContext.Provider value={ref}>
+            <FloatingContainerContext.Provider value={floatingContainer}>
                 <Elements />
                 <ToolbarFixedZones />
                 <div id="button-toolbar" {...themeProps}>
                     <Toolbar />
                 </div>
                 <HedgehogButton />
-                <div ref={ref} className="fixed inset-0 pointer-events-none z-[2147483647] [&>*]:pointer-events-auto" />
+                <div
+                    ref={setFloatingContainer}
+                    {...themeProps}
+                    className="fixed inset-0 pointer-events-none z-[2147483647] [&>*]:pointer-events-auto"
+                />
             </FloatingContainerContext.Provider>
         </Fade>
     )

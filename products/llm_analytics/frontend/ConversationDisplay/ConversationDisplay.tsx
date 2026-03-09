@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import React from 'react'
 
 import { IconChat } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -7,8 +8,8 @@ import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
-import { llmAnalyticsPlaygroundLogic } from '../llmAnalyticsPlaygroundLogic'
-import { normalizeMessages } from '../utils'
+import { llmPlaygroundPromptsLogic } from '../playground/llmPlaygroundPromptsLogic'
+import { normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
@@ -18,22 +19,42 @@ export interface ConversationDisplayProps {
 }
 
 export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
-    const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
+    const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
 
+    const rawInput = eventProperties.$ai_input ?? eventProperties.$ai_input_state
+    const rawOutput = eventProperties.$ai_output_choices ?? eventProperties.$ai_output_state
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
-        input: eventProperties.$ai_input,
-        output: eventProperties.$ai_output_choices,
+        input: rawInput,
+        output: rawOutput,
     })
 
     const handleTryInPlayground = (): void => {
         setupPlaygroundFromEvent({
             model: eventProperties.$ai_model,
+            provider: eventProperties.$ai_provider,
             input,
         })
     }
 
+    const tools = eventProperties.$ai_tools
     const showPlaygroundButton = eventProperties.$ai_model && input
+
+    const inputSourceIndices = React.useMemo(() => {
+        const indices: number[] = []
+        if (tools) {
+            indices.push(-1)
+        }
+        if (Array.isArray(input)) {
+            for (let i = 0; i < input.length; i++) {
+                const expanded = normalizeMessage(input[i], 'user')
+                for (let j = 0; j < expanded.length; j++) {
+                    indices.push(i)
+                }
+            }
+        }
+        return indices
+    }, [input, tools])
 
     return (
         <>
@@ -68,13 +89,15 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                 <AIDataLoading variant="block" />
             ) : (
                 <ConversationMessagesDisplay
-                    inputNormalized={normalizeMessages(input, 'user', eventProperties.$ai_tools)}
+                    inputNormalized={normalizeMessages(input, 'user', tools)}
                     outputNormalized={normalizeMessages(output, 'assistant')}
+                    inputSourceIndices={inputSourceIndices}
                     errorData={eventProperties.$ai_error}
                     httpStatus={eventProperties.$ai_http_status}
                     raisedError={eventProperties.$ai_is_error}
                     bordered
                     traceId={eventProperties.$ai_trace_id}
+                    generationEventId={eventId}
                 />
             )}
         </>

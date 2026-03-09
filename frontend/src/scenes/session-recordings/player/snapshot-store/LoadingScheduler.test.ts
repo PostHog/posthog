@@ -277,6 +277,49 @@ describe('LoadingScheduler', () => {
         })
     })
 
+    describe('load all', () => {
+        it('loads all unloaded sources from the beginning', () => {
+            const store = createLoadedStore(10, [3, 4, 5])
+            const scheduler = new LoadingScheduler()
+            scheduler.loadAll()
+
+            expect(scheduler.currentMode).toEqual({ kind: 'load_all' })
+            const batch = scheduler.getNextBatch(store, 5)
+            expect(batch).toEqual({
+                sourceIndices: [0, 1, 2],
+                reason: 'load_all',
+            })
+        })
+
+        it('skips loaded sources and finds next contiguous unloaded batch', () => {
+            const store = createLoadedStore(10, [0, 1, 2, 5, 6])
+            const scheduler = new LoadingScheduler()
+            scheduler.loadAll()
+
+            const batch = scheduler.getNextBatch(store, 5)
+            expect(batch?.sourceIndices).toEqual([3, 4])
+        })
+
+        it('returns null when all sources are loaded', () => {
+            const allLoaded = Array.from({ length: 10 }, (_, i) => i)
+            const store = createLoadedStore(10, allLoaded)
+            const scheduler = new LoadingScheduler()
+            scheduler.loadAll()
+
+            expect(scheduler.getNextBatch(store, 10)).toBeNull()
+        })
+
+        it('ignores playback position', () => {
+            const store = createLoadedStore(50, [])
+            const scheduler = new LoadingScheduler()
+            scheduler.loadAll()
+
+            // Even with playback at source 40, load_all starts from the beginning
+            const batch = scheduler.getNextBatch(store, 5, tsForMinute(40))
+            expect(batch?.sourceIndices).toEqual([0, 1, 2, 3, 4])
+        })
+    })
+
     describe('isSeeking', () => {
         it('is false in buffer_ahead mode', () => {
             const scheduler = new LoadingScheduler()

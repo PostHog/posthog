@@ -11,20 +11,19 @@ import { useKeyboardNavigation } from './useKeyboardNavigation'
 
 type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 
-export interface LemonMenuItemBase
-    extends Pick<
-        LemonButtonProps,
-        | 'icon'
-        | 'sideIcon'
-        | 'sideAction'
-        | 'disabledReason'
-        | 'tooltip'
-        | 'tooltipPlacement'
-        | 'active'
-        | 'status'
-        | 'data-attr'
-        | 'size'
-    > {
+export interface LemonMenuItemBase extends Pick<
+    LemonButtonProps,
+    | 'icon'
+    | 'sideIcon'
+    | 'sideAction'
+    | 'disabledReason'
+    | 'tooltip'
+    | 'tooltipPlacement'
+    | 'active'
+    | 'status'
+    | 'data-attr'
+    | 'size'
+> {
     label: string | JSX.Element
     key?: React.Key
     /** @deprecated You're probably doing something wrong if you're setting per-item classes. */
@@ -82,7 +81,8 @@ export interface LemonMenuSection {
 export type LemonMenuItems = (LemonMenuItem | LemonMenuSection | false | null)[]
 
 export interface LemonMenuProps
-    extends Pick<
+    extends
+        Pick<
             LemonDropdownProps,
             | 'placement'
             | 'fallbackPlacements'

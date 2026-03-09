@@ -64,6 +64,7 @@
           ExternalDataSourceType.BRAINTREE: BraintreeSourceConfig,
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
           ExternalDataSourceType.BREVO: BrevoSourceConfig,
+          ExternalDataSourceType.BUILDBETTER: BuildBetterSourceConfig,
           ExternalDataSourceType.CALENDLY: CalendlySourceConfig,
           ExternalDataSourceType.CAMPAIGNMONITOR: CampaignMonitorSourceConfig,
           ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,

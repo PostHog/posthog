@@ -1,7 +1,7 @@
 import { ApiClient } from '@/api/client'
+import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { MemoryCache } from '@/lib/cache/MemoryCache'
 import type { InsightQuery } from '@/schema/query'
 import type { Context } from '@/tools/types'
 
@@ -16,6 +16,7 @@ export interface CreatedResources {
     dashboards: number[]
     surveys: string[]
     actions: number[]
+    cohorts: number[]
 }
 
 export function validateEnvironmentVariables(): void {
@@ -109,6 +110,19 @@ export async function cleanupResources(
         }
     }
     resources.actions = []
+
+    for (const cohortId of resources.cohorts) {
+        try {
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/cohorts/${cohortId}/`,
+                body: { deleted: true },
+            })
+        } catch (error) {
+            console.warn(`Failed to cleanup cohort ${cohortId}:`, error)
+        }
+    }
+    resources.cohorts = []
 }
 
 export function parseToolResponse(result: any): any {
@@ -479,3 +493,79 @@ export const SAMPLE_FUNNEL_QUERIES = {
         },
     },
 } as const satisfies Record<SampleFunnelQuery, InsightQuery>
+
+type SamplePathsQuery = 'basicPageviewPaths' | 'customEventPaths' | 'pathsWithStartPoint' | 'pathsWithHogQL'
+
+export const SAMPLE_PATHS_QUERIES = {
+    basicPageviewPaths: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['$pageview'],
+                stepLimit: 5,
+                edgeLimit: 50,
+            },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+    customEventPaths: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['custom_event'],
+                stepLimit: 3,
+                edgeLimit: 30,
+                excludeEvents: ['$feature_flag_called'],
+            },
+            dateRange: {
+                date_from: '-14d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+    pathsWithStartPoint: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['$pageview'],
+                startPoint: '/',
+                stepLimit: 5,
+                edgeLimit: 50,
+            },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+    pathsWithHogQL: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['hogql'],
+                pathsHogQLExpression: 'event',
+                stepLimit: 5,
+                edgeLimit: 50,
+            },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+} as const satisfies Record<SamplePathsQuery, InsightQuery>

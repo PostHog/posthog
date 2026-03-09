@@ -17,8 +17,8 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -28,8 +28,8 @@ import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
-import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
 

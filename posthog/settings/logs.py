@@ -104,6 +104,11 @@ LOGGING = {
             "handlers": ["console"],
             "propagate": False,
         },
+        "posthog.models.resource_transfer.inter_project_transferer": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        },
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
     },

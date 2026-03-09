@@ -12,7 +12,6 @@ export enum Scene {
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     Annotations = 'Annotations',
     Approval = 'Approval',
-    Apps = 'Apps',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -135,14 +134,14 @@ export enum Scene {
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
-    SignalsDebug = 'SignalsDebug',
+
     Site = 'Site',
     Coupons = 'Coupons',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
-    SurveyTemplates = 'SurveyTemplates',
     SurveyWizard = 'SurveyWizard',
+    SurveyFormBuilder = 'SurveyFormBuilder',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
@@ -150,6 +149,7 @@ export enum Scene {
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
     UserInterviews = 'UserInterviews',
+    VercelConnect = 'VercelConnect',
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WebAnalytics = 'WebAnalytics',
@@ -158,6 +158,7 @@ export enum Scene {
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsHealth = 'WebAnalyticsHealth',
     WebAnalyticsLive = 'WebAnalyticsLive',
+    WebScripts = 'WebScripts',
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
@@ -324,7 +325,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
-    [Scene.SurveyTemplates]: AccessControlResourceType.Survey,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

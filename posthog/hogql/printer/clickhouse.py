@@ -736,6 +736,9 @@ class ClickHousePrinter(HogQLPrinter):
             return optimized_materialized_in
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
+        # indexHint() is purely an optimizer directive — its result is always true,
+        # so ifNull wrapping inside it is unnecessary and prevents index usage.
+        in_index_hint = any(isinstance(item, ast.Call) and item.name == "indexHint" for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
         nullable_left = self._is_nullable(node.left)
@@ -823,7 +826,7 @@ class ClickHousePrinter(HogQLPrinter):
             return "1" if constant_lambda(node.left.value, node.right.value) else "0"
 
         # Special cases when we should not add any null checks
-        if in_join_constraint or self.dialect == "hogql" or not_nullable:
+        if in_join_constraint or self.dialect == "hogql" or not_nullable or in_index_hint:
             return op
 
         # Special optimization for "Eq" operator

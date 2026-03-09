@@ -177,6 +177,11 @@ class BrevoSourceConfig(config.Config):
 
 
 @config.config
+class BuildBetterSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class CalendlySourceConfig(config.Config):
     pass
 
@@ -548,7 +553,8 @@ class PendoSourceConfig(config.Config):
 
 @config.config
 class PinterestAdsSourceConfig(config.Config):
-    pass
+    ad_account_id: str
+    pinterest_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -850,6 +856,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BRAINTREE: BraintreeSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.BREVO: BrevoSourceConfig,
+        ExternalDataSourceType.BUILDBETTER: BuildBetterSourceConfig,
         ExternalDataSourceType.CALENDLY: CalendlySourceConfig,
         ExternalDataSourceType.CAMPAIGNMONITOR: CampaignMonitorSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,

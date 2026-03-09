@@ -75,8 +75,10 @@ jobs:
             # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
             # but also really annoying to build CI around when it needs secrets to work right.)
             - id: plan
+              env:
+                  DIST_COMMAND: ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }}
               run: |
-                  dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
+                  dist $DIST_COMMAND --output-format=json > plan-dist-manifest.json
                   echo "dist ran successfully"
                   cat plan-dist-manifest.json
                   echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -300,7 +302,7 @@ jobs:
                   pattern: artifacts-*
                   path: npm/
                   merge-multiple: true
-            - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version: '22.x'
                   registry-url: 'https://registry.npmjs.org'

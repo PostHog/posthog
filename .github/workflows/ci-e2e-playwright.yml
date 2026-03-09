@@ -40,6 +40,10 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     CLICKHOUSE_DATABASE: posthog_test
+    # Database names passed to the plugins Docker service via env var substitution
+    POSTHOG_DB_NAME: posthog_e2e_test
+    POSTHOG_PERSONS_DB_NAME: posthog_persons_e2e_test
+    PLUGIN_SERVER_MODE: ingestion-v2
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -199,7 +203,7 @@ jobs:
                         echo "Attempt $attempt of $max_attempts to start stack..."
 
                         if docker compose -f docker-compose.dev.yml down && \
-                          docker compose -f docker-compose.dev.yml up -d; then
+                          docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
                             echo "Stack started successfully"
                             exit 0
                         fi
@@ -224,7 +228,7 @@ jobs:
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
 
@@ -232,9 +236,9 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Determine if hogql-parser has changed compared to master
               shell: bash
@@ -257,7 +261,7 @@ jobs:
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version: 24.13.0
                   cache: pnpm
@@ -314,22 +318,20 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Setup Emscripten for WASM build
-              uses: ./.github/actions/setup-emsdk
-
-            - name: Install Ninja
-              run: sudo apt-get install -y ninja-build
-
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Start Docker services
-              run: docker compose -f docker-compose.dev.yml up -d
+              run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+              env:
+                  COMPOSE_PROFILES: capture
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              run: bin/wait-for-docker capture
+              env:
+                  COMPOSE_PROFILES: capture
 
             - name: Build frontend
               run: |
@@ -378,11 +380,13 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
-            - name: Start PostHog web & Celery worker
+            - name: Start PostHog web, Celery worker & ingestion
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
+                  # Start the Node.js ingestion container now that the database exists and migrations have run.
+                  docker compose -f docker-compose.dev.yml --profile capture --profile ingestion up -d plugins
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -396,6 +400,11 @@ jobs:
                   interval: 2000
                   verbose: true
 
+            - name: Wait for ingestion service to be ready
+              run: bin/wait-for-docker plugins
+              env:
+                  COMPOSE_PROFILES: capture,ingestion
+
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
@@ -408,7 +417,7 @@ jobs:
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
                   echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 2>&1 | tee /tmp/playwright-output-attempt-1.log
                   EXIT_CODE=$?
                   set +o pipefail
 
@@ -428,7 +437,7 @@ jobs:
                       # Attempt 2: Update snapshots
                       echo "Attempt 2: Running Playwright tests with --update-snapshots"
                       set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
                       EXIT_CODE=$?
                       set +o pipefail
 
@@ -486,7 +495,11 @@ jobs:
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs
               if: always()
-              run: docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
+              run: |
+                  mkdir -p playwright/test-results
+                  docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
+                  docker logs posthog-capture-1 > playwright/test-results/docker-capture.log 2>&1 || echo "No capture container" > playwright/test-results/docker-capture.log
+                  docker logs posthog-plugins-1 > playwright/test-results/docker-plugins.log 2>&1 || echo "No plugins container" > playwright/test-results/docker-plugins.log
 
             - name: Archive test artifacts
               if: always()
@@ -532,10 +545,12 @@ jobs:
 
             - name: Write report URL to job summary
               if: always() && steps.cf-deploy.outputs.deployment-url != ''
+              env:
+                  DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
               run: |
                   echo "## 🎭 Playwright report" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Report URL:** ${{ steps.cf-deploy.outputs.deployment-url }}" >> $GITHUB_STEP_SUMMARY
+                  echo "**Report URL:** $DEPLOYMENT_URL" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
@@ -543,12 +558,14 @@ jobs:
             - name: Upsert report URL comment on PR
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
                       const fs = require('fs');
                       const marker = '<!-- playwright-report-comment -->';
-                      const reportUrl = '${{ steps.cf-deploy.outputs.deployment-url }}';
+                      const reportUrl = process.env.DEPLOYMENT_URL;
                       const jobPassed = '${{ job.status }}' === 'success';
 
                       // Collect failed and flaky tests from JSON report — only populated when
@@ -593,9 +610,10 @@ jobs:
                       });
                       const existing = comments.find(c => c.body.includes(marker));
 
-                      // Only clean up the comment when we actually read results and they're clean
-                      if (resultsRead && !extraLines) {
-                          if (existing) {
+                      // No failures or flakies — nothing to comment about
+                      if (!extraLines) {
+                          // Clean up any existing comment, but only when we know tests actually ran and passed
+                          if (resultsRead && existing) {
                               await github.rest.issues.deleteComment({
                                   owner: context.repo.owner,
                                   repo: context.repo.repo,
@@ -605,11 +623,8 @@ jobs:
                           return;
                       }
 
-                      // Skip posting if there's nothing useful to show
-                      if (!extraLines && !reportUrl) return;
-
                       const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
-                      const footer = '\n\n---\n*Annoyed by this comment? Make the tests green and it\'ll disappear!*';
+                      const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
                       const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
 
                       if (existing) {

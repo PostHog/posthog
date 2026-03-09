@@ -87,23 +87,25 @@ Note: The following insight IDs could not be added (not found or not saved): {mi
 """.strip()
 
 PERMISSION_REQUEST_PROMPT = """
-Updating dashboard: {{{dashboard_name}}}
+## Updating dashboard: {{{dashboard_name}}}
 {{#new_dashboard_name}}
 
-Renaming to: {{{new_dashboard_name}}}
+**Rename to:** {{{new_dashboard_name}}}
 {{/new_dashboard_name}}
 {{#new_dashboard_description}}
 
-Updating description to: {{{new_dashboard_description}}}
+**New description:** {{{new_dashboard_description}}}
 {{/new_dashboard_description}}
 {{#deleted_insights}}
 
-**Removing {{{deleted_count}}} from this dashboard:**
+## Removing {{{deleted_count}}}
+
 {{{deleted_insights}}}
 {{/deleted_insights}}
 {{#new_insights}}
 
-**Adding {{{added_count}}} to this dashboard:**
+## Adding {{{added_count}}}
+
 {{{new_insights}}}
 {{/new_insights}}
 """.strip()

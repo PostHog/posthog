@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { useRef } from 'react'
 
-import { TablePreview, TablePreviewProps } from './TablePreview'
 import { databaseTablePreviewLogic } from './databaseTablePreviewLogic'
+import { TablePreview, TablePreviewProps } from './TablePreview'
 
 export interface DatabaseTablePreviewProps extends Omit<TablePreviewProps, 'loading' | 'previewData'> {
     logicKey?: string

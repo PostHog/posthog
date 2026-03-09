@@ -75,6 +75,19 @@ class TestBatchImportConfigBuilder(BaseTest):
         self.assertEqual(self.batch_import.import_config, expected_config)
         self.assertEqual(self.batch_import.secrets["urls"], urls)
 
+    def test_to_capture_configuration(self):
+        urls = ["http://example.com/data.json"]
+
+        self.batch_import.config.json_lines(ContentType.AMPLITUDE).from_urls(urls).to_capture(send_rate=1000)
+
+        expected_config = {
+            "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
+            "source": {"type": "url_list", "urls_key": "urls", "allow_internal_ips": False, "timeout_seconds": 30},
+            "sink": {"type": "capture", "send_rate": 1000},
+        }
+        self.assertEqual(self.batch_import.import_config, expected_config)
+        self.assertEqual(self.batch_import.secrets["urls"], urls)
+
     def test_with_generate_identify_events_configuration(self):
         """Test that generate_identify_events is added as a top-level config field"""
         self.batch_import.config.json_lines(ContentType.AMPLITUDE).with_generate_identify_events(True)
@@ -236,6 +249,10 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertNotIn("import_events", batch_import.import_config)
         self.assertNotIn("generate_identify_events", batch_import.import_config)
         self.assertNotIn("generate_group_identify_events", batch_import.import_config)
+
+        # Verify sink defaults to capture
+        self.assertEqual(batch_import.import_config["sink"]["type"], "capture")
+        self.assertEqual(batch_import.import_config["sink"]["send_rate"], 1000)
 
     def test_amplitude_migration_includes_amplitude_specific_fields(self):
         """Test that Amplitude migrations include import_events and generate_identify_events in config"""

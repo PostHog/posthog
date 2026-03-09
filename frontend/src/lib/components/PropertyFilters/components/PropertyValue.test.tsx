@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
@@ -21,8 +22,14 @@ describe('PropertyValue', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/event/values': [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
-                '/api/environments/:team/events/values': [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
+                '/api/event/values': {
+                    results: [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
+                    refreshing: false,
+                },
+                '/api/environments/:team/events/values': {
+                    results: [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
+                    refreshing: false,
+                },
             },
         })
         initKeaTests()

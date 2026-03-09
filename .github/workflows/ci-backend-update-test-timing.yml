@@ -40,6 +40,8 @@ jobs:
 
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Find CI run to use
               id: find-run
@@ -88,8 +90,9 @@ jobs:
             - name: Download timing artifacts
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
               run: |
-                  gh run download ${{ steps.find-run.outputs.run_id }} --pattern "timing_data-*" --dir timing_artifacts
+                  gh run download "$RUN_ID" --pattern "timing_data-*" --dir timing_artifacts
 
             - name: Process timing data
               run: |

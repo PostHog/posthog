@@ -250,7 +250,7 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
         return null
     }
 
-    return <div className="flex flex-wrap gap-1 flex-1 min-w-0 overflow-hidden">{allTags}</div>
+    return <>{allTags}</>
 }
 
 export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -33,7 +34,7 @@ func ServedHandler(stats *events.Stats) func(c echo.Context) error {
 	}
 }
 
-func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c echo.Context) error {
+func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisStore *events.StatsInRedis) func(c echo.Context) error {
 	return func(c echo.Context) error {
 
 		type resp struct {
@@ -47,6 +48,27 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
 
+		if redisStore != nil {
+			ctx := c.Request().Context()
+			userCount, userErr := redisStore.GetUserCount(ctx, token)
+			sessionCount, sessionErr := redisStore.GetSessionCount(ctx, token)
+
+			if userErr == nil && sessionErr == nil {
+				if userCount == 0 && sessionCount == 0 {
+					return c.JSON(http.StatusOK, resp{Error: "no stats"})
+				}
+
+				siteStats := resp{}
+				siteStats.UsersOnProduct = int(userCount)
+				siteStats.ActiveRecordings = int(sessionCount)
+
+				return c.JSON(http.StatusOK, siteStats)
+			}
+
+			log.Printf("Redis read failed, falling back to local LRU: users_err=%v sessions_err=%v", userErr, sessionErr)
+		}
+
+		// Fallback to local LRU until V2 migration is complete
 		userStore := stats.GetExistingStoreForToken(token)
 		sessionCount := sessionStats.CountForToken(token)
 

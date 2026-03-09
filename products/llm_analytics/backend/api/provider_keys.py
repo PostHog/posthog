@@ -1,4 +1,4 @@
-from typing import cast
+import logging
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -13,7 +13,6 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -24,10 +23,16 @@ from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 
+logger = logging.getLogger(__name__)
+
 
 def validate_provider_key(provider: str, api_key: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
-    return Client.validate_key(provider, api_key)
+    try:
+        return Client.validate_key(provider, api_key)
+    except Exception:
+        logger.exception(f"Provider key validation failed for provider '{provider}'")
+        return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
 
 class LLMProviderKeySerializer(serializers.ModelSerializer):
@@ -60,7 +65,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return "****"
 
     def validate_api_key(self, value: str) -> str:
-        provider = self.initial_data.get("provider", LLMProvider.OPENAI)
+        provider = self.initial_data.get("provider", self.instance.provider if self.instance else LLMProvider.OPENAI)
 
         if provider == LLMProvider.OPENAI:
             if not value.startswith(("sk-", "sk-proj-")):
@@ -70,7 +75,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ANTHROPIC:
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        # Gemini and OpenRouter keys have no standard prefix, so no format validation needed
+        # Gemini, OpenRouter, and Fireworks keys have no standard prefix, so no format validation needed
 
         return value
 
@@ -130,13 +135,14 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def perform_create(self, serializer):
         instance = serializer.save()
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma provider key created",
             {
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -150,25 +156,27 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
         if changed_fields:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma provider key updated",
                 {
                     "provider_key_id": str(instance.id),
                     "provider": instance.provider,
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
     def perform_destroy(self, instance):
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma provider key deleted",
             {
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
         instance.delete()
 
@@ -191,14 +199,15 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         instance.save(update_fields=["state", "error_message"])
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "llma provider key validated",
             {
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
                 "state": instance.state,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
         serializer = self.get_serializer(instance)

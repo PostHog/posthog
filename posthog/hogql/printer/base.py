@@ -108,9 +108,15 @@ class HogQLPrinter(Visitor[str]):
         return response
 
     def visit_cte(self, node: ast.CTE):
-        if node.cte_type == "subquery":
-            return f"{node.name} AS {self.visit(node.expr)}"
+        if node.materialized is not None:
+            raise ImpossibleASTError(f"CTE materialization hints are not supported in the '{self.dialect}' dialect")
+        if node.using_key is not None:
+            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.dialect}' dialect")
 
+        if node.cte_type == "subquery":
+            if node.columns is not None:
+                raise NotImplementedError("CTE column name lists are not supported in this dialect")
+            return f"{node.name} AS {self.visit(node.expr)}"
         return f"{self.visit(node.expr)} AS {node.name}"
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
@@ -123,6 +129,8 @@ class HogQLPrinter(Visitor[str]):
             if self.pretty:
                 query = query.strip()
             if expr.set_operator is not None:
+                if expr.set_operator in ("INTERSECT ALL", "EXCEPT ALL") and self.dialect != "postgres":
+                    raise ImpossibleASTError(f"{expr.set_operator} is not supported in the '{self.dialect}' dialect")
                 if self.pretty:
                     ret += f"\n{self.indent(1)}{expr.set_operator}\n{self.indent(1)}"
                 else:
@@ -180,6 +188,10 @@ class HogQLPrinter(Visitor[str]):
             columns = ["1"]
 
         ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
+        has_recursive_cte = any(cte.recursive for cte in node.ctes.values()) if node.ctes else False
+
+        if has_recursive_cte and self.dialect != "postgres":
+            raise ImpossibleASTError("Recursive CTEs are only supported in PostgreSQL dialect")
 
         window = (
             ", ".join(
@@ -211,7 +223,7 @@ class HogQLPrinter(Visitor[str]):
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
         clauses = [
-            f"WITH{space}{comma.join(ctes)}" if ctes else None,
+            f"WITH{' RECURSIVE' if has_recursive_cte else ''}{space}{comma.join(ctes)}" if ctes else None,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,

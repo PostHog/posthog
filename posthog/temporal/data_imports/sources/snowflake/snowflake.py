@@ -19,23 +19,25 @@ from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSou
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 
-def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def filter_snowflake_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type == "datetime":
-            results.append((column_name, IncrementalFieldType.DateTime))
+            results.append((column_name, IncrementalFieldType.DateTime, nullable))
         elif type == "numeric":
-            results.append((column_name, IncrementalFieldType.Numeric))
+            results.append((column_name, IncrementalFieldType.Numeric, nullable))
 
     return results
 
 
-def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str]]]:
+def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str, bool]]]:
     auth_connect_args: dict[str, str | None] = {}
     file_name: str | None = None
 
@@ -70,14 +72,14 @@ def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str]
                 raise Exception("Can't create cursor to Snowflake")
 
             cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
                 {"schema": config.schema},
             )
             result = cursor.fetchall()
 
-            schema_list = collections.defaultdict(list)
+            schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
             for row in result:
-                schema_list[row[0]].append((row[1], row[2]))
+                schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     if file_name is not None:
         os.unlink(file_name)

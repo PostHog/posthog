@@ -7,7 +7,7 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { FeatureFlagKey, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -19,22 +19,22 @@ import { getProductIcon } from 'scenes/onboarding/productSelection/ProductSelect
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
-import { BillingGauge } from './BillingGauge'
-import { BillingLimit } from './BillingLimit'
-import { BillingProductAddon } from './BillingProductAddon'
-import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { ProductPricingModal } from './ProductPricingModal'
-import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 import {
     createGaugeItems,
     createProductValueFormatter,
     getProductUnitLabel,
     isProductVariantPrimary,
 } from './billing-utils'
+import { BillingGauge } from './BillingGauge'
+import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
+import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
+import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
+import { ProductPricingModal } from './ProductPricingModal'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const getTierDescription = (
     tiers: BillingTierType[],
@@ -109,7 +109,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     // If the feature flag `billing_hide_product_{product.type}` is true,
     // don't show the product in the billing page.
     const hideProductFlag = `billing_hide_product_${product.type}`
-    if (featureFlags[hideProductFlag] === true) {
+    if (featureFlags[hideProductFlag as FeatureFlagKey] === true) {
         return null
     }
 

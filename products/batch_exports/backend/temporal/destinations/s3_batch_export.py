@@ -413,8 +413,8 @@ class ConcurrentS3Consumer(Consumer):
         data_interval_end: str,
         batch_export_model: BatchExportModel | None,
         file_format: str,
-        aws_access_key_id: str | None,
-        aws_secret_access_key: str | None,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
         kms_key_id: str | None = None,
         max_file_size_mb: int | None = None,
         compression: str | None = None,
@@ -481,6 +481,9 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
     ):
+        if not s3_inputs.aws_access_key_id or not s3_inputs.aws_secret_access_key:
+            raise InvalidCredentialsError()
+
         return cls(
             bucket=s3_inputs.bucket_name,
             region_name=s3_inputs.region,

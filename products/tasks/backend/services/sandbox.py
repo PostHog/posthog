@@ -106,7 +106,15 @@ class SandboxProtocol(Protocol):
         """
         ...
 
-    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> None:
+    def start_agent_server(
+        self,
+        repository: str,
+        task_id: str,
+        run_id: str,
+        mode: str = "background",
+        interaction_origin: str | None = None,
+        branch: str | None = None,
+    ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()

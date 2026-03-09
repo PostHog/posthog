@@ -2,6 +2,7 @@
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import 'chartjs-adapter-dayjs-3'
+
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
@@ -28,12 +29,16 @@ import {
 } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hexToRGBA, uuid } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
 import { resolveVariableColor } from 'scenes/insights/views/LineGraph/LineGraph'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
@@ -45,6 +50,8 @@ import { lineGraphLogic } from './lineGraphLogic'
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
 Chart.register(chartTrendline)
+
+const TOOLTIP_ROW_CUTOFF = 8
 
 const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): GraphType => {
     if (!settings || !settings.display || !settings.display.displayType || settings.display?.displayType === 'auto') {
@@ -126,12 +133,14 @@ export const LineGraph = ({
     goalLines = [],
     className,
 }: LineGraphProps): JSX.Element => {
-    const { tooltipId, getTooltip } = useInsightTooltip()
+    const { tooltipId, getTooltip, positionTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
     const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
     const { setHoveredDatasetIndex } = useActions(lineGraphLogic({ key: logicKey }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { timezone } = useValues(teamLogic)
     const isShiftPressed = useKeyHeld('Shift')
 
     useEffect(() => {
@@ -252,7 +261,9 @@ export const LineGraph = ({
                 datasets,
             }
 
-            const annotations = goalLines.reduce(
+            const annotations = goalLines.reduce<{
+                annotations: Record<string, LineAnnotationOptions & { type: 'line' }>
+            }>(
                 (acc, cur, curIndex) => {
                     const line: LineAnnotationOptions = {
                         borderWidth: 2,
@@ -312,8 +323,8 @@ export const LineGraph = ({
 
                     return acc
                 },
-                { annotations: {} } as AnnotationPluginOptions
-            )
+                { annotations: {} }
+            ) as AnnotationPluginOptions
 
             const tickOptions: Partial<TickOptions> = {
                 color: colors.axisLabel as Color,
@@ -329,6 +340,15 @@ export const LineGraph = ({
                 tickColor: colors.axisLine as Color,
                 tickBorderDash: [4, 2],
             }
+
+            const isDateAxis = xSeriesData.column.type.name === 'DATE' || xSeriesData.column.type.name === 'DATETIME'
+            const xAxisTickCallback =
+                featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN] && isDateAxis
+                    ? createXAxisTickCallback({
+                          allDays: xSeriesData.data,
+                          timezone,
+                      })
+                    : undefined
 
             const options: ChartOptions = {
                 responsive: true,
@@ -404,9 +424,21 @@ export const LineGraph = ({
                                 const referenceDataPoint = tooltip.dataPoints[0]
 
                                 // Filter series data based on highlight mode
-                                const filteredSeriesData = isHighlightBarMode
+                                let filteredSeriesData = isHighlightBarMode
                                     ? ySeriesData.filter((_, index) => index === referenceDataPoint.datasetIndex)
                                     : ySeriesData
+                                const stackedSeriesTotalAtIndex =
+                                    isStackedBarChart && chartSettings.stackBars100
+                                        ? ySeriesData.reduce(
+                                              (acc, series) => acc + series.data[referenceDataPoint.dataIndex],
+                                              0
+                                          )
+                                        : null
+
+                                const isTruncated = filteredSeriesData.length > TOOLTIP_ROW_CUTOFF
+                                if (isTruncated) {
+                                    filteredSeriesData = filteredSeriesData.slice(0, TOOLTIP_ROW_CUTOFF)
+                                }
 
                                 const tooltipData = filteredSeriesData.map((series, index) => {
                                     const seriesName =
@@ -423,6 +455,7 @@ export const LineGraph = ({
                                         dataIndex: referenceDataPoint.dataIndex,
                                         isTotalRow: false,
                                         seriesIndex: seriesIndex,
+                                        stackedSeriesTotalAtIndex,
                                     }
                                 })
 
@@ -450,6 +483,7 @@ export const LineGraph = ({
                                         dataIndex: referenceDataPoint.dataIndex,
                                         isTotalRow: true,
                                         seriesIndex: -1,
+                                        stackedSeriesTotalAtIndex,
                                     })
                                 }
 
@@ -464,8 +498,13 @@ export const LineGraph = ({
                                                     render: (value, record) => {
                                                         if (record.isTotalRow) {
                                                             return (
-                                                                <div className="datum-label-column font-extrabold">
-                                                                    Total
+                                                                <div className="datum-label-column">
+                                                                    <span className="font-extrabold">Total</span>
+                                                                    {isTruncated && (
+                                                                        <span className="text-xs text-muted ml-1">
+                                                                            (incl. hidden series)
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                             )
                                                         }
@@ -489,9 +528,14 @@ export const LineGraph = ({
                                                     dataIndex: 'data',
                                                     render: (value, record) => {
                                                         if (isStackedBarChart && chartSettings.stackBars100) {
-                                                            const total = ySeriesData
-                                                                .map((n) => n.data[record.dataIndex])
-                                                                .reduce((acc, cur) => acc + cur, 0)
+                                                            const total = record.stackedSeriesTotalAtIndex
+                                                            if (!total) {
+                                                                return (
+                                                                    <div className="series-data-cell">
+                                                                        {String(value)}
+                                                                    </div>
+                                                                )
+                                                            }
                                                             const percentageLabel: number = parseFloat(
                                                                 ((record.rawData / total) * 100).toFixed(1)
                                                             )
@@ -519,6 +563,11 @@ export const LineGraph = ({
                                             }}
                                             showHeader
                                         />
+                                        {isTruncated && (
+                                            <div className="text-xs text-muted p-2 border-t">
+                                                For readability, <b>not all series are displayed</b>
+                                            </div>
+                                        )}
                                         {isBarChart && isStackedBarChart && !isHighlightBarMode && (
                                             <div className="text-xs text-muted p-2 border-t">
                                                 Hold Shift (⇧) to highlight individual bars
@@ -529,21 +578,9 @@ export const LineGraph = ({
                             }
 
                             const bounds = canvas.getBoundingClientRect()
-                            const verticalBarTopOffset = isHighlightBarMode
-                                ? tooltip.caretY - tooltipEl.clientHeight / 2
-                                : 0
-                            const tooltipClientTop = bounds.top + window.pageYOffset + verticalBarTopOffset
-
-                            const chartClientLeft = bounds.left + window.pageXOffset
-                            const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
-                            const maxXPosition = bounds.right - tooltipEl.clientWidth
-                            const tooltipClientLeft =
-                                defaultOffsetLeft > maxXPosition
-                                    ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8
-                                    : defaultOffsetLeft
-
-                            tooltipEl.style.top = tooltipClientTop + 'px'
-                            tooltipEl.style.left = tooltipClientLeft + 'px'
+                            const centerVertically = isHighlightBarMode
+                            const caretY = centerVertically ? tooltip.caretY : 0
+                            positionTooltip(tooltipEl, bounds, tooltip.caretX, caretY, centerVertically)
                         },
                     },
                 },
@@ -569,6 +606,9 @@ export const LineGraph = ({
                         ticks: {
                             ...tickOptions,
                             display: chartSettings.showXAxisTicks ?? true,
+                            ...(xAxisTickCallback
+                                ? { callback: xAxisTickCallback, maxRotation: 0, autoSkipPadding: 20 }
+                                : {}),
                         },
                         grid: {
                             ...gridOptions,
@@ -624,6 +664,7 @@ export const LineGraph = ({
             getTooltip,
             isHighlightBarMode,
             hoveredDatasetIndex,
+            timezone,
         ],
     })
 

@@ -29,8 +29,8 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { DateRangeFilter } from '../DateRangeFilter'
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
@@ -171,9 +171,9 @@ const LogsFilterSearch = (): JSX.Element => {
             filterGroup: logsFilters.filterGroup,
             serviceNames: logsFilters.serviceNames,
         },
-        onChange: (taxonomicGroup, value, item, originalQuery) => {
+        onChange: (taxonomicGroup, value, item) => {
             if (item.value === undefined) {
-                addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                addGroupFilter(taxonomicGroup, value, item)
                 setVisible(false)
                 return
             }

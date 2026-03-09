@@ -10,10 +10,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
+import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StackTraceTab } from './Tabs/StackTraceTab'
-import { exceptionCardLogic } from './exceptionCardLogic'
 
 interface ExceptionCardContentProps {
     timestamp?: string

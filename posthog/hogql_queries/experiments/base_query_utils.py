@@ -25,6 +25,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    aggregation_needs_numeric_input,
     build_aggregation_call,
     extract_aggregation_and_inner_expr,
 )
@@ -133,7 +134,7 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             # Extract the inner expression from the HogQL expression
             math_hogql = source.math_hogql
             if math_hogql:
-                _, inner_expr, _ = extract_aggregation_and_inner_expr(math_hogql)
+                _, inner_expr, _, _ = extract_aggregation_and_inner_expr(math_hogql)
                 return inner_expr
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
@@ -348,11 +349,15 @@ def get_source_aggregation_expr(
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    # Build the aggregation with params if it's a parametric function
-                    inner_value_expr = parse_expr(f"coalesce(toFloat({table_alias}.value), 0)")
-                    return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
+                    inner_value_expr = parse_expr(f"{table_alias}.value")
+                    if aggregation_needs_numeric_input(aggregation_function):
+                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
+                    agg_call = build_aggregation_call(
+                        aggregation_function, inner_value_expr, params=params, distinct=distinct
+                    )
+                    return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Default to sum if no aggregation function is found
             return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 

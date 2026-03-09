@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { HogTransformerService, TransformationResult } from '../../../cdp/hog-transformations/hog-transformer.service'
 

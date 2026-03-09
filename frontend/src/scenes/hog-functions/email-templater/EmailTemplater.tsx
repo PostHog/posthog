@@ -1,5 +1,3 @@
-import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
-
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
@@ -18,6 +16,7 @@ import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
 
+import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
@@ -199,7 +198,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                                     </LemonButton>
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" className="flex-1" />
+                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
                             </>
                         )}
                     </LemonField>
@@ -557,6 +556,7 @@ function NativeEmailTemplaterForm({
                                 <iframe
                                     srcDoc={previewTemplate?.content.email.html}
                                     sandbox=""
+                                    title="Email template preview"
                                     className="w-full h-full border-0"
                                 />
                             </div>
@@ -578,7 +578,7 @@ function NativeEmailTemplaterForm({
                                     </LemonButton>
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" className="flex-1" />
+                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
                             </>
                         )}
                     </LemonField>

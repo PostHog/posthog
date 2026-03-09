@@ -51,9 +51,11 @@ def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_propert
         return False
 
     # different group
-    # TODO: Handle better the comparison
-    if isinstance(a, GroupNode) and isinstance(b, GroupNode) and a.name != b.name:
-        return False
+    if isinstance(a, GroupNode) and isinstance(b, GroupNode):
+        if a.operator != b.operator:
+            return False
+        if not _nodes_equal(a.nodes, b.nodes, compare_properties):
+            return False
 
     # different data source
     if (
@@ -92,6 +94,28 @@ def is_superset(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
     fixed_properties_b = Counter(_sorted_property_reprs(b.fixedProperties))
 
     return len(fixed_properties_a - fixed_properties_b) == 0
+
+
+def _nodes_equal(
+    a_nodes: list[EventsNode | ActionsNode | DataWarehouseNode],
+    b_nodes: list[EventsNode | ActionsNode | DataWarehouseNode],
+    compare_properties: bool,
+) -> bool:
+    """Order-independent comparison of child nodes in a GroupNode."""
+    if len(a_nodes) != len(b_nodes):
+        return False
+
+    unmatched = list(range(len(b_nodes)))
+    for a_node in a_nodes:
+        found = False
+        for i in unmatched:
+            if is_equal(a_node, b_nodes[i], compare_properties):
+                unmatched.remove(i)
+                found = True
+                break
+        if not found:
+            return False
+    return True
 
 
 def _sorted_property_reprs(properties: list[AnyPropertyFilter] | None) -> list[str]:

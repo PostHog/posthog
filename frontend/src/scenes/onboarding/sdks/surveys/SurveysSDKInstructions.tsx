@@ -1,3 +1,5 @@
+import { SDKInstructionsMap, SDKKey } from '~/types'
+
 import {
     AngularInstructions,
     AstroInstructions,
@@ -16,8 +18,6 @@ import {
     WebflowInstructions,
     iOSInstructions,
 } from '.'
-
-import { SDKInstructionsMap, SDKKey } from '~/types'
 
 export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,

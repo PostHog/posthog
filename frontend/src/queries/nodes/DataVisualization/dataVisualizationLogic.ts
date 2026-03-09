@@ -16,7 +16,7 @@ import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
 import { dayjs } from 'lib/dayjs'
-import { RGBToHex, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
+import { RGBToHex, compactNumber, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -140,6 +140,10 @@ export const formatDataWithSettings = (
             dataAsString = data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })
         }
 
+        if (settings?.formatting?.style === 'short') {
+            dataAsString = compactNumber(data)
+        }
+
         if (settings?.formatting?.style === 'percent') {
             dataAsString = `${data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })}%`
         }
@@ -239,6 +243,42 @@ const isNumericalType = (type: ColumnScalar): boolean => {
     return false
 }
 
+const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayType => {
+    const stringColumns = columns.filter((column) => column.type.name === 'STRING')
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+
+    if (stringColumns.length >= 2 && numericalColumns.length >= 1) {
+        return ChartDisplayType.TwoDimensionalHeatmap
+    }
+
+    if (numericalColumns.length === 1 && columns.length === 1) {
+        return ChartDisplayType.BoldNumber
+    }
+
+    if (numericalColumns.length > 0) {
+        return ChartDisplayType.ActionsBar
+    }
+
+    return ChartDisplayType.ActionsTable
+}
+
+const hasTimeSeriesData = (columns: Column[], response: AnyResponseType | null): boolean => {
+    const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
+    const hasNumericColumn = columns.some((column) => column.type.isNumerical)
+    const results =
+        response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
+
+    return hasDateColumn && hasNumericColumn && results.length > 1
+}
+
+const getAutoVisualizationType = (columns: Column[], response: AnyResponseType | null): ChartDisplayType => {
+    if (hasTimeSeriesData(columns, response)) {
+        return ChartDisplayType.ActionsLineGraph
+    }
+
+    return resolveNonTimeSeriesVisualizationType(columns)
+}
+
 const getHeatmapAutoSettings = (columns: Column[], heatmapSettings: HeatmapSettings): Partial<HeatmapSettings> => {
     const stringColumns = columns.filter((column) => column.type.name === 'STRING')
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
@@ -258,6 +298,25 @@ const getHeatmapAutoSettings = (columns: Column[], heatmapSettings: HeatmapSetti
     }
 
     return nextSettings
+}
+
+const applyAutoHeatmapSettings = (
+    actions: { updateChartSettings: (settings: ChartSettings) => void },
+    columns: Column[],
+    heatmapSettings: HeatmapSettings
+): void => {
+    const autoSettings = getHeatmapAutoSettings(columns, heatmapSettings)
+
+    if (Object.keys(autoSettings).length === 0) {
+        return
+    }
+
+    actions.updateChartSettings({
+        heatmap: {
+            ...heatmapSettings,
+            ...autoSettings,
+        },
+    })
 }
 
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
@@ -655,8 +714,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return []
                 }
 
-                const columns: string[] = response['columns'] ?? []
-                const types: string[][] = response['types'] ?? []
+                const columns: string[] =
+                    'columns' in response && Array.isArray(response.columns) ? response.columns : []
+                const types: string[][] = 'types' in response && Array.isArray(response.types) ? response.types : []
 
                 return columns.map((column, index) => {
                     const type = types[index]?.[1]
@@ -681,6 +741,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return columns.filter((n) => n.type.isNumerical)
             },
         ],
+        hasDateTimeColumns: [
+            (s) => [s.columns],
+            (columns): boolean => columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name)),
+        ],
         dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
         showEditingUI: [
             (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],
@@ -704,14 +768,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         presetChartHeight: [
             (s, props) => [props.key, s.dashboardId, s.activeSceneId],
             (key, dashboardId, activeSceneId) => {
-                // Key for SQL editor based visiaulizations
-                const sqlEditorScene = activeSceneId === Scene.SQLEditor
+                // Keys for SQL editor visualizations can render outside the SQLEditor scene,
+                // e.g. in embedded mode, so key matching keeps sizing consistent.
+                const sqlEditorVisualization =
+                    activeSceneId === Scene.SQLEditor ||
+                    key.includes('SQLEditor') ||
+                    key.startsWith('data-warehouse-editor-data-node-')
 
                 if (activeSceneId === Scene.Insight) {
                     return true
                 }
 
-                return !key.includes('new-SQL') && !dashboardId && !sqlEditorScene
+                return !key.includes('new-SQL') && !dashboardId && !sqlEditorVisualization
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
@@ -726,7 +794,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return [EmptyYAxisSeries]
                 }
 
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const data =
+                    'results' in response && Array.isArray(response.results)
+                        ? response.results
+                        : 'result' in response && Array.isArray(response.result)
+                          ? response.result
+                          : []
 
                 return ySeries
                     .map((series): AxisSeries<number> | null => {
@@ -778,7 +851,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         xData: [
             (s) => [s.selectedXAxis, s.response, s.columns],
             (xSeries, response, columns): AxisSeries<string> | null => {
-                if (!response || xSeries === null) {
+                if (!response) {
                     return {
                         column: {
                             name: 'None',
@@ -793,7 +866,22 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                 }
 
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const data = 'results' in response ? response.results : 'result' in response ? response.result : []
+
+                if (xSeries === null) {
+                    return {
+                        column: {
+                            name: 'None',
+                            type: {
+                                name: 'STRING',
+                                isNumerical: false,
+                            },
+                            label: 'None',
+                            dataIndex: -1,
+                        },
+                        data: data.map(() => ''),
+                    }
+                }
 
                 const column = columns.find((n) => n.name === xSeries)
                 if (!column) {
@@ -802,7 +890,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return {
                     column,
-                    data: data.map((n) => n[column.dataIndex]),
+                    data: data.map((n: any) => n[column.dataIndex]),
                 }
             },
         ],
@@ -813,7 +901,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return []
                 }
 
-                const data: (string | number | null)[][] = response?.['results'] ?? response?.['result'] ?? []
+                const data =
+                    'results' in response && Array.isArray(response.results)
+                        ? response.results
+                        : 'result' in response && Array.isArray(response.result)
+                          ? response.result
+                          : []
 
                 return data.map((row): TableDataCell<any>[] => {
                     return tabularColumns.map((column): TableDataCell<any> => {
@@ -902,15 +995,29 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
+        effectiveVisualizationType: [
+            (s) => [s.visualizationType, s.autoVisualizationType],
+            (visualizationType, autoVisualizationType): ChartDisplayType => {
+                if (visualizationType === ChartDisplayType.Auto) {
+                    return autoVisualizationType
+                }
+
+                return visualizationType
+            },
+        ],
+        autoVisualizationType: [
+            (s) => [s.columns, s.response],
+            (columns, response): ChartDisplayType => getAutoVisualizationType(columns, response),
+        ],
         isTableVisualization: [
-            (s) => [s.visualizationType],
+            (s) => [s.effectiveVisualizationType],
             (visualizationType): boolean =>
                 // BoldNumber relies on yAxis formatting so it's considered a table visualization
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
         ],
         showTableSettings: [
-            (s) => [s.visualizationType],
+            (s) => [s.effectiveVisualizationType],
             (visualizationType): boolean =>
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
@@ -991,6 +1098,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ...query,
                 display: visualizationType,
             }))
+
+            const isAutoHeatmap =
+                visualizationType === ChartDisplayType.Auto &&
+                getAutoVisualizationType(values.columns, values.response) === ChartDisplayType.TwoDimensionalHeatmap
+
+            if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap || isAutoHeatmap) {
+                applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
+            }
         },
         toggleChartSettingsPanel: ({ open }) => {
             const shouldOpen = open ?? !values.isChartSettingsPanelOpen
@@ -1002,19 +1117,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return
             }
 
-            const heatmapSettings = values.chartSettings.heatmap ?? {}
-            const autoSettings = getHeatmapAutoSettings(values.columns, heatmapSettings)
-
-            if (Object.keys(autoSettings).length === 0) {
-                return
-            }
-
-            actions.updateChartSettings({
-                heatmap: {
-                    ...heatmapSettings,
-                    ...autoSettings,
-                },
-            })
+            applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
         },
         clearAxis: [sharedListeners.axesChanged],
         updateXSeries: [sharedListeners.axesChanged],
@@ -1039,7 +1142,22 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 JSON.stringify(values.tabularColumnSettings)
             )
 
-            if (oldValue && oldValue.length) {
+            const currentColumnNames = new Set(value.map((column) => column.name))
+            const hasInvalidSelectedXAxis =
+                values.selectedXAxis !== null && !currentColumnNames.has(values.selectedXAxis)
+            const hasInvalidSelectedYAxis =
+                values.selectedYAxis?.some((series) => {
+                    if (series === null) {
+                        return false
+                    }
+
+                    const column = value.find((nextColumn) => nextColumn.name === series.name)
+                    return !column || !column.type.isNumerical
+                }) ?? false
+
+            if (hasInvalidSelectedXAxis || hasInvalidSelectedYAxis) {
+                actions.clearAxis()
+            } else if (oldValue && oldValue.length) {
                 if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
                     actions.clearAxis()
                 }
@@ -1075,24 +1193,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 if (xAxisTypes) {
                     actions.updateXSeries(xAxisTypes.name)
+                } else {
+                    const yAxisColumnNames = new Set(yAxisTypes.map((column) => column.name))
+                    const firstRemainingColumn = value.find((column) => !yAxisColumnNames.has(column.name))
+
+                    if (firstRemainingColumn) {
+                        actions.updateXSeries(firstRemainingColumn.name)
+                    }
                 }
             }
 
-            if (
-                values.isChartSettingsPanelOpen &&
-                values.visualizationType === ChartDisplayType.TwoDimensionalHeatmap
-            ) {
-                const heatmapSettings = values.chartSettings.heatmap ?? {}
-                const autoSettings = getHeatmapAutoSettings(value, heatmapSettings)
-
-                if (Object.keys(autoSettings).length > 0) {
-                    actions.updateChartSettings({
-                        heatmap: {
-                            ...heatmapSettings,
-                            ...autoSettings,
-                        },
-                    })
-                }
+            if (values.effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+                applyAutoHeatmapSettings(actions, value, values.chartSettings.heatmap ?? {})
             }
         },
     })),

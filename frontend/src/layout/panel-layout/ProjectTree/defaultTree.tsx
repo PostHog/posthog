@@ -12,6 +12,7 @@ import {
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
+    IconDocument,
     IconDownload,
     IconExternal,
     IconFeatures,
@@ -24,8 +25,10 @@ import {
     IconHogQL,
     IconHome,
     IconLifecycle,
+    IconListCheck,
     IconLive,
     IconLlmAnalytics,
+    IconLlmPromptManagement,
     IconMegaphone,
     IconMessage,
     IconNotebook,
@@ -34,11 +37,13 @@ import {
     IconPieChart,
     IconPiggyBank,
     IconPlay,
+    IconPlaylist,
     IconPlug,
     IconReceipt,
     IconRetention,
     IconRewindPlay,
     IconRocket,
+    IconScatter,
     IconSearch,
     IconServer,
     IconSpotlight,
@@ -301,20 +306,27 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconDatabase />,
     },
     llm_evaluations: {
-        icon: <IconFlask />,
+        icon: <IconListCheck />,
         iconColor: ['var(--color-product-llm-evaluations-light)'],
     },
     llm_datasets: {
-        icon: <IconDatabase />,
+        icon: <IconDocument />,
         iconColor: ['var(--color-product-llm-datasets-light)'],
     },
     llm_prompts: {
-        icon: <IconBook />,
+        icon: <IconLlmPromptManagement />,
         iconColor: ['var(--color-product-llm-prompts-light)'],
     },
     llm_clusters: {
-        icon: <IconPeople />,
+        icon: <IconScatter />,
         iconColor: ['var(--color-product-llm-clusters-light)'],
+    },
+    llm_playground: {
+        icon: <IconPlaylist />,
+        iconColor: ['var(--color-product-llm-analytics-light)'],
+    },
+    visual_review: {
+        icon: <IconApp />,
     },
     exports: {
         icon: <IconDownload />,
@@ -415,6 +427,11 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [...getTreeItemsProducts()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export const getDefaultTreeDataAndPeople = (): FileSystemImport[] =>
+    [...getDefaultTreeData(), ...getDefaultTreePersons()].sort((a, b) =>
+        a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
+    )
 
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {

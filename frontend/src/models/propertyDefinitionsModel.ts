@@ -4,7 +4,7 @@ import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration, toString, isKeyOf } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -103,6 +103,11 @@ export type Option = {
     status?: 'loading' | 'loaded'
     allowCustomValues?: boolean
     values?: PropValue[]
+    refreshing?: boolean
+    /** Values present when the latest background refresh started, used to identify newly appeared values. */
+    preRefreshValueNames?: string[]
+    /** Current search input for this property key. */
+    searchInput?: string
 }
 
 const getPropertyKey = (
@@ -148,7 +153,8 @@ const constructValuesEndpoint = (
     propertyKey: string,
     eventNames: string[] | undefined,
     newInput: string | undefined,
-    properties?: { key: string; values: string | string[] }[]
+    properties?: { key: string; values: string | string[] }[],
+    forceRefresh?: boolean
 ): string => {
     let basePath: string
 
@@ -176,7 +182,12 @@ const constructValuesEndpoint = (
         }
     }
 
-    return path + (newInput ? '&value=' + encodeURIComponent(newInput) : '') + eventParams
+    return (
+        path +
+        (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
+        (forceRefresh ? '&force_refresh=true' : '') +
+        eventParams
+    )
 }
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
@@ -202,13 +213,16 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             propertyKey: string
             eventNames?: string[]
             properties?: { key: string; values: string | string[] }[]
+            forceRefresh?: boolean
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
-        setOptions: (key: string, values: PropValue[], allowCustomValues: boolean) => ({
+        setOptions: (key: string, values: PropValue[], allowCustomValues: boolean, refreshing?: boolean) => ({
             key,
             values,
             allowCustomValues,
+            refreshing,
         }),
+        setOptionsSearchInput: (key: string, searchInput: string) => ({ key, searchInput }),
         // internal
         fetchAllPendingDefinitions: true,
         abortAnyRunningQuery: true,
@@ -229,13 +243,30 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             {} as Record<string, Option>,
             {
                 setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
-                setOptions: (state, { key, values, allowCustomValues }) => ({
+                setOptions: (state, { key, values: rawValues, allowCustomValues, refreshing }) => {
+                    const values = Array.isArray(rawValues) ? rawValues : []
+                    const current = state[key]
+                    const valueNames = values.map((v) => toString(v.name))
+
+                    // Capture values as the pre-refresh baseline when a refresh begins
+                    const isStartingRefresh = refreshing && !current?.refreshing
+                    const preRefreshValueNames = isStartingRefresh ? valueNames : current?.preRefreshValueNames
+
+                    return {
+                        ...state,
+                        [key]: {
+                            ...current,
+                            values: Array.from(new Set(values)),
+                            status: 'loaded',
+                            allowCustomValues,
+                            refreshing: refreshing ?? false,
+                            preRefreshValueNames,
+                        },
+                    }
+                },
+                setOptionsSearchInput: (state, { key, searchInput }) => ({
                     ...state,
-                    [key]: {
-                        values: Array.from(new Set(values)),
-                        status: 'loaded',
-                        allowCustomValues,
-                    },
+                    [key]: { ...state[key], searchInput },
                 }),
             },
         ],
@@ -293,10 +324,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     type = `${type}/${rest[0]}`
                     rest = rest.slice(1)
                 }
-                if (!(type in pendingByType)) {
+
+                if (isKeyOf(type, pendingByType)) {
+                    pendingByType[type].push(rest.join('/'))
+                } else {
                     throw new Error(`Unknown property definition type: ${type}`)
                 }
-                pendingByType[type].push(rest.join('/'))
             }
             try {
                 // since this is a unique query, there is no breakpoint here to prevent out of order replies
@@ -370,7 +403,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
         },
 
-        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames, properties }, breakpoint) => {
+        loadPropertyValues: async (
+            { endpoint, type, newInput, propertyKey, eventNames, properties, forceRefresh },
+            breakpoint
+        ) => {
             if (['cohort'].includes(type)) {
                 return
             }
@@ -378,7 +414,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 return
             }
 
-            if (localOptions[getPropertyKey(type, propertyKey)]) {
+            if (!forceRefresh && localOptions[getPropertyKey(type, propertyKey)]) {
                 actions.setOptions(propertyKey, localOptions[getPropertyKey(type, propertyKey)], false)
                 return
             }
@@ -394,7 +430,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 signal: cache.abortController.signal,
             }
 
-            const propValues: PropValue[] = await api.get(
+            actions.setOptionsSearchInput(propertyKey, newInput || '')
+
+            const responseData: { results: PropValue[]; refreshing: boolean } = await api.get(
                 constructValuesEndpoint(
                     endpoint,
                     values.currentTeamId,
@@ -402,13 +440,32 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     propertyKey,
                     eventNames,
                     newInput,
-                    properties
+                    properties,
+                    forceRefresh
                 ),
                 methodOptions
             )
             breakpoint()
-            actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue)
+
+            const propValues = Array.isArray(responseData.results) ? responseData.results : []
+            const refreshing = responseData.refreshing
+
+            actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue, refreshing)
             cache.abortController = null
+
+            // Schedule a poll when the backend signals a background refresh is in progress
+            cache.pollingTimeouts = cache.pollingTimeouts || {}
+            if (refreshing) {
+                if (cache.pollingTimeouts[propertyKey]) {
+                    clearTimeout(cache.pollingTimeouts[propertyKey])
+                }
+                cache.pollingTimeouts[propertyKey] = setTimeout(() => {
+                    actions.loadPropertyValues({ endpoint, type, newInput, propertyKey, eventNames, properties })
+                }, 2000)
+            } else if (cache.pollingTimeouts[propertyKey]) {
+                clearTimeout(cache.pollingTimeouts[propertyKey])
+                delete cache.pollingTimeouts[propertyKey]
+            }
 
             await captureTimeToSeeData(teamLogic.values.currentTeamId, {
                 type: 'property_values_load',
@@ -466,12 +523,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         getPropertyDefinition: [
             (s) => [s.propertyDefinitionStorage],
             (
-                    propertyDefinitionStorage
-                ): ((
-                    s: TaxonomicFilterValue,
-                    type: PropertyDefinitionType,
-                    groupTypeIndex?: number
-                ) => PropertyDefinition | null) =>
+                propertyDefinitionStorage
+            ): ((
+                s: TaxonomicFilterValue,
+                type: PropertyDefinitionType,
+                groupTypeIndex?: number
+            ) => PropertyDefinition | null) =>
                 (
                     propertyName: TaxonomicFilterValue,
                     type: PropertyDefinitionType,
@@ -490,12 +547,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         describeProperty: [
             (s) => [s.propertyDefinitionStorage],
             (
-                    propertyDefinitionStorage
-                ): ((
-                    s: TaxonomicFilterValue,
-                    type: PropertyDefinitionType,
-                    groupTypeIndex?: number
-                ) => string | null) =>
+                propertyDefinitionStorage
+            ): ((
+                s: TaxonomicFilterValue,
+                type: PropertyDefinitionType,
+                groupTypeIndex?: number
+            ) => PropertyType | null) =>
                 (propertyName: TaxonomicFilterValue, type: PropertyDefinitionType, groupTypeIndex?: number) => {
                     if (
                         !propertyName ||

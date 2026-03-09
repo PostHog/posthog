@@ -20,8 +20,9 @@ from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQu
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action, Team
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.taxonomy.tools import (
     ask_user_for_help,

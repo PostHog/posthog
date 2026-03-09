@@ -40,10 +40,10 @@ impl RawRequest {
     /// Instead of trusting the parameter, we peek at the payload's first three bytes to
     /// detect gzip, fallback to uncompressed utf8 otherwise.
     #[instrument(skip_all, fields(request_id, compression, is_mirror_deploy))]
-    pub fn from_bytes<'a>(
+    pub fn from_bytes(
         bytes: Bytes,
         cmp_hint: Compression,
-        request_id: &'a str,
+        request_id: &str,
         limit: usize,
         path: String,
     ) -> Result<RawRequest, CaptureError> {
@@ -84,7 +84,7 @@ impl RawRequest {
                     }])
                 } else {
                     let err_msg = String::from("non-engage request missing event name attribute");
-                    error!("event hydration from request failed: {}", &err_msg);
+                    error!("event hydration from request failed: {err_msg}");
                     Err(CaptureError::RequestHydrationError(err_msg))
                 }
             }
@@ -165,6 +165,7 @@ pub enum DataType {
     ClientIngestionWarning,
     HeatmapMain,
     ExceptionMain,
+    ExceptionErrorTracking,
     SnapshotMain,
 }
 
@@ -186,6 +187,8 @@ pub struct ProcessedEventMetadata {
     pub skip_person_processing: bool,
     /// Redirect this event to DLQ topic (set by event restrictions)
     pub redirect_to_dlq: bool,
+    /// Redirect this event to a custom topic (set by event restrictions)
+    pub redirect_to_topic: Option<String>,
 }
 
 #[cfg(test)]

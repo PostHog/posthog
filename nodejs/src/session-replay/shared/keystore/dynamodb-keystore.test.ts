@@ -1,8 +1,7 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { KMSClient } from '@aws-sdk/client-kms'
 
 import { RetentionService } from '../retention/retention-service'
-import { TeamService } from '../teams/team-service'
 import { DynamoDBKeyStore } from './dynamodb-keystore'
 
 describe('DynamoDBKeyStore', () => {
@@ -10,7 +9,6 @@ describe('DynamoDBKeyStore', () => {
     let mockDynamoDBClient: jest.Mocked<DynamoDBClient>
     let mockKMSClient: jest.Mocked<KMSClient>
     let mockRetentionService: jest.Mocked<RetentionService>
-    let mockTeamService: jest.Mocked<TeamService>
 
     const mockPlaintextKey = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
     const mockEncryptedKey = new Uint8Array([101, 102, 103, 104, 105])
@@ -22,11 +20,8 @@ describe('DynamoDBKeyStore', () => {
             const retentionService = {
                 getSessionRetentionDays: jest.fn(),
             } as unknown as jest.Mocked<RetentionService>
-            const teamService = {
-                getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
-            } as unknown as jest.Mocked<TeamService>
 
-            const store = new DynamoDBKeyStore(dynamoDBClient, kmsClient, retentionService, teamService)
+            const store = new DynamoDBKeyStore(dynamoDBClient, kmsClient, retentionService)
             await store.start()
 
             expect(store).toBeInstanceOf(DynamoDBKeyStore)
@@ -52,11 +47,7 @@ describe('DynamoDBKeyStore', () => {
             getSessionRetentionDays: jest.fn().mockResolvedValue(30),
         } as unknown as jest.Mocked<RetentionService>
 
-        mockTeamService = {
-            getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
-        } as unknown as jest.Mocked<TeamService>
-
-        keyStore = new DynamoDBKeyStore(mockDynamoDBClient, mockKMSClient, mockRetentionService, mockTeamService)
+        keyStore = new DynamoDBKeyStore(mockDynamoDBClient, mockKMSClient, mockRetentionService)
         await keyStore.start()
     })
 
@@ -65,7 +56,7 @@ describe('DynamoDBKeyStore', () => {
     })
 
     describe('generateKey', () => {
-        it('should generate a new key and store it in DynamoDB', async () => {
+        it('should generate a new key and store it in DynamoDB with condition expression', async () => {
             const result = await keyStore.generateKey('session-123', 1)
 
             expect(mockKMSClient.send).toHaveBeenCalledTimes(1)
@@ -75,32 +66,42 @@ describe('DynamoDBKeyStore', () => {
             expect(dynamoCall.input.TableName).toBe('session-recording-keys')
             expect(dynamoCall.input.Item.session_id).toEqual({ S: 'session-123' })
             expect(dynamoCall.input.Item.team_id).toEqual({ N: '1' })
+            expect(dynamoCall.input.ConditionExpression).toBe('attribute_not_exists(session_id)')
 
             expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
             expect(result.encryptedKey).toEqual(Buffer.from(mockEncryptedKey))
         })
 
-        it('should check team encryption setting', async () => {
-            await keyStore.generateKey('session-123', 42)
+        it('should return existing key when session already has a key in DynamoDB', async () => {
+            const existingEncryptedKey = new Uint8Array([201, 202, 203])
+            const existingPlaintextKey = new Uint8Array([
+                11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+            ])
 
-            expect(mockTeamService.getEncryptionEnabledByTeamId).toHaveBeenCalledWith(42)
-        })
-
-        it('should store cleartext entry when encryption is disabled', async () => {
-            mockTeamService.getEncryptionEnabledByTeamId.mockResolvedValue(false)
+            ;(mockDynamoDBClient.send as jest.Mock)
+                // First call: PutItem fails with ConditionalCheckFailedException
+                .mockRejectedValueOnce(
+                    new ConditionalCheckFailedException({ message: 'Key already exists', $metadata: {} })
+                )
+                // Second call: GetItem returns the existing key
+                .mockResolvedValueOnce({
+                    Item: {
+                        session_id: { S: 'session-123' },
+                        team_id: { N: '1' },
+                        encrypted_key: { B: existingEncryptedKey },
+                        session_state: { S: 'ciphertext' },
+                    },
+                })
+            // KMS decrypt for the existing key
+            ;(mockKMSClient.send as jest.Mock)
+                .mockResolvedValueOnce({ Plaintext: mockPlaintextKey, CiphertextBlob: mockEncryptedKey })
+                .mockResolvedValueOnce({ Plaintext: existingPlaintextKey })
 
             const result = await keyStore.generateKey('session-123', 1)
 
-            expect(mockKMSClient.send).not.toHaveBeenCalled()
-            expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(1)
-
-            const dynamoCall = mockDynamoDBClient.send.mock.calls[0][0] as any
-            expect(dynamoCall.input.Item.session_state).toEqual({ S: 'cleartext' })
-            expect(dynamoCall.input.Item.encrypted_key).toBeUndefined()
-
-            expect(result.plaintextKey).toEqual(Buffer.alloc(0))
-            expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.sessionState).toBe('cleartext')
+            expect(result.plaintextKey).toEqual(Buffer.from(existingPlaintextKey))
+            expect(result.encryptedKey).toEqual(Buffer.from(existingEncryptedKey))
+            expect(result.sessionState).toBe('ciphertext')
         })
 
         it('should calculate expiration based on retention days', async () => {
@@ -222,7 +223,7 @@ describe('DynamoDBKeyStore', () => {
             expect(mockKMSClient.send).not.toHaveBeenCalled()
         })
 
-        it('should return deleted key with undefined deletedAt if deleted_at is missing', async () => {
+        it('should throw if deleted key has no deleted_at timestamp', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -231,13 +232,7 @@ describe('DynamoDBKeyStore', () => {
                 },
             })
 
-            const result = await keyStore.getKey('session-123', 1)
-
-            expect(result.plaintextKey).toEqual(Buffer.alloc(0))
-            expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.sessionState).toBe('deleted')
-            expect(result.deletedAt).toBeUndefined()
-            expect(mockKMSClient.send).not.toHaveBeenCalled()
+            await expect(keyStore.getKey('session-123', 1)).rejects.toThrow('no deleted_at timestamp')
         })
 
         it('should throw error if DynamoDB query fails', async () => {
@@ -273,6 +268,20 @@ describe('DynamoDBKeyStore', () => {
 
             await expect(keyStore.getKey('session-123', 1)).rejects.toThrow('Team ID mismatch: requested 1, got 999')
         })
+
+        it('should throw error for unknown session state', async () => {
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
+                Item: {
+                    session_id: { S: 'session-123' },
+                    team_id: { N: '1' },
+                    session_state: { S: 'corrupted' },
+                },
+            })
+
+            await expect(keyStore.getKey('session-123', 1)).rejects.toThrow(
+                "Unknown session state 'corrupted' for session session-123 team 1"
+            )
+        })
     })
 
     describe('deleteKey', () => {
@@ -287,7 +296,7 @@ describe('DynamoDBKeyStore', () => {
                 })
                 .mockResolvedValueOnce({})
 
-            const result = await keyStore.deleteKey('session-123', 1)
+            const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
             expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(2)
 
@@ -298,22 +307,33 @@ describe('DynamoDBKeyStore', () => {
 
             const updateCall = mockDynamoDBClient.send.mock.calls[1][0] as any
             expect(updateCall.input.TableName).toBe('session-recording-keys')
+            expect(updateCall.input.Key.session_id).toEqual({ S: 'session-123' })
+            expect(updateCall.input.Key.team_id).toEqual({ N: '1' })
             expect(updateCall.input.UpdateExpression).toBe(
-                'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key'
+                'SET session_state = :deleted, deleted_at = :deleted_at, deleted_by = :deleted_by REMOVE encrypted_key'
             )
-            expect(updateCall.input.ExpressionAttributeValues[':deleted_at']).toEqual({
-                N: String(Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000)),
+            expect(result).toEqual({
+                status: 'deleted',
+                deletedAt: Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000),
+                deletedBy: 'test@example.com',
             })
-            expect(result).toEqual({ deleted: true })
         })
 
-        it('should return not_found if key did not exist', async () => {
-            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValueOnce({ Item: undefined })
+        it('should create tombstone if key did not exist', async () => {
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValueOnce({ Item: undefined }).mockResolvedValueOnce({})
 
-            const result = await keyStore.deleteKey('session-123', 1)
+            const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
-            expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(1)
-            expect(result).toEqual({ deleted: false, reason: 'not_found' })
+            expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(2)
+
+            const putCall = mockDynamoDBClient.send.mock.calls[1][0] as any
+            expect(putCall.input.Item.session_state).toEqual({ S: 'deleted' })
+            expect(putCall.input.Item.expires_at).toBeDefined()
+
+            const deletedAt = Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000)
+            const expiresAt = parseInt(putCall.input.Item.expires_at.N, 10)
+            expect(expiresAt).toBe(deletedAt + 30 * 24 * 60 * 60)
+            expect(result).toEqual({ status: 'deleted', deletedAt, deletedBy: 'test@example.com' })
         })
 
         it('should return already_deleted with deletedAt if key is already deleted', async () => {
@@ -327,12 +347,12 @@ describe('DynamoDBKeyStore', () => {
                 },
             })
 
-            const result = await keyStore.deleteKey('session-123', 1)
+            const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
-            expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: 1700000000 })
+            expect(result).toEqual({ status: 'already_deleted', deletedAt: 1700000000, deletedBy: '' })
         })
 
-        it('should return already_deleted with undefined deletedAt if deleted_at is missing', async () => {
+        it('should throw if deleted key has no deleted_at timestamp', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -341,15 +361,15 @@ describe('DynamoDBKeyStore', () => {
                 },
             })
 
-            const result = await keyStore.deleteKey('session-123', 1)
-
-            expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: undefined })
+            await expect(keyStore.deleteKey('session-123', 1, 'test@example.com')).rejects.toThrow(
+                'no deleted_at timestamp'
+            )
         })
 
         it('should throw error if DynamoDB get fails', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockRejectedValue(new Error('DynamoDB get error'))
 
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('DynamoDB get error')
+            await expect(keyStore.deleteKey('session-123', 1, 'test@example.com')).rejects.toThrow('DynamoDB get error')
         })
 
         it('should throw error if DynamoDB update fails', async () => {
@@ -362,7 +382,9 @@ describe('DynamoDBKeyStore', () => {
                 })
                 .mockRejectedValueOnce(new Error('DynamoDB update error'))
 
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('DynamoDB update error')
+            await expect(keyStore.deleteKey('session-123', 1, 'test@example.com')).rejects.toThrow(
+                'DynamoDB update error'
+            )
         })
 
         it('should throw error if returned team_id does not match requested team_id', async () => {
@@ -374,7 +396,9 @@ describe('DynamoDBKeyStore', () => {
                 },
             })
 
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('Team ID mismatch: requested 1, got 999')
+            await expect(keyStore.deleteKey('session-123', 1, 'test@example.com')).rejects.toThrow(
+                'Team ID mismatch: requested 1, got 999'
+            )
         })
     })
 

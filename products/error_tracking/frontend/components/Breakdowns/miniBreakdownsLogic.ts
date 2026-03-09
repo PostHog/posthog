@@ -102,11 +102,15 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
     })),
 
     subscriptions(({ actions }) => ({
-        dateRange: () => {
-            actions.loadResponse()
+        dateRange: (value, oldValue) => {
+            if (oldValue !== undefined && value !== oldValue) {
+                actions.loadResponse()
+            }
         },
-        filterTestAccounts: () => {
-            actions.loadResponse()
+        filterTestAccounts: (value, oldValue) => {
+            if (oldValue !== undefined && value !== oldValue) {
+                actions.loadResponse()
+            }
         },
     })),
 

@@ -26,7 +26,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             code: dedent`
                                 import { PostHog } from 'posthog-node'
                                 const client = new PostHog(
-                                    '<ph_project_api_key>',
+                                    '<ph_project_token>',
                                     { host: 'https://us.i.posthog.com', enableExceptionAutocapture: true }
                                 )
                             `,
@@ -47,7 +47,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 import express from 'express'
                                 import { PostHog, setupExpressErrorHandler } from 'posthog-node'
                                 const app = express()
-                                const posthog = new PostHog(PH_API_KEY)
+                                const posthog = new PostHog(POSTHOG_PROJECT_TOKEN)
                                 setupExpressErrorHandler(posthog, app)
                             `,
                         },
@@ -109,12 +109,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
         ),
     }
 
-    return [
-        ...installSteps,
-        exceptionAutocaptureStep,
-        manualCaptureStep,
-        verifyStep,
-    ]
+    return [...installSteps, exceptionAutocaptureStep, manualCaptureStep, verifyStep]
 }
 
 export const NodeJSInstallation = createInstallation(getNodeJSSteps)

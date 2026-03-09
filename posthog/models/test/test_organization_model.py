@@ -35,7 +35,7 @@ class TestOrganization(BaseTest):
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 
-    @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
+    @mock.patch("posthog.plugins.utils.external_requests.get", side_effect=mocked_plugin_requests_get)
     def test_plugins_are_preinstalled_on_self_hosted(self, mock_get):
         with self.is_cloud(False):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
@@ -55,7 +55,7 @@ class TestOrganization(BaseTest):
             headers={},
         )
 
-    @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
+    @mock.patch("posthog.plugins.utils.external_requests.get", side_effect=mocked_plugin_requests_get)
     def test_plugins_are_not_preinstalled_on_cloud(self, mock_get):
         with self.is_cloud(True):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):

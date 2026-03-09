@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'

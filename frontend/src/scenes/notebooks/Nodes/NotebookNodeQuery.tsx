@@ -29,7 +29,7 @@ import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } 
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
-const DEFAULT_QUERY: QuerySchema = {
+export const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.EventsQuery,
@@ -122,7 +122,11 @@ const Component = ({
     return (
         <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
-                <ScrollableShadows direction="vertical" className="flex-1">
+                <ScrollableShadows
+                    direction="vertical"
+                    className="flex-1"
+                    hideScrollbars={isInsightVizNode(modifiedQuery) || isSavedInsightNode(modifiedQuery)}
+                >
                     <Query
                         // use separate keys for the settings and visualization to avoid conflicts with insightProps
                         uniqueKey={nodeId + '-component'}

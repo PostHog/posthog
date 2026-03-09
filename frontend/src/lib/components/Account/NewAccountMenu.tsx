@@ -14,8 +14,8 @@ import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -28,11 +28,11 @@ import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
+import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { OrgModal } from './OrgModal'
 import { OrgSwitcher } from './OrgSwitcher'
 import { ProjectModal } from './ProjectModal'
 import { ProjectSwitcher } from './ProjectSwitcher'
-import { newAccountMenuLogic } from './newAccountMenuLogic'
 
 interface AccountMenuProps {
     isLayoutNavCollapsed: boolean
@@ -67,7 +67,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         <ButtonPrimitive
                             {...props}
                             iconOnly={isLayoutNavCollapsed}
-                            className={cn('flex-1 py-1', {
+                            className={cn('flex-1 py-1 min-w-0', {
                                 'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
                             variant="panel"
@@ -171,7 +171,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 className="z-[var(--z-popover)]"
                                                 collisionPadding={{ top: 50, bottom: 50 }}
                                             >
-                                                <Menu.Popup className="primitive-menu-content">
+                                                <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
                                                     {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                     <div onKeyDown={(e) => e.stopPropagation()}>
                                                         <ProjectSwitcher dialog={false} />
@@ -275,7 +275,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             className="z-[var(--z-popover)]"
                                             collisionPadding={{ top: 50, bottom: 50 }}
                                         >
-                                            <Menu.Popup className="primitive-menu-content">
+                                            <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
                                                 {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                 <div onKeyDown={(e) => e.stopPropagation()}>
                                                     <OrgSwitcher dialog={false} />

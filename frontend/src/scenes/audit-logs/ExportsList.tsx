@@ -6,6 +6,7 @@ import { LemonButton, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
+import { ExportedAsset, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import {
     downloadExport,
     getFilterSummary,
@@ -13,7 +14,6 @@ import {
     getHumanReadableFormat,
     getStatusTag,
 } from './ExportsListHelpers'
-import { ExportedAsset, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 
 export function ExportsList(): JSX.Element {
     const { exports, exportsLoading } = useValues(advancedActivityLogsLogic)

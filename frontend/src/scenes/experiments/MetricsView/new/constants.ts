@@ -6,6 +6,7 @@ export const SVG_EDGE_MARGIN = 20
 export const CHART_CELL_VIEW_BOX_HEIGHT = 51
 export const CHART_CELL_BAR_HEIGHT_PERCENT = 15
 export const CELL_HEIGHT = 51
+export const EMPTY_STATE_ROW_MIN_HEIGHT = 80
 export const CHART_BAR_OPACITY = 0.9
 export const GRID_LINES_OPACITY = 0.8
 

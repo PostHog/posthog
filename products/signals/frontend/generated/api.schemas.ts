@@ -8,48 +8,50 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `potential` - Potential
- * `candidate` - Candidate
- * `in_progress` - In Progress
- * `ready` - Ready
- * `failed` - Failed
+ * * `session_replay` - Session replay
+ * `llm_analytics` - LLM analytics
  */
-export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
+export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
-export const SignalReportStatusEnumApi = {
-    potential: 'potential',
-    candidate: 'candidate',
-    in_progress: 'in_progress',
-    ready: 'ready',
-    failed: 'failed',
+export const SourceProductEnumApi = {
+    SessionReplay: 'session_replay',
+    LlmAnalytics: 'llm_analytics',
 } as const
 
-export interface SignalReportApi {
+/**
+ * * `session_analysis_cluster` - Session analysis cluster
+ * `evaluation` - Evaluation
+ */
+export type SignalSourceConfigSourceTypeEnumApi =
+    (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
+
+export const SignalSourceConfigSourceTypeEnumApi = {
+    SessionAnalysisCluster: 'session_analysis_cluster',
+    Evaluation: 'evaluation',
+} as const
+
+export interface SignalSourceConfigApi {
     readonly id: string
-    /** @nullable */
-    readonly title: string | null
-    /** @nullable */
-    readonly summary: string | null
-    readonly status: SignalReportStatusEnumApi
-    readonly total_weight: number
-    readonly signal_count: number
-    /** @nullable */
-    readonly relevant_user_count: number | null
+    source_product: SourceProductEnumApi
+    source_type: SignalSourceConfigSourceTypeEnumApi
+    enabled?: boolean
+    config?: unknown
     readonly created_at: string
     readonly updated_at: string
-    readonly artefact_count: number
+    /** @nullable */
+    readonly status: string | null
 }
 
-export interface PaginatedSignalReportListApi {
+export interface PaginatedSignalSourceConfigListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: SignalReportApi[]
+    results: SignalSourceConfigApi[]
 }
 
-export type SignalReportsListParams = {
+export type SignalSourceConfigsListParams = {
     /**
      * Number of results to return per page.
      */

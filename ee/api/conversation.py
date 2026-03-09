@@ -32,6 +32,7 @@ from posthog.rate_limit import (
     AIResearchBurstRateThrottle,
     AIResearchSustainedRateThrottle,
     AISustainedRateThrottle,
+    is_team_exempt_from_ai_rate_limit,
 )
 from posthog.temporal.ai.chat_agent import (
     CHAT_AGENT_STREAM_MAX_LENGTH,
@@ -256,6 +257,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_research = self._is_research_request(request)
 
         if is_research:
+            if is_team_exempt_from_ai_rate_limit(self.team_id):
+                return
             throttles = [AIResearchBurstRateThrottle(), AIResearchSustainedRateThrottle()]
         else:
             # Skip throttling for paying customers

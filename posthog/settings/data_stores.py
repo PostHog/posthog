@@ -430,7 +430,8 @@ if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
 
 # Shared secret for internal API authentication between Django and Node.js services
-INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", "")
+LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
+INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET)
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
@@ -448,6 +449,8 @@ FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://local
 
 FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
+LLM_PROMPTS_CACHE_TTL = int(os.getenv("LLM_PROMPTS_CACHE_TTL", str(60 * 60 * 24)))  # 1 day
+LLM_PROMPTS_CACHE_MISS_TTL = int(os.getenv("LLM_PROMPTS_CACHE_MISS_TTL", str(60 * 5)))  # 5 minutes
 
 CACHES = {
     "default": {
@@ -476,6 +479,20 @@ if FLAGS_REDIS_URL:
         "LOCATION": FLAGS_REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
+QUERY_CACHE_REDIS_CLUSTER_URL: str | None = os.getenv("QUERY_CACHE_REDIS_CLUSTER_URL", None)
+
+if QUERY_CACHE_REDIS_CLUSTER_URL:
+    CACHES["query_cache"] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": QUERY_CACHE_REDIS_CLUSTER_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_FACTORY": "posthog.caching.redis_cluster_connection_factory.RedisClusterConnectionFactory",
             "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
         },
         "KEY_PREFIX": "posthog",

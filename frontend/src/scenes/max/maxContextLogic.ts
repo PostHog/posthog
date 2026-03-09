@@ -572,14 +572,22 @@ export const maxContextLogic = kea<maxContextLogicType>([
             ): MaxUIContext | null => {
                 const context: MaxUIContext = {}
 
+                // Helper to filter scene context by type
+                const getSceneItems = <T extends MaxContextItem>(type: MaxContextType): T[] =>
+                    sceneContext.filter((item): item is T => item.type === type)
+
                 // Add context dashboards (combine manual context + scene context)
-                if (contextDashboards.length > 0) {
-                    context.dashboards = contextDashboards
+                const sceneDashboards = getSceneItems<MaxDashboardContext>(MaxContextType.DASHBOARD)
+                const allDashboards = [...contextDashboards, ...sceneDashboards]
+
+                if (allDashboards.length > 0) {
+                    context.dashboards = allDashboards
                 }
 
                 // Add insights, filtering out those already in dashboards
                 // Combine manual context, scene context, and active insights
-                const allInsights = contextInsights
+                const sceneInsights = getSceneItems<MaxInsightContext>(MaxContextType.INSIGHT)
+                const allInsights = [...contextInsights, ...sceneInsights]
 
                 if (allInsights.length > 0) {
                     // Get all insight IDs from dashboards to filter out duplicates
@@ -615,18 +623,28 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 }
 
                 // Add events
-                if (contextEvents.length > 0) {
-                    context.events = contextEvents
+                const sceneEvents = getSceneItems<MaxEventContext>(MaxContextType.EVENT)
+                const allEvents = [...contextEvents, ...sceneEvents]
+                if (allEvents.length > 0) {
+                    // Deduplicate by ID
+                    const uniqueEvents = new Map()
+                    allEvents.forEach((event) => uniqueEvents.set(event.id, event))
+                    context.events = Array.from(uniqueEvents.values())
                 }
 
                 // Add actions
-                if (contextActions.length > 0) {
-                    context.actions = contextActions
+                const sceneActions = getSceneItems<MaxActionContext>(MaxContextType.ACTION)
+                const allActions = [...contextActions, ...sceneActions]
+                if (allActions.length > 0) {
+                    // Deduplicate by ID
+                    const uniqueActions = new Map()
+                    allActions.forEach((action) => uniqueActions.set(action.id, action))
+                    context.actions = Array.from(uniqueActions.values())
                 }
 
                 // Add error tracking issues (combine manual selections + auto-added from scene context)
-                const sceneErrorTrackingIssues = sceneContext.filter(
-                    (item): item is MaxErrorTrackingIssueContext => item.type === MaxContextType.ERROR_TRACKING_ISSUE
+                const sceneErrorTrackingIssues = getSceneItems<MaxErrorTrackingIssueContext>(
+                    MaxContextType.ERROR_TRACKING_ISSUE
                 )
                 const allErrorTrackingIssues = [...contextErrorTrackingIssues, ...sceneErrorTrackingIssues]
                 if (allErrorTrackingIssues.length > 0) {

@@ -15,6 +15,8 @@ from products.conversations.backend.models.constants import Priority, Status
 class TestExternalTicketAPI(BaseTest):
     def setUp(self):
         super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save(update_fields=["conversations_enabled"])
         self.client = APIClient()
         self.ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -51,6 +53,12 @@ class TestExternalTicketAPI(BaseTest):
         response = self.client.get(self.url, **headers)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_rejects_when_conversations_disabled(self):
+        self.team.conversations_enabled = False
+        self.team.save(update_fields=["conversations_enabled"])
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     # -- GET ticket -------------------------------------------------------
 
     def test_get_ticket_returns_all_fields(self):
@@ -68,6 +76,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertIsNone(data["last_message_text"])
         self.assertEqual(data["unread_team_count"], 0)
         self.assertEqual(data["unread_customer_count"], 0)
+        self.assertIsNone(data["sla_due_at"])
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
@@ -77,7 +86,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_get_ticket_cross_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_team = Team.objects.create(organization=self.organization, name="Other team", conversations_enabled=True)
         response = self.client.get(self.url, **self._auth_headers(token=other_team.api_token))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -139,7 +148,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_patch_cross_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_team = Team.objects.create(organization=self.organization, name="Other team", conversations_enabled=True)
         response = self.client.patch(
             self.url,
             {"status": "resolved"},
@@ -160,6 +169,55 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, "resolved")
+
+    # -- SLA updates --------------------------------------------------------
+
+    def test_patch_sla_due_at_valid(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_due_at": "2026-03-15T14:30:00Z"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertIsNotNone(self.ticket.sla_due_at)
+        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-03-15T14:30:00+00:00")
+
+    def test_patch_sla_due_at_null_clears_sla(self):
+        from django.utils import timezone
+
+        self.ticket.sla_due_at = timezone.now()
+        self.ticket.save()
+
+        response = self.client.patch(
+            self.url,
+            {"sla_due_at": None},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertIsNone(self.ticket.sla_due_at)
+
+    def test_patch_sla_due_at_invalid_format(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_due_at": "not-a-date"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_get_ticket_returns_sla_due_at(self):
+        from django.utils import timezone
+
+        self.ticket.sla_due_at = timezone.now()
+        self.ticket.save()
+
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.json()["sla_due_at"])
 
     # -- URL validation ---------------------------------------------------
 

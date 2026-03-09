@@ -6,9 +6,9 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -26,8 +26,9 @@ export type PersonPreviewProps = {
 }
 
 export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
-    const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
-    const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
+    const logicProps = { syncWithUrl: false, urlId: props.distinctId || props.personId }
+    const { loadPerson, loadPersonUUID } = useActions(personsLogic(logicProps))
+    const { person, personLoading } = useValues(personsLogic(logicProps))
 
     useEffect(() => {
         if (props.distinctId) {

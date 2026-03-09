@@ -5,9 +5,9 @@ import { FilterBar } from 'lib/components/FilterBar'
 import { XRayHog2 } from 'lib/components/hedgehogs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
+import { pageReportsLogic } from './pageReportsLogic'
 import { Tiles } from './WebAnalyticsDashboard'
 import { WebAnalyticsCompareFilter } from './WebAnalyticsFilters'
-import { pageReportsLogic } from './pageReportsLogic'
 
 function NoUrlSelectedMessage(): JSX.Element {
     return (

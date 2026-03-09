@@ -1,4 +1,5 @@
 import 'chartjs-adapter-dayjs-3'
+
 import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import { useActions, useValues } from 'kea'
 
@@ -14,10 +15,11 @@ import {
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { isString } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { LineGraphProps, onChartClick } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
@@ -67,7 +69,7 @@ export function PieChart({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
-    const { getTooltip, hideTooltip } = useInsightTooltip()
+    const { getTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
 
     const { canvasRef } = useChart<'pie'>({
         getConfig: () => {
@@ -125,7 +127,11 @@ export function PieChart({
                             color: 'white',
                             anchor: 'end',
                             backgroundColor: (context) => {
-                                return context.dataset.backgroundColor?.[context.dataIndex] || 'black'
+                                const { backgroundColor } = context.dataset
+                                if (Array.isArray(backgroundColor)) {
+                                    return backgroundColor[context.dataIndex] || 'black'
+                                }
+                                return isString(backgroundColor) ? backgroundColor : 'black'
                             },
                             display: (context) => {
                                 const percentage = getPercentageForDataPoint(context)
@@ -249,12 +255,8 @@ export function PieChart({
                                     )
                                 }
 
-                                const position = chart.canvas.getBoundingClientRect()
-                                tooltipEl.style.position = 'absolute'
-                                tooltipEl.style.left =
-                                    position.left + window.pageXOffset + (tooltip.caretX || 0) + 8 + 'px'
-                                tooltipEl.style.top =
-                                    position.top + window.pageYOffset + (tooltip.caretY || 0) + 8 + 'px'
+                                const bounds = chart.canvas.getBoundingClientRect()
+                                positionTooltip(tooltipEl, bounds, tooltip.caretX || 0, tooltip.caretY || 0)
                             },
                         },
                     },

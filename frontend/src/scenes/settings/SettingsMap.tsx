@@ -3,7 +3,10 @@ import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
+import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { LLMProviderKeysSettings } from '@posthog/products-llm-analytics/frontend/settings/LLMProviderKeysSettings'
+import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
@@ -38,7 +41,6 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import {
     ExceptionAutocaptureToggle,
-    ExceptionIngestionControls,
     ExceptionSuppressionRules,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 
@@ -49,8 +51,8 @@ import {
     ActivityLogSettings,
 } from './environment/ActivityLogSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
-import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
+import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
@@ -60,6 +62,7 @@ import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegratio
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import {
     DefaultEvaluationContexts,
+    DefaultReleaseConditions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
@@ -69,13 +72,13 @@ import { FeaturePreviewsComingSoon, FeaturePreviewsSettings } from './environmen
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
+import { GithubIntegration, LinearIntegration } from './environment/Integrations'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
-import { GithubIntegration, LinearIntegration } from './environment/Integrations'
 import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
-import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
+import MCPServerSettings from './environment/MCPServerSettings'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
@@ -103,6 +106,7 @@ import {
     WebSnippetV2,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { TwigSlackIntegration } from './environment/TwigSlackIntegration'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
@@ -111,13 +115,14 @@ import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
+import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
-import { OrganizationDisplayName } from './organization/OrgDisplayName'
-import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
-import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
+import { OrganizationDisplayName } from './organization/OrgDisplayName'
+import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -129,7 +134,6 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
-import { SqlEditorTabPreference } from './user/SqlEditorTabPreference'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -145,8 +149,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'variables',
-                title: 'Project API key & ID',
-                description: 'Your project API key and ID used to connect SDKs and APIs to this environment.',
+                title: 'Project token & ID',
+                description: 'Your project token and ID used to connect SDKs and APIs to this environment.',
                 component: <TeamVariables />,
                 keywords: ['api key', 'token', 'project id'],
             },
@@ -326,18 +330,47 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'mcp-server',
-        title: 'MCP server',
+        id: 'environment-twig',
+        title: 'Twig',
+        flag: 'TASKS',
+        settings: [
+            {
+                id: 'integration-twig-slack',
+                title: 'Slack integration',
+                component: <TwigSlackIntegration />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'posthog-mcp',
+        title: 'PostHog MCP',
         group: 'AI',
         settings: [
             {
-                id: 'mcp-server-configure',
+                id: 'posthog-mcp-configure',
                 title: 'Model Context Protocol (MCP) server',
                 description:
                     'Connect PostHog to AI tools like Claude, Cursor, and Copilot via the MCP protocol for data-driven AI assistance.',
                 docsUrl: 'https://posthog.com/docs/model-context-protocol',
                 component: <MCPServerSettings />,
                 keywords: ['ai', 'llm', 'claude', 'cursor', 'copilot'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'mcp-servers',
+        title: 'MCP servers',
+        group: 'AI',
+        flag: 'MCP_SERVERS',
+        settings: [
+            {
+                id: 'mcp-servers-manage',
+                title: 'MCP servers',
+                description: 'Install and manage MCP servers for your AI agents.',
+                component: <McpStoreSettings />,
+                keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
         ],
     },
@@ -573,6 +606,28 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-llm-analytics',
+        title: 'LLM analytics',
+        group: 'Products',
+        flag: 'LLM_ANALYTICS_EVALUATIONS',
+        accessControl: {
+            resourceType: AccessControlResourceType.LlmAnalytics,
+            minimumAccessLevel: AccessControlLevel.Editor,
+        },
+        settings: [
+            {
+                id: 'llm-analytics-byok',
+                title: 'Bring Your Own Key (BYOK)',
+                description:
+                    'Add and manage provider API keys for LLM analytics features, including evaluations and playground.',
+                component: <LLMProviderKeysSettings />,
+                docsUrl: 'https://posthog.com/docs/llm-analytics/evaluations',
+                keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-marketing-analytics',
         title: 'Marketing analytics',
         flag: 'WEB_ANALYTICS_MARKETING',
@@ -747,15 +802,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['headers', 'payload', 'body', 'request', 'response'],
             },
             {
-                id: 'web-vitals-autocapture',
-                title: 'Web vitals',
-                description: 'Capture web vitals metrics alongside session recordings for performance analysis.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
-                platformSupport: FEATURE_SUPPORT.webVitals,
-                component: <WebVitalsAutocaptureSettings />,
-                keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance'],
-            },
-            {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 description:
@@ -886,6 +932,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['evaluation', 'default', 'context', 'tag'],
             },
             {
+                id: 'feature-flag-default-release-conditions',
+                title: 'Default release conditions',
+                description:
+                    'Automatically apply default release conditions to newly created feature flags. Users can still modify them during flag creation.',
+                component: <DefaultReleaseConditions />,
+                keywords: ['release', 'conditions', 'default', 'rollout', 'groups'],
+            },
+            {
                 id: 'feature-flag-secure-api-key',
                 title: 'Feature flags secure API key',
                 description:
@@ -955,20 +1009,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
-                id: 'error-tracking-ingestion-controls',
-                title: 'Autocapture controls',
-                description: 'Selectively enable exception autocapture based on the user or scenario.',
-                platformSupport: FEATURE_SUPPORT.errorTrackingSuppressionRules,
-                component: <ExceptionIngestionControls />,
-                flag: 'ERROR_TRACKING_INGESTION_CONTROLS',
-                keywords: ['ingestion', 'control', 'selective', 'autocapture'],
-            },
-            {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when new errors occur or error rates spike.',
                 component: <ErrorTrackingAlerting />,
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
+            },
+            {
+                id: 'error-tracking-spike-detection',
+                title: 'Spike detection',
+                component: <SpikeDetectionSettings />,
+                flag: 'ERROR_TRACKING_SPIKE_ALERTING',
             },
             {
                 id: 'error-tracking-auto-assignment',
@@ -987,9 +1038,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
-                description: 'Connect error tracking with external services like Sentry or PagerDuty.',
+                description: 'Connect error tracking with external services like GitHub or Linear.',
                 component: <ErrorTrackingIntegrations />,
-                keywords: ['sentry', 'pagerduty', 'integration', 'connect'],
+                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -1087,6 +1138,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Get notified about activity log events via configured destinations.',
                 component: <ActivityLogNotifications />,
                 flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['notification', 'alert', 'activity', 'webhook'],
             },
         ],
@@ -1101,6 +1153,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'approval-policies',
                 title: 'Policies',
                 description: 'Configure which actions require approval before being applied.',
+                docsUrl: 'https://posthog.com/docs/settings/approvals#policies',
                 component: <ApprovalPolicies />,
                 keywords: ['approval', 'policy', 'review', 'gate'],
             },
@@ -1108,6 +1161,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'change-requests',
                 title: 'Change requests',
                 description: 'Review and approve pending change requests.',
+                docsUrl: 'https://posthog.com/docs/settings/approvals#change-requests',
                 component: <ChangeRequestsList />,
                 keywords: ['approval', 'review', 'pending', 'request'],
             },
@@ -1123,6 +1177,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Integrations',
                 description: 'Configure how discussion mentions are delivered via integrations.',
                 component: <DiscussionMentionNotifications />,
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['mention', 'notification', 'comment', 'discussion'],
             },
         ],
@@ -1384,6 +1439,20 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-oauth-apps',
+        title: 'OAuth applications',
+        settings: [
+            {
+                id: 'organization-oauth-apps-list',
+                title: 'OAuth applications',
+                description: 'View applications that have been authorized to connect to your organization.',
+                component: <OAuthApps />,
+                keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-proxy',
         title: 'Managed reverse proxy',
         settings: [
@@ -1502,13 +1571,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
                 keywords: ['dark mode', 'light mode', 'appearance', 'color scheme'],
-            },
-            {
-                id: 'sql-editor-tab-preference',
-                title: 'SQL editor new tab behavior',
-                description: 'Configure whether new SQL queries open in new tabs or reuse existing ones.',
-                component: <SqlEditorTabPreference />,
-                keywords: ['sql', 'editor', 'tab', 'query'],
             },
             {
                 id: 'optout',

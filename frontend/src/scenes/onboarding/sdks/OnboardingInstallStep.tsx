@@ -12,12 +12,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag, SDKTagOverrides } from '~/types'
 
-import { OnboardingStep } from '../OnboardingStep'
 import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
-import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
-import { SDKSnippet } from './SDKSnippet'
+import { OnboardingStep } from '../OnboardingStep'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
+import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import { sdksLogic } from './sdksLogic'
+import { SDKSnippet } from './SDKSnippet'
 
 interface SDKInstructionsModalProps {
     isOpen: boolean
@@ -132,11 +132,11 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                             <LemonButton
                                 size="small"
                                 type="primary"
-                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project API key')}
+                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project token')}
                                 icon={<IconCopy />}
-                                data-attr="copy-api-key"
+                                data-attr="copy-project-token"
                             >
-                                Copy API key
+                                Copy project token
                             </LemonButton>
                             <InviteMembersButton
                                 type="primary"

@@ -1,7 +1,7 @@
 import { IconChevronRight, IconTrash } from '@posthog/icons'
 
-import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
 import { NativeMarketingSource } from '~/queries/schema/schema-general'

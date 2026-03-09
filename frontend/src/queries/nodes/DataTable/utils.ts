@@ -12,9 +12,14 @@ export const defaultDataTableEventColumns: HogQLExpression[] = [
     'timestamp',
 ]
 
-export const defaultDataTablePersonColumns: HogQLExpression[] = [PERSON_DISPLAY_NAME_COLUMN_NAME, 'id', 'created_at']
+export const defaultDataTablePersonColumns: HogQLExpression[] = [
+    PERSON_DISPLAY_NAME_COLUMN_NAME,
+    'id',
+    'created_at',
+    'last_seen_at',
+]
 
-export const defaultDataTableGroupColumns: HogQLExpression[] = ['group_name', 'key', 'created_at']
+export const defaultDataTableGroupColumns: HogQLExpression[] = ['group_name', 'created_at']
 
 export const defaultDataTableSessionColumns: HogQLExpression[] = [
     'session_id',

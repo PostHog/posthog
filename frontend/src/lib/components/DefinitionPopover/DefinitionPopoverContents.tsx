@@ -13,20 +13,21 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { isKeyOf } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
-import { isCoreFilter } from '~/taxonomy/helpers'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
+import { getCoreFilterDefinition, getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
 import {
     ActionType,
     CohortType,
@@ -36,8 +37,8 @@ import {
 } from '~/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
-import { TZLabel } from '../TZLabel'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
+import { TZLabel } from '../TZLabel'
 
 export function PropertyStatusControl({
     verified,
@@ -163,9 +164,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         return <></>
     }
 
-    const description: string | JSX.Element | undefined | null =
+    const description =
         (definition && 'description' in definition && definition?.description) ||
-        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description)
+        (definition?.name ? getCoreFilterDefinition(definition.name, group.type)?.description : undefined)
 
     const sharedComponents = (
         <>
@@ -337,6 +338,100 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
+    if (
+        group.type === TaxonomicFilterGroupType.PageviewEvents ||
+        group.type === TaxonomicFilterGroupType.ScreenEvents ||
+        group.type === TaxonomicFilterGroupType.AutocaptureEvents ||
+        group.type === TaxonomicFilterGroupType.PageviewUrls ||
+        group.type === TaxonomicFilterGroupType.Screens ||
+        group.type === TaxonomicFilterGroupType.EmailAddresses
+    ) {
+        const _definition = definition as SimpleOption
+        const isEventMode =
+            group.type === TaxonomicFilterGroupType.PageviewEvents ||
+            group.type === TaxonomicFilterGroupType.ScreenEvents ||
+            group.type === TaxonomicFilterGroupType.AutocaptureEvents
+
+        const groupConfig: Record<
+            string,
+            {
+                propertyName: string
+                propertyGroupType: TaxonomicFilterGroupType
+                eventName?: string
+                eventDescription?: string
+            }
+        > = {
+            [TaxonomicFilterGroupType.PageviewEvents]: {
+                propertyName: '$current_url',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+                eventName: '$pageview',
+                eventDescription: 'Pageview filtered by current URL.',
+            },
+            [TaxonomicFilterGroupType.PageviewUrls]: {
+                propertyName: '$current_url',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+            },
+            [TaxonomicFilterGroupType.ScreenEvents]: {
+                propertyName: '$screen_name',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+                eventName: '$screen',
+                eventDescription: 'Screen event filtered by screen name.',
+            },
+            [TaxonomicFilterGroupType.Screens]: {
+                propertyName: '$screen_name',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+            },
+            [TaxonomicFilterGroupType.AutocaptureEvents]: {
+                propertyName: '$el_text',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+                eventName: '$autocapture',
+                eventDescription: 'Autocapture filtered by element text.',
+            },
+            [TaxonomicFilterGroupType.EmailAddresses]: {
+                propertyName: 'email',
+                propertyGroupType: TaxonomicFilterGroupType.PersonProperties,
+            },
+        }
+
+        const config = groupConfig[group.type]
+        const propertyLabel = getFilterLabel(config.propertyName, config.propertyGroupType)
+
+        if (isEventMode && config.eventName && config.eventDescription) {
+            const eventLabel = getFilterLabel(config.eventName, TaxonomicFilterGroupType.Events)
+
+            return (
+                <>
+                    <DefinitionPopover.Description
+                        description={
+                            <>
+                                {config.eventDescription}
+                                <br />
+                                <br />
+                                Selecting this will add a <span className="font-semibold">{eventLabel}</span> event
+                                filtered by <span className="font-semibold">{propertyLabel}</span> matching{' '}
+                                <span className="font-semibold break-all">{_definition.name}</span>.
+                            </>
+                        }
+                    />
+                    <DefinitionPopover.Example value={_definition.name} />
+                </>
+            )
+        }
+
+        return (
+            <>
+                <DefinitionPopover.Description
+                    description={
+                        <>
+                            Selecting this will filter by <span className="font-semibold">{propertyLabel}</span>{' '}
+                            matching <span className="font-semibold break-all">{_definition.name}</span>.
+                        </>
+                    }
+                />
+                <DefinitionPopover.Example value={_definition.name} />
+            </>
+        )
+    }
     if (group.type === TaxonomicFilterGroupType.Elements) {
         const _definition = definition as SimpleOption
         return (
@@ -402,8 +497,8 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 optional,
                                 type,
                             }: DataWarehousePopoverField) => {
-                                const fieldValue = key in localDefinition ? localDefinition[key] : undefined
-                                const isHogQL = isUsingHogQLExpression(fieldValue)
+                                const fieldValue = isKeyOf(key, localDefinition) ? localDefinition[key] : undefined
+                                const isHogQL = isUsingHogQLExpression(fieldValue ?? undefined)
 
                                 return (
                                     <Fragment key={key}>
@@ -452,12 +547,12 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <div className="flex justify-end">
                         <LemonButton
                             onClick={() => {
-                                selectItem(group, itemValue ?? null, localDefinition, undefined)
+                                selectItem(group, itemValue ?? null, localDefinition)
                             }}
                             disabledReason={
                                 dataWarehousePopoverFields.every(
                                     ({ key, optional }: DataWarehousePopoverField) =>
-                                        optional || (key in localDefinition && localDefinition[key])
+                                        optional || (isKeyOf(key, localDefinition) && localDefinition[key])
                                 )
                                     ? null
                                     : 'All required field mappings must be specified'
@@ -597,6 +692,7 @@ interface ControlledDefinitionPopoverContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     highlightedItemElement: HTMLDivElement | null
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export function ControlledDefinitionPopover({
@@ -604,6 +700,7 @@ export function ControlledDefinitionPopover({
     item,
     group,
     highlightedItemElement,
+    definitionPopoverRenderer,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
@@ -623,6 +720,9 @@ export function ControlledDefinitionPopover({
     if (!value || !item) {
         return null
     }
+
+    const defaultView = <DefinitionView group={group} />
+    const customView = definitionPopoverRenderer?.({ item, group, defaultView }) ?? defaultView
 
     return (
         <Popover
@@ -645,7 +745,7 @@ export function ControlledDefinitionPopover({
                         editHeaderTitle={`Edit ${singularType}`}
                         icon={icon}
                     />
-                    {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
+                    {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : customView}
                 </DefinitionPopover.Wrapper>
             }
             placement="right"

@@ -60,7 +60,7 @@
         }
 
         .replayer-mouse.active::after {
-            animation: PlayerFrame__click 0.2s ease-in-out 1;
+            animation: PlayerFrame__click var(--player-frame-click-duration, 0.333s) ease-in-out 1;
         }
 
         .replayer-mouse.touch-device {
@@ -92,7 +92,7 @@
         }
 
         .replayer-mouse.touch-device.active::after {
-            animation: PlayerFrame__touch-click 0.2s ease-in-out 1;
+            animation: PlayerFrame__touch-click var(--player-frame-click-duration, 0.333s) ease-in-out 1;
         }
 
         .replayer-mouse-tail {

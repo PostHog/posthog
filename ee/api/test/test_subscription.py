@@ -55,7 +55,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
         assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
-        assert response.json() == self.license_required_response()
+        assert response.json() == self.license_required_response(
+            "Subscriptions is part of the premium PostHog offering. Self-hosted licenses are no longer available for purchase. Please contact sales@posthog.com to discuss options."
+        )
 
     def test_can_create_new_subscription(self, mock_sync):
         mock_client = MagicMock()

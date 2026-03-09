@@ -19,6 +19,7 @@ const esmModules = [
     'unist-util-visit-parents',
     'unist-util-is',
     '@tiptap',
+    'marked',
     'lowlight',
     'devlop',
     'hast-util-to-html',

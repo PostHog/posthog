@@ -180,15 +180,17 @@ export function ViewsTab(): JSX.Element {
                                     if (!view.status) {
                                         return null
                                     }
-                                    const tagContent = (
+                                    if (view.latest_error && view.status === 'Failed') {
+                                        return (
+                                            <Tooltip title={view.latest_error} interactive>
+                                                <LemonTag type="danger">Failed</LemonTag>
+                                            </Tooltip>
+                                        )
+                                    }
+                                    return (
                                         <LemonTag type={STATUS_TAG_SETTINGS[view.status] || 'default'}>
                                             {view.status}
                                         </LemonTag>
-                                    )
-                                    return view.latest_error && view.status === 'Failed' ? (
-                                        <Tooltip title={view.latest_error}>{tagContent}</Tooltip>
-                                    ) : (
-                                        tagContent
                                     )
                                 },
                             },

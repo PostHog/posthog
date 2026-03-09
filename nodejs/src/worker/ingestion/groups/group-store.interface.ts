@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { GroupTypeIndex, ProjectId, TeamId } from '../../../types'
 import { BatchWritingStore } from '../stores/batch-writing-store'

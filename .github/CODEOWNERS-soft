@@ -106,6 +106,9 @@ nodejs/src/ingestion/ai/ @PostHog/team-llm-analytics
 nodejs/src/session-replay/ @PostHog/team-replay
 nodejs/src/session-replay/shared/ @PostHog/team-replay @PostHog/team-ingestion
 
+# CDP / Workflows - owned by @PostHog/team-workflows
+posthog/cdp/** @PostHog/team-workflows
+
 # Web Analytics - owned by @PostHog/team-web-analytics
 products/web_analytics/** @PostHog/team-web-analytics
 frontend/src/scenes/web-analytics/** @PostHog/team-web-analytics
@@ -113,6 +116,18 @@ posthog/hogql_queries/web_analytics/** @PostHog/team-web-analytics
 frontend/src/toolbar/web-vitals/** @PostHog/team-web-analytics
 rust/common/cookieless/** @PostHog/team-web-analytics
 nodejs/src/ingestion/cookieless/** @PostHog/team-web-analytics
+
+# Heatmaps - owned by @PostHog/team-web-analytics
+frontend/src/scenes/heatmaps/** @PostHog/team-web-analytics
+frontend/src/lib/components/heatmaps/** @PostHog/team-web-analytics
+frontend/src/toolbar/elements/heatmapToolbarMenuLogic.ts @PostHog/team-web-analytics
+posthog/heatmaps/** @PostHog/team-web-analytics
+posthog/models/heatmap_saved.py @PostHog/team-web-analytics
+posthog/hogql/database/schema/heatmaps.py @PostHog/team-web-analytics
+posthog/tasks/heatmap_screenshot.py @PostHog/team-web-analytics
+nodejs/src/ingestion/analytics/heatmap-subpipeline.ts @PostHog/team-web-analytics
+nodejs/src/ingestion/event-processing/extract-heatmap-data-step.ts @PostHog/team-web-analytics
+nodejs/src/ingestion/event-processing/event-pipeline-runner-heatmap-step.ts @PostHog/team-web-analytics
 
 # Analytics Platform - owned by @PostHog/team-analytics-platform
 posthog/dags/locations/analytics*platform.py @PostHog/team-analytics-platform
@@ -129,19 +144,18 @@ posthog/tasks/exports/** @PostHog/team-analytics-platform
 # Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-customer-analytics
 products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-customer-analytics
 
-# Feature Flags platform (the `/flags` and `/decide` endpoints + associated utils) - owned by @PostHog/team-feature-flags
-rust/feature-flags/ @PostHog/team-feature-flags
-posthog/api/decide.py @PostHog/team-feature-flags
-posthog/models/flag_matching.py @PostHog/team-feature-flags
+# Feature Flags platform (the `/flags` endpoint + associated utils) - owned by @PostHog/team-flags-platform
+rust/feature-flags/ @PostHog/team-flags-platform
+posthog/models/feature_flag/flag_matching.py @PostHog/team-flags-platform
 
-# Feature Flags CRUD operations - owned by @PostHog/team-feature-flags
-posthog/models/feature_flag/ @PostHog/team-feature-flags
-posthog/api/feature_flag.py @PostHog/team-feature-flags
-posthog/api/test/test_feature_flag_dependency_deletion.py @PostHog/team-feature-flags
-posthog/api/test/test_feature_flag_utils.py @PostHog/team-feature-flags
-posthog/api/test/test_feature_flag.py @PostHog/team-feature-flags
-posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags
-posthog/test/test_feature_flag.py @PostHog/team-feature-flags
+# Feature Flags CRUD operations - owned by @PostHog/team-feature-flags and @PostHog/team-flags-platform
+posthog/models/feature_flag/ @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/api/feature_flag.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/api/test/test_feature_flag_dependency_deletion.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/api/test/test_feature_flag_utils.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/api/test/test_feature_flag.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+posthog/test/test_feature_flag.py @PostHog/team-feature-flags @PostHog/team-flags-platform
 
 # Cohorts - owned by @PostHog/team-feature-flags
 posthog/api/cohort.py @PostHog/team-feature-flags
@@ -153,12 +167,14 @@ frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
 
 # Data warehouse - owned by @PostHog/team-data-stack
 posthog/temporal/data_imports/** @PostHog/team-warehouse-sources
-posthog/temporal/data_modeling/** @PostHog/team-data-tools
 posthog/warehouse/** @PostHog/team-data-stack
 products/data_warehouse/** @PostHog/team-data-stack
 frontend/src/scenes/data-warehouse/\*\* @PostHog/team-data-stack
 posthog/management/commands/generate_source_configs.py @PostHog/team-warehouse-sources
 posthog/settings/data_warehouse.py @PostHog/team-data-stack
+frontend/src/scenes/models/** @PostHog/team-data-modeling
+products/data_modeling/** @PostHog/team-data-modeling
+posthog/temporal/data_modeling/** @PostHog/team-data-modeling
 
 # HogQL - owned by @PostHog/team-data-tools
 # and also hard owned by the @PostHog/hogql on `CODEOWNERS` file
@@ -210,5 +226,9 @@ CODEOWNERS @PostHog/team-devex
 CLAUDE.md @PostHog/team-devex
 AGENTS.md @PostHog/team-devex
 .claude/ @PostHog/team-devex
+.agents/ @PostHog/team-devex
+.claude/agents/ingestion/ @PostHog/team-ingestion
+.agents/skills/ingestion-*/ @PostHog/team-ingestion
+.claude/skills/ingestion-*/ @PostHog/team-ingestion
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex

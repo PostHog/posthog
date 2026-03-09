@@ -14,6 +14,16 @@ type TooltipInstance = {
 
 const tooltipInstances = new Map<string, TooltipInstance>()
 
+let globalScrollEndListenerActive = false
+
+function initGlobalScrollEndListener(): void {
+    if (globalScrollEndListenerActive) {
+        return
+    }
+    globalScrollEndListenerActive = true
+    document.addEventListener('scrollend', () => hideTooltip(), { capture: true, passive: true })
+}
+
 export function ensureTooltip(id: string): [Root, HTMLElement] {
     let instance = tooltipInstances.get(id)
 
@@ -21,6 +31,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
         const tooltipEl = document.createElement('div')
         tooltipEl.id = `InsightTooltipWrapper-${id}`
         tooltipEl.classList.add('InsightTooltipWrapper')
+        tooltipEl.setAttribute('data-attr', 'insight-tooltip-wrapper')
         document.body.appendChild(tooltipEl)
 
         const root = createRoot(tooltipEl)
@@ -112,22 +123,68 @@ export function cleanupTooltip(id: string): void {
     }
 }
 
+function applyPosition(
+    tooltipEl: HTMLElement,
+    canvasBounds: DOMRect,
+    caretX: number,
+    caretY: number,
+    centerVertically: boolean
+): void {
+    const caretLeft = canvasBounds.left + window.scrollX + caretX
+    let left = caretLeft + 8
+    const verticalOffset = centerVertically ? -tooltipEl.clientHeight / 2 : 8
+    const top = canvasBounds.top + window.scrollY + caretY + verticalOffset
+
+    const viewportRight = window.scrollX + document.documentElement.clientWidth
+    const tooltipWidth = tooltipEl.offsetWidth
+    if (tooltipWidth > 0 && left + tooltipWidth > viewportRight - 8) {
+        left = caretLeft - tooltipWidth - 8
+    }
+    left = Math.max(window.scrollX + 8, left)
+
+    const viewportBottom = window.scrollY + document.documentElement.clientHeight
+    const clampedTop = Math.min(
+        Math.max(window.scrollY + 8, top),
+        viewportBottom - Math.max(tooltipEl.offsetHeight, 0) - 8
+    )
+
+    tooltipEl.style.left = `${left}px`
+    tooltipEl.style.top = `${clampedTop}px`
+}
+
+export function positionTooltip(
+    tooltipEl: HTMLElement,
+    canvasBounds: DOMRect,
+    caretX: number,
+    caretY: number,
+    centerVertically = false
+): void {
+    tooltipEl.style.position = 'absolute'
+    tooltipEl.style.maxWidth = ''
+
+    applyPosition(tooltipEl, canvasBounds, caretX, caretY, centerVertically)
+
+    // On first render offsetWidth may be 0 since content hasn't painted yet.
+    // Re-run positioning after paint so boundary clamping uses real dimensions.
+    if (tooltipEl.offsetWidth === 0) {
+        requestAnimationFrame(() => {
+            applyPosition(tooltipEl, canvasBounds, caretX, caretY, centerVertically)
+        })
+    }
+}
+
 export function useInsightTooltip(): {
     tooltipId: string
     getTooltip: () => [Root, HTMLElement]
     hideTooltip: () => void
     cleanupTooltip: () => void
+    positionTooltip: typeof positionTooltip
 } {
     const tooltipId = useMemo(() => Math.random().toString(36).substring(2, 11), [])
 
-    // Hide tooltip on scroll and clean up on unmount
     useOnMountEffect(() => {
-        const handleScrollEnd = (): void => hideTooltip(tooltipId)
-        // Tooltips are absolutely positioned on document.body and don't move with their chart.
-        // Use capture to catch scrollend from any scrollable ancestor (main, AI chat, side panels, etc.)
-        document.addEventListener('scrollend', handleScrollEnd, true)
+        initGlobalScrollEndListener()
         return () => {
-            document.removeEventListener('scrollend', handleScrollEnd, true)
             cleanupTooltip(tooltipId)
         }
     })
@@ -136,5 +193,5 @@ export function useInsightTooltip(): {
     const hide = useCallback((): void => hideTooltip(tooltipId), [tooltipId])
     const cleanup = useCallback((): void => cleanupTooltip(tooltipId), [tooltipId])
 
-    return { tooltipId, getTooltip, hideTooltip: hide, cleanupTooltip: cleanup }
+    return { tooltipId, getTooltip, hideTooltip: hide, cleanupTooltip: cleanup, positionTooltip }
 }

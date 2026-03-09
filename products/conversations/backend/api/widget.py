@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import WidgetAuthentication
+from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
@@ -160,9 +161,10 @@ class WidgetMessageView(APIView):
                 # Don't let analytics failures break the widget
                 capture_exception(e, {"ticket_id": str(ticket.id)})
 
-        # Invalidate caches
-        invalidate_unread_count_cache(team.id)
-        invalidate_tickets_cache(team.id, widget_session_id)
+            try:
+                report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
 
         # Create message
         comment = Comment.objects.create(
@@ -172,6 +174,11 @@ class WidgetMessageView(APIView):
             content=message_content,
             item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
+
+        # tickets + messages caches are invalidated by the post_save signal
+        # via transaction.on_commit (see signals.py). Only unread_count needs
+        # explicit invalidation here since the signal doesn't cover it.
+        invalidate_unread_count_cache(team.id)
 
         # Send email notification for new tickets
         if not ticket_id:

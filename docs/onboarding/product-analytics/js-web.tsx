@@ -47,7 +47,7 @@ export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Import and initialize the PostHog library with your project API key and host:</Markdown>
+                    <Markdown>Import and initialize the PostHog library with your project token and host:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -56,7 +56,7 @@ export const getJSWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 code: dedent`
                                     import posthog from 'posthog-js'
 
-                                    posthog.init('<ph_project_api_key>', {
+                                    posthog.init('<ph_project_token>', {
                                         api_host: '<ph_client_api_host>',
                                         defaults: '2026-01-30'
                                     })

@@ -36,6 +36,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    aggregation_needs_numeric_input,
     build_aggregation_call,
     extract_aggregation_and_inner_expr,
 )
@@ -80,6 +81,7 @@ class ExperimentQueryBuilder:
             ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
         ] = None,
         breakdowns: list[Breakdown] | None = None,
+        force_precomputation: bool = False,
     ):
         self.team = team
         self.metric = metric
@@ -93,6 +95,7 @@ class ExperimentQueryBuilder:
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
         self.preaggregation_job_ids: list[str] | None = None
+        self.force_precomputation = force_precomputation
 
     def build_query(self) -> ast.SelectQuery:
         """
@@ -191,58 +194,46 @@ class ExperimentQueryBuilder:
 
         is_unordered_funnel = self.metric.funnel_order_type == StepOrderValue.UNORDERED
 
-        # For unordered funnels, the UDF does _not_ filter out funnel steps that occur _before_ the
-        # exposure event. Thus, we need to filter them out with a left join. An attempt to do this with
-        # a window function has been tried, but it failed with a "column not found" issue due to how
-        # HogQL rewrites the query and hitting a bug with the ClickHouse analyzer
-        if is_unordered_funnel:
-            ctes_sql = f"""
-                exposures AS (
-                    {{exposure_select_query}}
-                ),
+        # Use separate exposures CTE to leverage precomputed exposure cache when available.
+        # The exposures query automatically falls back to scanning events if precomputation
+        # isn't enabled for the team.
+        #
+        # Unordered funnels need temporal filtering (metric_events.timestamp >= first_exposure_time)
+        # because the funnel UDF doesn't filter out events before the exposure.
+        # Ordered funnels don't need this - the UDF handles temporal ordering internally.
 
-                {metric_events_cte_str},
+        # Build the JOIN clause with conditional temporal filter
+        temporal_filter = "AND metric_events.timestamp >= exposures.first_exposure_time" if is_unordered_funnel else ""
 
-                entity_metrics AS (
-                    SELECT
-                        exposures.entity_id AS entity_id,
-                        exposures.variant AS variant,
-                        exposures.exposure_event_uuid AS exposure_event_uuid,
-                        exposures.exposure_session_id AS exposure_session_id,
-                        exposures.first_exposure_time AS exposure_timestamp,
-                        {{funnel_aggregation}} AS value,
-                        {{uuid_to_session_map}} AS uuid_to_session,
-                        {{uuid_to_timestamp_map}} AS uuid_to_timestamp
-                    FROM exposures
-                    LEFT JOIN metric_events
-                        ON exposures.entity_id = metric_events.entity_id
-                        AND metric_events.timestamp >= exposures.first_exposure_time
-                    GROUP BY
-                        exposures.entity_id,
-                        exposures.variant,
-                        exposures.exposure_event_uuid,
-                        exposures.exposure_session_id,
-                        exposures.first_exposure_time
-                )
-            """
-        else:
-            ctes_sql = f"""
-                {metric_events_cte_str},
+        ctes_sql = f"""
+            exposures AS (
+                {{exposure_select_query}}
+            ),
 
-                entity_metrics AS (
-                    SELECT
-                        entity_id,
-                        {{variant_expr}} as variant,
-                        argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
-                        argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
-                        argMinIf(timestamp, timestamp, step_0 = 1) AS exposure_timestamp,
-                        {{funnel_aggregation}} AS value,
-                        {{uuid_to_session_map}} AS uuid_to_session,
-                        {{uuid_to_timestamp_map}} AS uuid_to_timestamp
-                    FROM metric_events
-                    GROUP BY entity_id
-                )
-            """
+            {metric_events_cte_str},
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    exposures.exposure_event_uuid AS exposure_event_uuid,
+                    exposures.exposure_session_id AS exposure_session_id,
+                    exposures.first_exposure_time AS exposure_timestamp,
+                    {{funnel_aggregation}} AS value,
+                    {{uuid_to_session_map}} AS uuid_to_session,
+                    {{uuid_to_timestamp_map}} AS uuid_to_timestamp
+                FROM exposures
+                LEFT JOIN metric_events
+                    ON exposures.entity_id = metric_events.entity_id
+                    {temporal_filter}  -- Only for unordered: filters out events before exposure
+                GROUP BY
+                    exposures.entity_id,
+                    exposures.variant,
+                    exposures.exposure_event_uuid,
+                    exposures.exposure_session_id,
+                    exposures.first_exposure_time
+            )
+        """
 
         placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
             "exposure_predicate": self._build_exposure_predicate(),
@@ -254,10 +245,8 @@ class ExperimentQueryBuilder:
             "num_steps_minus_1": ast.Constant(value=num_steps - 1),
             "uuid_to_session_map": self._build_uuid_to_session_map(),
             "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
+            "exposure_select_query": self._get_exposure_query(),
         }
-
-        if is_unordered_funnel:
-            placeholders["exposure_select_query"] = self._get_exposure_query()
 
         query = parse_select(
             f"""
@@ -948,12 +937,13 @@ class ExperimentQueryBuilder:
         if not apply_coalesce:
             return base_expr
 
-        # Check if this is a count distinct math type - don't coalesce IDs
+        # Don't coalesce values for count distinct types (IDs) or HOGQL (user controls the expression)
         math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
             ExperimentMetricMathType.DAU,
             ExperimentMetricMathType.UNIQUE_GROUP,
+            ExperimentMetricMathType.HOGQL,
         ]:
             return base_expr
 
@@ -1017,10 +1007,14 @@ class ExperimentQueryBuilder:
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    inner_value_expr = parse_expr(f"toFloat({column_ref})")
-                    agg_call = build_aggregation_call(aggregation_function, inner_value_expr, params=params)
+                    inner_value_expr = parse_expr(column_ref)
+                    if aggregation_needs_numeric_input(aggregation_function):
+                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
+                    agg_call = build_aggregation_call(
+                        aggregation_function, inner_value_expr, params=params, distinct=distinct
+                    )
                     return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Fallback to SUM
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
@@ -1129,6 +1123,12 @@ class ExperimentQueryBuilder:
     def _get_exposure_query(self) -> ast.SelectQuery:
         if self.preaggregation_job_ids and not self.breakdowns:
             return self._build_exposure_from_precomputed(self.preaggregation_job_ids)
+
+        if self.force_precomputation:
+            raise Exception(
+                "Precomputation required but not available. preaggregation_job_ids is None or breakdowns are present."
+            )
+
         return self._build_exposure_select_query()
 
     def _build_exposure_select_query(self) -> ast.SelectQuery:
@@ -1177,6 +1177,10 @@ class ExperimentQueryBuilder:
 
         Re-aggregates across jobs since the same user can appear in multiple time-window jobs.
         Returns the same column shape as _build_exposure_select_query().
+
+        Important: Jobs can cover broader time ranges than the experiment (for reusability),
+        so we must filter by experiment start/end dates to avoid including exposures outside
+        the experiment window.
         """
         # The lazy-computed table stores entity_id as String, but person_id is UUID in events.
         # Cast back to match the type expected by downstream JOINs.
@@ -1204,6 +1208,8 @@ class ExperimentQueryBuilder:
                 FROM experiment_exposures_preaggregated AS t
                 WHERE t.job_id IN {job_ids}
                     AND t.team_id = {team_id}
+                    AND t.first_exposure_time >= {date_from}
+                    AND t.first_exposure_time <= {date_to}
                 GROUP BY entity_id
             """,
             placeholders={
@@ -1211,6 +1217,8 @@ class ExperimentQueryBuilder:
                 "variant_expr": variant_expr,
                 "job_ids": ast.Constant(value=job_ids),
                 "team_id": ast.Constant(value=self.team.id),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -1402,11 +1410,13 @@ class ExperimentQueryBuilder:
 
             start_events AS (
                 SELECT
-                    {entity_key} AS entity_id,
+                    exposures.entity_id AS entity_id,
                     {start_timestamp_expr} AS start_timestamp
                 FROM events
+                INNER JOIN exposures ON {entity_key} = exposures.entity_id
                 WHERE {start_event_predicate}
-                GROUP BY entity_id
+                    AND {start_after_exposure_predicate}
+                GROUP BY exposures.entity_id
             ),
 
             completion_events AS (
@@ -1431,7 +1441,6 @@ class ExperimentQueryBuilder:
                 FROM exposures
                 INNER JOIN start_events
                     ON exposures.entity_id = start_events.entity_id
-                    AND {start_conversion_window_predicate}
                 LEFT JOIN completion_events
                     ON exposures.entity_id = completion_events.entity_id
                     AND {completion_retention_window_predicate}
@@ -1449,7 +1458,7 @@ class ExperimentQueryBuilder:
                 self.metric.retention_window_start
             ),
             "retention_window_end_interval": self._build_retention_window_interval(self.metric.retention_window_end),
-            "start_conversion_window_predicate": self._build_start_conversion_window_predicate(),
+            "start_after_exposure_predicate": self._build_start_after_exposure_predicate(),
             "completion_retention_window_predicate": self._build_completion_retention_window_predicate(),
             "truncated_start_timestamp": self._get_retention_window_truncation_expr(
                 parse_expr("start_events.start_timestamp")
@@ -1603,23 +1612,25 @@ class ExperimentQueryBuilder:
             },
         )
 
-    def _build_start_conversion_window_predicate(self) -> ast.Expr:
+    def _build_start_after_exposure_predicate(self) -> ast.Expr:
         """
-        Builds the predicate for the join condition limiting start events to the conversion window.
+        Builds the predicate for filtering start events to only those after exposure.
+        Applied inside the start_events CTE (pre-aggregation) so that min/max only
+        considers events after the user's first exposure.
         """
         conversion_window_seconds = self._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
             return parse_expr(
                 """
-                start_events.start_timestamp >= exposures.first_exposure_time
-                AND start_events.start_timestamp <= exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
+                timestamp >= exposures.first_exposure_time
+                AND timestamp <= exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
                 """,
                 placeholders={
                     "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
                 },
             )
         else:
-            return parse_expr("start_events.start_timestamp >= exposures.first_exposure_time")
+            return parse_expr("timestamp >= exposures.first_exposure_time")
 
     def _build_completion_retention_window_predicate(self) -> ast.Expr:
         """

@@ -40,7 +40,7 @@ export const getHeliconeSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                     base_url="https://oai.hconeai.com/v1",  # Set the API endpoint
                                     default_headers={
                                         "Helicone-Auth": f"Bearer {HELICONE_API_KEY}",
-                                        "Helicone-Posthog-Key": "<ph_project_api_key>",
+                                        "Helicone-Posthog-Key": "<ph_project_token>",
                                         "Helicone-Posthog-Host": "<ph_client_api_host>",
                                     }
                                 )

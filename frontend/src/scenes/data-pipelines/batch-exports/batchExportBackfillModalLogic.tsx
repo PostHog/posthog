@@ -133,6 +133,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         closeBackfillModal: true,
         setEarliestBackfill: true,
         unsetEarliestBackfill: true,
+        backfillCreated: (backfillId: string) => ({ backfillId }),
     }),
     reducers({
         isBackfillModalOpen: [
@@ -298,7 +299,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                     startAtStr = earliest_backfill ? null : (start_at?.toISOString() ?? null)
                     endAtStr = end_at?.toISOString() ?? null
                 }
-                await api.batchExports
+                const result = await api.batchExports
                     .createBackfill(props.id, { start_at: startAtStr, end_at: endAtStr })
                     .catch((e) => {
                         if (e.detail) {
@@ -317,6 +318,8 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                 })
 
                 actions.closeBackfillModal()
+                lemonToast.success('Backfill created')
+                actions.backfillCreated(result.backfill_id)
                 return
             },
         },

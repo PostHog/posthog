@@ -14,7 +14,17 @@ from posthog.temporal.common.combined_metrics_server import CombinedMetricsServe
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.delete_recordings.metrics import (
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+    DeleteRecordingsMetricsInterceptor,
+)
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
+from posthog.temporal.llm_analytics.sentiment.metrics import (
+    SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
+    SENTIMENT_LATENCY_HISTOGRAM_METRICS,
+    SentimentMetricsInterceptor,
+)
 from posthog.temporal.llm_analytics.trace_clustering.metrics import (
     CLUSTERING_LATENCY_HISTOGRAM_BUCKETS,
     CLUSTERING_LATENCY_HISTOGRAM_METRICS,
@@ -212,6 +222,18 @@ async def create_worker(
                         itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
+                | dict(
+                    zip(
+                        SENTIMENT_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(SENTIMENT_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | dict(
+                    zip(
+                        DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
             ),
         )
@@ -239,9 +261,11 @@ async def create_worker(
                 LivenessInterceptor(),
                 PostHogClientInterceptor(),
                 BatchExportsMetricsInterceptor(),
+                DeleteRecordingsMetricsInterceptor(),
                 EvalsMetricsInterceptor(),
                 SummarizationMetricsInterceptor(),
                 ClusteringMetricsInterceptor(),
+                SentimentMetricsInterceptor(),
             ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             tuner=WorkerTuner.create_resource_based(
@@ -266,9 +290,11 @@ async def create_worker(
                 LivenessInterceptor(),
                 PostHogClientInterceptor(),
                 BatchExportsMetricsInterceptor(),
+                DeleteRecordingsMetricsInterceptor(),
                 EvalsMetricsInterceptor(),
                 SummarizationMetricsInterceptor(),
                 ClusteringMetricsInterceptor(),
+                SentimentMetricsInterceptor(),
             ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             max_concurrent_activities=max_concurrent_activities or 50,

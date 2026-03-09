@@ -16,6 +16,56 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
+export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
+export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
+
+export interface ToolbarAuthParams {
+    code: string
+    clientId: string
+}
+
+/**
+ * Clean `__posthog_toolbar=code:…,client_id:…` from the URL hash.
+ * Returns the matched params if found, or null.
+ */
+export function cleanToolbarAuthHash(): ToolbarAuthParams | null {
+    let hash: string
+    try {
+        hash = decodeURIComponent(window.location.hash)
+    } catch {
+        hash = window.location.hash
+    }
+    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&#]+)/)
+    if (!codeMatch) {
+        return null
+    }
+
+    const cleanHash = hash
+        .replace(/__posthog_toolbar=[^&#]*/, '')
+        .replace(/&$/, '')
+        .replace(/^#&/, '#')
+        .replace(/^#$/, '')
+    history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
+    return {
+        code: codeMatch[1],
+        clientId: codeMatch[2],
+    }
+}
+
+export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
+    const bytes = new Uint8Array(48)
+    crypto.getRandomValues(bytes)
+    const verifier = btoa(String.fromCharCode(...bytes))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '')
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+    const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '')
+    return { verifier, challenge }
+}
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {

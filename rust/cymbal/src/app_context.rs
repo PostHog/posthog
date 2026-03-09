@@ -19,6 +19,7 @@ use crate::{
     error::UnhandledError,
     stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
+        apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
         concurrency,
@@ -183,8 +184,9 @@ impl AppContext {
             posthog_pool.clone(),
             config.object_storage_bucket.clone(),
         );
-        let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
         // We skip the saving layer for HermesMapProvider, since it'll never fetch something from the outside world.
+        let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
+        let hmp_atmostonce = concurrency::AtMostOne::new(hmp_caching);
 
         let pgp_chunk = ChunkIdFetcher::new(
             ProguardProvider {},
@@ -193,16 +195,29 @@ impl AppContext {
             config.object_storage_bucket.clone(),
         );
         let pgp_caching = Caching::new(pgp_chunk, ss_cache.clone());
+        let pgp_atmostonce = concurrency::AtMostOne::new(pgp_caching);
+
+        let apple_chunk = ChunkIdFetcher::new(
+            AppleProvider {},
+            s3_client.clone(),
+            posthog_pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let apple_caching = Caching::new(apple_chunk, ss_cache.clone());
+        let apple_atmostonce = concurrency::AtMostOne::new(apple_caching);
 
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Arc::new(Catalog::new(smp_atmostonce, hmp_caching, pgp_caching));
-
+        let catalog = Arc::new(Catalog::new(
+            smp_atmostonce,
+            hmp_atmostonce,
+            pgp_atmostonce,
+            apple_atmostonce,
+        ));
         let team_manager = TeamManager::new(config);
-
         let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
 
         // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,

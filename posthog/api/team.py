@@ -1,4 +1,5 @@
 import json
+import math
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -10,7 +11,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -38,11 +39,13 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
-from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
 from posthog.models.tag import Tag
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
@@ -68,6 +71,8 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_instance_realm, get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
+from products.signals.backend.models import SignalSourceConfig
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -206,7 +211,7 @@ TEAM_CONFIG_FIELDS = (
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
-class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
     goals = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
@@ -232,7 +237,7 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
         return internal_value
 
 
-class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     sources_map = serializers.JSONField(required=False)
     conversion_goals = serializers.JSONField(required=False)
     attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
@@ -292,7 +297,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
         return instance
 
 
-class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False)
     signup_pageview_event = serializers.JSONField(required=False)
     signup_event = serializers.JSONField(required=False)
@@ -319,6 +324,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     managed_viewsets = serializers.SerializerMethodField()
+    available_setup_task_ids = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
@@ -351,6 +357,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "product_intents",
             "managed_viewsets",
+            "available_setup_task_ids",
         )
 
         read_only_fields = (
@@ -373,6 +380,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "managed_viewsets",
+            "available_setup_task_ids",
         )
 
     def to_representation(self, instance):
@@ -390,14 +398,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
-        return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
+        return bool(get_group_types_for_project(team.project_id))
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return list(
-            GroupTypeMapping.objects.filter(project_id=team.project_id)
-            .order_by("group_type_index")
-            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
-        )
+        return get_group_types_for_project(team.project_id)
 
     def get_live_events_token(self, team: Team) -> str | None:
         return encode_jwt(
@@ -420,6 +424,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         enabled_set = set(enabled_viewsets)
 
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(
+        serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
+    )
+    def get_available_setup_task_ids(self, obj) -> list[str]:
+        return [e.value for e in SetupTaskId]
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -619,6 +629,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")
+        # Slack integration state is managed only by the SupportHog OAuth endpoints
+        for slack_key in ("slack_bot_token", "slack_team_id", "slack_enabled"):
+            value.pop(slack_key, None)
         return value
 
     def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
@@ -859,6 +872,23 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             }
 
         updated_team = super().update(instance, validated_data)
+
+        if "proactive_tasks_enabled" in validated_data:
+            # Backward compat for old proactive tasks enabled field, remove after February 2026
+            if validated_data["proactive_tasks_enabled"]:
+                SignalSourceConfig.objects.get_or_create(
+                    team=instance,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
+                )
+            else:
+                SignalSourceConfig.objects.filter(
+                    team=instance,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).delete()
+
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
 
         log_activity(
@@ -886,7 +916,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         serializer = TeamRevenueAnalyticsConfigSerializer(
-            instance.revenue_analytics_config, data=validated_data, partial=True
+            instance.revenue_analytics_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
         )
         if not serializer.is_valid():
             raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
@@ -958,7 +991,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(
-            instance.customer_analytics_config, data=validated_data, partial=True
+            instance.customer_analytics_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
         )
         if not serializer.is_valid():
             raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
@@ -1063,6 +1099,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 if not non_team_config_fields:
                     return ["project:read"]
 
+        # Team-level config actions that any member should be able to edit via the UI.
+        # Only downgrade for session auth to preserve read-only API key semantics.
+        if self.action in ("default_release_conditions", "default_evaluation_tags"):
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                return ["project:read"]
+
         # Fall back to the default behavior
         return None
 
@@ -1148,7 +1191,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             detail=Detail(name=str(team_name)),
         )
         # TRICKY: We pass in `team` here as access to `user.current_team` can fail if it was deleted
-        report_user_action(user, f"team deleted", team=team)
+        report_user_action(user, "team deleted", team=team, request=self.request)
 
     @action(
         methods=["PATCH"],
@@ -1232,9 +1275,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                 if created:
                     report_user_action(
-                        cast(User, request.user),
+                        request.user,
                         "default evaluation tag added",
                         {"team_id": team.id, "tag_name": tag_name},
+                        team=team,
+                        request=request,
                     )
 
             return response.Response({"id": default_tag.id, "name": tag.name, "created": created})
@@ -1254,14 +1299,66 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                     if deleted_count > 0:
                         report_user_action(
-                            cast(User, request.user),
+                            request.user,
                             "default evaluation tag removed",
                             {"team_id": team.id, "tag_name": tag_name},
+                            team=team,
+                            request=request,
                         )
 
                     return response.Response({"success": True})
                 except Tag.DoesNotExist:
                     return response.Response({"error": "Tag not found"}, status=404)
+
+    @action(
+        methods=["GET", "PUT"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="default_release_conditions",
+    )
+    def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage default release conditions for new feature flags in this team."""
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamFeatureFlagDefaultsConfig)
+
+        if request.method == "GET":
+            return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+        # PUT: update the config
+        enabled = request.data.get("enabled", config.enabled)
+        default_groups = request.data.get("default_groups", config.default_groups)
+
+        if not isinstance(default_groups, list):
+            return response.Response({"error": "default_groups must be a list"}, status=400)
+
+        for i, group in enumerate(default_groups):
+            if not isinstance(group, dict):
+                return response.Response({"error": f"Group at index {i} must be an object"}, status=400)
+            if "properties" not in group or not isinstance(group["properties"], list):
+                return response.Response(
+                    {"error": f"Group at index {i} must have a 'properties' list"},
+                    status=400,
+                )
+            rollout = group.get("rollout_percentage")
+            if rollout is not None and (
+                not isinstance(rollout, (int, float)) or math.isnan(rollout) or rollout < 0 or rollout > 100
+            ):
+                return response.Response(
+                    {"error": f"Group at index {i} has invalid rollout_percentage (must be 0-100 or null)"},
+                    status=400,
+                )
+
+        config.enabled = enabled
+        config.default_groups = default_groups
+        config.save()
+
+        report_user_action(
+            request.user,
+            "default release conditions updated",
+            {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
+        )
+
+        return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
 
     @action(
         methods=["GET"],
@@ -1421,14 +1518,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 "product onboarding completed",
                 {
                     "product_key": product_type,
-                    "$current_url": current_url,
-                    "$session_id": session_id,
                     "intent_context": intent_context,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),
                 },
                 team=team,
+                request=request,
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)

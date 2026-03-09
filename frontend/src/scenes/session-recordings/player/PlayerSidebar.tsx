@@ -16,8 +16,8 @@ import { IntegrationKind, SessionRecordingSidebarStacking, SessionRecordingSideb
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
+import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 
 export function PlayerSidebar(): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)

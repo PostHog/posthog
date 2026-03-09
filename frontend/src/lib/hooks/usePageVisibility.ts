@@ -1,22 +1,10 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
-// Determine the correct hidden property name and change event for browser compatibility
-// adapted from https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API#example
-// Opera 12.10 and Firefox 18 and later support
-const { HIDDEN_PROPERTY, VISIBILITY_CHANGE_EVENT } = (() => {
-    if (typeof document !== 'undefined') {
-        if ('msHidden' in document) {
-            return { HIDDEN_PROPERTY: 'msHidden', VISIBILITY_CHANGE_EVENT: 'msvisibilitychange' }
-        }
-        if ('webkitHidden' in document) {
-            return { HIDDEN_PROPERTY: 'webkitHidden', VISIBILITY_CHANGE_EVENT: 'webkitvisibilitychange' }
-        }
-    }
-    return { HIDDEN_PROPERTY: 'hidden', VISIBILITY_CHANGE_EVENT: 'visibilitychange' }
-})()
+// See https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API
+const VISIBILITY_CHANGE_EVENT = 'visibilitychange'
 
 function isPageVisible(): boolean {
-    return !document[HIDDEN_PROPERTY as keyof Document]
+    return !document.hidden
 }
 
 /**

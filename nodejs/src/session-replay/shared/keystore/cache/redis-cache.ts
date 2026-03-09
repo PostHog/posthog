@@ -65,10 +65,10 @@ export class RedisCachedKeyStore implements KeyStore {
         return key
     }
 
-    async deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
+    async deleteKey(sessionId: string, teamId: number, deletedBy: string): Promise<DeleteKeyResult> {
         // Clear cache first to ensure stale data isn't served
         await this.deleteCached(sessionId, teamId)
-        return this.delegate.deleteKey(sessionId, teamId)
+        return this.delegate.deleteKey(sessionId, teamId, deletedBy)
     }
 
     stop(): void {

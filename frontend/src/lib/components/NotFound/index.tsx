@@ -15,9 +15,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { ImpersonationReasonModal } from '~/layout/navigation/ImpersonationNotice/ImpersonationReasonModal'
@@ -88,7 +88,9 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
                             {preflight?.cloud ? (
                                 <>
                                     , or{' '}
-                                    <Link onClick={() => openSupportForm({ kind: 'support' })}>contact support</Link> if
+                                    <Link onClick={() => openSupportForm({ kind: 'support' })}>
+                                        contact support
+                                    </Link> if
                                     you think this is a mistake
                                 </>
                             ) : null}

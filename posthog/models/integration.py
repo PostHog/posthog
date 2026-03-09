@@ -40,6 +40,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.security.outbound_proxy import external_requests
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 
@@ -90,6 +91,7 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
+        SLACK_TWIG = "slack-twig"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
         GOOGLE_PUBSUB = "google-pubsub"
@@ -114,6 +116,7 @@ class Integration(models.Model):
         AZURE_BLOB = "azure-blob"
         FIREBASE = "firebase"
         JIRA = "jira"
+        PINTEREST_ADS = "pinterest-ads"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -188,9 +191,36 @@ class OauthConfig:
     additional_authorize_params: dict[str, str] | None = None
 
 
+POSTHOG_SLACK_SCOPE = ",".join(
+    [
+        "channels:read",
+        "groups:read",
+        "chat:write",
+        "chat:write.customize",
+        *(
+            [  # New scopes that came with the update adding PostHog AI integration with Slack
+                "app_mentions:read",
+                "channels:history",
+                "groups:history",
+                "links:read",
+                "links:write",
+                "reactions:read",
+                "reactions:write",
+                "team:read",
+                "users:read",
+                "users:read.email",
+            ]
+            if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV"
+            else []
+        ),
+    ]
+)
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
+        "slack-twig",
         "salesforce",
         "hubspot",
         "google-ads",
@@ -205,6 +235,7 @@ class OauthIntegration:
         "linear",
         "clickup",
         "jira",
+        "pinterest-ads",
     ]
     integration: Integration
 
@@ -234,7 +265,20 @@ class OauthIntegration:
                 token_url="https://slack.com/api/oauth.v2.access",
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
-                scope="channels:read,groups:read,chat:write,chat:write.customize",
+                scope=POSTHOG_SLACK_SCOPE,
+                id_path="team.id",
+                name_path="team.name",
+            )
+        elif kind == "slack-twig":
+            if not settings.SLACK_TWIG_CLIENT_ID or not settings.SLACK_TWIG_CLIENT_SECRET:
+                raise NotImplementedError("Twig Slack app not configured")
+
+            return OauthConfig(
+                authorize_url="https://slack.com/oauth/v2/authorize",
+                token_url="https://slack.com/api/oauth.v2.access",
+                client_id=settings.SLACK_TWIG_CLIENT_ID,
+                client_secret=settings.SLACK_TWIG_CLIENT_SECRET,
+                scope="app_mentions:read,channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
             )
@@ -470,12 +514,29 @@ class OauthIntegration:
                 id_path="cloud_id",
                 name_path="site_name",
             )
+        elif kind == "pinterest-ads":
+            if not settings.PINTEREST_ADS_CLIENT_ID or not settings.PINTEREST_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Pinterest Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.pinterest.com/oauth/",
+                token_url="https://api.pinterest.com/v5/oauth/token",
+                token_info_url="https://api.pinterest.com/v5/user_account",
+                token_info_config_fields=["id", "username"],
+                client_id=settings.PINTEREST_ADS_CLIENT_ID,
+                client_secret=settings.PINTEREST_ADS_CLIENT_SECRET,
+                scope="ads:read user_accounts:read",
+                id_path="id",
+                name_path="username",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
+        if settings.DEBUG and settings.NGROK_URL:
+            return f"{settings.NGROK_URL}/integrations/{kind}/callback"
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
@@ -509,7 +570,7 @@ class OauthIntegration:
 
         # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
         if kind == "reddit-ads":
-            res = requests.post(
+            res = external_requests.post(
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
                 data={
@@ -519,9 +580,20 @@ class OauthIntegration:
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
             )
+        # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
+        elif kind == "pinterest-ads":
+            res = external_requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+            )
         elif kind == "tiktok-ads":
             # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
-            res = requests.post(
+            res = external_requests.post(
                 oauth_config.token_url,
                 json={
                     "app_id": oauth_config.client_id,
@@ -531,7 +603,7 @@ class OauthIntegration:
                 headers={"Content-Type": "application/json"},
             )
         else:
-            res = requests.post(
+            res = external_requests.post(
                 oauth_config.token_url,
                 data={
                     "client_id": oauth_config.client_id,
@@ -555,7 +627,7 @@ class OauthIntegration:
             # Hack to try getting sandbox auth token instead of their salesforce production account
             if kind == "salesforce":
                 oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
-                res = requests.post(
+                res = external_requests.post(
                     oauth_config.token_url,
                     data={
                         "client_id": oauth_config.client_id,
@@ -578,13 +650,13 @@ class OauthIntegration:
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
             if oauth_config.token_info_graphql_query:
-                token_info_res = requests.post(
+                token_info_res = external_requests.post(
                     oauth_config.token_info_url,
                     headers={"Authorization": f"Bearer {config['access_token']}"},
                     json={"query": oauth_config.token_info_graphql_query},
                 )
             else:
-                token_info_res = requests.get(
+                token_info_res = external_requests.get(
                     oauth_config.token_info_url.replace(":access_token", config["access_token"]),
                     headers={"Authorization": f"Bearer {config['access_token']}"},
                 )
@@ -751,7 +823,7 @@ class OauthIntegration:
 
         # Reddit uses HTTP Basic Auth for token refresh
         if self.integration.kind == "reddit-ads":
-            res = requests.post(
+            res = external_requests.post(
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
                 data={
@@ -761,8 +833,18 @@ class OauthIntegration:
                 # If I use a standard User-Agent, it will throw a 429 too many requests error
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
             )
+        # Pinterest uses HTTP Basic Auth for token refresh
+        elif self.integration.kind == "pinterest-ads":
+            res = external_requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+            )
         elif self.integration.kind == "tiktok-ads":
-            res = requests.post(
+            res = external_requests.post(
                 "https://open.tiktokapis.com/v2/oauth/token/",
                 data={
                     "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
@@ -774,7 +856,7 @@ class OauthIntegration:
             )
         elif self.integration.kind == "bing-ads":
             # Microsoft Azure AD requires scope parameter on token refresh
-            res = requests.post(
+            res = external_requests.post(
                 oauth_config.token_url,
                 data={
                     "client_id": oauth_config.client_id,
@@ -785,7 +867,7 @@ class OauthIntegration:
                 },
             )
         else:
-            res = requests.post(
+            res = external_requests.post(
                 oauth_config.token_url,
                 data={
                     "client_id": oauth_config.client_id,
@@ -804,6 +886,13 @@ class OauthIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
+
+            # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
+            # refresh response includes a new refresh_token and the old one is
+            # invalidated.  Always store the latest one to avoid "invalid refresh
+            # token" errors on subsequent refreshes.
+            if config.get("refresh_token"):
+                self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
 
             # Handle case where Salesforce doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
@@ -827,7 +916,7 @@ class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "slack":
+        if integration.kind not in ("slack", "slack-twig"):
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
@@ -908,36 +997,8 @@ class SlackIntegration:
 
     @classmethod
     def validate_request(cls, request: HttpRequest | Request):
-        """
-        Based on https://api.slack.com/authentication/verifying-requests-from-slack
-        """
         slack_config = cls.slack_config()
-        slack_signature = request.headers.get("X-SLACK-SIGNATURE")
-        slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
-
-        if not slack_config["SLACK_APP_SIGNING_SECRET"] or not slack_signature or not slack_time:
-            raise SlackIntegrationError("Invalid")
-
-        # Check the token is not older than 5mins
-        try:
-            if time.time() - float(slack_time) > 300:
-                raise SlackIntegrationError("Expired")
-        except ValueError:
-            raise SlackIntegrationError("Invalid")
-
-        sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
-
-        my_signature = (
-            "v0="
-            + hmac.new(
-                slack_config["SLACK_APP_SIGNING_SECRET"].encode("utf-8"),
-                sig_basestring.encode("utf-8"),
-                digestmod=hashlib.sha256,
-            ).hexdigest()
-        )
-
-        if not hmac.compare_digest(my_signature, slack_signature):
-            raise SlackIntegrationError("Invalid")
+        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
 
     @classmethod
     @cache_for(timedelta(minutes=5))
@@ -951,6 +1012,46 @@ class SlackIntegration:
         )
 
         return config
+
+    @classmethod
+    def twig_slack_config(cls) -> dict[str, str]:
+        return {
+            "SLACK_TWIG_CLIENT_ID": settings.SLACK_TWIG_CLIENT_ID,
+            "SLACK_TWIG_CLIENT_SECRET": settings.SLACK_TWIG_CLIENT_SECRET,
+            "SLACK_TWIG_SIGNING_SECRET": settings.SLACK_TWIG_SIGNING_SECRET,
+        }
+
+
+def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
+    """
+    Validate a Slack request using HMAC-SHA256 signature verification.
+    Based on https://api.slack.com/authentication/verifying-requests-from-slack
+    """
+    slack_signature = request.headers.get("X-SLACK-SIGNATURE")
+    slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
+
+    if not signing_secret or not slack_signature or not slack_time:
+        raise SlackIntegrationError("Invalid")
+
+    try:
+        if time.time() - float(slack_time) > 300:
+            raise SlackIntegrationError("Expired")
+    except ValueError:
+        raise SlackIntegrationError("Invalid")
+
+    sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
+
+    my_signature = (
+        "v0="
+        + hmac.new(
+            signing_secret.encode("utf-8"),
+            sig_basestring.encode("utf-8"),
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+    )
+
+    if not hmac.compare_digest(my_signature, slack_signature):
+        raise SlackIntegrationError("Invalid")
 
 
 class GoogleAdsIntegration:
@@ -967,7 +1068,7 @@ class GoogleAdsIntegration:
         return WebClient(self.integration.sensitive_config["access_token"])
 
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
-        response = requests.request(
+        response = external_requests.request(
             "POST",
             f"https://googleads.googleapis.com/v21/customers/{customer_id}/googleAds:searchStream",
             json={"query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action"},
@@ -990,7 +1091,7 @@ class GoogleAdsIntegration:
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
     def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
-        response = requests.request(
+        response = external_requests.request(
             "GET",
             f"https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
             headers={
@@ -1010,7 +1111,7 @@ class GoogleAdsIntegration:
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
                 accounts = []
-            response = requests.request(
+            response = external_requests.request(
                 "POST",
                 f"https://googleads.googleapis.com/v21/customers/{account_id}/googleAds:searchStream",
                 json={
@@ -1251,7 +1352,7 @@ class LinkedInAdsIntegration:
         return WebClient(self.integration.sensitive_config["access_token"])
 
     def list_linkedin_ads_conversion_rules(self, account_id):
-        response = requests.request(
+        response = external_requests.request(
             "GET",
             f"https://api.linkedin.com/rest/conversions?q=account&account=urn%3Ali%3AsponsoredAccount%3A{account_id}&fields=conversionMethod%2Cenabled%2Ctype%2Cname%2Cid%2Ccampaigns%2CattributionType",
             headers={
@@ -1264,7 +1365,7 @@ class LinkedInAdsIntegration:
         return response.json()
 
     def list_linkedin_ads_accounts(self) -> dict:
-        response = requests.request(
+        response = external_requests.request(
             "GET",
             "https://api.linkedin.com/rest/adAccounts?q=search",
             headers={
@@ -1287,7 +1388,7 @@ class ClickUpIntegration:
         self.integration = integration
 
     def list_clickup_spaces(self, workspace_id):
-        response = requests.request(
+        response = external_requests.request(
             "GET",
             f"https://api.clickup.com/api/v2/team/{workspace_id}/space",
             headers={
@@ -1303,7 +1404,7 @@ class ClickUpIntegration:
         return response.json()
 
     def list_clickup_folderless_lists(self, space_id):
-        response = requests.request(
+        response = external_requests.request(
             "GET",
             f"https://api.clickup.com/api/v2/space/{space_id}/list",
             headers={
@@ -1319,7 +1420,7 @@ class ClickUpIntegration:
         return response.json()
 
     def list_clickup_folders(self, space_id):
-        response = requests.request(
+        response = external_requests.request(
             "GET",
             f"https://api.clickup.com/api/v2/space/{space_id}/folder",
             headers={
@@ -1335,7 +1436,7 @@ class ClickUpIntegration:
         return response.json()
 
     def list_clickup_workspaces(self) -> dict:
-        response = requests.request(
+        response = external_requests.request(
             "GET",
             "https://api.clickup.com/api/v2/team",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
@@ -1512,7 +1613,7 @@ class LinearIntegration:
         return {"id": linear_issue_id}
 
     def query(self, query):
-        response = requests.post(
+        response = external_requests.post(
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
             json={"query": query},
@@ -1579,7 +1680,7 @@ class JiraIntegration:
 
         self._ensure_token_valid()
 
-        response = requests.get(
+        response = external_requests.get(
             f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/project/search",
             headers={
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -1621,7 +1722,7 @@ class JiraIntegration:
             }
         }
 
-        response = requests.post(
+        response = external_requests.post(
             f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue",
             headers={
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -1667,7 +1768,7 @@ class GitHubIntegration:
                 "Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format."
             )
 
-        return requests.request(
+        return external_requests.request(
             method,
             f"https://api.github.com/app/{endpoint}",
             headers={
@@ -1757,7 +1858,7 @@ class GitHubIntegration:
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def list_repositories(self, page: int = 1) -> list[str]:
+    def list_repositories(self, page: int = 1) -> list[dict]:
         # Proactively refresh token if it's close to expiring to avoid intermittent 401s
         try:
             if self.access_token_expired():
@@ -1767,7 +1868,7 @@ class GitHubIntegration:
 
         def fetch() -> requests.Response:
             access_token = self.integration.sensitive_config.get("access_token")
-            return requests.get(
+            return external_requests.get(
                 f"https://api.github.com/installation/repositories?page={page}&per_page=100",
                 headers={
                     "Accept": "application/vnd.github+json",
@@ -1776,38 +1877,66 @@ class GitHubIntegration:
                 },
             )
 
-        response = fetch()
+        transient_status_codes = {502, 503, 504}
 
-        # If unauthorized, try a single refresh and retry
-        if response.status_code == 401:
+        for attempt in range(2):
+            response = fetch()
+
+            # If unauthorized, try a single refresh and retry
+            if response.status_code == 401:
+                try:
+                    self.refresh_access_token()
+                except Exception:
+                    logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                else:
+                    response = fetch()
+
             try:
-                self.refresh_access_token()
+                body = response.json()
             except Exception:
-                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-            else:
-                response = fetch()
+                if response.status_code in transient_status_codes and attempt == 0:
+                    logger.info(
+                        "GitHubIntegration: list_repositories retrying transient non-JSON response",
+                        status_code=response.status_code,
+                    )
+                    continue
 
-        try:
-            body = response.json()
-        except Exception:
+                logger.warning(
+                    "GitHubIntegration: list_repositories non-JSON response",
+                    status_code=response.status_code,
+                )
+                return []
+
+            repositories = body.get("repositories")
+            if response.status_code == 200 and isinstance(repositories, list):
+                return [
+                    {
+                        "id": repo["id"],
+                        "name": repo["name"],
+                        "full_name": repo["full_name"],
+                    }
+                    for repo in repositories
+                    if isinstance(repo, dict)
+                    and isinstance(repo.get("id"), int)
+                    and isinstance(repo.get("name"), str)
+                    and isinstance(repo.get("full_name"), str)
+                ]
+
+            if response.status_code in transient_status_codes and attempt == 0:
+                logger.info(
+                    "GitHubIntegration: list_repositories retrying transient error",
+                    status_code=response.status_code,
+                    error=body if isinstance(body, dict) else None,
+                )
+                continue
+
             logger.warning(
-                "GitHubIntegration: list_repositories non-JSON response",
+                "GitHubIntegration: failed to list repositories",
                 status_code=response.status_code,
+                error=body if isinstance(body, dict) else None,
             )
             return []
 
-        repositories = body.get("repositories")
-        if response.status_code == 200 and isinstance(repositories, list):
-            names: list[str] = [
-                repo["name"] for repo in repositories if isinstance(repo, dict) and isinstance(repo.get("name"), str)
-            ]
-            return names
-
-        logger.warning(
-            "GitHubIntegration: failed to list repositories",
-            status_code=response.status_code,
-            error=body if isinstance(body, dict) else None,
-        )
         return []
 
     def get_top_starred_repository(self) -> str | None:
@@ -1823,7 +1952,7 @@ class GitHubIntegration:
 
         def fetch(page: int = 1) -> requests.Response:
             access_token = self.integration.sensitive_config.get("access_token")
-            return requests.get(
+            return external_requests.get(
                 f"https://api.github.com/installation/repositories?page={page}&per_page=100",
                 headers={
                     "Accept": "application/vnd.github+json",
@@ -1865,6 +1994,67 @@ class GitHubIntegration:
 
         return None
 
+    def list_branches(self, repo: str) -> list[str]:
+        """List branches for a given repository via the GitHub API."""
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch(page: int = 1) -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return external_requests.get(
+                f"https://api.github.com/repos/{repo}/branches?per_page=100&page={page}",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=10,
+            )
+
+        try:
+            response = fetch()
+        except requests.RequestException:
+            logger.warning("GitHubIntegration: list_branches network error", repo=repo, exc_info=True)
+            return []
+
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                return []
+            else:
+                try:
+                    response = fetch()
+                except requests.RequestException:
+                    logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
+                    return []
+
+        if response.status_code != 200:
+            logger.warning(
+                "GitHubIntegration: failed to list branches",
+                status_code=response.status_code,
+                repo=repo,
+            )
+            return []
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: list_branches non-JSON response",
+                status_code=response.status_code,
+            )
+            return []
+
+        if not isinstance(body, list):
+            return []
+
+        return [branch["name"] for branch in body if isinstance(branch, dict) and isinstance(branch.get("name"), str)]
+
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
         body: str = config.pop("body")
@@ -1873,7 +2063,7 @@ class GitHubIntegration:
         org = self.organization()
         access_token = self.integration.sensitive_config["access_token"]
 
-        response = requests.post(
+        response = external_requests.post(
             f"https://api.github.com/repos/{org}/{repository}/issues",
             json={"title": title, "body": body},
             headers={
@@ -1892,7 +2082,7 @@ class GitHubIntegration:
         org = self.organization()
         access_token = self.integration.sensitive_config["access_token"]
 
-        response = requests.get(
+        response = external_requests.get(
             f"https://api.github.com/repos/{org}/{repository}",
             headers={
                 "Accept": "application/vnd.github+json",
@@ -1917,7 +2107,7 @@ class GitHubIntegration:
             base_branch = self.get_default_branch(repository)
 
         # Get the SHA of the base branch
-        ref_response = requests.get(
+        ref_response = external_requests.get(
             f"https://api.github.com/repos/{org}/{repository}/git/ref/heads/{base_branch}",
             headers={
                 "Accept": "application/vnd.github+json",
@@ -1935,7 +2125,7 @@ class GitHubIntegration:
         base_sha = ref_response.json()["object"]["sha"]
 
         # Create the new branch
-        response = requests.post(
+        response = external_requests.post(
             f"https://api.github.com/repos/{org}/{repository}/git/refs",
             json={
                 "ref": f"refs/heads/{branch_name}",
@@ -1972,7 +2162,7 @@ class GitHubIntegration:
 
         # If no SHA provided, try to get existing file's SHA
         if not sha:
-            get_response = requests.get(
+            get_response = external_requests.get(
                 f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
                 params={"ref": branch},
                 headers={
@@ -1995,7 +2185,7 @@ class GitHubIntegration:
         if sha:
             data["sha"] = sha
 
-        response = requests.put(
+        response = external_requests.put(
             f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
             json=data,
             headers={
@@ -2030,7 +2220,7 @@ class GitHubIntegration:
         if not base_branch:
             base_branch = self.get_default_branch(repository)
 
-        response = requests.post(
+        response = external_requests.post(
             f"https://api.github.com/repos/{org}/{repository}/pulls",
             json={
                 "title": title,
@@ -2066,7 +2256,7 @@ class GitHubIntegration:
         org = self.organization()
         access_token = self.integration.sensitive_config["access_token"]
 
-        response = requests.get(
+        response = external_requests.get(
             f"https://api.github.com/repos/{org}/{repository}/branches/{branch_name}",
             headers={
                 "Accept": "application/vnd.github+json",
@@ -2103,7 +2293,7 @@ class GitHubIntegration:
         access_token = self.integration.sensitive_config["access_token"]
 
         params: dict[str, str | int] = {"state": state, "per_page": 100}
-        response = requests.get(
+        response = external_requests.get(
             f"https://api.github.com/repos/{org}/{repository}/pulls",
             params=params,
             headers={
@@ -2153,7 +2343,7 @@ class GitLabIntegration:
         if not allowed:
             raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
 
-        response = requests.get(
+        response = external_requests.get(
             url,
             headers={"PRIVATE-TOKEN": project_access_token},
             # disallow redirects to prevent SSRF on redirected host
@@ -2169,7 +2359,7 @@ class GitLabIntegration:
         if not allowed:
             raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
 
-        response = requests.post(
+        response = external_requests.post(
             url,
             json=json,
             headers={"PRIVATE-TOKEN": project_access_token},
@@ -2253,7 +2443,7 @@ class MetaAdsIntegration:
             ):
                 return
 
-        res = requests.post(
+        res = external_requests.post(
             oauth_config.token_url,
             data={
                 "client_id": oauth_config.client_id,
@@ -2500,3 +2690,29 @@ class AzureBlobIntegration:
             if part.startswith("AccountName="):
                 return part.split("=", 1)[1]
         return None
+
+
+# TODO: This is a placeholder currently only used to store the scopes we use for Stripe
+# It should be extended with the actual integration code once we move over to OAuth for Stripe as well
+class StripeIntegration:
+    integration: Integration
+
+    # These are the scopes we'll give Stripe when creating a local OAuth App
+    # and sending them access
+    SCOPES = " ".join(
+        [
+            "query:read",
+            "conversation:read",
+            "conversation:write",
+            "experiment:read",
+            "feature_flag:read",
+            "organization:read",
+            "person:read",
+            "project:read",
+            "ticket:read",
+            "ticket:write",
+            "user:read",
+            "hog_flow:read",
+            "hog_flow:write",
+        ]
+    )

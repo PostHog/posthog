@@ -7,6 +7,16 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface CodeInviteRedeemRequestApi {
+    /** @maxLength 50 */
+    code: string
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 /**
  * Serializer for extracted tasks
  */
@@ -30,17 +40,19 @@ export interface PaginatedTaskListApi {
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
+ * `slack` - Slack
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
 export const OriginProductEnumApi = {
-    error_tracking: 'error_tracking',
-    eval_clusters: 'eval_clusters',
-    user_created: 'user_created',
-    support_queue: 'support_queue',
-    session_summaries: 'session_summaries',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    UserCreated: 'user_created',
+    Slack: 'slack',
+    SupportQueue: 'support_queue',
+    SessionSummaries: 'session_summaries',
 } as const
 
 /**
@@ -56,14 +68,14 @@ export const OriginProductEnumApi = {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -109,6 +121,7 @@ export interface PatchedTaskApi {
     readonly slug?: string
     /** @maxLength 255 */
     title?: string
+    title_manually_set?: boolean
     description?: string
     origin_product?: OriginProductEnumApi
     /**
@@ -137,8 +150,8 @@ export type TaskRunCreateRequestModeEnumApi =
     (typeof TaskRunCreateRequestModeEnumApi)[keyof typeof TaskRunCreateRequestModeEnumApi]
 
 export const TaskRunCreateRequestModeEnumApi = {
-    interactive: 'interactive',
-    background: 'background',
+    Interactive: 'interactive',
+    Background: 'background',
 } as const
 
 /**
@@ -150,6 +163,12 @@ export interface TaskRunCreateRequestApi {
 * `interactive` - interactive
 * `background` - background */
     mode?: TaskRunCreateRequestModeEnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
 }
 
 /**
@@ -163,12 +182,12 @@ export interface TaskRunCreateRequestApi {
 export type TaskRunDetailStatusEnumApi = (typeof TaskRunDetailStatusEnumApi)[keyof typeof TaskRunDetailStatusEnumApi]
 
 export const TaskRunDetailStatusEnumApi = {
-    not_started: 'not_started',
-    queued: 'queued',
-    in_progress: 'in_progress',
-    completed: 'completed',
-    failed: 'failed',
-    cancelled: 'cancelled',
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
 } as const
 
 /**
@@ -178,8 +197,8 @@ export const TaskRunDetailStatusEnumApi = {
 export type EnvironmentEnumApi = (typeof EnvironmentEnumApi)[keyof typeof EnvironmentEnumApi]
 
 export const EnvironmentEnumApi = {
-    local: 'local',
-    cloud: 'cloud',
+    Local: 'local',
+    Cloud: 'cloud',
 } as const
 
 export interface TaskRunArtifactResponseApi {
@@ -259,12 +278,12 @@ export interface PaginatedTaskRunDetailListApi {
 export type TaskRunUpdateStatusEnumApi = (typeof TaskRunUpdateStatusEnumApi)[keyof typeof TaskRunUpdateStatusEnumApi]
 
 export const TaskRunUpdateStatusEnumApi = {
-    not_started: 'not_started',
-    queued: 'queued',
-    in_progress: 'in_progress',
-    completed: 'completed',
-    failed: 'failed',
-    cancelled: 'cancelled',
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
 } as const
 
 export interface PatchedTaskRunUpdateApi {
@@ -298,11 +317,6 @@ export interface PatchedTaskRunUpdateApi {
     error_message?: string | null
 }
 
-export interface ErrorResponseApi {
-    /** Error message */
-    error: string
-}
-
 export type TaskRunAppendLogRequestApiEntriesItem = { [key: string]: unknown }
 
 export interface TaskRunAppendLogRequestApi {
@@ -321,11 +335,11 @@ export type TaskRunArtifactUploadTypeEnumApi =
     (typeof TaskRunArtifactUploadTypeEnumApi)[keyof typeof TaskRunArtifactUploadTypeEnumApi]
 
 export const TaskRunArtifactUploadTypeEnumApi = {
-    plan: 'plan',
-    context: 'context',
-    reference: 'reference',
-    output: 'output',
-    artifact: 'artifact',
+    Plan: 'plan',
+    Context: 'context',
+    Reference: 'reference',
+    Output: 'output',
+    Artifact: 'artifact',
 } as const
 
 export interface TaskRunArtifactUploadApi {
@@ -377,11 +391,87 @@ export interface TaskRunArtifactPresignResponseApi {
 }
 
 /**
+ * Parameters for the command
+ */
+export type TaskRunCommandRequestApiParams = { [key: string]: unknown }
+
+/**
+ * * `2.0` - 2.0
+ */
+export type JsonrpcEnumApi = (typeof JsonrpcEnumApi)[keyof typeof JsonrpcEnumApi]
+
+export const JsonrpcEnumApi = {
+    '20': '2.0',
+} as const
+
+/**
+ * * `user_message` - user_message
+ * `cancel` - cancel
+ * `close` - close
+ */
+export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
+
+export const MethodEnumApi = {
+    UserMessage: 'user_message',
+    Cancel: 'cancel',
+    Close: 'close',
+} as const
+
+/**
+ * JSON-RPC request to send a command to the agent server in the sandbox.
+ */
+export interface TaskRunCommandRequestApi {
+    /** JSON-RPC version, must be '2.0'
+
+* `2.0` - 2.0 */
+    jsonrpc: JsonrpcEnumApi
+    /** Command method to execute on the agent server
+
+* `user_message` - user_message
+* `cancel` - cancel
+* `close` - close */
+    method: MethodEnumApi
+    /** Parameters for the command */
+    params?: TaskRunCommandRequestApiParams
+    /** Optional JSON-RPC request ID (string or number) */
+    id?: unknown
+}
+
+/**
+ * Command result on success
+ */
+export type TaskRunCommandResponseApiResult = { [key: string]: unknown }
+
+/**
+ * Error details on failure
+ */
+export type TaskRunCommandResponseApiError = { [key: string]: unknown }
+
+/**
+ * Response from the agent server command endpoint.
+ */
+export interface TaskRunCommandResponseApi {
+    /** JSON-RPC version */
+    jsonrpc: string
+    /** Request ID echoed back (string or number) */
+    id?: unknown
+    /** Command result on success */
+    result?: TaskRunCommandResponseApiResult
+    /** Error details on failure */
+    error?: TaskRunCommandResponseApiError
+}
+
+/**
  * Response containing a JWT token for direct sandbox connection
  */
 export interface ConnectionTokenResponseApi {
     /** JWT token for authenticating with the sandbox */
     token: string
+}
+
+export interface TaskRunRelayMessageRequestApi {
+    /** @maxLength 10000 */
+    text: string
 }
 
 /**
@@ -395,12 +485,12 @@ export interface ConnectionTokenResponseApi {
 export type CapabilityStateStateEnumApi = (typeof CapabilityStateStateEnumApi)[keyof typeof CapabilityStateStateEnumApi]
 
 export const CapabilityStateStateEnumApi = {
-    needs_setup: 'needs_setup',
-    detected: 'detected',
-    waiting_for_data: 'waiting_for_data',
-    ready: 'ready',
-    not_applicable: 'not_applicable',
-    unknown: 'unknown',
+    NeedsSetup: 'needs_setup',
+    Detected: 'detected',
+    WaitingForData: 'waiting_for_data',
+    Ready: 'ready',
+    NotApplicable: 'not_applicable',
+    Unknown: 'unknown',
 } as const
 
 /**

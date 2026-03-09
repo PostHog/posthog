@@ -18,7 +18,7 @@ from posthog.schema import (
     LinkedinAdsTableKeywords,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsItem,
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
@@ -216,6 +216,26 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_FIELD]),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
 }
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
@@ -365,6 +385,7 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: "currency",
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: "unit",
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: "currency",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
@@ -380,6 +401,7 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: False,  # Higher conversion value is good
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: False,  # Higher ROAS is good
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: True,  # Higher cost per conversion is bad
 }
 
 
@@ -417,7 +439,7 @@ def to_marketing_analytics_data(
             break
     else:
         # Check if it's a conversion goal or cost per conversion
-        if key.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER):
+        if key.startswith(MarketingAnalyticsConstants.COST_PER):
             kind = "currency"
             is_increase_bad = True  # Cost per conversion - higher is bad
         else:

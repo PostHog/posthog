@@ -700,7 +700,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if not recording_id:
             return Response({"detail": "recording_id is required"}, status=400)
 
-        queryset = self.safely_get_queryset(self.queryset)
+        queryset = self.get_queryset()
         queryset = self._filter_list_request(request, queryset, {"contains": f"recording:{recording_id}"})
         notebooks = queryset.all()
         comments = []

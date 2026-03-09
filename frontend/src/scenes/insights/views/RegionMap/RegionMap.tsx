@@ -6,9 +6,9 @@ import { ComposableMap, Geographies, Geography } from 'react-simple-maps'
 
 import { gradateColor } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 

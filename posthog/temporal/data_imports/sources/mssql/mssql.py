@@ -30,23 +30,25 @@ if typing.TYPE_CHECKING:
     from pymssql import Cursor
 
 
-def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def filter_mssql_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type == "datetime" or type == "datetime2" or type == "smalldatetime":
-            results.append((column_name, IncrementalFieldType.DateTime))
+            results.append((column_name, IncrementalFieldType.DateTime, nullable))
         elif type == "tinyint" or type == "smallint" or type == "int" or type == "bigint":
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
 
 def get_schemas(
     host: str, user: str, password: str, database: str, schema: str, port: int
-) -> dict[str, list[tuple[str, str]]]:
+) -> dict[str, list[tuple[str, str, bool]]]:
     # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
     import pymssql
 
@@ -62,15 +64,15 @@ def get_schemas(
 
     with connection.cursor(as_dict=False) as cursor:
         cursor.execute(
-            "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+            "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
             {"schema": schema},
         )
 
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
         for row in cursor:
             if row:
-                schema_list[row[0]].append((row[1], row[2]))
+                schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     connection.close()
 

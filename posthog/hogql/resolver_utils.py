@@ -219,6 +219,9 @@ def _recursively_resolve_column(
         fields[name] = _constant_type_to_database_field(name, column.return_type)
     elif isinstance(column, ast.ConstantType):
         fields[name] = _constant_type_to_database_field(name, column)
+    elif isinstance(column, ast.SelectQueryType):
+        first_col = next(iter(column.columns.values()))
+        return _recursively_resolve_column(name, first_col, fields, context)
     else:
         raise QueryError(f"{column.__class__.__name__} is not supported in CTETableType")
 

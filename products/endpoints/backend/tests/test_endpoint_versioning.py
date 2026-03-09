@@ -277,12 +277,18 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         endpoint_id = endpoint.id
         self.assertEqual(4, EndpointVersion.objects.filter(endpoint_id=endpoint_id).count())
 
-        # Delete endpoint
+        # Delete endpoint (soft delete)
         response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
         self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
 
-        # Versions should be deleted too (CASCADE)
-        self.assertEqual(0, EndpointVersion.objects.filter(endpoint_id=endpoint_id).count())
+        # Endpoint should be soft-deleted and no longer accessible
+        endpoint.refresh_from_db()
+        self.assertTrue(endpoint.deleted)
+
+        # Versions still exist in DB but endpoint is not accessible via API
+        self.assertEqual(4, EndpointVersion.objects.filter(endpoint_id=endpoint_id).count())
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_version_query_immutability(self):
         """Version queries should be immutable."""
@@ -338,7 +344,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         from unittest.mock import patch
 
-        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
 
         initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
 
@@ -365,8 +371,15 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
+        old_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"{endpoint.name}_v1_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://test-bucket/{endpoint.name}_v1_table",
+        )
+        old_saved_query.table = old_table
+        old_saved_query.save()
         version1.saved_query = old_saved_query
-        version1.is_materialized = True
         version1.save()
 
         old_saved_query_id = old_saved_query.id
@@ -671,8 +684,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         v1.refresh_from_db()
         v2.refresh_from_db()
 
-        # v1 should now be materialized
-        self.assertTrue(v1.is_materialized)
+        # is_materialized is now derived from saved_query.table_id, which is only set after Temporal runs
         self.assertIsNotNone(v1.saved_query)
         self.assertEqual(v1.saved_query.name, "target_version_mat_v1")
 
@@ -685,7 +697,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         from datetime import timedelta
 
-        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
 
         # Create endpoint with v1
         initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}
@@ -706,9 +718,15 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="disable_v1_mat_v1_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/disable_v1_mat_v1_table",
+        )
+        saved_query.table = table
+        saved_query.save()
         v1.saved_query = saved_query
-        v1.is_materialized = True
-        v1.sync_frequency = "24hour"
         v1.save()
 
         # Create v2 by changing query

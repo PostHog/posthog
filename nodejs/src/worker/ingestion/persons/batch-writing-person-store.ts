@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { Properties } from '@posthog/plugin-scaffold'
-
+import { Properties } from '~/plugin-scaffold'
 import { NoRowsUpdatedError } from '~/utils/utils'
 
 import { KafkaProducerWrapper, TopicMessage } from '../../../kafka/producer'

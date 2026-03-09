@@ -1,9 +1,9 @@
 import type { z } from 'zod'
 
 import type { ApiClient } from '@/api/client'
+import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
-import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { PrefixedString } from '@/lib/types'
 import type { ApiRedactedPersonalApiKey } from '@/schema/api'
 
@@ -19,6 +19,7 @@ export type State = {
     distinctId: string | undefined
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
+    clientName: string | undefined
 } & Record<PrefixedString<'session'>, SessionState>
 
 export type Env = {
@@ -54,12 +55,12 @@ export type Context = {
     sessionManager: SessionManager
 }
 
-export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
+export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     name: string
     title: string
     description: string
     schema: TSchema
-    handler: (context: Context, params: z.infer<TSchema>) => Promise<any>
+    handler: (context: Context, params: z.infer<TSchema>) => Promise<TResult>
     scopes: string[]
     annotations: {
         destructiveHint: boolean
@@ -70,14 +71,14 @@ export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
     _meta?: ToolMeta
 }
 
-export type ToolBase<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = Omit<
-    Tool<TSchema>,
+export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = Omit<
+    Tool<TSchema, TResult>,
     'title' | 'description' | 'scopes' | 'annotations'
 > & {
     _meta?: ToolMeta
 }
 
-export type ZodObjectAny = z.ZodObject<any, any, any, any, any>
+export type ZodObjectAny = z.ZodType<any>
 
 export type ToolUiMeta = {
     resourceUri: string

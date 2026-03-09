@@ -361,6 +361,18 @@ class TestResolver(BaseTest):
             "WITH params AS (SELECT 1 AS a, 2 AS b), (SELECT a FROM params) AS val_a, (SELECT b FROM params) AS val_b SELECT plus(val_a, val_b) FROM events LIMIT 50000",
         )
 
+    def test_ctes_with_scalar_subquery_column(self):
+        # A table CTE that uses a scalar subquery as a SELECT column,
+        # then referenced by another CTE — the resolver must unwrap
+        # SelectQueryType to determine the column's field type
+        self._print_hogql(
+            "WITH latest AS (SELECT max(timestamp) AS ts FROM events), "
+            "date_info AS ("
+            "  SELECT (SELECT ts FROM latest) AS period_end FROM events"
+            ") "
+            "SELECT d.period_end FROM date_info d CROSS JOIN events e"
+        )
+
     def test_ctes_table_subquery_as_scalar_error(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")
@@ -1043,3 +1055,115 @@ class TestResolver(BaseTest):
                 assert isinstance(revenue_field.expr, ast.Field)
                 chain = revenue_field.expr.chain
                 assert chain == expected_chain
+
+    def test_cte_column_name_list_resolves_columns(self):
+        expr = self._select("WITH stats(a, b) AS (SELECT 'x', 'y') SELECT a, b FROM stats")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        # The resolved CTE's inner select should have the column names from the list
+        assert resolved.ctes is not None
+        cte = resolved.ctes["stats"]
+        assert isinstance(cte.expr, ast.SelectQuery)
+        assert isinstance(cte.expr.type, ast.SelectQueryType)
+        assert list(cte.expr.type.columns.keys()) == ["a", "b"]
+
+    def test_cte_column_name_list_overrides_existing_aliases(self):
+        expr = self._select(
+            "WITH stats(a, b) AS (SELECT event AS orig_a, timestamp AS orig_b FROM events) SELECT a, b FROM stats"
+        )
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert resolved.ctes is not None
+        cte = resolved.ctes["stats"]
+        assert isinstance(cte.expr, ast.SelectQuery)
+        assert isinstance(cte.expr.type, ast.SelectQueryType)
+        assert list(cte.expr.type.columns.keys()) == ["a", "b"]
+
+    def test_cte_column_name_list_qualified_access(self):
+        expr = self._select("WITH stats(a, b) AS (SELECT 'x', 'y') SELECT stats.a, stats.b FROM stats")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert len(resolved.select) == 2
+        for i, name in enumerate(["a", "b"]):
+            col = resolved.select[i]
+            assert isinstance(col, ast.Alias)
+            assert col.alias == name
+            assert isinstance(col.expr, ast.Field)
+            assert isinstance(col.expr.type, ast.FieldType)
+            assert col.expr.type.name == name
+
+    def test_cte_column_name_list_mismatch(self):
+        query = "WITH stats (a, b, c) AS (SELECT 'a', 'b') SELECT a FROM stats"
+        with self.assertRaisesMessage(
+            QueryError,
+            "CTE 'stats' has 2 column(s) but 3 column name(s) were provided",
+        ):
+            resolve_types(self._select(query), self.context, dialect="postgres")
+
+        query = "WITH stats (a) AS (SELECT 'a', 'b') SELECT a FROM stats"
+        with self.assertRaisesMessage(
+            QueryError,
+            "CTE 'stats' has 2 column(s) but 1 column name(s) were provided",
+        ):
+            resolve_types(self._select(query), self.context, dialect="postgres")
+
+    def test_cte_column_name_list_union_all_resolves_columns(self):
+        expr = self._select("WITH stats(a, b) AS (SELECT 'x', 'y' UNION ALL SELECT 'p', 'q') SELECT a, b FROM stats")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+
+        assert resolved.ctes is not None
+        cte = resolved.ctes["stats"]
+        assert isinstance(cte.expr, ast.SelectSetQuery)
+        assert isinstance(cte.expr.type, ast.SelectSetQueryType)
+        first_type = cte.expr.type.types[0]
+        while isinstance(first_type, ast.SelectSetQueryType):
+            first_type = first_type.types[0]
+        assert list(first_type.columns.keys()) == ["a", "b"]
+
+    @parameterized.expand(
+        [
+            (
+                "too_many",
+                "WITH stats (a, b, c) AS (SELECT 'x', 'y' UNION ALL SELECT 'p', 'q') SELECT a FROM stats",
+                2,
+                3,
+            ),
+            ("too_few", "WITH stats (a) AS (SELECT 'x', 'y' UNION ALL SELECT 'p', 'q') SELECT a FROM stats", 2, 1),
+        ]
+    )
+    def test_cte_column_name_list_union_all_mismatch(self, _name, query, n_cols, n_names):
+        with self.assertRaisesMessage(
+            QueryError,
+            f"CTE 'stats' has {n_cols} column(s) but {n_names} column name(s) were provided",
+        ):
+            resolve_types(self._select(query), self.context, dialect="postgres")
+
+    def test_cte_using_key_valid_with_column_list(self):
+        expr = self._select("WITH x(a, b) USING KEY (a) AS (SELECT 'hello' AS a, 'world' AS b) SELECT * FROM x")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert resolved.ctes is not None
+        assert resolved.ctes["x"].using_key == ["a"]
+
+    def test_cte_using_key_valid_without_column_list(self):
+        expr = self._select("WITH stats USING KEY (event) AS (SELECT event, timestamp FROM events) SELECT * FROM stats")
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert resolved.ctes is not None
+        assert resolved.ctes["stats"].using_key == ["event"]
+
+    def test_cte_using_key_invalid_column_with_column_list(self):
+        with self.assertRaisesMessage(QueryError, "USING KEY column(s) 'd' not found in CTE 'x'"):
+            resolve_types(
+                self._select("WITH x(a, b, c) USING KEY (d) AS (SELECT 1, 2, 3) SELECT * FROM x"),
+                self.context,
+                dialect="postgres",
+            )
+
+    def test_cte_using_key_invalid_column_without_column_list(self):
+        with self.assertRaisesMessage(QueryError, "USING KEY column(s) 'nonexistent' not found in CTE 'stats'"):
+            resolve_types(
+                self._select(
+                    "WITH stats USING KEY (nonexistent) AS (SELECT event, timestamp FROM events) SELECT * FROM stats"
+                ),
+                self.context,
+                dialect="postgres",
+            )

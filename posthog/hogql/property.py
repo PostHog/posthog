@@ -41,7 +41,7 @@ from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.utils import map_virtual_properties
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
@@ -49,11 +49,11 @@ from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
-from posthog.models.property_definition import PropertyType
 from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -126,11 +126,14 @@ def semver_range_compare(
 
 
 def _tilde_bounds(value: str) -> tuple[str, str]:
-    """~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)"""
+    """
+    ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
+    ~1 means >=1.0.0 <2.0.0 (bare major: allows minor+patch changes)
+    """
+    major, minor, patch = parse_semver(value)
     parts = value.split("-")[0].split(".")
     if len(parts) < 2:
-        raise ValueError("Tilde operator requires at least major.minor version")
-    major, minor, patch = parse_semver(value)
+        return f"{major}.0.0", f"{int(major) + 1}.0.0"
     next_minor = str(int(minor) + 1)
     return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
 
@@ -1195,6 +1198,82 @@ def get_property_value(property):
 
 def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
+
+
+def get_lowercase_index_hint(property, team: Team) -> ast.Call:
+    """
+    Returns an index hint for a case insensitive index on `lower(key)`
+    e.g. for the property `body ILIKE '%STR%'` return `indexHint(lower(body) ILIKE '%str%')`
+         this means we can use ngram indexes on `lower(body)` efficiently
+    """
+    expr = property_to_expr(property, team=team)
+    return ast.Call(name="indexHint", args=[_LowercaseIndexRewriter().visit(expr)])
+
+
+class _LowercaseIndexRewriter(CloningVisitor):
+    """Rewrites an expression tree so it can leverage a case-insensitive index on ``lower(key)``.
+
+    Transformations applied:
+    - All ``toString(x)`` calls are unwrapped to just ``x`` (stripped, not replaced).
+    - ``ILike`` → ``lower(left) Like lower_const`` / ``NotILike`` → ``lower(left) NotLike lower_const``
+    - ``multiSearchAnyCaseInsensitive(haystack, needles)`` → ``multiSearchAny(lower(haystack), lowered_needles)``
+    """
+
+    def visit_call(self, node: ast.Call):
+        if node.name == "toString" and len(node.args) == 1:
+            # Strip toString
+            return self.visit(node.args[0])
+
+        if node.name == "ifNull" and len(node.args) >= 1:
+            # Strip ifNull
+            return self.visit(node.args[0])
+
+        if node.name == "multiSearchAnyCaseInsensitive" and len(node.args) == 2:
+            # multiSearchAnyCaseInsensitive(haystack, needles)
+            # → multiSearchAny(lower(haystack), lowered_needles)
+            haystack = self.visit(node.args[0])
+            haystack = ast.Call(name="lower", args=[haystack])
+            needles = node.args[1]
+            # Lowercase all needle constants
+            if isinstance(needles, ast.Array):
+                needles = ast.Array(
+                    exprs=[
+                        ast.Constant(value=str(e.value).lower())
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        else self.visit(e)
+                        for e in needles.exprs
+                    ]
+                )
+            else:
+                needles = self.visit(needles)
+            return ast.Call(name="multiSearchAny", args=[haystack, needles])
+
+        return super().visit_call(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        op = node.op
+        wrap_left_lower = False
+
+        if op == ast.CompareOperationOp.ILike:
+            op = ast.CompareOperationOp.Like
+            wrap_left_lower = True
+        elif op == ast.CompareOperationOp.NotILike:
+            op = ast.CompareOperationOp.NotLike
+            wrap_left_lower = True
+
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+
+        if wrap_left_lower:
+            left = ast.Call(name="lower", args=[left])
+            if isinstance(right, ast.Constant) and isinstance(right.value, str):
+                right = ast.Constant(value=right.value.lower())
+
+        return ast.CompareOperation(
+            left=left,
+            right=right,
+            op=op,
+        )
 
 
 def operator_is_negative(operator: PropertyOperator) -> bool:

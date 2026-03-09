@@ -29,6 +29,7 @@ export const KAFKA_METRICS_TIME_TO_SEE_DATA = `${prefix}clickhouse_metrics_time_
 // read session recording snapshot items
 export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS = `${prefix}session_recording_snapshot_item_events${suffix}`
 export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW = `${prefix}session_recording_snapshot_item_overflow${suffix}`
+export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ = `${prefix}session_recording_snapshot_item_dlq${suffix}`
 
 // write session recording and replay events to ClickHouse
 export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_session_recording_events${suffix}`
@@ -38,6 +39,8 @@ export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_sessi
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse
 export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_events${suffix}`
+// write AI events to ClickHouse
+export const KAFKA_CLICKHOUSE_AI_EVENTS_JSON = `${prefix}clickhouse_ai_events_json${suffix}`
 
 // log entries for ingestion into ClickHouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
@@ -57,10 +60,13 @@ export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = `${prefix}clickhouse_error
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = `${prefix}clickhouse_error_tracking_issue_fingerprint_overrides${suffix}`
 
 // Warehouse source webhook ingestion
-export const KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = `${prefix}warehouse_source_webhooks${suffix}`
+export const KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = `${prefix}data_warehouse_source_webhooks${suffix}`
 
 // Logs ingestion topics
 export const KAFKA_LOGS_INGESTION = `${prefix}logs_ingestion${suffix}`
 export const KAFKA_LOGS_INGESTION_DLQ = `${prefix}logs_ingestion_dlq${suffix}`
 export const KAFKA_LOGS_INGESTION_OVERFLOW = `${prefix}logs_ingestion_overflow${suffix}`
 export const KAFKA_LOGS_CLICKHOUSE = `${prefix}clickhouse_logs${suffix}`
+
+// TopHog metrics
+export const KAFKA_CLICKHOUSE_TOPHOG = `${prefix}clickhouse_tophog${suffix}`

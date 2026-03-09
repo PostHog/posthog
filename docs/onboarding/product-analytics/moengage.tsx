@@ -21,14 +21,14 @@ export const getMoEngageSteps = (ctx: OnboardingComponentsContext): StepDefiniti
             badge: 'required',
             content: (
                 <>
-                    <Markdown>When prompted, enter your PostHog project API key:</Markdown>
+                    <Markdown>When prompted, enter your PostHog project token:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'text',
                                 file: 'API Key',
                                 code: dedent`
-                                <ph_project_api_key>
+                                <ph_project_token>
                             `,
                             },
                         ]}

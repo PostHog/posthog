@@ -66,14 +66,12 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, Region } from '~/types'
 
+import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
-import { MarkdownMessage } from './MarkdownMessage'
-import { TicketPrompt } from './TicketPrompt'
-import { TraceIdProvider, useTraceId } from './TraceIdContext'
-import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { maxMessageRatingsLogic } from './logics/maxMessageRatingsLogic'
+import { MarkdownMessage } from './MarkdownMessage'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
@@ -81,10 +79,18 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
-import { RecordingsWidget, UIPayloadAnswer, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
+import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
+import {
+    RecordingsWidget,
+    SummarizeSessionsWidget,
+    UIPayloadAnswer,
+    isRenderableUIPayloadTool,
+} from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
+import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
+import { TraceIdProvider, useTraceId } from './TraceIdContext'
 import { useFeedback } from './useFeedback'
 import {
     isArtifactMessage,
@@ -851,7 +857,7 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
 
     return (
         <span
-            className="inline-flex"
+            className="inline-flex min-w-0 max-w-full"
             style={{
                 animation: 'shimmer-opacity 3s linear infinite',
             }}
@@ -915,12 +921,18 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
     const result = toolCall?.result
     const uiPayload = result?.ui_payload
+    const executedSQLQuery =
+        typeof uiPayload?.execute_sql === 'string'
+            ? uiPayload.execute_sql
+            : toolCall?.name === 'execute_sql' && typeof toolCall.args.query === 'string'
+              ? toolCall.args.query
+              : null
 
     return (
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
-                    'transition-all duration-500 flex select-none',
+                    'transition-all duration-500 flex select-none min-w-0',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
                     !showSubstepsChevron ? 'cursor-default' : 'cursor-pointer'
@@ -946,7 +958,7 @@ function AssistantActionComponent({
                     </div>
                 )}
                 <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
-                    <div>
+                    <div className="min-w-0">
                         {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
@@ -1000,22 +1012,39 @@ function AssistantActionComponent({
                 </div>
             )}
             {widget}
+            {/* Render summarize_sessions UI payload outside accordion so "Open report" is always visible */}
+            {!!uiPayload?.summarize_sessions && result && (
+                <SummarizeSessionsWidget
+                    payload={uiPayload.summarize_sessions}
+                    title={toolCall?.args.summary_title as string | undefined}
+                />
+            )}
             {toolCall && isSubstepsExpanded && (
                 <>
                     {!!uiPayload &&
                         isRenderableUIPayloadTool(toolCall.name, uiPayload) &&
-                        Object.entries(uiPayload).map(([toolName, toolPayload]) => (
-                            <div
-                                key={`${result?.tool_call_id}-${toolName}`}
-                                className="ml-3 border-l-2 border-border-secondary pl-3.5"
-                            >
-                                <UIPayloadAnswer
-                                    toolCallId={result!.tool_call_id}
-                                    toolName={toolName}
-                                    toolPayload={toolPayload}
-                                />
-                            </div>
-                        ))}
+                        Object.entries(uiPayload)
+                            .filter(([toolName]) => toolName !== 'summarize_sessions')
+                            .map(([toolName, toolPayload]) => (
+                                <div
+                                    key={`${result?.tool_call_id}-${toolName}`}
+                                    className="ml-3 border-l-2 border-border-secondary pl-3.5"
+                                >
+                                    <UIPayloadAnswer
+                                        toolCallId={result!.tool_call_id}
+                                        toolName={toolName}
+                                        toolPayload={toolPayload}
+                                    />
+                                </div>
+                            ))}
+                    {executedSQLQuery && (
+                        <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
+                            <b className="text-secondary">SQL query</b>
+                            <CodeSnippet language={Language.SQL} className="text-xs" compact>
+                                {executedSQLQuery}
+                            </CodeSnippet>
+                        </div>
+                    )}
                     <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
                         <LemonButton
                             size="xxsmall"
@@ -1538,6 +1567,9 @@ export const getToolCallDescriptionAndWidget = (
                 switch (displayFormatterResult[1]?.widget) {
                     case 'recordings':
                         widget = <RecordingsWidget toolCallId={toolCall.id} filters={displayFormatterResult[1].args} />
+                        break
+                    case 'session_summarization':
+                        widget = <SessionSummarizationProgress updates={displayFormatterResult[1].args.updates} />
                         break
                     default:
                         break

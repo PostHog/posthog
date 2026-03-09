@@ -14,7 +14,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
@@ -199,7 +199,7 @@ async def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) ->
                 "organization": {"id": str(team.organization_id)},
                 "project": {"id": str(team.id)},
             },
-            only_evaluate_locally=True,
+            only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
         if enabled:

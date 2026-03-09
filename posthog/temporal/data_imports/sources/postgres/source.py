@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     SSLRequiredError,
     filter_postgres_incremental_fields,
+    get_foreign_keys as get_postgres_foreign_keys,
     get_postgres_row_count,
     get_schemas as get_postgres_schemas,
     postgres_source,
@@ -157,6 +158,14 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 database=config.database,
                 schema=config.schema,
             )
+            db_foreign_keys = get_postgres_foreign_keys(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                schema=config.schema,
+            )
 
             if with_counts:
                 row_counts = get_postgres_row_count(
@@ -171,17 +180,16 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 row_counts = {}
 
         for table_name, columns in db_schemas.items():
-            column_info = [(col_name, col_type) for col_name, col_type in columns]
-
-            incremental_field_tuples = filter_postgres_incremental_fields(column_info)
+            incremental_field_tuples = filter_postgres_incremental_fields(columns)
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
                     "type": field_type,
                     "field": field_name,
                     "field_type": field_type,
+                    "nullable": nullable,
                 }
-                for field_name, field_type in incremental_field_tuples
+                for field_name, field_type, nullable in incremental_field_tuples
             ]
 
             schemas.append(
@@ -191,6 +199,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
+                    columns=columns,
+                    foreign_keys=db_foreign_keys.get(table_name, []),
                 )
             )
 
@@ -199,12 +209,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
     def validate_credentials(
         self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
+        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
         )
         if not valid_host:
             return valid_host, host_errors

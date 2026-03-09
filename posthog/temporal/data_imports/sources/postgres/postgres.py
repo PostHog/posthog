@@ -35,7 +35,7 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 # Sources created after this date must use SSL/TLS connections
-SSL_REQUIRED_AFTER_DATE = datetime(2025, 2, 17, tzinfo=UTC)
+SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 
 
 class SSLRequiredError(Exception):
@@ -59,16 +59,18 @@ def _get_sslmode(require_ssl: bool) -> str:
     return "require" if require_ssl else "prefer"
 
 
-def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+def filter_postgres_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type == "integer" or type == "smallint" or type == "bigint":
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
@@ -139,7 +141,7 @@ def get_postgres_row_count(
 
 def get_schemas(
     host: str, database: str, user: str, password: str, schema: str, port: int, require_ssl: bool = False
-) -> dict[str, list[tuple[str, str]]]:
+) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
     sslmode = _get_sslmode(require_ssl)
@@ -168,13 +170,14 @@ def get_schemas(
         cursor.execute(
             """
             SELECT * FROM (
-                SELECT table_name, column_name, data_type FROM information_schema.columns
+                SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
                 WHERE table_schema = %(schema)s
                 UNION ALL
                 SELECT
                     c.relname AS table_name,
                     a.attname AS column_name,
-                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
+                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable
                 FROM pg_class c
                 JOIN pg_namespace n ON c.relnamespace = n.oid
                 JOIN pg_attribute a ON a.attrelid = c.oid
@@ -188,13 +191,73 @@ def get_schemas(
         )
         result = cursor.fetchall()
 
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for row in result:
-            schema_list[row[0]].append((row[1], row[2]))
+            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     connection.close()
 
     return schema_list
+
+
+def get_foreign_keys(
+    host: str, database: str, user: str, password: str, schema: str, port: int, require_ssl: bool = False
+) -> dict[str, list[tuple[str, str, str]]]:
+    """Get foreign keys for tables in the selected PostgreSQL schema."""
+
+    sslmode = _get_sslmode(require_ssl)
+    try:
+        connection = psycopg.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+            connect_timeout=15,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+        )
+    except psycopg.OperationalError as e:
+        if require_ssl and "SSL" in str(e):
+            raise SSLRequiredError(
+                "SSL/TLS connection is required but your database does not support it. "
+                "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+            ) from e
+        raise
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                tc.table_name AS table_name,
+                kcu.column_name AS column_name,
+                ccu.table_name AS target_table_name,
+                ccu.column_name AS target_column_name
+            FROM information_schema.table_constraints AS tc
+            JOIN information_schema.key_column_usage AS kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage AS ccu
+                ON ccu.constraint_name = tc.constraint_name
+                AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema = %(schema)s
+              AND ccu.table_schema = %(schema)s
+            ORDER BY tc.table_name, kcu.ordinal_position
+            """,
+            {"schema": schema},
+        )
+        result = cursor.fetchall()
+
+        foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
+        for table_name, column_name, target_table_name, target_column_name in result:
+            foreign_keys_by_table[table_name].append((column_name, target_table_name, target_column_name))
+
+    connection.close()
+
+    return foreign_keys_by_table
 
 
 class JsonAsStringLoader(Loader):

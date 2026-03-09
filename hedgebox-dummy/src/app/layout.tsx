@@ -2,9 +2,10 @@
 
 import './globals.css'
 
+import { useEffect } from 'react'
+
 import { AuthProvider } from '@/lib/auth'
 import { initPostHog } from '@/lib/posthog'
-import { useEffect } from 'react'
 
 export default function RootLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
     useEffect(() => {

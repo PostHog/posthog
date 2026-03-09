@@ -9,7 +9,7 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Prefetch, Q, QuerySet, deletion
+from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -17,10 +17,11 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiRespo
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
-from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey, PropertyOperator
+
+from posthog.hogql.property import parse_semver
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
@@ -28,18 +29,14 @@ from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import (
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-    SessionAuthentication,
-    TemporaryTokenAuthentication,
-)
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
@@ -82,12 +79,55 @@ from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+from posthog.views import format_bytes
 
 from products.product_tours.backend.models import ProductTour
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 MAX_PROPERTY_VALUES = 1000
+
+# Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
+# None means "no operator specified" which defaults to exact.
+FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
+    {
+        None,
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "icontains_multi",
+        "not_icontains_multi",
+        "regex",
+        "not_regex",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "semver_gt",
+        "semver_gte",
+        "semver_lt",
+        "semver_lte",
+        "semver_eq",
+        "semver_neq",
+        "semver_tilde",
+        "semver_caret",
+        "semver_wildcard",
+        "is_set",
+        "is_not_set",
+        "is_date_exact",
+        "is_date_after",
+        "is_date_before",
+        "in",
+        "not_in",
+        "flag_evaluates_to",
+    }
+)
+
+FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
+    "min": "gte",
+    "max": "lte",
+}
 
 LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
     "posthog_local_evaluation_request_total",
@@ -101,12 +141,17 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
     labelnames=["result"],  # "hit" (304), "miss" (200), "none" (no client etag)
 )
 
+LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
+    "posthog_local_evaluation_secret_api_key_in_body_total",
+    "Local evaluation requests where secret_api_key was passed in request body instead of Authorization header",
+)
+
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
     return list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
+        FeatureFlag.objects.filter(team=flag_to_check.team, active=True)
         .exclude(id=flag_to_check.id)
         .extra(
             where=[
@@ -146,7 +191,7 @@ def find_dependent_flags_batch(
 
     dependent_flags = list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        FeatureFlag.objects.filter(team=team, deleted=False, active=True)
+        FeatureFlag.objects.filter(team=team, active=True)
         .exclude(id__in=flag_ids)
         .extra(
             where=[
@@ -203,6 +248,42 @@ def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker)
         return {"rollout_state": "not_rolled_out", "active_variant": None}
 
     return {"rollout_state": "partial", "active_variant": None}
+
+
+def calculate_filter_size_bytes(filters: dict | None) -> int:
+    """Calculate the approximate byte size of a flag's filters JSON.
+
+    Uses sorted keys and compact separators for consistent sizing regardless of
+    dict ordering. The result differs slightly from PostgreSQL's JSONB text
+    representation (which adds spaces after separators), but exact parity isn't
+    needed -- these limits prevent abuse, not enforce precise measurements.
+    """
+    if not filters:
+        return 0
+    filter_json = json.dumps(filters, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+    return len(filter_json.encode("utf-8"))
+
+
+def check_flag_limits_for_team(
+    team_id: int,
+    is_create: bool = True,
+) -> None:
+    """
+    Check if creating a flag would exceed the team's flag count limit.
+
+    Only enforced on create -- updates to existing flags don't change the count.
+    """
+    if not is_create:
+        return
+
+    count_limit = settings.MAX_FEATURE_FLAGS_PER_TEAM
+    flag_count = FeatureFlag.objects.filter(team_id=team_id).count()
+
+    if flag_count >= count_limit:
+        raise serializers.ValidationError(
+            f"Maximum of {count_limit:,} feature flags allowed per team. "
+            f"Please delete unused flags or contact support to increase this limit."
+        )
 
 
 def extract_etag_from_header(header_value: str | None) -> str | None:
@@ -462,7 +543,7 @@ class FeatureFlagSerializer(
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
-    analytics_dashboards = serializers.PrimaryKeyRelatedField(
+    analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
         queryset=Dashboard.objects.all(),
@@ -532,16 +613,6 @@ class FeatureFlagSerializer(
             "is_used_in_replay_settings",
         ]
 
-    def get_fields(self):
-        fields = super().get_fields()
-        analytics_dashboards_field = cast(ManyRelatedField, fields["analytics_dashboards"])
-        if team_id := self.context.get("team_id"):
-            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.filter(team_id=team_id)
-        else:
-            # Fail safe: if no team context, allow no dashboards to prevent IDOR
-            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.none()
-        return fields
-
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         from typing import cast
 
@@ -583,6 +654,10 @@ class FeatureFlagSerializer(
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
         attrs = super().validate(attrs)
+
+        # Validate team-wide flag count limit before any early returns, since it
+        # applies to all creates regardless of creation context (surveys, etc.)
+        self._validate_flag_limits()
 
         request = self.context.get("request")
         if not request:
@@ -652,7 +727,7 @@ class FeatureFlagSerializer(
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"], deleted=False)
+            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"])
             .exclude(**exclude_kwargs)
             .exists()
         ):
@@ -665,6 +740,13 @@ class FeatureFlagSerializer(
             )
 
         return value
+
+    def _validate_flag_limits(self) -> None:
+        """Validate that the team has not exceeded its flag count limit."""
+        check_flag_limits_for_team(
+            team_id=self.context["team_id"],
+            is_create=self.instance is None,
+        )
 
     def validate_filters(self, filters):
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
@@ -734,12 +816,21 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError("Filters are not valid (variant override does not exist)")
 
             for property in condition.get("properties", []):
+                if property.get("operator") in FEATURE_FLAG_OPERATOR_ALIASES:
+                    property["operator"] = FEATURE_FLAG_OPERATOR_ALIASES[property["operator"]]
+
                 prop = Property(**property)
 
                 if prop.operator is not None and prop.operator not in PropertyOperator.__members__.values():
                     raise serializers.ValidationError(
                         detail=f"Invalid operator: {prop.operator}",
                         code="invalid_operator",
+                    )
+
+                if prop.operator not in FEATURE_FLAG_SUPPORTED_OPERATORS:
+                    raise serializers.ValidationError(
+                        detail=f"Unsupported operator for feature flags: {prop.operator}",
+                        code="unsupported_operator",
                     )
 
                 if isinstance(prop.value, list):
@@ -770,7 +861,11 @@ class FeatureFlagSerializer(
                             code="cohort_does_not_exist",
                         )
 
-                if prop.operator in ("is_date_before", "is_date_after"):
+                if prop.operator in (
+                    PropertyOperator.IS_DATE_BEFORE,
+                    PropertyOperator.IS_DATE_AFTER,
+                    PropertyOperator.IS_DATE_EXACT,
+                ):
                     parsed_date = determine_parsed_date_for_property_matching(prop.value)
 
                     if not parsed_date:
@@ -801,21 +896,87 @@ class FeatureFlagSerializer(
                         code="invalid_operator",
                     )
 
+                # Currently unreachable (between/not_between rejected by FEATURE_FLAG_SUPPORTED_OPERATORS),
+                # but kept so value validation is ready if Rust adds support for these operators.
+                if prop.operator in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
+                    if not isinstance(prop.value, list) or len(prop.value) != 2:
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires a two-element array [min, max]",
+                            code="invalid_value",
+                        )
+                    try:
+                        if float(prop.value[0]) > float(prop.value[1]):
+                            raise serializers.ValidationError(
+                                detail=f"{prop.operator} operator requires min value to be less than or equal to max value",
+                                code="invalid_value",
+                            )
+                    except (ValueError, TypeError):
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires numeric values",
+                            code="invalid_value",
+                        )
+
+                semver_operators = (
+                    PropertyOperator.SEMVER_EQ,
+                    PropertyOperator.SEMVER_NEQ,
+                    PropertyOperator.SEMVER_GT,
+                    PropertyOperator.SEMVER_GTE,
+                    PropertyOperator.SEMVER_LT,
+                    PropertyOperator.SEMVER_LTE,
+                    PropertyOperator.SEMVER_TILDE,
+                    PropertyOperator.SEMVER_CARET,
+                    PropertyOperator.SEMVER_WILDCARD,
+                )
+                if prop.operator in semver_operators:
+                    if not isinstance(prop.value, str):
+                        raise serializers.ValidationError(
+                            detail=f"Invalid value for operator {prop.operator}: expected a semver string",
+                            code="invalid_value",
+                        )
+                    try:
+                        semver_value = prop.value
+                        if str(prop.operator) == PropertyOperator.SEMVER_WILDCARD:
+                            semver_value = semver_value.rstrip(".*")
+                        parse_semver(semver_value)
+                    except (ValueError, IndexError):
+                        raise serializers.ValidationError(
+                            detail=f"Invalid semver value for operator {prop.operator}: {prop.value}",
+                            code="invalid_value",
+                        )
+
+                if prop.operator in (
+                    PropertyOperator.ICONTAINS_MULTI,
+                    PropertyOperator.NOT_ICONTAINS_MULTI,
+                ):
+                    if not isinstance(prop.value, list):
+                        raise serializers.ValidationError(
+                            detail=f"{prop.operator} operator requires a list of values",
+                            code="invalid_value",
+                        )
+
         payloads = filters.get("payloads", {})
 
         if not isinstance(payloads, dict):
             raise serializers.ValidationError("Payloads must be passed as a dictionary")
 
-        for value in payloads.values():
-            try:
-                if isinstance(value, str):
-                    json_value = json.loads(value)
-                else:
-                    json_value = value
-                json.dumps(json_value)
-
-            except json.JSONDecodeError:
-                raise serializers.ValidationError("Payload value is not valid JSON")
+        for key, value in payloads.items():
+            if isinstance(value, dict):
+                # Normalize JSON object payloads (e.g. from the API) to strings,
+                # matching what the UI sends.
+                try:
+                    payloads[key] = json.dumps(value)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError("Payload value is not valid JSON")
+            elif isinstance(value, str):
+                try:
+                    json.loads(value)
+                except json.JSONDecodeError:
+                    raise serializers.ValidationError("Payload value is not valid JSON")
+            else:
+                try:
+                    json.dumps(value)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError("Payload value is not valid JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):
@@ -823,6 +984,17 @@ class FeatureFlagSerializer(
         else:
             if len(payloads) > 1 or any(key != "true" for key in payloads):  # only expect one key
                 raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
+
+        # Validate per-flag filter size
+        filter_size = calculate_filter_size_bytes(filters)
+        per_flag_limit = settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES
+
+        if filter_size > per_flag_limit:
+            raise serializers.ValidationError(
+                f"Feature flag filters exceed maximum size of {format_bytes(per_flag_limit)}. "
+                f"Current size: {format_bytes(filter_size)}. "
+                f"Please simplify conditions or reduce payload sizes."
+            )
 
         return filters
 
@@ -838,7 +1010,7 @@ class FeatureFlagSerializer(
             )
 
         try:
-            flag = FeatureFlag.objects.get(id=flag_id, team__project_id=self.context["project_id"], deleted=False)
+            flag = FeatureFlag.objects.get(id=flag_id, team__project_id=self.context["project_id"])
 
             # Check if the referenced flag is active
             if not flag.active:
@@ -907,7 +1079,6 @@ class FeatureFlagSerializer(
                 flag = FeatureFlag.objects.get(
                     key=flag_key,
                     team__project_id=self.context["project_id"],
-                    deleted=False,
                 )
                 flag_deps = self._extract_flag_dependencies(flag.filters or {})
                 for dep_key in flag_deps:
@@ -955,7 +1126,7 @@ class FeatureFlagSerializer(
         encrypt_flag_payloads(validated_data)
 
         try:
-            FeatureFlag.objects.filter(
+            FeatureFlag.objects_including_soft_deleted.filter(
                 key=validated_data["key"],
                 team__project_id=self.context["project_id"],
                 deleted=True,
@@ -985,12 +1156,9 @@ class FeatureFlagSerializer(
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
-        # SessionAuthentication is used for standard browser-based web UI requests.
-        # All other authentication methods (API keys, OAuth tokens, toolbar tokens, etc.)
-        # are classified as "api" for analytics purposes.
-        is_web_auth = isinstance(request.successful_authenticator, SessionAuthentication)
-        analytics_metadata["source"] = "web" if is_web_auth else "api"
-        report_user_action(request.user, "feature flag created", analytics_metadata)
+        report_user_action(
+            request.user, "feature flag created", analytics_metadata, team=instance.team, request=request
+        )
 
         return instance
 
@@ -1047,6 +1215,26 @@ class FeatureFlagSerializer(
             if instance.experiment_set.filter(deleted=True).exists():
                 validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
 
+        if "deleted" in validated_data and validated_data["deleted"] is False:
+            # Restoring a soft-deleted flag — if the key was renamed during
+            # soft-delete, restore the original key. If the original key has
+            # been claimed by another flag, append a numeric suffix.
+            deleted_suffix = f":deleted:{instance.id}"
+            if instance.key.endswith(deleted_suffix):
+                original_key = instance.key[: -len(deleted_suffix)]
+                candidate = original_key
+                counter = 2
+                while (
+                    FeatureFlag.objects_including_soft_deleted.filter(
+                        key=candidate, team__project_id=self.context["project_id"]
+                    )
+                    .exclude(pk=instance.pk)
+                    .exists()
+                ):
+                    candidate = f"{original_key}-{counter}"
+                    counter += 1
+                validated_data["key"] = candidate
+
         # Check for dependency conflicts when disabling a flag
         if "active" in validated_data and validated_data["active"] is False and instance.active is True:
             # Check for other flags that depend on this flag
@@ -1093,8 +1281,10 @@ class FeatureFlagSerializer(
         version = request.data.get("version", -1)
 
         with transaction.atomic():
-            # select_for_update locks the database row so we ensure version updates are atomic
-            locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
+            # select_for_update locks the database row so we ensure version updates are atomic.
+            # Uses objects_including_soft_deleted so that restoring a soft-deleted flag
+            # (setting deleted=False) can acquire the lock.
+            locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
             locked_version = locked_instance.version or 0
 
             # NOW check for conflicts after all transformations
@@ -1153,7 +1343,13 @@ class FeatureFlagSerializer(
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
 
-        report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
+        report_user_action(
+            request.user,
+            "feature flag updated",
+            instance.get_analytics_metadata(),
+            team=instance.team,
+            request=request,
+        )
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key
@@ -1225,7 +1421,6 @@ class FeatureFlagSerializer(
             FeatureFlag.objects.filter(
                 team=flag_to_check.team,
                 id__in=dependency_ids,
-                deleted=False,
                 active=False,
             ).order_by("key")
         )
@@ -1483,11 +1678,11 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
-    queryset = FeatureFlag.objects.all()
+    # Use the unfiltered manager so non-list actions (retrieve, update, etc.)
+    # can access soft-deleted flags. The list action applies its own
+    # deleted=False filter in safely_get_queryset.
+    queryset = FeatureFlag.objects_including_soft_deleted.all()
     serializer_class = FeatureFlagSerializer
-    authentication_classes = [
-        TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
-    ]
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         """Apply filters from request query params to queryset."""
@@ -1772,13 +1967,23 @@ class FeatureFlagViewSet(
             200: OpenApiResponse(response=MyFlagsResponseListSerializer),
         },
     )
-    @action(methods=["GET"], detail=False, pagination_class=None)
+    @action(methods=["GET"], detail=False, pagination_class=None, required_scopes=["feature_flag:read"])
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
+        # Exclude internal flags (survey targeting and product tour internal flags)
+        # These are auto-generated and not user-editable, same as the main flags list
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+
         feature_flags = list(
-            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False).order_by("-created_at")
+            FeatureFlag.objects.filter(team__project_id=self.project_id)
+            .exclude(Q(id__in=survey_flag_ids))
+            .exclude(Q(id__in=product_tour_internal_targeting_flags))
+            .order_by("-created_at")
         )
 
         if not feature_flags:
@@ -1861,9 +2066,7 @@ class FeatureFlagViewSet(
             response_data["warning"] = f"Invalid flag IDs ignored: {invalid_ids}"
 
         # Fetch flags by IDs
-        flags = FeatureFlag.objects.filter(
-            id__in=flag_ids, team__project_id=self.project_id, deleted=False
-        ).values_list("id", "key")
+        flags = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id).values_list("id", "key")
 
         # Create mapping of ID to key
         keys_mapping = {str(flag_id): key for flag_id, key in flags}
@@ -2186,7 +2389,6 @@ class FeatureFlagViewSet(
         Handles both string values (from URL query params) and native Python types (from JSON body).
         Used by both _filter_request and bulk_delete endpoints.
         """
-        from django.db.models import Count
 
         for key, value in filters.items():
             if key == "active":
@@ -2315,7 +2517,6 @@ class FeatureFlagViewSet(
         throttle_classes=[LocalEvaluationThrottle],
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[ProjectSecretAPITokenPermission],
@@ -2324,6 +2525,17 @@ class FeatureFlagViewSet(
         # **kwargs is required because DRF passes parent_lookup_project_id from nested router
         start_time = time.time()
         logger = logging.getLogger(__name__)
+
+        # Track if secret_api_key was passed in request body AND was the actual auth mechanism.
+        # If the header also has a phs_ token, the header wins and the body value is ignored,
+        # so Rust (header-only) would still authenticate fine — no need to count those.
+        auth_header = request.headers.get("authorization", "")
+        if (
+            request.data.get("secret_api_key")
+            and isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
+            and not re.match(r"^Bearer\s+phs_[a-zA-Z0-9]+$", auth_header)
+        ):
+            LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER.inc()
 
         # Use validated boolean value from serializer
         include_cohorts = request.validated_query_data.get("send_cohorts", False)
@@ -2502,7 +2714,7 @@ class FeatureFlagViewSet(
             )
         ],
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
     def evaluation_reasons(self, request: request.Request, **kwargs):
         distinct_id = request.validated_query_data["distinct_id"]
         groups = request.validated_query_data.get("groups", {})
@@ -2534,9 +2746,9 @@ class FeatureFlagViewSet(
                 },
             }
 
-        disabled_flags = FeatureFlag.objects.filter(
-            team__project_id=self.project_id, active=False, deleted=False
-        ).values_list("key", flat=True)
+        disabled_flags = FeatureFlag.objects.filter(team__project_id=self.project_id, active=False).values_list(
+            "key", flat=True
+        )
 
         for flag_key in disabled_flags:
             flags_with_evaluation_reasons[flag_key] = {
@@ -2629,7 +2841,6 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[ProjectSecretAPITokenPermission],
@@ -2680,7 +2891,7 @@ class FeatureFlagViewSet(
         page = request.validated_query_data["page"]
 
         item_id = kwargs["pk"]
-        if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
+        if not FeatureFlag.objects_including_soft_deleted.filter(id=item_id, team__project_id=self.project_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
