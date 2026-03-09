@@ -266,6 +266,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "scimLogs": null,
   "scimLogsLoading": false,
   "scimLogsModalId": null,
+  "scimLogsPage": 1,
   "scimLogsSearch": "",
   "scimLogsStatusFilter": "all",
   "showSamlConfigErrors": false,

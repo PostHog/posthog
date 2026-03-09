@@ -6,6 +6,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 
 import { SCIMRequestLogType } from '~/types'
 
@@ -54,9 +55,10 @@ function LogDetailExpanded({ log }: { log: SCIMRequestLogType }): JSX.Element {
 }
 
 export function ScimLogsModal(): JSX.Element {
-    const { scimLogsModalId, scimLogs, scimLogsLoading, scimLogsStatusFilter, scimLogsSearch } =
+    const { scimLogsModalId, scimLogs, scimLogsLoading, scimLogsStatusFilter, scimLogsSearch, scimLogsPage } =
         useValues(verifiedDomainsLogic)
-    const { setScimLogsModalId, setScimLogsStatusFilter, setScimLogsSearch } = useActions(verifiedDomainsLogic)
+    const { setScimLogsModalId, setScimLogsStatusFilter, setScimLogsSearch, setScimLogsPage } =
+        useActions(verifiedDomainsLogic)
 
     const columns: LemonTableColumns<SCIMRequestLogType> = [
         {
@@ -93,6 +95,17 @@ export function ScimLogsModal(): JSX.Element {
         },
     ]
 
+    const pagination: PaginationManual | undefined = scimLogs
+        ? {
+              controlled: true,
+              pageSize: 20,
+              currentPage: scimLogsPage,
+              entryCount: scimLogs.count,
+              onForward: scimLogs.next ? () => setScimLogsPage(scimLogsPage + 1) : undefined,
+              onBackward: scimLogs.previous ? () => setScimLogsPage(scimLogsPage - 1) : undefined,
+          }
+        : undefined
+
     const handleClose = (): void => setScimLogsModalId(null)
 
     return (
@@ -124,6 +137,7 @@ export function ScimLogsModal(): JSX.Element {
                     columns={columns}
                     loading={scimLogsLoading}
                     rowKey="id"
+                    pagination={pagination}
                     expandable={{
                         expandedRowRender: (log) => <LogDetailExpanded log={log} />,
                     }}

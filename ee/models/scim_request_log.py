@@ -1,11 +1,11 @@
 from django.db import models
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 SCIM_REQUEST_LOG_RETENTION_DAYS = 180
 
 
-class SCIMRequestLog(UUIDTModel):
+class SCIMRequestLog(UUIDModel):
     organization_domain = models.ForeignKey(
         "posthog.OrganizationDomain",
         on_delete=models.CASCADE,
@@ -28,4 +28,4 @@ class SCIMRequestLog(UUIDTModel):
         indexes = [
             models.Index(fields=["organization_domain", "-created_at"]),
         ]
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "-id"]
