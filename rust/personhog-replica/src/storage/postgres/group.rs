@@ -44,8 +44,8 @@ struct GroupTypeMappingRow {
     group_type_index: i32,
     name_singular: Option<String>,
     name_plural: Option<String>,
-    default_columns: Option<serde_json::Value>,
-    detail_dashboard_id: Option<i64>,
+    default_columns: Option<Vec<String>>,
+    detail_dashboard_id: Option<i32>,
     created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -60,7 +60,7 @@ impl From<GroupTypeMappingRow> for GroupTypeMapping {
             name_singular: row.name_singular,
             name_plural: row.name_plural,
             default_columns: row.default_columns,
-            detail_dashboard_id: row.detail_dashboard_id,
+            detail_dashboard_id: row.detail_dashboard_id.map(|id| id.into()),
             created_at: row.created_at,
         }
     }

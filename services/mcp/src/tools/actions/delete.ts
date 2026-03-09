@@ -7,7 +7,7 @@ const schema = ActionDeleteSchema
 
 type Params = z.infer<typeof schema>
 
-export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const deleteHandler: ToolBase<typeof schema, unknown>['handler'] = async (context: Context, params: Params) => {
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.actions({ projectId }).delete({

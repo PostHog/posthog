@@ -420,9 +420,9 @@
         }
     },
     "query-run": {
-        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel or HogQL query. Where possible, use a trend or funnel rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.).",
+        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps.",
         "category": "Insights & analytics",
-        "summary": "Run a trend, funnel or HogQL query.",
+        "summary": "Run a trend, funnel, paths or HogQL query.",
         "feature": "insights",
         "title": "Run query",
         "required_scopes": ["query:read"],
@@ -838,18 +838,78 @@
             "readOnlyHint": true
         }
     },
-    "demo-mcp-ui-apps": {
-        "description": "Demo tool for testing MCP Apps SDK integration. Returns sample data that is displayed in an interactive UI app. Use this to verify that MCP Apps are working correctly.",
-        "category": "Demo",
-        "feature": "demo",
-        "summary": "Demo tool for testing MCP Apps SDK.",
-        "title": "Demo MCP UI Apps",
+    "debug-mcp-ui-apps": {
+        "description": "Debug tool for testing MCP Apps SDK integration. Returns sample data displayed in an interactive UI app with component showcase. Use this to verify that MCP Apps are working correctly.",
+        "category": "Debug",
+        "feature": "debug",
+        "summary": "Debug tool for testing MCP Apps SDK.",
+        "title": "Debug MCP UI Apps",
         "required_scopes": [],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": false,
             "readOnlyHint": true
+        }
+    },
+    "prompt-list": {
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns summary info (id, name, version, timestamps) without full prompt content.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "List all team prompts.",
+        "title": "List prompts",
+        "required_scopes": ["llm_prompt:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "prompt-get": {
+        "description": "Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Get a prompt by name.",
+        "title": "Get prompt",
+        "required_scopes": ["llm_prompt:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "prompt-create": {
+        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Create a new prompt.",
+        "title": "Create prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "prompt-update": {
+        "description": "Update the content of an existing LLM prompt by name. Looks up the prompt by name, then patches its content. Name is immutable after creation.",
+        "category": "Prompts",
+        "feature": "prompts",
+        "summary": "Update an existing prompt.",
+        "title": "Update prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     }
 }

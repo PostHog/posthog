@@ -2603,8 +2603,19 @@ async def test_append_only_table(team, mock_stripe_client):
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
-    await _execute_run(str(uuid.uuid4()), inputs, [])
-    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    run_for_replay = await sync_to_async(
+        ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+        .order_by("-created_at")
+        .first
+    )()
+    await _replay_v3_consumer(
+        team_id=team.pk,
+        schema_id=inputs.external_data_schema_id,
+        job_id=str(run_for_replay.id) if run_for_replay else None,
+    )
 
     res = await sync_to_async(execute_hogql_query)("SELECT id FROM stripe_balancetransaction", team)
 

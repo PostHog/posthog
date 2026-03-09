@@ -921,6 +921,12 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
     const result = toolCall?.result
     const uiPayload = result?.ui_payload
+    const executedSQLQuery =
+        typeof uiPayload?.execute_sql === 'string'
+            ? uiPayload.execute_sql
+            : toolCall?.name === 'execute_sql' && typeof toolCall.args.query === 'string'
+              ? toolCall.args.query
+              : null
 
     return (
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
@@ -1031,6 +1037,14 @@ function AssistantActionComponent({
                                     />
                                 </div>
                             ))}
+                    {executedSQLQuery && (
+                        <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
+                            <b className="text-secondary">SQL query</b>
+                            <CodeSnippet language={Language.SQL} className="text-xs" compact>
+                                {executedSQLQuery}
+                            </CodeSnippet>
+                        </div>
+                    )}
                     <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
                         <LemonButton
                             size="xxsmall"
