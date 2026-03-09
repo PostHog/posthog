@@ -45,6 +45,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 tracer = trace.get_tracer(__name__)
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
@@ -120,7 +121,7 @@ def validate_direct_postgres_source_config(source, team: Team):
     if not source.is_direct_postgres:
         raise ExposedHogQLError("Invalid direct Postgres connection.")
 
-    postgres_source = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+    postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
     config = postgres_source.parse_config(source.job_inputs or {})
 
     is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)
