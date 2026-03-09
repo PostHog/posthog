@@ -102,6 +102,8 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         self.status = Experiment.compute_status(self.start_date, self.end_date)
+        if "update_fields" in kwargs:
+            kwargs["update_fields"] = [*list(kwargs["update_fields"]), "status"]
         super().save(*args, **kwargs)
 
     @staticmethod

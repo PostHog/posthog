@@ -498,6 +498,21 @@ class TestExperimentService(APIBaseTest):
 
         assert experiment.status == expected_status
 
+    def test_partial_save_with_update_fields_still_persists_status(self):
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Partial Save",
+            feature_flag_key="partial-save-flag",
+        )
+        assert experiment.status == "draft"
+
+        experiment.start_date = timezone.now()
+        experiment.save(update_fields=["start_date"])
+
+        experiment.refresh_from_db()
+        assert experiment.status == "running"
+
     def test_create_experiment_with_unknown_field_raises_type_error(self):
         self._create_flag(key="unknown-key-flag")
         service = self._service()
