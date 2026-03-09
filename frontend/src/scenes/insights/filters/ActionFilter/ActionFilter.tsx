@@ -30,7 +30,6 @@ import {
     FilterType,
     FunnelExclusionLegacy,
     InsightType,
-    Optional,
     PropertyOperator,
 } from '~/types'
 
@@ -41,7 +40,7 @@ import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
-    filters: Optional<FilterType, 'type'>
+    filters: FilterType
     typeKey: string
     addFilterDefaultOptions?: Record<string, any>
     mathAvailability?: MathAvailability

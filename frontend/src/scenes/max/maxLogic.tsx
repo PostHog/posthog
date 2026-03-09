@@ -127,7 +127,14 @@ export const maxLogic = kea<maxLogicType>([
             router,
             ['searchParams'],
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'tools', 'toolSuggestions', 'conversationHistory', 'conversationHistoryLoading'],
+            [
+                'dataProcessingAccepted',
+                'dataProcessingApprovalDisabledReason',
+                'tools',
+                'toolSuggestions',
+                'conversationHistory',
+                'conversationHistoryLoading',
+            ],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
@@ -553,7 +560,8 @@ export const maxLogic = kea<maxLogicType>([
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
                     // Pass context directly to askMax to avoid timing issues
-                    actions.askMax(search.ask, true, uiContext)
+                    // kea-router coerces numeric-looking URL params to numbers
+                    actions.askMax(String(search.ask), true, uiContext)
                 }, 100)
                 return
             }

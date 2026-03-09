@@ -10,7 +10,7 @@ url_prefix: /data-management/actions
 tools:
     actions-get-all:
         operation: actions_list
-        enabled: true
+        enabled: false
         scopes:
             - action:read
         annotations:
@@ -27,7 +27,7 @@ tools:
         mcp_version: 1
     action-create:
         operation: actions_create
-        enabled: true
+        enabled: false
         scopes:
             - action:write
         annotations:
@@ -50,7 +50,7 @@ tools:
                 description: Name of the action (must be unique within the project)
     action-get:
         operation: actions_retrieve
-        enabled: true
+        enabled: false
         scopes:
             - action:read
         annotations:
@@ -68,7 +68,7 @@ tools:
         enabled: false
     action-update:
         operation: actions_partial_update
-        enabled: true
+        enabled: false
         scopes:
             - action:write
         annotations:
@@ -87,7 +87,7 @@ tools:
             - last_calculated_at
     action-delete:
         operation: actions_destroy
-        enabled: true
+        enabled: false
         scopes:
             - action:write
         annotations:

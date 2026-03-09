@@ -58,6 +58,7 @@ import {
     makeMinimalStyles,
     makePositionStyles,
     makeStylesString,
+    // eslint-disable-next-line import/no-cycle
 } from './wireframeStyle'
 
 export const BACKGROUND = '#f3f4ef'

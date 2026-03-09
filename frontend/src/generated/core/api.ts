@@ -21,8 +21,9 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
-    FlagValueValuesRetrieve200Item,
+    FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
+    GitHubReposResponseApi,
     IntegrationApi,
     IntegrationsList2Params,
     InvitesListParams,
@@ -1556,8 +1557,8 @@ export const flagValueValuesRetrieve = async (
     projectId: string,
     params?: FlagValueValuesRetrieveParams,
     options?: RequestInit
-): Promise<FlagValueValuesRetrieve200Item[]> => {
-    return apiMutator<FlagValueValuesRetrieve200Item[]>(getFlagValueValuesRetrieveUrl(projectId, params), {
+): Promise<FlagValueResponseApi> => {
+    return apiMutator<FlagValueResponseApi>(getFlagValueValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1810,8 +1811,8 @@ export const integrationsGithubReposRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
+): Promise<GitHubReposResponseApi> => {
+    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

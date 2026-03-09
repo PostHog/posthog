@@ -6,7 +6,10 @@ import type { Context, ToolBase } from '@/tools/types'
 const schema = SurveyGlobalStatsSchema
 type Params = z.infer<typeof schema>
 
-export const globalStatsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const globalStatsHandler: ToolBase<typeof schema, unknown>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.surveys({ projectId }).globalStats({ params })

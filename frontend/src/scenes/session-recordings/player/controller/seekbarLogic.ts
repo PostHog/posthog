@@ -168,11 +168,10 @@ export const seekbarLogic = kea<seekbarLogicType>([
 
             cache.disposables.dispose('seekbarListeners')
 
-            if (!values.slider) {
-                return
+            if (values.slider) {
+                const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
+                actions.handleSeek(newX)
             }
-            const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
-            actions.handleSeek(newX)
             actions.endScrub()
         },
         handleDown: ({ event }) => {

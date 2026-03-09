@@ -349,7 +349,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         runner = LogValuesQueryRunner(team=self.team, query=query)
 
         result = runner.calculate()
-        return Response([r.model_dump() for r in result.results], status=status.HTTP_200_OK)
+        return Response(
+            {"results": [r.model_dump() for r in result.results], "refreshing": False},
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:

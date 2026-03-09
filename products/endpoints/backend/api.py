@@ -572,6 +572,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "query_kind": query_dict.get("kind") if isinstance(query_dict, dict) else None,
                 },
                 team=self.team,
+                request=request,
             )
 
             current_version = endpoint.get_version()
@@ -883,7 +884,26 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         saved_query.schedule_materialization()
 
-        # Update version with materialization info
+        from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
+
+        try:
+            sync_saved_query_to_dag(saved_query)
+        except Exception as e:
+            logger.exception(
+                "Failed to sync endpoint node to DAG",
+                endpoint_name=endpoint.name,
+                saved_query_id=version.saved_query.id if version and version.saved_query else None,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_name": endpoint.name,
+                    "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                },
+            )
+
         version.saved_query = saved_query
         version.save(update_fields=["saved_query"])
 
@@ -894,6 +914,26 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         """
         version = version or endpoint.get_version()
         if version:
+            if version.saved_query:
+                from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag
+
+                try:
+                    delete_node_from_dag(version.saved_query)
+                except Exception as e:
+                    logger.exception(
+                        "Failed to remove endpoint node from DAG",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=version.saved_query.id if version and version.saved_query else None,
+                    )
+                    capture_exception(
+                        e,
+                        {
+                            "product": Product.ENDPOINTS,
+                            "team_id": self.team_id,
+                            "endpoint_name": endpoint.name,
+                            "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                        },
+                    )
             version.disable_materialization()
         clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
@@ -902,6 +942,29 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
         endpoint_id = str(endpoint.id)
         endpoint_name = endpoint.name
+
+        # Remove DAG nodes before soft_delete (which soft-deletes saved queries)
+        from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag
+
+        for version in endpoint.versions.filter(saved_query__isnull=False):
+            try:
+                if version.saved_query:
+                    delete_node_from_dag(version.saved_query)
+            except Exception as e:
+                logger.exception(
+                    "Failed to remove endpoint node from DAG on destroy",
+                    endpoint_name=endpoint.name,
+                    saved_query_id=version.saved_query.id if version.saved_query else None,
+                )
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team_id,
+                        "endpoint_name": endpoint.name,
+                        "saved_query_id": version.saved_query.id if version and version.saved_query else None,
+                    },
+                )
 
         endpoint.soft_delete()
         clear_endpoint_materialization_cache(self.team_id, endpoint.name)
@@ -1160,6 +1223,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             user=cast(User, request.user),
             is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             cache_age_seconds=cache_age_seconds,
+            request=request,
         )
 
         if isinstance(result, BaseModel):
@@ -1471,6 +1535,77 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return DashboardFilter(date_from=date_from, date_to=date_to, properties=properties)
 
+    def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
+        if version is None:
+            return False
+        if version.query.get("kind") != "HogQLQuery":
+            return False
+
+        import posthoganalytics
+
+        user_email = getattr(self.request.user, "email", "") if self.request else ""
+        ff_result = posthoganalytics.feature_enabled(
+            "endpoints-ducklake-execution",
+            user_email,
+            person_properties={"email": str(user_email)},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        logger.info(
+            "Ducklake FF evaluation",
+            endpoint_name=endpoint.name,
+            ff_result=ff_result,
+        )
+        if not ff_result:
+            return False
+
+        from posthog.ducklake.common import get_duckgres_server_for_team
+
+        server = get_duckgres_server_for_team(self.team_id)
+        if server is None:
+            logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team_id)
+        return server is not None
+
+    def _execute_ducklake_endpoint(
+        self,
+        endpoint: Endpoint,
+        query: dict,
+        debug: bool = False,
+    ) -> Response:
+        from posthog.schema import HogQLQuery
+
+        from posthog.ducklake.client import execute_ducklake_query
+
+        try:
+            result = execute_ducklake_query(self.team_id, query=HogQLQuery(query=query["query"]))
+            response_data: dict = {
+                "results": result.results,
+                "columns": result.columns,
+                "types": result.types,
+                "hasMore": False,
+                "backend": "ducklake",
+            }
+            if debug:
+                response_data["query"] = query.get("query")
+                response_data["hogql"] = result.hogql
+                response_data["ducklake_sql"] = result.sql
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.exception(
+                "DuckLake endpoint execution failed",
+                endpoint_name=endpoint.name,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "ducklake": True,
+                    "endpoint_name": endpoint.name,
+                },
+            )
+            raise
+
     def _execute_inline_endpoint(
         self,
         endpoint: Endpoint,
@@ -1571,6 +1706,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "refresh_mode": data.refresh.value if data.refresh else None,
             },
             team=self.team,
+            request=request,
         )
 
         version_number, err = self._parse_int_param(data.version, request.query_params.get("version"), "version")
@@ -1615,6 +1751,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         # Check if we should use materialization for this version
         use_materialized = self._should_use_materialized_table(endpoint, data, version_obj)
 
+        logger.info(
+            "Endpoint run decision",
+            endpoint_name=endpoint.name,
+            use_materialized=use_materialized,
+            version=version_obj.version if version_obj else None,
+        )
+
         debug = data.debug or False
 
         try:
@@ -1630,9 +1773,37 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         status=status.HTTP_404_NOT_FOUND,
                     )
                 query_to_use = version_obj.query.copy()
-                result = self._execute_inline_endpoint(
-                    endpoint, data, request, query_to_use, version=version_obj, debug=debug, limit=limit, offset=offset
-                )
+
+                use_ducklake = self._should_use_ducklake(endpoint, version_obj)
+                if use_ducklake:
+                    try:
+                        result = self._execute_ducklake_endpoint(endpoint, query_to_use, debug=debug)
+                    except Exception:
+                        logger.warning(
+                            "DuckLake execution failed, falling back to inline",
+                            endpoint_name=endpoint.name,
+                        )
+                        result = self._execute_inline_endpoint(
+                            endpoint,
+                            data,
+                            request,
+                            query_to_use,
+                            version=version_obj,
+                            debug=debug,
+                            limit=limit,
+                            offset=offset,
+                        )
+                else:
+                    result = self._execute_inline_endpoint(
+                        endpoint,
+                        data,
+                        request,
+                        query_to_use,
+                        version=version_obj,
+                        debug=debug,
+                        limit=limit,
+                        offset=offset,
+                    )
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             logger.exception(
                 "Endpoint execution failed",

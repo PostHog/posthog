@@ -48,10 +48,24 @@ const Insight44 = '44' as InsightShortId
 
 const MOCK_DASHBOARD_ID = 34
 
+const partialInsight42 = {
+    id: 42,
+    short_id: Insight42,
+    result: ['result 42'],
+    filters: API_FILTERS,
+}
+
 const partialInsight43 = {
     id: 43,
     short_id: Insight43,
     result: ['result 43'],
+    filters: API_FILTERS,
+}
+
+const partialInsight44 = {
+    id: 44,
+    short_id: Insight44,
+    result: ['result 44'],
     filters: API_FILTERS,
 }
 
@@ -137,13 +151,9 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/path': { result: ['result from api'] },
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
                 '/api/environments/:team_id/insights/retention/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/42': partialInsight42,
                 '/api/environments/:team_id/insights/43/': partialInsight43,
-                '/api/environments/:team_id/insights/44/': {
-                    id: 44,
-                    short_id: Insight44,
-                    result: ['result 44'],
-                    filters: API_FILTERS,
-                },
+                '/api/environments/:team_id/insights/44/': partialInsight44,
                 '/api/environments/:team_id/insights/': (req) => {
                     if (req.url.searchParams.get('saved')) {
                         return [
@@ -646,13 +656,14 @@ describe('insightLogic', () => {
                         result: ['result 42'],
                         filters: API_FILTERS,
                         name: 'new name',
+                        description: 'new description',
                     })
                 )
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: truth(({ name }) => {
-                        return name === 'new name'
+                    insight: truth(({ name, description }) => {
+                        return name === 'new name' && description === 'new description'
                     }),
                 })
         })

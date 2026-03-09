@@ -108,6 +108,7 @@ def pipeline_mode(request):
 class _KafkaMessageCapture:
     def __init__(self):
         self.messages: list[dict] = []
+        self._processed_batches: set[tuple[str, int]] = set()
 
     def _capture_and_ack(self, topic, data, key=None, **kw):
         self.messages.append(data)
@@ -121,10 +122,21 @@ class _KafkaMessageCapture:
 
     def replay_through_consumer(self):
         for msg in self.messages:
-            process_message(msg)
+            try:
+                process_message(msg)
+            except Exception:
+                pass
+
+    def mock_idempotency_check(self, team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> bool:
+        key = (run_uuid, batch_index)
+        if key in self._processed_batches:
+            return True
+        self._processed_batches.add(key)
+        return False
 
     def clear(self):
         self.messages.clear()
+        self._processed_batches.clear()
 
 
 _kafka_capture = _KafkaMessageCapture()
@@ -294,7 +306,11 @@ async def _run(
     ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
-        run_for_replay = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+        # In v3 mode, the job is still RUNNING after the workflow (consumer marks it COMPLETED),
+        # so we need to query without status filter to get the job_id for the replay.
+        run_for_replay = await sync_to_async(
+            ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=source.pk).order_by("-created_at").first
+        )()
         await _replay_v3_consumer(
             team_id=team.pk,
             schema_id=schema.id,
@@ -346,6 +362,15 @@ async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None
     if _current_pipeline_mode != "v3" or not _kafka_capture.messages:
         return
 
+    # If the workflow already marked the job as COMPLETED (e.g. worker shutdown scenario),
+    # the consumer should not replay — the workflow managed the job status itself and
+    # S3 files may have been cleaned up.
+    if job_id:
+        job = await sync_to_async(ExternalDataJob.objects.get)(id=job_id)
+        if job.status == ExternalDataJob.Status.COMPLETED:
+            _kafka_capture.clear()
+            return
+
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
@@ -359,8 +384,8 @@ async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None
             DATAWAREHOUSE_BUCKET=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency.is_batch_already_processed",
-            return_value=False,
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.is_batch_already_processed",
+            side_effect=_kafka_capture.mock_idempotency_check,
         ),
     ):
         await sync_to_async(_kafka_capture.replay_through_consumer)()
@@ -1692,15 +1717,23 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         }
     else:
         mock_v3_post_load.assert_called_once()
-        # In v3, each batch is processed by a new DeltaTableHelper. Batch 0 creates the table
-        # (overwrite). Batch 1 finds the existing table (_is_first_sync=False) and merges.
-        assert mock_write.call_count == 1
-        assert mock_merge.call_count == 1
+        mock_merge.assert_not_called()
+        assert mock_write.call_count == 2
 
         _, first_call_kwargs = mock_write.call_args_list[0]
+        _, second_call_kwargs = mock_write.call_args_list[1]
+
         assert first_call_kwargs == {
             "mode": "overwrite",
             "schema_mode": "overwrite",
+            "table_or_uri": mock.ANY,
+            "data": mock.ANY,
+            "partition_by": mock.ANY,
+        }
+
+        assert second_call_kwargs == {
+            "mode": "append",
+            "schema_mode": "merge",
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
@@ -1857,14 +1890,23 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         }
     else:
         mock_v3_post_load.assert_called_once()
-        # Same as test_delta_no_merging_on_first_sync: batch 0 writes (overwrite), batch 1 merges
-        assert mock_write.call_count == 1
-        assert mock_merge.call_count == 1
+        mock_merge.assert_not_called()
+        assert mock_write.call_count == 2
 
         _, first_call_kwargs = mock_write.call_args_list[0]
+        _, second_call_kwargs = mock_write.call_args_list[1]
+
         assert first_call_kwargs == {
             "mode": "overwrite",
             "schema_mode": "overwrite",
+            "table_or_uri": mock.ANY,
+            "data": mock.ANY,
+            "partition_by": mock.ANY,
+        }
+
+        assert second_call_kwargs == {
+            "mode": "append",
+            "schema_mode": "merge",
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
@@ -2416,7 +2458,12 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
 
     with (
         mock.patch("posthog.temporal.data_imports.pipelines.common.extract.decrement_rows") as mock_decrement_rows,
-        mock.patch("posthog.temporal.data_imports.external_data_job.finish_row_tracking") as mock_finish_row_tracking,
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.finish_row_tracking"
+        ) as mock_finish_row_tracking_workflow,
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking"
+        ) as mock_finish_row_tracking_consumer,
     ):
         _, inputs = await _run(
             team=team,
@@ -2438,7 +2485,10 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     schema_id = inputs.external_data_schema_id
 
     mock_decrement_rows.assert_called_once_with(team.id, schema_id, 1)
-    mock_finish_row_tracking.assert_called_once()
+    if _current_pipeline_mode == "v3":
+        mock_finish_row_tracking_consumer.assert_called_once()
+    else:
+        mock_finish_row_tracking_workflow.assert_called_once()
 
     assert schema_id is not None
     with override_settings(

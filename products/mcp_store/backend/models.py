@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from django.db import models
 
@@ -20,30 +20,49 @@ class SensitiveConfig(TypedDict, total=False):
     needs_reauth: bool
 
 
+InstallSource = Literal["posthog", "twig"]
+INSTALL_SOURCE_CHOICES = [("posthog", "posthog"), ("twig", "twig")]
+
+
 # TRICKY: this is not a 1:1 mapping to MCPServer objects.
 # The URL in RECOMMENDED_SERVERS is the MCP server URL, not the OAuth server URL.
 RECOMMENDED_SERVERS = [
     {
+        "name": "Attio",
+        "url": "https://mcp.attio.com/mcp",
+        "description": "Manage Attio CRM contacts, companies, and deals.",
+        "auth_type": "oauth",
+    },
+    {
+        "name": "Canva",
+        "url": "https://mcp.canva.com/mcp",
+        "description": "Create, edit, and manage Canva designs and assets.",
+        "auth_type": "oauth",
+    },
+    {
+        "name": "Atlassian",
+        "url": "https://mcp.atlassian.com/v1/mcp",
+        "description": "Integrate with Atlassian products like Jira and Confluence.",
+        "auth_type": "oauth",
+    },
+    {
         "name": "Linear",
         "url": "https://mcp.linear.app/mcp",
         "description": "Manage Linear issues, projects, and teams.",
-        "icon_url": "",
         "auth_type": "oauth",
         "oauth_provider_kind": "linear",
+    },
+    {
+        "name": "Monday",
+        "url": "https://mcp.monday.com/mcp",
+        "description": "Manage Monday.com boards, items, and workflows.",
+        "auth_type": "oauth",
     },
     {
         "name": "Notion",
         "url": "https://mcp.notion.com/mcp",
         "description": "Search and manage Notion pages, databases, and knowledge base content.",
-        "icon_url": "",
         "auth_type": "oauth",
-    },
-    {
-        "name": "GitHub",
-        "url": "https://api.githubcopilot.com/mcp/",
-        "description": "Manage GitHub issues, pull requests, and repositories.",
-        "icon_url": "",
-        "auth_type": "api_key",
     },
 ]
 
@@ -68,8 +87,28 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     url = models.URLField(max_length=2048, default="")
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
+    is_enabled = models.BooleanField(default=True)
     sensitive_configuration = EncryptedJSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "mcp_store_mcpserverinstallation"
         unique_together = [("team", "user", "url")]
+
+
+class MCPOAuthState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    installation = models.ForeignKey(MCPServerInstallation, on_delete=models.CASCADE, related_name="oauth_states")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    server = models.ForeignKey(MCPServer, on_delete=models.CASCADE, related_name="oauth_states")
+    install_source = models.CharField(max_length=20, choices=INSTALL_SOURCE_CHOICES, default="posthog")
+    twig_callback_url = models.TextField(blank=True, default="")
+    pkce_verifier = models.CharField(max_length=255, blank=True, default="")
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "mcp_store_mcpoauthstate"
+        indexes = [
+            models.Index(fields=["expires_at"]),
+            models.Index(fields=["consumed_at"]),
+        ]

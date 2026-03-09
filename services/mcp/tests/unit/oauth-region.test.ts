@@ -30,64 +30,8 @@ describe('OAuth Region Routing', () => {
     })
 
     describe('getAuthorizationServerUrl', () => {
-        it('returns EU URL when region is eu', () => {
-            expect(getAuthorizationServerUrl('eu')).toBe('https://eu.posthog.com')
-        })
-
-        it('returns EU URL when region is EU (case insensitive)', () => {
-            expect(getAuthorizationServerUrl('EU')).toBe('https://eu.posthog.com')
-        })
-
-        it('returns US URL when region is us', () => {
-            expect(getAuthorizationServerUrl('us')).toBe('https://us.posthog.com')
-        })
-
-        it('returns US URL when region is null', () => {
-            expect(getAuthorizationServerUrl(null)).toBe('https://us.posthog.com')
-        })
-
-        it('returns US URL for unknown region', () => {
-            expect(getAuthorizationServerUrl('unknown')).toBe('https://us.posthog.com')
-        })
-    })
-
-    describe('Protected Resource Metadata', () => {
-        const testCases = [
-            {
-                name: 'defaults to US when no region param',
-                params: '',
-                expectedServer: 'https://us.posthog.com',
-            },
-            {
-                name: 'returns EU server when region=eu',
-                params: '?region=eu',
-                expectedServer: 'https://eu.posthog.com',
-            },
-            {
-                name: 'returns EU server when region=EU (case insensitive)',
-                params: '?region=EU',
-                expectedServer: 'https://eu.posthog.com',
-            },
-            {
-                name: 'returns US server when region=us',
-                params: '?region=us',
-                expectedServer: 'https://us.posthog.com',
-            },
-            {
-                name: 'defaults to US for unknown region',
-                params: '?region=unknown',
-                expectedServer: 'https://us.posthog.com',
-            },
-        ]
-
-        it.each(testCases)('$name', ({ params, expectedServer }) => {
-            const url = new URL(`https://mcp.posthog.com/.well-known/oauth-protected-resource${params}`)
-            const regionParam = url.searchParams.get('region')
-
-            // Uses actual helpers from constants.ts
-            const authorizationServer = getBaseUrlForRegion(toCloudRegion(regionParam))
-
-            expect(authorizationServer).toBe(expectedServer)
+        it('returns oauth proxy URL', () => {
+            expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
         })
     })
 

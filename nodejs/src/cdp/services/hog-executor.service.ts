@@ -9,7 +9,7 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { Hub } from '../../types'
+import { PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { TeamManager } from '../../utils/team-manager'
@@ -27,8 +27,7 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -37,7 +36,10 @@ import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
-export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
+export type CdpFetchConfig = Pick<
+    PluginsServerConfig,
+    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'
+>
 
 export interface HogExecutorConfig {
     hogCostTimingUpperMs: number
@@ -251,7 +253,7 @@ export class HogExecutorService {
                     ...triggerGlobals,
                     source: {
                         name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                        url: `${triggerGlobals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                        url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
                     },
                 }
 
@@ -751,7 +753,7 @@ export class HogExecutorService {
 
         result.metrics.push({
             team_id: invocation.teamId,
-            app_source_id: invocation.functionId,
+            app_source_id: invocation.parentRunId ?? invocation.functionId,
             metric_kind: 'other',
             metric_name: 'fetch',
             count: 1,

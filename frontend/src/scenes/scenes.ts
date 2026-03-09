@@ -209,7 +209,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
-        name: 'Shared metric',
+        name: '',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
@@ -384,6 +384,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.PasswordResetComplete]: { onlyUnauthenticated: true },
     [Scene.PasswordReset]: { onlyUnauthenticated: true },
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
+    [Scene.VercelConnect]: { allowUnauthenticated: true, name: 'Connect to Vercel' },
     [Scene.VercelLinkError]: { name: 'Vercel account mismatch' },
     [Scene.Person]: {
         projectBased: true,
@@ -409,6 +410,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
+        layout: 'app-raw-no-header',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -537,11 +539,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Signup]: { onlyUnauthenticated: true },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
-    [Scene.SurveyTemplates]: {
-        projectBased: true,
-        name: 'New survey',
-        defaultDocsPath: '/docs/surveys/creating-surveys',
-    },
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
@@ -853,7 +850,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
-    [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
     [urls.surveyWizard(':id')]: [Scene.SurveyWizard, 'surveyWizard'],
     [urls.surveyFormBuilder(':id')]: [Scene.SurveyFormBuilder, 'surveyFormBuilder'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
@@ -916,6 +912,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
     [urls.verifyEmail(':uuid', ':token')]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
+    [urls.vercelConnect()]: [Scene.VercelConnect, 'vercelConnect'],
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],

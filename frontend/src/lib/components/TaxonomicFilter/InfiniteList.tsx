@@ -348,7 +348,8 @@ const InfiniteListRow = ({
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                role="button"
+                role="option"
+                aria-selected={isSelected}
                 aria-disabled={isDisabledItem}
                 onClick={(event) => {
                     if (isDisabledItem) {
@@ -385,6 +386,8 @@ const InfiniteListRow = ({
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, 'expand-row')}
                 data-attr={`expand-list-${listGroupType}`}
+                role="button"
+                aria-label="Show more items"
                 onClick={expand}
             >
                 {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??

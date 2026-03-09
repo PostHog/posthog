@@ -25,7 +25,7 @@ export const scene: SceneExport = {
 
 export function LogsScene(): JSX.Element {
     return (
-        <SceneContent>
+        <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
             <LogsSceneContent />
         </SceneContent>
     )
@@ -71,7 +71,7 @@ const LogsSceneContent = (): JSX.Element => {
                 </LemonBanner>
             )}
             <LogsSetupPrompt>
-                <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
+                <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
                     <LogsViewer id={tabId} />
                 </div>
             </LogsSetupPrompt>

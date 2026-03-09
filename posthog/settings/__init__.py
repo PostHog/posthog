@@ -46,6 +46,7 @@ from posthog.settings.session_replay import *
 from posthog.settings.session_replay_v2 import *
 from posthog.settings.integrations import *
 from posthog.settings.payments import *
+from posthog.settings.personhog import *
 from posthog.settings.ses import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
@@ -65,6 +66,7 @@ INSTANCE_PREFERENCES = {
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
+NGROK_URL: str | None = os.getenv("NGROK_URL", None)
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
 if DEBUG:

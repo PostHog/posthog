@@ -131,6 +131,10 @@ class ChatAgentModeManager(AgentModeManager):
             state=state,
         )
 
+        # Validate mode is in registry, fall back if the feature flag is off.
+        if self._mode not in self.mode_registry:
+            self._mode = AgentMode.PRODUCT_ANALYTICS
+
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
         if self._is_subagent:

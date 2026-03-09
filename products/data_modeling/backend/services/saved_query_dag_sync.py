@@ -12,6 +12,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.exceptions_capture import capture_exception
 
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import CycleDetectionError, Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_warehouse.backend.models.modeling import UnknownParentError, get_parents_from_model_query
@@ -125,15 +126,24 @@ def sync_saved_query_to_dag(
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     """
+    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
     extra_properties = extra_properties or {}
     team = saved_query.team
     dag_id = get_dag_id(team.id)
+    DAG.objects.get_or_create(team=team, name=dag_id)
     model_query = saved_query.query.get("query") if saved_query.query else None
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
 
     # determine node type based on materialization status (fk to datawarehouse table)
-    node_type = NodeType.MAT_VIEW if saved_query.table else NodeType.VIEW
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        node_type = NodeType.ENDPOINT
+    elif saved_query.table:
+        node_type = NodeType.MAT_VIEW
+    else:
+        node_type = NodeType.VIEW
+
     target, _ = Node.objects.get_or_create(
         team=team,
         saved_query=saved_query,

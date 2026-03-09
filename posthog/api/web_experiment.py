@@ -14,7 +14,6 @@ from rest_framework.request import Request
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.exceptions import generate_exception_response
 from posthog.models import Team, WebExperiment
 from posthog.utils_cors import cors_response
@@ -259,7 +258,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     queryset = WebExperiment.objects.select_related("feature_flag", "created_by").order_by("-created_at").all()
 
     def safely_get_queryset(self, queryset):

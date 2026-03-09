@@ -178,6 +178,11 @@ class PostgresPrinter(HogQLPrinter):
             columns_sql = (
                 "" if node.columns is None else f"({', '.join(self._print_identifier(col) for col in node.columns)})"
             )
-            return f"{self._print_identifier(node.name)}{columns_sql} AS {materialization_hint}{self.visit(node.expr)}"
+            using_key_sql = (
+                ""
+                if node.using_key is None
+                else f" USING KEY ({', '.join(self._print_identifier(col) for col in node.using_key)})"
+            )
+            return f"{self._print_identifier(node.name)}{columns_sql}{using_key_sql} AS {materialization_hint}{self.visit(node.expr)}"
 
         return super().visit_cte(node)
