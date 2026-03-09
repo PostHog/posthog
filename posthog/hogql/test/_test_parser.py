@@ -3291,6 +3291,16 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_cast_with_nested_and_parametric_types(self):
+            self.assertEqual(
+                self._expr("CAST(x AS STRUCT(a INTEGER, b VARCHAR))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="struct(a integer, b varchar)"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS DECIMAL(10, 2))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="decimal(10, 2)"),
+            )
+
         def test_with_clause_column_name_list(self):
             node = self._select("WITH cte (a, b) AS (SELECT 1, 2) SELECT * FROM cte")
             assert isinstance(node, ast.SelectQuery)

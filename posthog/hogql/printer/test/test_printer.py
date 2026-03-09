@@ -4591,6 +4591,14 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
         self.assertEqual(self._expr("event::INT"), "CAST(events.event AS int)")
         self.assertEqual(self._expr("(1 + 2)::int"), "CAST((1 + 2) AS int)")
+        self.assertEqual(
+            self._expr("CAST(event AS STRUCT(a INTEGER, b VARCHAR))"),
+            'CAST(events.event AS "struct(a integer, b varchar)")',
+        )
+        self.assertEqual(
+            self._expr("CAST(event AS DECIMAL(10, 2))"),
+            'CAST(events.event AS "decimal(10, 2)")',
+        )
 
     @parameterized.expand(
         [

@@ -1244,13 +1244,38 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return Json(to_lower_copy(visitAsString(ctx->identifier())));
   }
 
-  VISIT_UNSUPPORTED(ColumnTypeExprNested)
+  VISIT(ColumnTypeExprNested) {
+    auto identifiers = ctx->identifier();
+    auto type_exprs = ctx->columnTypeExpr();
+    string name = to_lower_copy(visitAsString(identifiers[0]));
+    string fields;
+    for (size_t i = 0; i < type_exprs.size(); i++) {
+      if (i > 0) fields += ", ";
+      fields += to_lower_copy(visitAsString(identifiers[i + 1]));
+      fields += " ";
+      fields += any_cast<Json>(visit(type_exprs[i])).getString();
+    }
+    return Json(name + "(" + fields + ")");
+  }
 
   VISIT_UNSUPPORTED(ColumnTypeExprEnum)
 
   VISIT_UNSUPPORTED(ColumnTypeExprComplex)
 
-  VISIT_UNSUPPORTED(ColumnTypeExprParam)
+  VISIT(ColumnTypeExprParam) {
+    string name = to_lower_copy(visitAsString(ctx->identifier()));
+    string params;
+    auto expr_list_ctx = ctx->columnExprList();
+    if (expr_list_ctx) {
+      bool first = true;
+      for (auto expr_ctx : expr_list_ctx->columnExpr()) {
+        if (!first) params += ", ";
+        params += expr_ctx->getText();
+        first = false;
+      }
+    }
+    return Json(name + "(" + params + ")");
+  }
 
   VISIT(ColumnExprList) { return visitJSONArrayOfObjects(ctx->columnExpr()); }
 
