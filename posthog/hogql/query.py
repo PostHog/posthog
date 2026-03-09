@@ -105,6 +105,30 @@ def postgres_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
+def validate_direct_postgres_source_config(source, team: Team):
+    from posthog.temporal.data_imports.sources import SourceRegistry
+
+    from products.data_warehouse.backend.types import ExternalDataSourceType
+
+    if not source.is_direct_postgres:
+        raise ExposedHogQLError("Invalid direct Postgres connection.")
+
+    postgres_source = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+    config = postgres_source.parse_config(source.job_inputs or {})
+
+    is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)
+    if not is_ssh_valid:
+        raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
+
+    valid_host, host_errors = postgres_source.is_database_host_valid(
+        config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+    )
+    if not valid_host:
+        raise ExposedHogQLError(host_errors or "Invalid Postgres host.")
+
+    return postgres_source, config
+
+
 @dataclasses.dataclass
 class HogQLQueryExecutor:
     query: Union[str, ast.SelectQuery, ast.SelectSetQuery]
@@ -415,22 +439,23 @@ class HogQLQueryExecutor:
             if self.connection_id is not None
             else ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
         )
-        source_config = source.job_inputs or {}
+        postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
 
         try:
-            with psycopg.connect(
-                host=source_config.get("host"),
-                port=source_config.get("port", 5432),
-                dbname=source_config.get("database"),
-                user=source_config.get("user"),
-                password=source_config.get("password"),
-                sslmode="prefer",
-                options="-c default_transaction_read_only=on",
-            ) as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
-                    results = cursor.fetchall()
-                    description = cursor.description or []
+            with postgres_source.with_ssh_tunnel(source_config) as (host, port):
+                with psycopg.connect(
+                    host=host,
+                    port=port,
+                    dbname=source_config.database,
+                    user=source_config.user,
+                    password=source_config.password,
+                    sslmode="prefer",
+                    options="-c default_transaction_read_only=on",
+                ) as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
+                        results = cursor.fetchall()
+                        description = cursor.description or []
         except Exception as error:
             if self.debug:
                 self.results = []

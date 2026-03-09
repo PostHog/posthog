@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import psycopg
 from parameterized import parameterized
 
@@ -400,6 +402,51 @@ class TestDirectPostgresQuery(APIBaseTest):
             postgres_error_to_message(error),
             'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function',
         )
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_execute_direct_postgres_query_blocks_internal_host(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+            selected_direct_source_id=str(source.id),
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            executor.execute()
+
+        self.assertEqual(str(error.exception), "Hosts with internal IP addresses are not allowed")
+        mock_connect.assert_not_called()
 
     @patch("posthog.hogql.query.psycopg.connect")
     def test_execute_direct_postgres_query_exposes_database_errors(self, mock_connect):
