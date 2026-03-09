@@ -122,9 +122,8 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.team import WeekStartDay
-from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -781,12 +780,13 @@ class Database(BaseModel):
             _use_virtual_fields(database, modifiers, timings)
 
         with timings.measure("group_type_mapping"):
-            _setup_group_key_fields(database, team)
+            group_types = get_group_types_for_project(team.project_id)
+            _setup_group_key_fields(database, group_types)
             events_table = database.get_table("events")
-            for mapping in GroupTypeMapping.objects.using(PERSONS_DB_FOR_READ).filter(project_id=team.project_id):
-                if events_table.fields.get(mapping.group_type) is None:
-                    events_table.fields[mapping.group_type] = FieldTraverser(
-                        chain=[f"group_{mapping.group_type_index}"]
+            for mapping in group_types:
+                if events_table.fields.get(mapping["group_type"]) is None:
+                    events_table.fields[mapping["group_type"]] = FieldTraverser(
+                        chain=[f"group_{mapping['group_type_index']}"]
                     )
 
         warehouse_tables_dot_notation_mapping: dict[str, str] = {}
@@ -1201,17 +1201,14 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
-def _setup_group_key_fields(database: Database, team: "Team") -> None:
+def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]]) -> None:
     """
     Set up group key fields as ExpressionFields that handle filtering based on GroupTypeMapping.created_at.
     For $group_N fields, this returns:
     - Empty string if no GroupTypeMapping exists for that index
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
-    group_mappings = {
-        mapping.group_type_index: mapping
-        for mapping in GroupTypeMapping.objects.using(PERSONS_DB_FOR_READ).filter(team=team)
-    }
+    group_mappings = {mapping["group_type_index"]: mapping for mapping in group_types}
     table = database.get_table("events")
 
     for group_index in range(5):
@@ -1219,13 +1216,13 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
 
         group_mapping = group_mappings.get(group_index, None)
         # If no mapping exists or the mapping predated this feature, leave the original field unchanged
-        if group_mapping and group_mapping.created_at:
+        if group_mapping and group_mapping["created_at"]:
             # Store the original field as a "raw" version before replacing
             original_field = table.fields[field_name]
             raw_field_name = f"_{field_name}_raw"
             table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
 
-            created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            created_at_str = group_mapping["created_at"].strftime("%Y-%m-%d %H:%M:%S")
 
             table.fields[field_name] = ExpressionField(
                 name=field_name,
