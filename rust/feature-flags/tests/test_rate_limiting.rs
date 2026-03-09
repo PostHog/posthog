@@ -1,6 +1,7 @@
 use anyhow::Result;
 use reqwest::StatusCode;
 use serde_json::json;
+use std::collections::HashMap;
 
 use crate::common::*;
 use feature_flags::config::{Config, FlexBool};
@@ -1018,6 +1019,463 @@ async fn test_mixed_log_only_modes() -> Result<()> {
         response.status(),
         StatusCode::TOO_MANY_REQUESTS,
         "4th request should be IP rate limited (enforced mode takes precedence)"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_rate_limit_warn_then_enforce() -> Result<()> {
+    // Set warn_capacity=2, enforce_capacity=5
+    let mut config = Config::default_test_config();
+    config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
+    config.flags_bucket_warn_capacity = 2;
+    config.flags_bucket_capacity = 5;
+    config.flags_bucket_replenish_rate = 0.1;
+
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // Requests 1-2: within warn capacity → 200, no warning header
+    for i in 1..=2 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed"
+        );
+        assert!(
+            response
+                .headers()
+                .get("X-PostHog-Rate-Limit-Warning")
+                .is_none(),
+            "Request {i} should not have warning header"
+        );
+    }
+
+    // Requests 3-5: exceed warn but within enforce → 200 with warning header
+    for i in 3..=5 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed with warning"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("X-PostHog-Rate-Limit-Warning")
+                .map(|v| v.to_str().unwrap()),
+            Some("true"),
+            "Request {i} should have warning header"
+        );
+    }
+
+    // Request 6: exceeds enforce → 429
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Request 6 should be blocked"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_rate_limit_warn_header_absent_below_threshold() -> Result<()> {
+    // Verify the warning header is absent on normal responses
+    let mut config = Config::default_test_config();
+    config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
+    config.flags_bucket_warn_capacity = 100;
+    config.flags_bucket_capacity = 200;
+    config.flags_bucket_replenish_rate = 10.0;
+
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // A few requests well below the warn threshold
+    for i in 1..=3 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed"
+        );
+        assert!(
+            response
+                .headers()
+                .get("X-PostHog-Rate-Limit-Warning")
+                .is_none(),
+            "Request {i} should NOT have warning header when below threshold"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ip_rate_limit_warn_then_enforce() -> Result<()> {
+    let mut config = Config::default_test_config();
+    config.flags_ip_rate_limit_enabled = FlexBool(true);
+    config.flags_ip_rate_limit_log_only = FlexBool(false);
+    config.flags_ip_warn_burst_size = 2;
+    config.flags_ip_burst_size = 4;
+    config.flags_ip_replenish_rate = 0.1;
+
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // Requests 1-2: within warn capacity → 200, no header
+    for i in 1..=2 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK, "Request {i}");
+        assert!(
+            response
+                .headers()
+                .get("X-PostHog-Rate-Limit-Warning")
+                .is_none(),
+            "Request {i} should not have warning header"
+        );
+    }
+
+    // Requests 3-4: exceed warn, within enforce → 200 with warning header
+    for i in 3..=4 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK, "Request {i}");
+        assert_eq!(
+            response
+                .headers()
+                .get("X-PostHog-Rate-Limit-Warning")
+                .map(|v| v.to_str().unwrap()),
+            Some("true"),
+            "Request {i} should have warning header"
+        );
+    }
+
+    // Request 5: exceeds enforce → 429
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Request 5 should be blocked"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_rate_limit_backwards_compat_log_only() -> Result<()> {
+    // When log_only=true and no warn capacity configured, all requests should be allowed
+    // (matches today's behavior: log but don't block)
+    let mut config = Config::default_test_config();
+    config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(true);
+    config.flags_bucket_warn_capacity = 0; // no explicit warn tier
+    config.flags_bucket_capacity = 2;
+    config.flags_bucket_replenish_rate = 0.1;
+
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // All requests should succeed (log_only mode never blocks)
+    for i in 1..=5 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed in backwards-compat log-only mode"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_rate_limit_backwards_compat_enforce() -> Result<()> {
+    // When log_only=false and no warn capacity, should hard-block at enforce capacity
+    // (matches today's enforced behavior)
+    let mut config = Config::default_test_config();
+    config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
+    config.flags_bucket_warn_capacity = 0; // no warn tier
+    config.flags_bucket_capacity = 2;
+    config.flags_bucket_replenish_rate = 0.1;
+
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // First 2 requests allowed
+    for i in 1..=2 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed"
+        );
+    }
+
+    // 3rd request blocked
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Request 3 should be blocked in backwards-compat enforce mode"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_rate_limit_per_team_override() -> Result<()> {
+    let mut config = Config::default_test_config();
+    config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
+    config.flags_bucket_warn_capacity = 0;
+    config.flags_bucket_capacity = 100; // high default
+    config.flags_bucket_replenish_rate = 0.1;
+
+    // Set up team with a known token
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    // Configure a very restrictive custom rate for this specific token
+    let mut custom_rates = HashMap::new();
+    custom_rates.insert(token.clone(), "1/second".to_string());
+    config.flags_rate_limits = feature_flags::config::FlagsRateLimits(custom_rates);
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {}
+    });
+    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // First request succeeds (custom rate: 1/second, so 1 burst)
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "First request should succeed"
+    );
+
+    // Second request should be rate limited by the custom per-token rate
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Second request should be blocked by per-token custom rate"
     );
 
     Ok(())

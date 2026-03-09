@@ -117,12 +117,24 @@ pub fn router(
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
-    // Initialize token-based rate limiter with configuration
+    // Initialize token-based rate limiter with backwards-compatible configuration.
+    //
+    // Priority logic:
+    // - If warn_capacity > 0: use tiered model (warn + enforce), ignore log_only
+    // - If warn_capacity == 0 and log_only == true: use enforce_capacity as warn capacity
+    //   with no hard enforce (warn-only, matches today's log-only behavior)
+    // - If warn_capacity == 0 and log_only == false: no warn limiter, enforce at capacity
+    let (flags_warn_cap, flags_enforce_cap) = resolve_rate_limit_capacities(
+        config.flags_bucket_warn_capacity,
+        config.flags_bucket_capacity,
+        *config.flags_rate_limit_log_only,
+    );
     let flags_rate_limiter = FlagsRateLimiter::new(
         *config.flags_rate_limit_enabled,
-        *config.flags_rate_limit_log_only,
         config.flags_bucket_replenish_rate,
-        config.flags_bucket_capacity,
+        flags_warn_cap,
+        flags_enforce_cap,
+        config.flags_rate_limits.0.clone(),
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -131,12 +143,17 @@ pub fn router(
         )
     });
 
-    // Initialize IP-based rate limiter with configuration
+    // Initialize IP-based rate limiter with backwards-compatible configuration
+    let (ip_warn_cap, ip_enforce_cap) = resolve_rate_limit_capacities(
+        config.flags_ip_warn_burst_size,
+        config.flags_ip_burst_size,
+        *config.flags_ip_rate_limit_log_only,
+    );
     let ip_rate_limiter = IpRateLimiter::new(
         *config.flags_ip_rate_limit_enabled,
-        *config.flags_ip_rate_limit_log_only,
         config.flags_ip_replenish_rate,
-        config.flags_ip_burst_size,
+        ip_warn_cap,
+        ip_enforce_cap,
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -254,6 +271,30 @@ pub fn router(
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router
+    }
+}
+
+/// Resolves warn/enforce capacities with backwards-compat logic for the old `log_only` flag.
+///
+/// - `warn_capacity > 0`: Use tiered model (warn + enforce), `log_only` is ignored
+/// - `warn_capacity == 0` and `log_only == true`: Treat enforce capacity as warn-only
+///   (never blocks — identical to today's log-only behavior)
+/// - `warn_capacity == 0` and `log_only == false`: No warn tier, hard enforce
+fn resolve_rate_limit_capacities(
+    warn_capacity: u32,
+    enforce_capacity: u32,
+    log_only: bool,
+) -> (Option<u32>, u32) {
+    if warn_capacity > 0 {
+        // New tiered model takes precedence
+        (Some(warn_capacity), enforce_capacity)
+    } else if log_only {
+        // Backwards compat: log-only mode → use enforce_capacity as warn capacity,
+        // set enforce very high so it never blocks
+        (Some(enforce_capacity), u32::MAX)
+    } else {
+        // Backwards compat: enforced mode → no warn tier
+        (None, enforce_capacity)
     }
 }
 
@@ -489,5 +530,31 @@ mod tests {
 
         let result = startup(database_pools).await;
         assert_eq!(result, "started");
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_tiered_model() {
+        let (warn, enforce) = resolve_rate_limit_capacities(100, 500, false);
+        assert_eq!(warn, Some(100));
+        assert_eq!(enforce, 500);
+
+        // log_only is ignored when warn_capacity > 0
+        let (warn, enforce) = resolve_rate_limit_capacities(100, 500, true);
+        assert_eq!(warn, Some(100));
+        assert_eq!(enforce, 500);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_log_only_backwards_compat() {
+        let (warn, enforce) = resolve_rate_limit_capacities(0, 200, true);
+        assert_eq!(warn, Some(200));
+        assert_eq!(enforce, u32::MAX);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_enforce_backwards_compat() {
+        let (warn, enforce) = resolve_rate_limit_capacities(0, 200, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 200);
     }
 }
