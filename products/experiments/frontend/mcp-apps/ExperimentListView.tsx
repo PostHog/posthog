@@ -2,7 +2,8 @@ import { type ReactElement, type ReactNode, useCallback, useState } from 'react'
 
 import { BackButton, Badge, DataTable, type DataTableColumn, formatDate, LoadingState, Stack } from '@posthog/mosaic'
 
-import { ExperimentView, type ExperimentData } from './ExperimentView'
+import { ExperimentView } from './ExperimentView'
+import { ExperimentData, getStatus } from './utils'
 
 export interface ExperimentListData {
     count?: number
@@ -17,19 +18,6 @@ export interface ExperimentListViewProps {
 
 type ViewState = { view: 'list' } | { view: 'loading'; name: string } | { view: 'detail'; experiment: ExperimentData }
 
-function getStatus(exp: ExperimentData): { label: string; variant: 'success' | 'warning' | 'neutral' | 'info' } {
-    if (exp.archived) {
-        return { label: 'Archived', variant: 'neutral' }
-    }
-    if (!exp.start_date) {
-        return { label: 'Draft', variant: 'neutral' }
-    }
-    if (exp.end_date) {
-        return { label: 'Complete', variant: 'success' }
-    }
-    return { label: 'Running', variant: 'info' }
-}
-
 export function ExperimentListView({ data, onExperimentClick }: ExperimentListViewProps): ReactElement {
     const [viewState, setViewState] = useState<ViewState>({ view: 'list' })
 
@@ -38,8 +26,13 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
             if (!onExperimentClick) {
                 return
             }
+
             setViewState({ view: 'loading', name: experiment.name })
-            const detail = await onExperimentClick(experiment)
+            const detail = await onExperimentClick(experiment).catch((error) => {
+                console.error('Error loading experiment detail:', error)
+                return null
+            })
+
             if (detail) {
                 setViewState({ view: 'detail', experiment: detail })
             } else {
@@ -73,7 +66,6 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
         )
     }
 
-    const results = data.results ?? data
     const columns: DataTableColumn<ExperimentData>[] = [
         {
             key: 'name',
@@ -152,13 +144,13 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
             <Stack gap="sm">
                 <div className="flex items-center justify-between">
                     <span className="text-sm text-text-secondary">
-                        {(Array.isArray(results) ? results.length : data.count) ?? 0} experiment
-                        {(Array.isArray(results) ? results.length : data.count) === 1 ? '' : 's'}
+                        {data.results.length} experiment
+                        {data.results.length === 1 ? '' : 's'}
                     </span>
                 </div>
                 <DataTable<ExperimentData>
                     columns={columns}
-                    data={Array.isArray(results) ? results : []}
+                    data={data.results}
                     pageSize={10}
                     defaultSort={{ key: 'name', direction: 'asc' }}
                     emptyMessage="No experiments found"
