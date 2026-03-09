@@ -41,7 +41,7 @@ const workflowsList = (): ToolBase<
 
 const WorkflowsGetSchema = HogFlowsRetrieveParams.omit({ project_id: true })
 
-const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, Schemas.HogFlow> => ({
+const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, Schemas.HogFlow & { _posthogUrl: string }> => ({
     name: 'workflows-get',
     schema: WorkflowsGetSchema,
     handler: async (context: Context, params: z.infer<typeof WorkflowsGetSchema>) => {
