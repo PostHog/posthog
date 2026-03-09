@@ -177,8 +177,8 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
                         <Tabs.Panel value="chat" className="absolute inset-0 flex flex-col" keepMounted>
                             <Suspense
                                 fallback={
-                                    <div className="flex flex-col gap-px px-1">
-                                        {Array.from({ length: 10 }).map((_, index) => (
+                                    <div className="flex flex-col gap-px px-1 pt-2">
+                                        {Array.from({ length: 15 }).map((_, index) => (
                                             <WrappingLoadingSkeleton fullWidth key={index}>
                                                 <ButtonPrimitive aria-hidden inert menuItem />
                                             </WrappingLoadingSkeleton>
