@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -101,23 +102,38 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     if (segmentIds.length === 0) {
                         return values.segmentDetails
                     }
-                    const newIds = segmentIds.filter((id) => !(id in values.segmentDetails))
+                    const newIds = [...new Set(segmentIds)].filter((id) => !(id in values.segmentDetails))
                     if (newIds.length === 0) {
                         return values.segmentDetails
                     }
-                    const response = await hogqlQuery(
-                        hogql`SELECT document_id, content, metadata
-                            FROM document_embeddings
-                            WHERE model_name = 'text-embedding-3-large-3072'
-                              AND document_id IN ${newIds}
-                              AND product = 'session-replay'
-                              AND document_type = 'video-segment'`
+
+                    // Cap each IN clause to avoid building a massive HogQL string for large reports
+                    const CHUNK_SIZE = 500
+                    const chunks: string[][] = []
+                    for (let i = 0; i < newIds.length; i += CHUNK_SIZE) {
+                        chunks.push(newIds.slice(i, i + CHUNK_SIZE))
+                    }
+
+                    const responses = await Promise.all(
+                        chunks.map((chunk) =>
+                            hogqlQuery(
+                                hogql`SELECT document_id, content, metadata
+                                    FROM document_embeddings
+                                    WHERE model_name = 'text-embedding-3-large-3072'
+                                      AND document_id IN ${chunk}
+                                      AND product = 'session-replay'
+                                      AND document_type = 'video-segment'`
+                            )
+                        )
                     )
+
                     const newDetails = { ...values.segmentDetails }
-                    for (const row of response.results || []) {
-                        const detail = parseSegmentRow(row)
-                        if (detail) {
-                            newDetails[detail.document_id] = detail
+                    for (const response of responses) {
+                        for (const row of response.results || []) {
+                            const detail = parseSegmentRow(row)
+                            if (detail) {
+                                newDetails[detail.document_id] = detail
+                            }
                         }
                     }
                     return newDetails
@@ -233,18 +249,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         loadReportSignalsSuccess: () => {
-            const reportId = values.selectedReportId
-            if (!reportId) {
-                return
-            }
-            const signals = values.reportSignals[reportId]
-            if (!signals) {
-                return
-            }
             const allSegmentIds: string[] = []
-            for (const signal of signals) {
-                if ('segment_ids' in signal.extra && Array.isArray(signal.extra.segment_ids)) {
-                    allSegmentIds.push(...(signal.extra.segment_ids as string[]))
+            for (const signals of Object.values(values.reportSignals)) {
+                for (const signal of signals) {
+                    if ('segment_ids' in signal.extra && Array.isArray(signal.extra.segment_ids)) {
+                        allSegmentIds.push(...(signal.extra.segment_ids as string[]))
+                    }
                 }
             }
             if (allSegmentIds.length > 0) {
@@ -334,16 +344,23 @@ function relativeTimeToSeconds(timeStr: string): number {
 function parseSegmentRow(row: any[]): SessionReplaySegmentDetail | null {
     try {
         const [documentId, content, metadataStr] = row
-        const metadata = typeof metadataStr === 'string' ? JSON.parse(metadataStr) : metadataStr
-        const sessionStart = new Date(metadata.session_start_time).getTime()
-        return {
-            document_id: documentId,
-            session_id: metadata.session_id,
-            distinct_id: metadata.distinct_id,
-            content,
-            start_time: new Date(sessionStart + relativeTimeToSeconds(metadata.start_time) * 1000).toISOString(),
-            end_time: new Date(sessionStart + relativeTimeToSeconds(metadata.end_time) * 1000).toISOString(),
+        const metadata: Record<string, string> = JSON.parse(metadataStr)
+        const sessionStartDayjs = dayjs(metadata.session_start_time)
+        if (!sessionStartDayjs.isValid()) {
+            return null
         }
+        const detail: SessionReplaySegmentDetail = {
+            document_id: String(documentId ?? ''),
+            session_id: String(metadata.session_id ?? ''),
+            distinct_id: String(metadata.distinct_id ?? ''),
+            content: String(content ?? ''),
+            start_time: sessionStartDayjs.add(relativeTimeToSeconds(metadata.start_time), 'second').toISOString(),
+            end_time: sessionStartDayjs.add(relativeTimeToSeconds(metadata.end_time), 'second').toISOString(),
+        }
+        if (!detail.document_id || !detail.session_id) {
+            return null
+        }
+        return detail
     } catch {
         return null
     }

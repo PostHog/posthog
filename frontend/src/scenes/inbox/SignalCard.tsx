@@ -47,32 +47,6 @@ interface RenderableSegment {
     end_time: string
 }
 
-function useResolvedSegments(extra: SessionSegmentClusterSignalExtra): {
-    segments: RenderableSegment[]
-    loading: boolean
-} {
-    const { segmentDetails, segmentDetailsLoading } = useValues(inboxSceneLogic)
-
-    if (extra.segments && extra.segments.length > 0) {
-        return {
-            segments: extra.segments.map((s, i) => ({ key: `legacy-${i}`, ...s })),
-            loading: false,
-        }
-    }
-
-    if (extra.segment_ids && extra.segment_ids.length > 0) {
-        const resolved = extra.segment_ids
-            .map((id) => {
-                const detail = segmentDetails[id]
-                return detail ? { key: detail.document_id, ...detail } : null
-            })
-            .filter(Boolean) as RenderableSegment[]
-        return { segments: resolved, loading: segmentDetailsLoading && resolved.length === 0 }
-    }
-
-    return { segments: [], loading: false }
-}
-
 function SessionReplaySignalCard({
     signal,
     extra,
@@ -80,7 +54,57 @@ function SessionReplaySignalCard({
     signal: SignalNode
     extra: SessionSegmentClusterSignalExtra
 }): JSX.Element {
-    const { segments, loading } = useResolvedSegments(extra)
+    // Legacy cards have embedded segments and don't need the shared segmentDetails subscription
+    if (extra.segments && extra.segments.length > 0) {
+        const segments = extra.segments.map((s, i): RenderableSegment => ({ key: `legacy-${i}`, ...s }))
+        return <SessionReplaySignalCardContent signal={signal} extra={extra} segments={segments} loading={false} />
+    }
+    return <SessionReplayIdBasedSignalCard signal={signal} extra={extra} />
+}
+
+/** Subscribes to segmentDetails only when we actually need to resolve IDs */
+function SessionReplayIdBasedSignalCard({
+    signal,
+    extra,
+}: {
+    signal: SignalNode
+    extra: SessionSegmentClusterSignalExtra
+}): JSX.Element {
+    const { segmentDetails, segmentDetailsLoading } = useValues(inboxSceneLogic)
+
+    const segments: RenderableSegment[] = []
+    if (extra.segment_ids && extra.segment_ids.length > 0) {
+        for (const id of extra.segment_ids) {
+            const detail = segmentDetails[id]
+            if (
+                detail &&
+                typeof detail.document_id === 'string' &&
+                typeof detail.session_id === 'string' &&
+                typeof detail.distinct_id === 'string' &&
+                typeof detail.content === 'string' &&
+                typeof detail.start_time === 'string' &&
+                typeof detail.end_time === 'string'
+            ) {
+                segments.push({ key: detail.document_id, ...detail })
+            }
+        }
+    }
+    const loading = segmentDetailsLoading && segments.length === 0
+
+    return <SessionReplaySignalCardContent signal={signal} extra={extra} segments={segments} loading={loading} />
+}
+
+function SessionReplaySignalCardContent({
+    signal,
+    extra,
+    segments,
+    loading,
+}: {
+    signal: SignalNode
+    extra: SessionSegmentClusterSignalExtra
+    segments: RenderableSegment[]
+    loading: boolean
+}): JSX.Element {
     const [showAllSegments, setShowAllSegments] = useState(false)
     const maxVisible = 3
     const visibleSegments = showAllSegments ? segments : segments.slice(0, maxVisible)
@@ -113,6 +137,8 @@ function SessionReplaySignalCard({
                 <div className="flex items-center gap-2 text-xs text-tertiary py-2 border-t mt-2">
                     <Spinner className="size-3" /> Loading segments...
                 </div>
+            ) : segments.length === 0 && (extra.segment_ids?.length ?? 0) > 0 ? (
+                <div className="text-xs text-tertiary py-2 border-t mt-2">Segments could not be loaded</div>
             ) : segments.length > 0 ? (
                 <>
                     <div className="border-t pt-2 mt-2">
@@ -135,7 +161,9 @@ function SessionReplaySignalCard({
                                     />
                                 </div>
                                 <div className="flex items-center gap-1.5 mt-1 text-xs text-tertiary">
-                                    <span className="font-mono">{segment.distinct_id.slice(0, 10)}...</span>
+                                    <span className="font-mono">
+                                        {(segment.distinct_id || 'unknown').slice(0, 10)}...
+                                    </span>
                                     <span>·</span>
                                     <span>
                                         {humanFriendlyDetailedTime(segment.start_time)} –{' '}
