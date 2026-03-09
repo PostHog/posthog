@@ -28,8 +28,13 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
             if (!onFlagClick) {
                 return
             }
+
             setViewState({ view: 'loading', flagKey: flag.key })
-            const detail = await onFlagClick(flag)
+            const detail = await onFlagClick(flag).catch((error) => {
+                console.error('Error loading feature flag detail:', error)
+                return null
+            })
+
             if (detail) {
                 setViewState({ view: 'detail', flag: detail })
             } else {
