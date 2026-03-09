@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -47,6 +47,39 @@ class TestTable(BaseTest):
         assert isinstance(definition, DirectPostgresTable)
         assert definition.postgres_table_name == table_name
 
+    @parameterized.expand(
+        [
+            ("legacy_prefix_with_separator", "ph3_postgres_accounts", "accounts"),
+            ("legacy_prefix_without_separator", "ph3postgres_accounts", "accounts"),
+            ("source_scoped_prefix", "postgres_{source_hex}_accounts", "accounts"),
+            ("raw_schema_name", "posthog_dashboard", "posthog_dashboard"),
+        ]
+    )
+    def test_direct_postgres_table_strips_only_known_prefixes(self, _name: str, table_name: str, expected: str):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="ph3",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        table = DataWarehouseTable.objects.create(
+            name=table_name.format(source_hex=source.pk.hex),
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectPostgresTable)
+        assert definition.postgres_table_name == expected
+
     def test_direct_postgres_table_cannot_be_printed_to_clickhouse(self):
         source = ExternalDataSource.objects.create(
             source_id="source-id",
@@ -69,7 +102,9 @@ class TestTable(BaseTest):
 
         definition = table.hogql_definition()
 
-        with pytest.raises(QueryError, match="Direct Postgres tables cannot be printed into ClickHouse SQL"):
+        with pytest.raises(
+            HogQLNotImplementedError, match="Direct Postgres tables cannot be printed to ClickHouse SQL"
+        ):
             definition.to_printed_clickhouse(context=None)
 
     def test_get_columns(self):

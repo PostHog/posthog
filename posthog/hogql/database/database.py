@@ -29,6 +29,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -462,9 +463,9 @@ class Database(BaseModel):
         views = self.get_view_names()
 
         warehouse_tables_query = (
-            DataWarehouseTable.objects.select_related("credential", "external_data_source")
+            DataWarehouseTable.raw_objects.select_related("credential", "external_data_source")
             .prefetch_related(
-                "externaldataschema_set",
+                _active_external_data_schemas_prefetch(),
                 Prefetch(
                     "external_data_source__jobs",
                     queryset=ExternalDataJob.objects.filter(status="Completed", team_id=context.team_id).order_by(
@@ -484,11 +485,12 @@ class Database(BaseModel):
             warehouse_tables_query = warehouse_tables_query.none()
 
         warehouse_tables_with_data = warehouse_tables_query.all()
+        allowed_warehouse_table_names = set(warehouse_table_names) if self._direct_query_source_id is not None else None
 
         # Process warehouse tables
         for warehouse_table in warehouse_tables_with_data:
             # Get schema from prefetched data
-            schema_data = list(warehouse_table.externaldataschema_set.all())
+            schema_data = _get_active_external_data_schemas(warehouse_table)
             if not schema_data:
                 schema = None
             else:
@@ -527,6 +529,9 @@ class Database(BaseModel):
                 warehouse_table.name,
                 use_direct_database_names=self._direct_query_source_id is not None,
             )
+
+            if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
+                continue
 
             if include_only and table_key not in include_only:
                 continue
@@ -895,7 +900,7 @@ class Database(BaseModel):
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
-                    .prefetch_related("externaldataschema_set")
+                    .prefetch_related(_active_external_data_schemas_prefetch())
                 )
                 if direct_query_source_id is not None:
                     tables = [
@@ -905,7 +910,7 @@ class Database(BaseModel):
                         and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
                         and str(table.external_data_source_id) == direct_query_source_id
                         and (
-                            not (schemas := list(table.externaldataschema_set.all()))
+                            not (schemas := _get_active_external_data_schemas(table))
                             or any(schema.should_sync for schema in schemas)
                         )
                     ]
@@ -1360,6 +1365,21 @@ def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> 
 
 
 HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
+NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
+
+
+def _active_external_data_schemas_prefetch() -> Prefetch:
+    return Prefetch(
+        "externaldataschema_set",
+        queryset=ExternalDataSchema.objects.filter(NOT_DELETED_Q),
+    )
+
+
+def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:
+    if not hasattr(warehouse_table, "externaldataschema_set"):
+        return []
+
+    return [schema for schema in warehouse_table.externaldataschema_set.all() if schema.deleted is not True]
 
 
 def _foreign_key_join_function(
@@ -1414,32 +1434,69 @@ def _reverse_foreign_key_field_name(from_table: str, target_table: str) -> str:
 
 
 def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehouseTable, database: Database) -> None:
-    def _get_foreign_keys(schema: ExternalDataSchema) -> list[dict[str, str]] | None:
-        if schema.foreign_keys:
-            return schema.foreign_keys
+    def _get_foreign_keys(schema: ExternalDataSchema) -> list[dict[str, str]]:
+        raw_foreign_keys: Any = schema.foreign_keys
+        if raw_foreign_keys is None:
+            metadata = schema.sync_type_config.get("schema_metadata") if schema.sync_type_config else None
+            if isinstance(metadata, dict):
+                raw_foreign_keys = metadata.get("foreign_keys")
 
-        metadata = schema.sync_type_config.get("schema_metadata") if schema.sync_type_config else None
-        if isinstance(metadata, dict):
-            foreign_keys = metadata.get("foreign_keys")
-            if isinstance(foreign_keys, list):
-                return foreign_keys
-        return None
+        if not isinstance(raw_foreign_keys, list):
+            return []
 
-    schemas = (
-        list(warehouse_table.externaldataschema_set.all()) if hasattr(warehouse_table, "externaldataschema_set") else []
-    )
+        foreign_keys: list[dict[str, str]] = []
+        for foreign_key in raw_foreign_keys:
+            if not isinstance(foreign_key, dict):
+                continue
+
+            column = foreign_key.get("column")
+            target_table = foreign_key.get("target_table")
+            target_column = foreign_key.get("target_column")
+            if not (isinstance(column, str) and isinstance(target_table, str) and isinstance(target_column, str)):
+                continue
+
+            foreign_keys.append(
+                {
+                    "column": column,
+                    "target_table": target_table,
+                    "target_column": target_column,
+                }
+            )
+
+        return foreign_keys
+
+    schemas = _get_active_external_data_schemas(warehouse_table)
     schema_with_foreign_keys = next((schema for schema in schemas if _get_foreign_keys(schema)), None)
 
-    foreign_keys = _get_foreign_keys(schema_with_foreign_keys) if schema_with_foreign_keys else None
-    if foreign_keys is None:
-        foreign_keys = []
+    foreign_keys = _get_foreign_keys(schema_with_foreign_keys) if schema_with_foreign_keys else []
+
+    def _is_same_external_scope(target_hogql_table: Table) -> bool:
+        source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
+        target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
+        if source_table_name is None or target_table_name is None:
+            return False
+
+        source = warehouse_table.external_data_source
+        if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+            return isinstance(
+                target_hogql_table, DirectPostgresTable
+            ) and target_hogql_table.external_data_source_id == str(source.id)
+
+        if "." not in source_table_name or "." not in target_table_name:
+            return False
+
+        return source_table_name.rsplit(".", 1)[0] == target_table_name.rsplit(".", 1)[0]
 
     def _add_join(column: str, target_table: str, target_column: str) -> None:
         if not column or not target_table or not target_column:
             return
 
-        from_field = get_join_field_chain(column)
-        to_field = get_join_field_chain(target_column)
+        try:
+            from_field = get_join_field_chain(column)
+            to_field = get_join_field_chain(target_column)
+        except Exception as error:
+            capture_exception(error)
+            return
         if from_field is None or to_field is None:
             return
 
@@ -1448,11 +1505,20 @@ def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehou
             return
 
         join_table: Table | str = target_table
+        target_hogql_table: Table | None = None
         if isinstance(join_table, str) and isinstance(hogql_table.name, str):
             if "." in hogql_table.name and "." not in join_table:
                 join_table = ".".join([*hogql_table.name.split(".")[:-1], join_table])
+
             if not database.has_table(join_table):
                 return
+
+            target_hogql_table = database.get_table(join_table)
+        elif isinstance(join_table, Table):
+            target_hogql_table = join_table
+
+        if target_hogql_table is None or not _is_same_external_scope(target_hogql_table):
+            return
 
         hogql_table.fields[field_name] = LazyJoin(
             from_field=from_field,
@@ -1461,24 +1527,13 @@ def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehou
             join_function=_foreign_key_join_function(from_field, to_field),
         )
 
-        target_table_name: str | None
-        if isinstance(join_table, Table) and isinstance(join_table.name, str):
-            target_table_name = join_table.name
-        elif isinstance(join_table, str):
-            target_table_name = join_table
-        else:
-            target_table_name = None
+        target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
 
         source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
         if target_table_name is None or source_table_name is None:
             return
 
         reverse_field_name = _reverse_foreign_key_field_name(source_table_name, target_table_name)
-
-        try:
-            target_hogql_table = database.get_table(target_table_name)
-        except QueryError:
-            return
 
         if target_hogql_table.fields.get(reverse_field_name) is None:
             target_hogql_table.fields[reverse_field_name] = LazyJoin(
@@ -1517,7 +1572,9 @@ def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehou
         local_candidates = [base_name, f"{base_name}s", f"posthog_{base_name}"]
         local_candidates = [*known_target_overrides.get(base_name, []), *local_candidates]
         scoped_candidates = [".".join([*namespace, name]) for name in local_candidates] if namespace else []
-        return [*scoped_candidates, *local_candidates]
+        if scoped_candidates:
+            return scoped_candidates
+        return local_candidates
 
     columns = warehouse_table.columns or {}
     for column_name in columns.keys():

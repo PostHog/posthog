@@ -47,6 +47,8 @@ from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
+DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
+DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 
 POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     16: "Bool",  # bool
@@ -324,32 +326,60 @@ class HogQLQueryExecutor:
     def _extract_direct_postgres_sources_from_type(
         self, query_type: ast.SelectQueryType | ast.SelectSetQueryType
     ) -> set[str]:
-        source_ids: set[str] = set()
+        return {
+            table_type.table.external_data_source_id
+            for table_type in self._extract_base_table_types_from_type(query_type)
+            if isinstance(table_type.table, DirectPostgresTable)
+        }
 
-        def visit_one(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
+    def _extract_base_table_types_from_type(
+        self, query_type: ast.SelectQueryType | ast.SelectSetQueryType
+    ) -> list[ast.TableType]:
+        table_types: list[ast.TableType] = []
+
+        def visit_query(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
             if isinstance(select_type, ast.SelectSetQueryType):
                 for sub_type in select_type.types:
-                    visit_one(sub_type)
+                    visit_query(sub_type)
                 return
 
             for table_type in select_type.tables.values():
-                if isinstance(table_type, ast.TableType) and isinstance(table_type.table, DirectPostgresTable):
-                    source_ids.add(table_type.table.external_data_source_id)
-                elif isinstance(table_type, ast.TableAliasType):
-                    if isinstance(table_type.table_type, ast.TableType) and isinstance(
-                        table_type.table_type.table, DirectPostgresTable
-                    ):
-                        source_ids.add(table_type.table_type.table.external_data_source_id)
-                elif isinstance(table_type, ast.SelectQueryAliasType):
-                    visit_one(table_type.select_query_type)
-                elif isinstance(table_type, ast.SelectViewType):
-                    visit_one(table_type.select_query_type)
+                visit_table_type(table_type)
 
             for anonymous_table in select_type.anonymous_tables:
-                visit_one(anonymous_table)
+                visit_query(anonymous_table)
 
-        visit_one(query_type)
-        return source_ids
+        def visit_table_type(table_type: ast.TableOrSelectType) -> None:
+            if isinstance(table_type, ast.TableType):
+                table_types.append(table_type)
+            elif isinstance(table_type, ast.TableAliasType):
+                visit_table_type(table_type.table_type)
+            elif isinstance(table_type, ast.CTETableType):
+                visit_query(table_type.select_query_type)
+            elif isinstance(table_type, ast.CTETableAliasType):
+                visit_table_type(table_type.cte_table_type)
+            elif isinstance(table_type, ast.SelectQueryAliasType):
+                visit_query(table_type.select_query_type)
+            elif isinstance(table_type, ast.SelectViewType):
+                visit_query(table_type.select_query_type)
+
+        visit_query(query_type)
+        return table_types
+
+    def _effective_direct_postgres_settings(self) -> HogQLGlobalSettings:
+        settings = self.settings.model_copy(deep=True) if self.settings is not None else HogQLGlobalSettings()
+
+        if self.limit_context in (
+            LimitContext.EXPORT,
+            LimitContext.COHORT_CALCULATION,
+            LimitContext.QUERY_ASYNC,
+            LimitContext.SAVED_QUERY,
+            LimitContext.RETENTION,
+            LimitContext.POSTHOG_AI,
+        ):
+            settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
+
+        return settings
 
     def _maybe_prepare_direct_postgres_query(self) -> None:
         query_type = self._get_select_query_type()
@@ -372,12 +402,9 @@ class HogQLQueryExecutor:
         if self.selected_direct_source_id is not None and self.selected_direct_source_id not in direct_source_ids:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
-        all_table_types = Resolver(context=self.hogql_context or self.context)._extract_tables_from_query_type(
-            query_type
-        )
         has_non_direct_tables = any(
-            isinstance(table_type, ast.TableType) and not isinstance(table_type.table, DirectPostgresTable)
-            for table_type in all_table_types
+            not isinstance(table_type.table, DirectPostgresTable)
+            for table_type in self._extract_base_table_types_from_type(query_type)
         )
 
         if has_non_direct_tables:
@@ -424,12 +451,9 @@ class HogQLQueryExecutor:
         if len(direct_source_ids) > 1:
             raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
 
-        all_table_types = Resolver(context=self.hogql_context or self.context)._extract_tables_from_query_type(
-            query_type
-        )
         has_non_direct_tables = any(
-            isinstance(table_type, ast.TableType) and not isinstance(table_type.table, DirectPostgresTable)
-            for table_type in all_table_types
+            not isinstance(table_type.table, DirectPostgresTable)
+            for table_type in self._extract_base_table_types_from_type(query_type)
         )
 
         if has_non_direct_tables:
@@ -465,6 +489,10 @@ class HogQLQueryExecutor:
         )
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
         require_ssl = source.created_at >= SSL_REQUIRED_AFTER_DATE
+        settings = self._effective_direct_postgres_settings()
+        statement_timeout_ms = (
+            max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
+        )
 
         try:
             with postgres_source.with_ssh_tunnel(source_config) as (host, port):
@@ -474,8 +502,9 @@ class HogQLQueryExecutor:
                     dbname=source_config.database,
                     user=source_config.user,
                     password=source_config.password,
+                    connect_timeout=DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
                     sslmode=_get_sslmode(require_ssl),
-                    options="-c default_transaction_read_only=on",
+                    options=(f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}"),
                 ) as connection:
                     with connection.cursor() as cursor:
                         cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)

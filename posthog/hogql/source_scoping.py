@@ -15,8 +15,9 @@ def connection_source_identifiers(source: ExternalDataSource | None) -> set[str]
 
 
 def filter_schema_tables_for_connection(tables: dict[str, object], source_ids: set[str] | None) -> dict[str, object]:
+    filtered_tables: dict[str, object]
     if not source_ids:
-        return {
+        filtered_tables = {
             name: table
             for name, table in tables.items()
             if not (
@@ -25,6 +26,8 @@ def filter_schema_tables_for_connection(tables: dict[str, object], source_ids: s
                 == ExternalDataSource.AccessMethod.DIRECT
             )
         }
+        _remove_inaccessible_lazy_joins(filtered_tables)
+        return filtered_tables
 
     def is_queriable(table: object) -> bool:
         schema = getattr(table, "schema_", None) or getattr(table, "schema", None)
@@ -34,13 +37,31 @@ def filter_schema_tables_for_connection(tables: dict[str, object], source_ids: s
             return bool(schema.get("should_sync", False))
         return bool(getattr(schema, "should_sync", False))
 
-    return {
+    filtered_tables = {
         name: table
         for name, table in tables.items()
         if getattr(table, "type", None) == "data_warehouse"
         and str(getattr(getattr(table, "source", None), "id", "")) in source_ids
         and is_queriable(table)
     }
+    _remove_inaccessible_lazy_joins(filtered_tables)
+    return filtered_tables
+
+
+def _remove_inaccessible_lazy_joins(tables: dict[str, object]) -> None:
+    allowed_table_names = set(tables.keys())
+
+    for table in tables.values():
+        fields = getattr(table, "fields", None)
+        if not isinstance(fields, dict):
+            continue
+
+        for field_name, field in list(fields.items()):
+            if getattr(field, "type", None) != "lazy_table":
+                continue
+
+            if getattr(field, "table", None) not in allowed_table_names:
+                del fields[field_name]
 
 
 def _is_helper_function_table(table: object) -> bool:

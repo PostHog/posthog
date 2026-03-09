@@ -190,12 +190,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return self.name[len(source_scoped_prefix) :]
 
         prefix = self.external_data_source.prefix or ""
-        legacy_table_prefix = f"{prefix}_{source_type}_" if prefix else f"{source_type}_"
+        known_prefixes = [
+            f"{prefix}_{source_type}_" if prefix else None,
+            f"{prefix}{source_type}_" if prefix else None,
+            f"{source_type}_",
+        ]
 
-        if self.name.lower().startswith(legacy_table_prefix):
-            return self.name[len(legacy_table_prefix) :]
+        for known_prefix in filter(None, known_prefixes):
+            if self.name.lower().startswith(known_prefix.lower()):
+                return self.name[len(known_prefix) :]
 
-        return self.table_name_without_prefix()
+        return self.name
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
