@@ -119,7 +119,7 @@ def invalidate_unread_count_cache(team_id: int) -> None:
 
 
 def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
-    """Invalidate all messages cache entries for a ticket (initial load + any after= variants)."""
+    """Invalidate the initial-load messages cache entry for a ticket (after=None). Polling entries (after=<ts>) expire via TTL."""
     key = get_messages_cache_key(team_id, ticket_id, None)
     try:
         cache.delete(key)

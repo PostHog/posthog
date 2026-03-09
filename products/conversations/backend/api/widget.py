@@ -39,7 +39,6 @@ from products.conversations.backend.api.serializers import (
 from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
-    invalidate_messages_cache,
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
@@ -176,10 +175,10 @@ class WidgetMessageView(APIView):
             item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
 
-        # Invalidate caches AFTER writing so concurrent reads don't re-cache stale data
+        # tickets + messages caches are invalidated by the post_save signal
+        # via transaction.on_commit (see signals.py). Only unread_count needs
+        # explicit invalidation here since the signal doesn't cover it.
         invalidate_unread_count_cache(team.id)
-        invalidate_tickets_cache(team.id, widget_session_id)
-        invalidate_messages_cache(team.id, str(ticket.id))
 
         # Send email notification for new tickets
         if not ticket_id:
