@@ -291,7 +291,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
-        minSearchQueryLength: [(s) => [s.group], (group) => group?.minSearchQueryLength ?? 0],
+        minSearchQueryLength: [
+            (s, p) => [s.group, p.minSearchQueryLength],
+            (group, propsMinSearchQueryLength) =>
+                propsMinSearchQueryLength ?? group?.minSearchQueryLength ?? 0,
+        ],
         needsMoreSearchCharacters: [
             (s) => [s.minSearchQueryLength, s.searchQuery],
             (minSearchQueryLength, searchQuery) => {
