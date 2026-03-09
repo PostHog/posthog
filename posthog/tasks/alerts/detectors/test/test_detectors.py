@@ -5,6 +5,7 @@ from parameterized import parameterized
 
 from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.registry import get_available_detectors, get_detector
+from posthog.tasks.alerts.detectors.statistical.iqr import IQRDetector
 from posthog.tasks.alerts.detectors.statistical.mad import MADDetector
 from posthog.tasks.alerts.detectors.statistical.zscore import ZScoreDetector
 from posthog.tasks.alerts.detectors.threshold import ThresholdDetector
@@ -36,10 +37,16 @@ class TestDetectorRegistry:
         detector = get_detector(config)
         assert isinstance(detector, MADDetector)
 
+    def test_get_iqr_detector(self):
+        config = {"type": "iqr", "multiplier": 1.5, "window": 30}
+        detector = get_detector(config)
+        assert isinstance(detector, IQRDetector)
+
     def test_get_available_detectors(self):
         detectors = get_available_detectors()
         assert "zscore" in detectors
         assert "mad" in detectors
+        assert "iqr" in detectors
         assert "threshold" in detectors
 
 
@@ -100,6 +107,7 @@ class TestAnomalyDetectors:
         for detector in [
             ZScoreDetector({"threshold": 0.9, "window": 10}),
             MADDetector({"threshold": 0.9, "window": 10}),
+            IQRDetector({"threshold": 0.9, "window": 10}),
         ]:
             result = detector.detect(data)
             assert result.score is not None
@@ -111,6 +119,7 @@ class TestAnomalyDetectors:
         for detector in [
             ZScoreDetector({"threshold": 0.5, "window": 10}),
             MADDetector({"threshold": 0.5, "window": 10}),
+            IQRDetector({"threshold": 0.5, "window": 10}),
         ]:
             result = detector.detect(data)
             assert result.score is not None
@@ -156,6 +165,29 @@ class TestAnomalyDetectors:
         assert "median_abs_deviation" in result.metadata
         assert "value" in result.metadata
         assert "raw_score" in result.metadata
+
+
+class TestIQRDetector:
+    def test_detect_finds_obvious_anomaly(self):
+        detector = IQRDetector({"threshold": 0.9, "multiplier": 1.5, "window": 10})
+        data = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 100])
+        result = detector.detect(data)
+        assert result.is_anomaly
+
+    def test_detect_no_anomaly_in_normal_data(self):
+        detector = IQRDetector({"threshold": 0.9, "multiplier": 1.5, "window": 10})
+        data = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10])
+        result = detector.detect(data)
+        assert not result.is_anomaly
+
+    def test_detect_returns_metadata(self):
+        detector = IQRDetector({"threshold": 0.9, "multiplier": 1.5, "window": 10})
+        data = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10])
+        result = detector.detect(data)
+        assert "q1" in result.metadata
+        assert "q3" in result.metadata
+        assert "iqr" in result.metadata
+        assert "raw_distance" in result.metadata
 
 
 class TestThresholdDetector:
