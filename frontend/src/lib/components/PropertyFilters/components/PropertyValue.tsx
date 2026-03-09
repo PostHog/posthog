@@ -13,6 +13,7 @@ import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/compon
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
+import { PropertyFilterDateBetween } from 'lib/components/PropertyFilters/components/PropertyFilterDateBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
@@ -89,6 +90,9 @@ export function PropertyValue({
 
     const isNumericProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+
+    const isDateProperty =
+        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.DateTime
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -247,6 +251,9 @@ export function PropertyValue({
     }
 
     if (isBetweenProperty) {
+        if (isDateProperty) {
+            return <PropertyFilterDateBetween value={value ?? null} onSet={setValue} />
+        }
         return <PropertyFilterBetween value={value ?? null} onSet={setValue} size={size} />
     }
 
