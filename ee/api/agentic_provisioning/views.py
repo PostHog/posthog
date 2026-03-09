@@ -622,6 +622,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 
     team.reset_token_and_save(user=user, is_impersonated_session=False)
 
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or "product_analytics"
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -629,7 +630,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         {
             "status": "complete",
             "id": resource_id,
-            "service_id": POSTHOG_SERVICE_ID,
+            "service_id": service_id,
             "complete": {
                 "access_configuration": {
                     "api_key": team.api_token,
