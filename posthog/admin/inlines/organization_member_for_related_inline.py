@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.contrib import admin
 from django.forms import BaseInlineFormSet, ModelForm, modelformset_factory
 from django.urls import reverse
@@ -26,10 +28,10 @@ class _OrganizationMemberFormSet(PaginationFormSetBase, BaseInlineFormSet):
     wiring and provide our own queryset instead.
     """
 
-    fk = _ORGANIZATION_FK
+    fk: Any = _ORGANIZATION_FK
 
     def __init__(self, data=None, files=None, instance=None, save_as_new=False, **kwargs):
-        self.instance = instance
+        self.instance: Any = instance
         # Django's admin template reads formset.save_as_new.
         self.save_as_new = save_as_new
         if instance and hasattr(instance, "organization_id"):
@@ -103,7 +105,7 @@ class OrganizationMemberForRelatedInline(TabularInlinePaginated):
             max_num=self.max_num,
             can_delete=False,
         )
-        formset_cls.fk = _ORGANIZATION_FK
+        formset_cls.fk = _ORGANIZATION_FK  # type: ignore[attr-defined] — needed by Django's inline rendering
         return formset_cls
 
     @classmethod
