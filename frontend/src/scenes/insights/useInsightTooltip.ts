@@ -22,7 +22,21 @@ function initGlobalScrollEndListener(): void {
         return
     }
     globalScrollEndListenerActive = true
-    document.addEventListener('scrollend', () => hideTooltip(), { capture: true, passive: true })
+    document.addEventListener(
+        'scrollend',
+        (e) => {
+            // Don't hide when the scroll originated from inside a tooltip
+            if (e.target instanceof Node) {
+                for (const instance of tooltipInstances.values()) {
+                    if (instance.element.contains(e.target as Node)) {
+                        return
+                    }
+                }
+            }
+            hideTooltip()
+        },
+        { capture: true, passive: true }
+    )
 }
 
 /** Time the tooltip must be stationary before it becomes interactive (ms) */
