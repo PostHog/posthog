@@ -22,6 +22,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -65,8 +66,9 @@ type Model struct {
 	copyAnchor int
 	copyCursor int
 
-	keys     keyMap
-	help     help.Model
+	keys    keyMap
+	help    help.Model
+	spinner spinner.Model
 	showHelp bool
 
 	width  int
@@ -89,6 +91,7 @@ func New(mgr *process.Manager, logger *log.Logger) Model {
 		atBottom:      true,
 		keys:          defaultKeyMap(),
 		help:          help.New(),
+		spinner:       spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		log:           logger,
 	}
 }
@@ -102,7 +105,7 @@ func (m Model) dbg(format string, args ...any) {
 
 // Init satisfies tea.Model. Processes are started externally before p.Run().
 func (m Model) Init() tea.Cmd {
-	return tea.RequestBackgroundColor
+	return tea.Batch(tea.RequestBackgroundColor, m.spinner.Tick)
 }
 
 // Update handles all incoming Bubble Tea messages.
@@ -120,6 +123,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		isDark := msg.IsDark()
 		m.help.Styles = help.DefaultStyles(isDark)
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		cmds = append(cmds, cmd)
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap.
@@ -529,11 +537,34 @@ func (m Model) renderHeader() string {
 	}
 	meta := headerMetaStyle.Render(fmt.Sprintf("%d running  ", running))
 
-	gap := m.width - lipgloss.Width(brand) - lipgloss.Width(meta)
-	if gap < 0 {
-		gap = 0
+	avail := m.width - lipgloss.Width(brand) - lipgloss.Width(meta)
+
+	if m.copyMode {
+		if p := m.activeProc(); p != nil {
+			label := lipgloss.NewStyle().
+				Background(colorOrange).
+				Foreground(colorWhite).
+				Bold(true).
+				Render(p.Name)
+			labelW := lipgloss.Width(label)
+			leftGap := (avail - labelW) / 2
+			if leftGap < 0 {
+				leftGap = 0
+			}
+			rightGap := avail - labelW - leftGap
+			if rightGap < 0 {
+				rightGap = 0
+			}
+			left := headerMetaStyle.Width(leftGap).Render("")
+			right := headerMetaStyle.Width(rightGap).Render("")
+			return lipgloss.JoinHorizontal(lipgloss.Top, brand, left, label, right, meta)
+		}
 	}
-	spacer := headerMetaStyle.Width(gap).Render("")
+
+	if avail < 0 {
+		avail = 0
+	}
+	spacer := headerMetaStyle.Width(avail).Render("")
 	return lipgloss.JoinHorizontal(lipgloss.Top, brand, spacer, meta)
 }
 
@@ -559,6 +590,12 @@ func (m Model) renderSidebar() string {
 	for i := start; i < end; i++ {
 		p := m.procs[i]
 		iconChar := statusIconChar(p.Status())
+		// For pending processes, swap in the current spinner frame. Strip ANSI
+		// from spinner.View() so the raw character can be safely composed inside
+		// the surrounding lipgloss styles without breaking their background colour.
+		if p.Status() == process.StatusPending {
+			iconChar = ansi.Strip(m.spinner.View())
+		}
 		iconColor := statusIconColor(p.Status())
 
 		// Reserve 3 visible chars for left-padding (1) + icon (1) + space (1).
