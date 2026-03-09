@@ -1858,7 +1858,7 @@ class GitHubIntegration:
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def list_repositories(self, page: int = 1) -> list[str]:
+    def list_repositories(self, page: int = 1) -> list[dict]:
         # Proactively refresh token if it's close to expiring to avoid intermittent 401s
         try:
             if self.access_token_expired():
@@ -1909,12 +1909,18 @@ class GitHubIntegration:
 
             repositories = body.get("repositories")
             if response.status_code == 200 and isinstance(repositories, list):
-                names: list[str] = [
-                    repo["name"]
+                return [
+                    {
+                        "id": repo["id"],
+                        "name": repo["name"],
+                        "full_name": repo["full_name"],
+                    }
                     for repo in repositories
-                    if isinstance(repo, dict) and isinstance(repo.get("name"), str)
+                    if isinstance(repo, dict)
+                    and isinstance(repo.get("id"), int)
+                    and isinstance(repo.get("name"), str)
+                    and isinstance(repo.get("full_name"), str)
                 ]
-                return names
 
             if response.status_code in transient_status_codes and attempt == 0:
                 logger.info(
@@ -1987,6 +1993,67 @@ class GitHubIntegration:
             return full_name.lower()
 
         return None
+
+    def list_branches(self, repo: str) -> list[str]:
+        """List branches for a given repository via the GitHub API."""
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch(page: int = 1) -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return external_requests.get(
+                f"https://api.github.com/repos/{repo}/branches?per_page=100&page={page}",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=10,
+            )
+
+        try:
+            response = fetch()
+        except requests.RequestException:
+            logger.warning("GitHubIntegration: list_branches network error", repo=repo, exc_info=True)
+            return []
+
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                return []
+            else:
+                try:
+                    response = fetch()
+                except requests.RequestException:
+                    logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
+                    return []
+
+        if response.status_code != 200:
+            logger.warning(
+                "GitHubIntegration: failed to list branches",
+                status_code=response.status_code,
+                repo=repo,
+            )
+            return []
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: list_branches non-JSON response",
+                status_code=response.status_code,
+            )
+            return []
+
+        if not isinstance(body, list):
+            return []
+
+        return [branch["name"] for branch in body if isinstance(branch, dict) and isinstance(branch.get("name"), str)]
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")

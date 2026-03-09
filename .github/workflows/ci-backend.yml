@@ -118,6 +118,32 @@ jobs:
                         - bin/wait-for-docker
                         - frontend/public/email/*
                         - docker/clickhouse
+                      legacy:
+                        # Non-product backend code — when only products/ change,
+                        # turbo contract-check decides whether Django tests run.
+                        # Everything from backend: EXCEPT products/**/backend/**/*
+                        - 'ee/**/*'
+                        - 'common/**/*'
+                        - 'posthog/**/*'
+                        - 'bin/*.py'
+                        - pyproject.toml
+                        - uv.lock
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        - .test_durations
+                        - frontend/src/queries/schema.json
+                        - rust/feature-flags/src/properties/property_models.rs
+                        - common/plugin_transpiler/src
+                        - .github/workflows/ci-backend.yml
+                        - .github/clickhouse-versions.json
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
+                        - docker-compose.base.yml
+                        - bin/wait-for-docker
+                        - frontend/public/email/*
+                        - docker/clickhouse
                       migrations:
                         - docker/clickhouse
                         - 'posthog/migrations/*.py'
@@ -344,7 +370,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -412,42 +438,46 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
-    check-idor-coverage:
+    # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
+    # Consolidates checks that previously each spun up their own runner.
+    repo-checks:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        timeout-minutes: 5
-        name: Check IDOR semgrep rule coverage
+        timeout-minutes: 10
+        name: Repo checks
         runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Lint product structure
+              run: ./bin/hogli product:lint --all
+
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
 
-    check-operator-parity:
-        needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
-        timeout-minutes: 2
-        name: Check operator parity across languages
-        runs-on: depot-ubuntu-latest
-        steps:
-            - uses: actions/checkout@v6
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.12.12
             - name: Check operator parity
               run: python .github/scripts/check-operator-parity.py
 
+            - name: Check module boundaries (tach)
+              run: tach check
+
+    # Migration validation and OpenAPI type generation.
+    # This job needs Docker + DB — it checks out master first to run baseline
+    # migrations, then checks out the PR branch. All steps after the PR checkout
+    # require Django + DB. Lightweight checks belong in repo-checks above.
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
@@ -468,6 +498,7 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d &
 
@@ -503,8 +534,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -553,9 +583,6 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Check module boundaries (tach)
-              run: tach check
 
             - name: Check migrations and post SQL comment
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
@@ -1101,8 +1128,7 @@ jobs:
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Determine if hogql-parser has changed compared to master
               shell: bash
@@ -1527,8 +1553,7 @@ jobs:
                 turbo-discover,
                 turbo-tests,
                 handle-snapshots,
-                check-idor-coverage,
-                check-operator-parity,
+                repo-checks,
             ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
@@ -1560,15 +1585,9 @@ jobs:
                     exit 1
                   fi
 
-                  # Check IDOR coverage - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-idor-coverage.result }}" != "success" && "${{ needs.check-idor-coverage.result }}" != "skipped" ]]; then
-                    echo "IDOR coverage check failed."
-                    exit 1
-                  fi
-
-                  # Check operator parity - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-operator-parity.result }}" != "success" && "${{ needs.check-operator-parity.result }}" != "skipped" ]]; then
-                    echo "Operator parity check failed."
+                  # Check repo checks (product lint, IDOR, operator parity, tach)
+                  if [[ "${{ needs.repo-checks.result }}" != "success" && "${{ needs.repo-checks.result }}" != "skipped" ]]; then
+                    echo "Repo checks failed."
                     exit 1
                   fi
 
@@ -1622,6 +1641,7 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d &
 
@@ -1658,8 +1678,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install python dependencies
               shell: bash

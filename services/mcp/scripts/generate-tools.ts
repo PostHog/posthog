@@ -97,6 +97,14 @@ function loadOpenApi(): OpenApiSpec {
 }
 
 /**
+ * Collect schema type names from the OpenAPI spec's components.schemas.
+ * Used to validate that a resolved response type actually exists before emitting it.
+ */
+function loadKnownSchemaTypes(spec: OpenApiSpec): Set<string> {
+    return new Set(Object.keys(spec.components?.schemas ?? {}))
+}
+
+/**
  * Find an operation by operationId. When the same endpoint exists at both
  * /api/environments/ and /api/projects/, prefers /api/projects/.
  * Also matches _N deduplicated variants (e.g. issues_list matches issues_list_2).
@@ -134,6 +142,28 @@ function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: s
     return schemaOrRef as OpenApiSchema
 }
 
+/**
+ * Resolve the response type name from an operation's success response.
+ * Returns the Schemas.* type name if the $ref maps to a type that exists
+ * in generated.ts, undefined otherwise.
+ */
+function resolveResponseType(operation: OpenApiOperation, knownTypes: Set<string>): string | undefined {
+    for (const status of ['200', '201']) {
+        const responseContent = operation.responses?.[status]?.content?.['application/json']
+        if (!responseContent?.schema) {
+            continue
+        }
+        const schema = responseContent.schema
+        if ('$ref' in schema && schema.$ref) {
+            const schemaName = schema.$ref.replace('#/components/schemas/', '')
+            if (knownTypes.has(schemaName)) {
+                return `Schemas.${schemaName}`
+            }
+        }
+    }
+    return undefined
+}
+
 // ------------------------------------------------------------------
 // String helpers
 // ------------------------------------------------------------------
@@ -148,6 +178,19 @@ function toPascalCase(str: string): string {
 function toCamelCase(str: string): string {
     const pascal = toPascalCase(str)
     return pascal.charAt(0).toLowerCase() + pascal.slice(1)
+}
+
+/**
+ * Parse enrich_url template into prefix and field.
+ * '{id}' → { prefix: '', field: 'id' }
+ * 'hog-{id}' → { prefix: 'hog-', field: 'id' }
+ */
+function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string } {
+    const match = enrichUrl.match(/^(.*?)\{(\w+)\}$/)
+    if (!match) {
+        throw new Error(`Invalid enrich_url format: ${enrichUrl}`)
+    }
+    return { prefix: match[1]!, field: match[2]! }
 }
 
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
@@ -300,6 +343,53 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
 }
 
 // ------------------------------------------------------------------
+// Response enrichment templates
+// ------------------------------------------------------------------
+
+function buildEnrichment(config: ToolConfig, category: CategoryConfig): string {
+    const baseUrl = `\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}`
+
+    if (config.list && config.enrich_url) {
+        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        return [
+            `        const items = (result as any).results ?? result`,
+            `        return {`,
+            `            ...(result as any),`,
+            `            results: (items as any[]).map((item: any) => ({`,
+            `                ...item,`,
+            `                _posthogUrl: \`${baseUrl}/${prefix}\${item.${field}}\`,`,
+            `            })),`,
+            `            _posthogUrl: \`${baseUrl}\`,`,
+            `        }`,
+            ``,
+        ].join('\n')
+    }
+
+    if (config.list) {
+        return [
+            `        return {`,
+            `            ...(result as any),`,
+            `            _posthogUrl: \`${baseUrl}\`,`,
+            `        }`,
+            ``,
+        ].join('\n')
+    }
+
+    if (config.enrich_url) {
+        const { prefix, field } = parseEnrichUrl(config.enrich_url)
+        return [
+            `        return {`,
+            `            ...result as any,`,
+            `            _posthogUrl: \`${baseUrl}/${prefix}\${(result as any).${field}}\`,`,
+            `        }`,
+            ``,
+        ].join('\n')
+    }
+
+    return `        return result\n`
+}
+
+// ------------------------------------------------------------------
 // Code generation for a single tool
 // ------------------------------------------------------------------
 
@@ -308,11 +398,13 @@ function generateToolCode(
     config: ToolConfig,
     resolved: ResolvedOperation,
     category: CategoryConfig,
-    spec: OpenApiSpec
-): { code: string; orvalImports: string[] } {
+    spec: OpenApiSpec,
+    knownTypes: Set<string>
+): { code: string; orvalImports: string[]; responseType: string | undefined } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
     const composition = composeToolSchema(config, resolved, spec)
+    const responseType = resolveResponseType(resolved.operation, knownTypes)
 
     const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
 
@@ -326,7 +418,11 @@ function generateToolCode(
     let handlerBody = ''
     handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
 
-    const hasBody = composition.bodyFieldNames.length > 0
+    // Soft-delete overrides the HTTP method: use PATCH { deleted: true } instead of DELETE.
+    // This is necessary for endpoints backed by ForbidDestroyModel (e.g. actions).
+    const isSoftDelete = config.soft_delete === true
+
+    const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
     const hasQuery = composition.queryParamNames.length > 0
 
     if (hasBody) {
@@ -336,10 +432,13 @@ function generateToolCode(
         }
     }
 
-    handlerBody += `        const result = await context.api.request({\n`
-    handlerBody += `            method: '${resolved.method}',\n`
+    const httpMethod = isSoftDelete ? 'PATCH' : resolved.method
+    handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
+    handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
-    if (hasBody) {
+    if (isSoftDelete) {
+        handlerBody += `            body: { deleted: true },\n`
+    } else if (hasBody) {
         handlerBody += `            body,\n`
     }
     if (hasQuery) {
@@ -350,36 +449,40 @@ function generateToolCode(
     }
     handlerBody += `        })\n`
 
-    // Response enrichment
+    // Response enrichment — adds _posthogUrl for "View in PostHog" links
+    handlerBody += buildEnrichment(config, category)
+
+    // Compute the result type for the ToolBase generic parameter
+    let resultType: string
     if (config.list && config.enrich_url) {
-        const field = config.enrich_url.replace(/[{}]/g, '')
-        handlerBody += `        const items = (result as any).results ?? result\n`
-        handlerBody += `        return (items as any[]).map((item: any) => ({\n`
-        handlerBody += `            ...item,\n`
-        handlerBody += `            url: \`\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}/\${item.${field}}\`,\n`
-        handlerBody += `        }))\n`
+        // List items are mapped/transformed, so the shape is no longer the raw response type
+        resultType = 'unknown'
     } else if (config.enrich_url) {
-        const field = config.enrich_url.replace(/[{}]/g, '')
-        handlerBody += `        return {\n`
-        handlerBody += `            ...result as any,\n`
-        handlerBody += `            url: \`\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}/\${(result as any).${field}}\`,\n`
-        handlerBody += `        }\n`
+        resultType = responseType ? `${responseType} & { _posthogUrl: string }` : 'unknown'
+    } else if (config.list) {
+        resultType = responseType ? `${responseType} & { _posthogUrl: string }` : 'unknown'
     } else {
-        handlerBody += `        return result\n`
+        resultType = responseType ?? 'unknown'
+    }
+
+    // Build optional _meta block for UI app visualization
+    let metaBlock = ''
+    if (config.ui_resource_uri) {
+        metaBlock = `    _meta: {\n        ui: {\n            resourceUri: '${config.ui_resource_uri}',\n        },\n    },\n`
     }
 
     const code = `
 ${schemaDecl}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ({
     name: '${toolName}',
     schema: ${schemaName},
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
-})
+${metaBlock}})
 `
 
-    return { code, orvalImports: composition.orvalImports }
+    return { code, orvalImports: composition.orvalImports, responseType }
 }
 
 // ------------------------------------------------------------------
@@ -390,7 +493,8 @@ function generateCategoryFile(
     category: CategoryConfig,
     fileName: string,
     moduleName: string,
-    spec: OpenApiSpec
+    spec: OpenApiSpec,
+    knownTypes: Set<string>
 ): { code: string; enabledTools: [string, EnabledToolConfig, ResolvedOperation][] } {
     const enabledTools: [string, EnabledToolConfig, ResolvedOperation][] = []
 
@@ -418,12 +522,23 @@ function generateCategoryFile(
 
     const allOrvalImports = new Set<string>()
     const toolCodes: string[] = []
+    let hasResponseType = false
 
     for (const [name, config, resolved] of enabledTools) {
-        const { code, orvalImports } = generateToolCode(name, config, resolved, category, spec)
+        const { code, orvalImports, responseType } = generateToolCode(
+            name,
+            config,
+            resolved,
+            category,
+            spec,
+            knownTypes
+        )
         toolCodes.push(code)
         for (const imp of orvalImports) {
             allOrvalImports.add(imp)
+        }
+        if (responseType) {
+            hasResponseType = true
         }
     }
 
@@ -434,11 +549,13 @@ function generateCategoryFile(
             ? `\nimport { ${[...allOrvalImports].sort().join(', ')} } from '@/generated/${moduleName}/api'\n`
             : ''
 
+    const schemasImportLine = hasResponseType ? `\nimport type { Schemas } from '@/api/generated'\n` : ''
+
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${orvalImportLine}${toolCodes.join('')}
+${schemasImportLine}${orvalImportLine}${toolCodes.join('')}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
@@ -543,6 +660,7 @@ function discoverDefinitions(): DefinitionSource[] {
 
 function main(): void {
     const spec = loadOpenApi()
+    const knownTypes = loadKnownSchemaTypes(spec)
 
     const definitionSources = discoverDefinitions()
 
@@ -570,7 +688,7 @@ function main(): void {
         }
         const config = result.data
 
-        const { code, enabledTools } = generateCategoryFile(config, def.label, def.moduleName, spec)
+        const { code, enabledTools } = generateCategoryFile(config, def.label, def.moduleName, spec, knownTypes)
 
         if (enabledTools.length > 0) {
             generatedModules.push(def.moduleName)

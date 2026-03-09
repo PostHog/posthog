@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 // Common enums and types
-const NodeKind = z.enum(['TrendsQuery', 'FunnelsQuery', 'HogQLQuery', 'EventsNode'])
+const NodeKind = z.enum(['TrendsQuery', 'FunnelsQuery', 'PathsQuery', 'HogQLQuery', 'EventsNode'])
 
 const IntervalType = z.enum(['hour', 'day', 'week', 'month'])
 
@@ -186,10 +186,45 @@ const FunnelsQuerySchema = InsightsQueryBase.extend({
     breakdownFilter: BreakdownFilter.optional(),
 })
 
+// Paths types
+const PathType = z.enum(['$pageview', '$screen', 'custom_event', 'hogql'])
+
+const PathCleaningFilter = z.object({
+    alias: z.string().optional(),
+    regex: z.string().optional(),
+})
+
+// Paths filter
+const PathsFilter = z.object({
+    includeEventTypes: z.array(PathType).optional(),
+    pathsHogQLExpression: z
+        .string()
+        .optional()
+        .describe('A HogQL expression to use as the path step name. Requires includeEventTypes to contain "hogql".'),
+    startPoint: z.string().optional().describe('Only show paths starting at this step'),
+    endPoint: z.string().optional().describe('Only show paths ending at this step'),
+    stepLimit: z.number().optional().default(5).describe('Maximum number of path steps (default 5)'),
+    edgeLimit: z.number().optional().default(50).describe('Maximum number of edges to return (default 50)'),
+    excludeEvents: z.array(z.string()).optional().describe('Events to exclude from the path'),
+    pathGroupings: z.array(z.string()).optional().describe('Wildcard groups to merge similar path steps'),
+    localPathCleaningFilters: z
+        .array(PathCleaningFilter)
+        .optional()
+        .describe('Regex rules to clean/simplify path step names'),
+    minEdgeWeight: z.number().optional(),
+    maxEdgeWeight: z.number().optional(),
+})
+
+// Paths query
+const PathsQuerySchema = InsightsQueryBase.extend({
+    kind: z.literal('PathsQuery'),
+    pathsFilter: PathsFilter.default({ stepLimit: 5, edgeLimit: 50 }),
+})
+
 // Insight Schema
 const InsightVizNodeSchema = z.object({
     kind: z.literal('InsightVizNode'),
-    source: z.discriminatedUnion('kind', [TrendsQuerySchema, FunnelsQuerySchema]),
+    source: z.discriminatedUnion('kind', [TrendsQuerySchema, FunnelsQuerySchema, PathsQuerySchema]),
 })
 
 const DataVisualizationNodeSchema = z.object({
@@ -230,12 +265,14 @@ export {
     CompareFilter,
     TrendsFilter,
     FunnelsFilter,
+    PathsFilter,
     // HogQL types
     HogQLVariable,
     HogQLFilters,
     // Queries
     TrendsQuerySchema,
     FunnelsQuerySchema,
+    PathsQuerySchema,
     HogQLQuerySchema,
     InsightVizNodeSchema,
     DataVisualizationNodeSchema,
@@ -244,5 +281,6 @@ export {
 
 export type TrendsQuery = z.infer<typeof TrendsQuerySchema>
 export type FunnelsQuery = z.infer<typeof FunnelsQuerySchema>
+export type PathsQuery = z.infer<typeof PathsQuerySchema>
 export type HogQLQuery = z.infer<typeof HogQLQuerySchema>
 export type InsightQuery = z.infer<typeof InsightQuerySchema>

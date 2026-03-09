@@ -24,7 +24,9 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         GENERAL_AVAILABILITY = "general-availability", "general availability"
         ARCHIVED = "archived", "archived"
 
-    ReleaseStage = [Stage.CONCEPT, Stage.ALPHA, Stage.BETA, Stage.GENERAL_AVAILABILITY]
+    # Stages where opted-in users get the feature flag enabled.
+    # CONCEPT is excluded - it's for gauging interest before enabling functionality.
+    ActiveStage = frozenset({Stage.ALPHA, Stage.BETA, Stage.GENERAL_AVAILABILITY})
 
     team = models.ForeignKey(
         "posthog.Team",

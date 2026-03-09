@@ -2189,6 +2189,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "BoxPlot",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -2280,7 +2284,8 @@
                         "ActionsTable",
                         "WorldMap",
                         "CalendarHeatmap",
-                        "TwoDimensionalHeatmap"
+                        "TwoDimensionalHeatmap",
+                        "BoxPlot"
                     ],
                     "type": "string"
                 },
@@ -2512,6 +2517,43 @@
         "BingAdsTableKeywords": {
             "enum": ["campaigns"],
             "type": "string"
+        },
+        "BoxPlotDatum": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "max": {
+                    "type": "number"
+                },
+                "mean": {
+                    "type": "number"
+                },
+                "median": {
+                    "type": "number"
+                },
+                "min": {
+                    "type": "number"
+                },
+                "p25": {
+                    "type": "number"
+                },
+                "p75": {
+                    "type": "number"
+                },
+                "series_index": {
+                    "$ref": "#/definitions/integer"
+                },
+                "series_label": {
+                    "type": "string"
+                }
+            },
+            "required": ["day", "label", "min", "p25", "median", "p75", "max", "mean"],
+            "type": "object"
         },
         "Breakdown": {
             "additionalProperties": false,
@@ -6995,6 +7037,13 @@
         "CachedTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "boxplot_data": {
+                    "description": "Box plot data when display type is BoxPlot",
+                    "items": {
+                        "$ref": "#/definitions/BoxPlotDatum"
+                    },
+                    "type": "array"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -8144,7 +8193,8 @@
                 "ActionsTable",
                 "WorldMap",
                 "CalendarHeatmap",
-                "TwoDimensionalHeatmap"
+                "TwoDimensionalHeatmap",
+                "BoxPlot"
             ],
             "type": "string"
         },
@@ -8170,6 +8220,9 @@
                     "type": ["string", "null"]
                 },
                 "showLegend": {
+                    "type": "boolean"
+                },
+                "showNullsAsZero": {
                     "type": "boolean"
                 },
                 "showTotalRow": {
@@ -12781,9 +12834,6 @@
                 "name": {
                     "type": ["string", "null"]
                 },
-                "revenue": {
-                    "type": "number"
-                },
                 "source": {
                     "type": "string"
                 },
@@ -12994,7 +13044,7 @@
                     "type": "array"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
@@ -13081,7 +13131,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
@@ -13093,14 +13143,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
-                },
-                "revenueEntity": {
-                    "enum": ["person", "group_0", "group_1", "group_2", "group_3", "group_4"],
-                    "type": "string"
-                },
-                "revenuePeriod": {
-                    "enum": ["all_time", "mrr"],
-                    "type": "string"
                 },
                 "searchQuery": {
                     "type": "string"
@@ -15863,6 +15905,7 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
+                "visual_review",
                 "settings",
                 "health",
                 "inbox",
@@ -19148,6 +19191,88 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
+        "LinearIssueSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "identifier": {
+                    "type": "string"
+                },
+                "labels": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "number": {
+                    "type": "number"
+                },
+                "priority": {
+                    "type": "number"
+                },
+                "priority_label": {
+                    "type": "string"
+                },
+                "state_name": {
+                    "type": ["string", "null"]
+                },
+                "state_type": {
+                    "type": ["string", "null"]
+                },
+                "team_name": {
+                    "type": ["string", "null"]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "url",
+                "identifier",
+                "number",
+                "priority",
+                "priority_label",
+                "labels",
+                "state_name",
+                "state_type",
+                "team_name",
+                "created_at",
+                "updated_at"
+            ],
+            "type": "object"
+        },
+        "LinearIssueSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LinearIssueSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "linear",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "LinkedinAdsDefaultSources": {
             "enum": ["linkedin", "li"],
             "type": "string"
@@ -21695,6 +21820,23 @@
             "required": ["type", "id", "query"],
             "type": "object"
         },
+        "MaxNotebookContext": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "MaxOuterUniversalFiltersGroup": {
             "additionalProperties": false,
             "properties": {
@@ -21871,6 +22013,12 @@
                         "$ref": "#/definitions/MaxInsightContext"
                     },
                     "type": "array"
+                },
+                "notebooks": {
+                    "items": {
+                        "$ref": "#/definitions/MaxNotebookContext"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"
@@ -22008,23 +22156,91 @@
         },
         "MultiQuestionFormAnswers": {
             "additionalProperties": {
-                "type": "string"
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    }
+                ]
             },
             "type": "object"
+        },
+        "MultiQuestionFormField": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "Unique identifier for this field, used as the answer key",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Label displayed above/beside the field",
+                    "type": "string"
+                },
+                "max": {
+                    "description": "Maximum value (for number and slider types)",
+                    "type": "number"
+                },
+                "min": {
+                    "description": "Minimum value (for number and slider types)",
+                    "type": "number"
+                },
+                "optional": {
+                    "description": "Whether this field can be left empty (default: false)",
+                    "type": "boolean"
+                },
+                "options": {
+                    "description": "Available answer options (required for dropdown)",
+                    "items": {
+                        "$ref": "#/definitions/MultiQuestionFormQuestionOption"
+                    },
+                    "type": "array"
+                },
+                "placeholder": {
+                    "description": "Placeholder text (for text and number types)",
+                    "type": "string"
+                },
+                "step": {
+                    "description": "Step size (for number and slider types)",
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/MultiQuestionFormFieldType",
+                    "description": "Field type (required, no default)"
+                }
+            },
+            "required": ["id", "type", "label"],
+            "type": "object"
+        },
+        "MultiQuestionFormFieldType": {
+            "description": "Field types allowed inside a multi_field composite question",
+            "enum": ["text", "number", "slider", "dropdown", "toggle"],
+            "type": "string"
         },
         "MultiQuestionFormQuestion": {
             "additionalProperties": false,
             "properties": {
                 "allow_custom_answer": {
-                    "description": "Whether to show a \"Type your answer\" option (default: true)",
+                    "description": "Whether to show a \"Type your answer\" option (default: true). Only used for select type.",
                     "type": "boolean"
+                },
+                "fields": {
+                    "description": "Fields for multi_field type questions, grouped with a shared submit button",
+                    "items": {
+                        "$ref": "#/definitions/MultiQuestionFormField"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "description": "Unique identifier for this question",
                     "type": "string"
                 },
                 "options": {
-                    "description": "Available answer options",
+                    "description": "Available answer options (required for select and multi_select)",
                     "items": {
                         "$ref": "#/definitions/MultiQuestionFormQuestionOption"
                     },
@@ -22037,9 +22253,14 @@
                 "title": {
                     "description": "One word title for the question e.g. \"Use case\", \"Team size\", \"Experience\"",
                     "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/MultiQuestionFormQuestionType",
+                    "default": "select",
+                    "description": "Question type. Use 'multi_field' with fields array for composite questions."
                 }
             },
-            "required": ["id", "title", "question", "options"],
+            "required": ["id", "title", "question"],
             "type": "object"
         },
         "MultiQuestionFormQuestionOption": {
@@ -22056,6 +22277,11 @@
             },
             "required": ["value"],
             "type": "object"
+        },
+        "MultiQuestionFormQuestionType": {
+            "description": "Question types: select/multi_select for standalone, multi_field for composite",
+            "enum": ["select", "multi_select", "multi_field"],
+            "type": "string"
         },
         "MultiVisualizationMessage": {
             "additionalProperties": false,
@@ -22432,6 +22658,10 @@
                     "const": "notebook",
                     "description": "Notebook",
                     "type": "string"
+                },
+                "is_saved": {
+                    "description": "Whether this notebook has been saved to the database (not stored, set during enrichment)",
+                    "type": "boolean"
                 },
                 "title": {
                     "description": "Title for the notebook",
@@ -23167,6 +23397,7 @@
                 "teams",
                 "toolbar",
                 "user_interviews",
+                "visual_review",
                 "web_analytics",
                 "workflows"
             ],
@@ -26982,6 +27213,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "boxplot_data": {
+                            "description": "Box plot data when display type is BoxPlot",
+                            "items": {
+                                "$ref": "#/definitions/BoxPlotDatum"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -31092,7 +31330,7 @@
         },
         "SignalInput": {
             "discriminator": {
-                "propertyName": "source_type"
+                "propertyName": "source_product"
             },
             "oneOf": [
                 {
@@ -31106,9 +31344,12 @@
                 },
                 {
                     "$ref": "#/definitions/GithubIssueSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LinearIssueSignalInput"
                 }
             ],
-            "required": ["source_type"],
+            "required": ["source_product"],
             "type": "object"
         },
         "SimilarIssue": {
@@ -33266,6 +33507,13 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "boxplot_data": {
+                    "description": "Box plot data when display type is BoxPlot",
+                    "items": {
+                        "$ref": "#/definitions/BoxPlotDatum"
+                    },
+                    "type": "array"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -35469,7 +35717,7 @@
                     "type": "string"
                 },
                 "priority": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "status": {
                     "type": "string"
@@ -35481,7 +35729,7 @@
                     "type": "array"
                 },
                 "type": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "url": {
                     "type": "string"

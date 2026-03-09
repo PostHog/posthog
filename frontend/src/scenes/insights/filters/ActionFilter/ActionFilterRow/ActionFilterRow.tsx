@@ -59,6 +59,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
+    MathDefinition,
     PROPERTY_MATH_DEFINITIONS,
     apiValueToMathType,
     mathTypeToApiValues,
@@ -117,6 +118,7 @@ export enum MathAvailability {
     ActorsOnly,
     FunnelsOnly,
     CalendarHeatmapOnly,
+    BoxPlotOnly,
     None,
 }
 
@@ -273,7 +275,7 @@ export function ActionFilterRow({
     const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
 
     // DWH events are not supported in inline events yet
-    const canCombine = showCombine && filter.type !== EntityTypes.DATA_WAREHOUSE
+    const canCombine = showCombine && !singleFilter && filter.type !== EntityTypes.DATA_WAREHOUSE
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
@@ -322,12 +324,12 @@ export function ActionFilterRow({
                 ...mathTypeToApiValues(selectedMath),
                 math_property,
                 math_hogql,
-                mathPropertyType,
+                math_property_type: mathPropertyType,
             }
         } else {
             mathProperties = {
                 math_property: undefined,
-                mathPropertyType: undefined,
+                math_property_type: undefined,
                 math_hogql: undefined,
                 math_group_type_index: undefined,
                 math: undefined,
@@ -653,87 +655,125 @@ export function ActionFilterRow({
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (
                                     <>
-                                        <MathSelector
-                                            math={math}
-                                            mathGroupTypeIndex={mathGroupTypeIndex}
-                                            index={index}
-                                            onMathSelect={onMathSelect}
-                                            disabled={readOnly}
-                                            style={{ maxWidth: '100%', width: 'initial' }}
-                                            mathAvailability={mathAvailability}
-                                            trendsDisplayCategory={trendsDisplayCategory}
-                                            allowedMathTypes={allowedMathTypes}
-                                            query={query || {}}
-                                        />
-                                        {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
-                                            MathCategory.PropertyValue && (
-                                            <div className="flex-auto overflow-hidden">
+                                        {mathAvailability !== MathAvailability.BoxPlotOnly && (
+                                            <MathSelector
+                                                math={math}
+                                                mathGroupTypeIndex={mathGroupTypeIndex}
+                                                index={index}
+                                                onMathSelect={onMathSelect}
+                                                disabled={readOnly}
+                                                style={{ maxWidth: '100%', width: 'initial' }}
+                                                mathAvailability={mathAvailability}
+                                                trendsDisplayCategory={trendsDisplayCategory}
+                                                allowedMathTypes={allowedMathTypes}
+                                                query={query || {}}
+                                            />
+                                        )}
+                                        {mathAvailability === MathAvailability.BoxPlotOnly && (
+                                            <div className="flex-auto min-w-0">
                                                 <TaxonomicStringPopover
                                                     groupType={
                                                         mathPropertyType ||
                                                         TaxonomicFilterGroupType.NumericalEventProperties
                                                     }
                                                     groupTypes={[
-                                                        TaxonomicFilterGroupType.DataWarehouseProperties,
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
                                                         TaxonomicFilterGroupType.SessionProperties,
                                                         TaxonomicFilterGroupType.PersonProperties,
-                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                                     ]}
-                                                    schemaColumns={
-                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
-                                                        filter.name
-                                                            ? Object.values(
-                                                                  dataWarehouseTablesMap[filter.name]?.fields ?? []
-                                                              )
-                                                            : []
-                                                    }
-                                                    value={mathProperty}
+                                                    value={mathProperty || undefined}
                                                     onChange={(currentValue, groupType) =>
                                                         onMathPropertySelect(index, currentValue, groupType)
                                                     }
                                                     eventNames={name ? [name] : []}
-                                                    data-attr="math-property-select"
-                                                    showNumericalPropsOnly={showNumericalPropsOnly}
+                                                    placeholder="Select numeric property"
+                                                    data-attr="box-plot-property-select"
+                                                    showNumericalPropsOnly
                                                     renderValue={(currentValue) => (
-                                                        <Tooltip
-                                                            title={
-                                                                currentValue === '$session_duration' ? (
-                                                                    <>
-                                                                        Calculate{' '}
-                                                                        {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
-                                                                        of the session duration. This is based on the{' '}
-                                                                        <code>$session_id</code> property associated
-                                                                        with events. The duration is derived from the
-                                                                        time difference between the first and last event
-                                                                        for each distinct <code>$session_id</code>.
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        Calculate{' '}
-                                                                        {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
-                                                                        from property <code>{currentValue}</code>. Note
-                                                                        that only {name} occurrences where{' '}
-                                                                        <code>{currentValue}</code> is set with a
-                                                                        numeric value will be taken into account.
-                                                                    </>
-                                                                )
-                                                            }
-                                                            placement="right"
-                                                        >
-                                                            <PropertyKeyInfo
-                                                                value={currentValue}
-                                                                disablePopover
-                                                                type={TaxonomicFilterGroupType.EventProperties}
-                                                            />
-                                                        </Tooltip>
+                                                        <PropertyKeyInfo
+                                                            value={currentValue}
+                                                            disablePopover
+                                                            type={TaxonomicFilterGroupType.EventProperties}
+                                                        />
                                                     )}
                                                 />
                                             </div>
                                         )}
+                                        {mathAvailability !== MathAvailability.BoxPlotOnly &&
+                                            mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                                MathCategory.PropertyValue && (
+                                                <div className="flex-auto min-w-0">
+                                                    <TaxonomicStringPopover
+                                                        groupType={
+                                                            mathPropertyType ||
+                                                            TaxonomicFilterGroupType.NumericalEventProperties
+                                                        }
+                                                        groupTypes={[
+                                                            TaxonomicFilterGroupType.DataWarehouseProperties,
+                                                            TaxonomicFilterGroupType.NumericalEventProperties,
+                                                            TaxonomicFilterGroupType.SessionProperties,
+                                                            TaxonomicFilterGroupType.PersonProperties,
+                                                            TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                        ]}
+                                                        schemaColumns={
+                                                            filter.type == TaxonomicFilterGroupType.DataWarehouse &&
+                                                            filter.name
+                                                                ? Object.values(
+                                                                      dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                                  )
+                                                                : []
+                                                        }
+                                                        value={mathProperty}
+                                                        onChange={(currentValue, groupType) =>
+                                                            onMathPropertySelect(index, currentValue, groupType)
+                                                        }
+                                                        eventNames={name ? [name] : []}
+                                                        data-attr="math-property-select"
+                                                        showNumericalPropsOnly={showNumericalPropsOnly}
+                                                        renderValue={(currentValue) => (
+                                                            <Tooltip
+                                                                title={
+                                                                    currentValue === '$session_duration' ? (
+                                                                        <>
+                                                                            Calculate{' '}
+                                                                            {mathDefinitions[
+                                                                                math ?? ''
+                                                                            ]?.name.toLowerCase()}{' '}
+                                                                            of the session duration. This is based on
+                                                                            the <code>$session_id</code> property
+                                                                            associated with events. The duration is
+                                                                            derived from the time difference between the
+                                                                            first and last event for each distinct{' '}
+                                                                            <code>$session_id</code>.
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            Calculate{' '}
+                                                                            {mathDefinitions[
+                                                                                math ?? ''
+                                                                            ]?.name.toLowerCase()}{' '}
+                                                                            from property <code>{currentValue}</code>.
+                                                                            Note that only {name} occurrences where{' '}
+                                                                            <code>{currentValue}</code> is set with a
+                                                                            numeric value will be taken into account.
+                                                                        </>
+                                                                    )
+                                                                }
+                                                                placement="right"
+                                                            >
+                                                                <PropertyKeyInfo
+                                                                    value={currentValue}
+                                                                    disablePopover
+                                                                    type={TaxonomicFilterGroupType.EventProperties}
+                                                                />
+                                                            </Tooltip>
+                                                        )}
+                                                    />
+                                                </div>
+                                            )}
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.HogQLExpression && (
-                                            <div className="flex-auto overflow-hidden">
+                                            <div className="flex-auto min-w-0">
                                                 <LemonDropdown
                                                     visible={isHogQLDropdownVisible}
                                                     closeOnClickInside={false}
@@ -1005,6 +1045,7 @@ function useMathSelectorOptions({
         funnelMathDefinitions,
         staticActorsOnlyMathDefinitions,
         calendarHeatmapMathDefinitions,
+
         aggregationLabel,
         groupsMathDefinitions,
     } = useValues(mathsLogic)
@@ -1047,6 +1088,7 @@ function useMathSelectorOptions({
     const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
+        .filter((entry): entry is [string, MathDefinition] => !!entry[1])
         .filter(([key]) => {
             const mathTypeKey = key as MathType
             if (isStickiness) {
@@ -1105,42 +1147,45 @@ function useMathSelectorOptions({
     if (
         mathAvailability !== MathAvailability.ActorsOnly &&
         mathAvailability !== MathAvailability.FunnelsOnly &&
-        mathAvailability !== MathAvailability.CalendarHeatmapOnly
+        mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
+        mathAvailability !== MathAvailability.BoxPlotOnly
     ) {
-        // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
-        const shouldShowCountPerUser =
-            !allowedMathTypes || Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
+        {
+            const shouldShowCountPerUser =
+                !allowedMathTypes ||
+                Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
 
-        if (shouldShowCountPerUser) {
-            options.splice(1, 0, {
-                value: countPerActorMathTypeShown,
-                label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>Count per user</span>
-                        <LemonSelect
-                            value={countPerActorMathTypeShown}
-                            onSelect={(value) => {
-                                setCountPerActorMathTypeShown(value as CountPerActorMathType)
-                                onMathSelect(index, value)
-                            }}
-                            options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
-                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
-                                .map(([key, definition]) => ({
-                                    value: key,
-                                    label: definition.shortName,
-                                    'data-attr': `math-${key}-${index}`,
-                                }))}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                        />
-                    </div>
-                ),
-                tooltip: 'Statistical analysis of event count per user.',
-                'data-attr': `math-node-count-per-actor-${index}`,
-            })
+            if (shouldShowCountPerUser) {
+                options.splice(1, 0, {
+                    value: countPerActorMathTypeShown,
+                    label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
+                    labelInMenu: (
+                        <div className="flex items-center gap-2">
+                            <span>Count per user</span>
+                            <LemonSelect
+                                value={countPerActorMathTypeShown}
+                                onSelect={(value) => {
+                                    setCountPerActorMathTypeShown(value as CountPerActorMathType)
+                                    onMathSelect(index, value)
+                                }}
+                                options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
+                                    .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
+                                    .map(([key, definition]) => ({
+                                        value: key,
+                                        label: definition.shortName,
+                                        'data-attr': `math-${key}-${index}`,
+                                    }))}
+                                onClick={(e) => e.stopPropagation()}
+                                size="small"
+                                dropdownMatchSelectWidth={false}
+                                optionTooltipPlacement="right"
+                            />
+                        </div>
+                    ),
+                    tooltip: 'Statistical analysis of event count per user.',
+                    'data-attr': `math-node-count-per-actor-${index}`,
+                })
+            }
         }
 
         const shouldShowPropertyValue =
@@ -1187,18 +1232,20 @@ function useMathSelectorOptions({
         }
     }
 
-    if (isGroupsEnabled && !isCalendarHeatmap) {
+    if (isGroupsEnabled && !isCalendarHeatmap && mathAvailability !== MathAvailability.BoxPlotOnly) {
         const uniqueActorsOptions = [
             {
                 value: 'users',
                 label: 'users',
                 'data-attr': `math-users-${index}`,
             },
-            ...Object.entries(groupsMathDefinitions).map(([key, definition]) => ({
-                value: key,
-                label: definition.shortName,
-                'data-attr': `math-${key}-${index}`,
-            })),
+            ...Object.entries(groupsMathDefinitions)
+                .filter((entry): entry is [string, MathDefinition] => !!entry[1])
+                .map(([key, definition]) => ({
+                    value: key,
+                    label: definition.shortName,
+                    'data-attr': `math-${key}-${index}`,
+                })),
         ]
 
         const uniqueUsersIndex = options.findIndex(
@@ -1210,7 +1257,7 @@ function useMathSelectorOptions({
             const label = isDau ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
             const tooltip = isDau
                 ? options[uniqueUsersIndex].tooltip
-                : groupsMathDefinitions[uniqueActorsShown].description
+                : groupsMathDefinitions[uniqueActorsShown]?.description
             options[uniqueUsersIndex] = {
                 value,
                 label,
@@ -1341,6 +1388,7 @@ function useMathSelectorOptions({
     if (
         mathAvailability !== MathAvailability.FunnelsOnly &&
         mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
+        mathAvailability !== MathAvailability.BoxPlotOnly &&
         (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
     ) {
         options.push({

@@ -1,3 +1,6 @@
 {
-    "name": "@posthog/products-growth"
+    "name": "@posthog/products-growth",
+    "scripts": {
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    }
 }

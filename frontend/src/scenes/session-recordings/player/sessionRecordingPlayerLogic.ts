@@ -42,6 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
+import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
@@ -253,6 +254,23 @@ function isUserActivity(snapshot: eventWithTime): boolean {
     )
 }
 
+type MetaSnapshotWithResolution = eventWithTime & {
+    type: EventType.Meta
+    data: {
+        width: number
+        height: number
+    }
+}
+
+function isMetaSnapshotWithResolution(snapshot: eventWithTime): snapshot is MetaSnapshotWithResolution {
+    if (snapshot.type !== EventType.Meta || !snapshot.data || typeof snapshot.data !== 'object') {
+        return false
+    }
+
+    const data = snapshot.data as Record<string, unknown>
+    return typeof data.width === 'number' && typeof data.height === 'number'
+}
+
 const updatePlayerTimeTracking = (
     current: PlayerTimeTracking,
     newState: PlayerTimeTracking['state'],
@@ -450,6 +468,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
             exportsLogic,
             ['startReplayExport'],
+            deletedRecordingsLogic,
+            ['addDeletedRecordings'],
         ],
     })),
     actions({
@@ -1022,17 +1042,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 const currIndex = findLastIndex(
                     snapshots,
-                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
+                    (s: eventWithTime) => s.timestamp < currentTimestamp && isMetaSnapshotWithResolution(s)
                 )
 
                 if (currIndex === -1) {
                     return null
                 }
                 const snapshot = snapshots[currIndex]
+                if (!isMetaSnapshotWithResolution(snapshot)) {
+                    return null
+                }
 
                 const resolution = {
-                    width: snapshot.data?.['width'],
-                    height: snapshot.data?.['height'],
+                    width: snapshot.data.width,
+                    height: snapshot.data.height,
                 }
 
                 // For video export: expose resolution via global variable
@@ -1986,13 +2009,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             })
         },
         deleteRecording: async () => {
-            await deleteRecording(props.sessionRecordingId)
-
-            if (props.onRecordingDeleted) {
-                props.onRecordingDeleted()
-            } else if (router.values.location.pathname.includes('/replay')) {
-                router.actions.push(urls.replay())
+            try {
+                await deleteRecording(props.sessionRecordingId)
+            } catch {
+                lemonToast.error('Failed to delete recording')
+                return
             }
+            actions.addDeletedRecordings([props.sessionRecordingId])
+            props.onRecordingDeleted?.()
         },
         openExplorer: () => {
             actions.setPause()

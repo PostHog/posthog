@@ -188,7 +188,7 @@ export const seekbarLogic = kea<seekbarLogicType>([
             actions.setCursorDiff(diffFromThumb)
 
             cache.disposables.add(() => {
-                document.addEventListener('touchmove', actions.handleMove)
+                document.addEventListener('touchmove', actions.handleMove, { passive: true })
                 document.addEventListener('touchend', actions.handleUp)
                 document.addEventListener('mousemove', actions.handleMove)
                 document.addEventListener('mouseup', actions.handleUp)
