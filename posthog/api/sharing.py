@@ -853,7 +853,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No heatmap found")
-        elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
+        elif isinstance(resource, SharingConfiguration) and resource.recording:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
             exported_data.update({"recording": recording_data})
