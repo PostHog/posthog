@@ -616,6 +616,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
         addPromptConfig: () => {
+            // New total after adding — listeners run post-reducer
             posthog.capture('llma playground prompt config added', {
                 prompt_count: values.promptConfigs.length,
             })
