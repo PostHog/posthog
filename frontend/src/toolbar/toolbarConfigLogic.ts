@@ -134,7 +134,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             }
 
             // Don't start OAuth while the reachability check is still in flight.
-            if (values.authStatus === 'checking') {
+            if (values.authStatus === 'checking' || values.authStatus === 'authenticating') {
                 return
             }
 
@@ -439,13 +439,11 @@ async function exchangeCodeForTokens(
     if (!pkceData.verifier) {
         console.warn('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
         lemonToast.error('Authentication failed: session data missing. Please try again.')
-        actions.setAuthStatus('idle')
         return
     }
     if (pkceData.ts && Date.now() - pkceData.ts > PKCE_TTL_MS) {
         console.warn('PostHog Toolbar: PKCE verifier expired')
         lemonToast.error('Authentication timed out. Please try again.')
-        actions.setAuthStatus('idle')
         return
     }
 
