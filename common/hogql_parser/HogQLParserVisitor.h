@@ -343,6 +343,8 @@ public:
 
     virtual std::any visitTableExprSubquery(HogQLParser::TableExprSubqueryContext *context) = 0;
 
+    virtual std::any visitTableExprPivot(HogQLParser::TableExprPivotContext *context) = 0;
+
     virtual std::any visitTableExprValues(HogQLParser::TableExprValuesContext *context) = 0;
 
     virtual std::any visitTableExprAlias(HogQLParser::TableExprAliasContext *context) = 0;
@@ -350,6 +352,10 @@ public:
     virtual std::any visitTableExprFunction(HogQLParser::TableExprFunctionContext *context) = 0;
 
     virtual std::any visitTableExprUnpivot(HogQLParser::TableExprUnpivotContext *context) = 0;
+
+    virtual std::any visitPivotColumnList(HogQLParser::PivotColumnListContext *context) = 0;
+
+    virtual std::any visitPivotColumn(HogQLParser::PivotColumnContext *context) = 0;
 
     virtual std::any visitUnpivotColumnList(HogQLParser::UnpivotColumnListContext *context) = 0;
 

@@ -318,11 +318,15 @@ tableExpr
     | tableFunctionExpr                                 # TableExprFunction
     | LPAREN selectSetStmt RPAREN                       # TableExprSubquery
     | LPAREN valuesClause RPAREN                        # TableExprValues
+    | tableExpr PIVOT LPAREN columnExprList FOR pivotColumnList (GROUP BY columnExprList)? RPAREN # TableExprPivot
     | tableExpr UNPIVOT LPAREN unpivotColumnList RPAREN # TableExprUnpivot
     | tableExpr (alias | AS identifier) columnAliases?  # TableExprAlias
     | hogqlxTagElement                                  # TableExprTag
     | placeholder                                       # TableExprPlaceholder
     ;
+
+pivotColumnList: pivotColumn+;
+pivotColumn: columnExprTupleOrSingle IN LPAREN columnExprList RPAREN;
 unpivotColumnList: unpivotColumn (COMMA unpivotColumn)* COMMA?;
 unpivotColumn: columnExprTupleOrSingle FOR columnExprTupleOrSingle IN LPAREN columnExprList RPAREN;
 columnExprTupleOrSingle: LPAREN columnExprList RPAREN | columnExpr;
@@ -358,7 +362,7 @@ keyword
     | GROUPING | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAMBDA | LAST | LEADING | LEFT | LIKE | LIMIT
     | NAME | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
-    | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | REPLACE | RETURN | RIGHT | ROLLUP | ROW
+    | PIVOT | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | REPLACE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TRY_CAST | TO | TOP
     | UNBOUNDED | UNION | UNPIVOT | USING | VALUES | WHEN | WHERE | WINDOW | WITH

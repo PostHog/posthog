@@ -947,13 +947,36 @@ class UnpivotExpr(Expr):
 
 
 @dataclass(kw_only=True)
+class PivotColumn(Expr):
+    column: Expr
+    values: list[Expr]
+
+
+@dataclass(kw_only=True)
+class PivotExpr(Expr):
+    table: Expr
+    aggregates: list[Expr]
+    columns: list[PivotColumn]
+    group_by: Optional[list[Expr]] = None
+
+
+@dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
     table: Optional[
-        Union["SelectQuery", "SelectSetQuery", "ValuesQuery", "UnpivotExpr", "Placeholder", "HogQLXTag", "Field"]
+        Union[
+            "SelectQuery",
+            "SelectSetQuery",
+            "ValuesQuery",
+            "UnpivotExpr",
+            "PivotExpr",
+            "Placeholder",
+            "HogQLXTag",
+            "Field",
+        ]
     ] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None

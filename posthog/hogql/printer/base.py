@@ -551,6 +551,18 @@ class HogQLPrinter(Visitor[str]):
         values = ", ".join(self.visit(val) for val in node.unpivot_values)
         return f"{value_cols} FOR {name_cols} IN ({values})"
 
+    def visit_pivot_expr(self, node: ast.PivotExpr):
+        table = self.visit(node.table)
+        aggregates = ", ".join(self.visit(agg) for agg in node.aggregates)
+        columns = " ".join(self.visit(col) for col in node.columns)
+        group_by = f" GROUP BY {', '.join(self.visit(g) for g in node.group_by)}" if node.group_by else ""
+        return f"{table} PIVOT ({aggregates} FOR {columns}{group_by})"
+
+    def visit_pivot_column(self, node: ast.PivotColumn):
+        column = self.visit(node.column)
+        values = ", ".join(self.visit(val) for val in node.values)
+        return f"{column} IN ({values})"
+
     def visit_tuple_access(self, node: ast.TupleAccess):
         visited_tuple = self.visit(node.tuple)
         visited_index = int(str(node.index))

@@ -819,6 +819,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#TableExprPivot.
+    def visitTableExprPivot(self, ctx:HogQLParser.TableExprPivotContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#TableExprValues.
     def visitTableExprValues(self, ctx:HogQLParser.TableExprValuesContext):
         return self.visitChildren(ctx)
@@ -836,6 +841,16 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#TableExprUnpivot.
     def visitTableExprUnpivot(self, ctx:HogQLParser.TableExprUnpivotContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#pivotColumnList.
+    def visitPivotColumnList(self, ctx:HogQLParser.PivotColumnListContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#pivotColumn.
+    def visitPivotColumn(self, ctx:HogQLParser.PivotColumnContext):
         return self.visitChildren(ctx)
 
 

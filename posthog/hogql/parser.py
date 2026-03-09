@@ -1368,6 +1368,19 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitValuesRow(self, ctx: HogQLParser.ValuesRowContext):
         return [self.visit(expr) for expr in ctx.columnExpr()]
 
+    def visitTableExprPivot(self, ctx: HogQLParser.TableExprPivotContext):
+        table = self.visit(ctx.tableExpr())
+        expr_lists = ctx.columnExprList()
+        aggregates = self.visit(expr_lists[0])
+        pivot_columns = [self.visit(col) for col in ctx.pivotColumnList().pivotColumn()]
+        group_by = self.visit(expr_lists[1]) if len(expr_lists) > 1 else None
+        return ast.PivotExpr(table=table, aggregates=aggregates, columns=pivot_columns, group_by=group_by)
+
+    def visitPivotColumn(self, ctx: HogQLParser.PivotColumnContext):
+        column = self.visit(ctx.columnExprTupleOrSingle())
+        values = self.visit(ctx.columnExprList())
+        return ast.PivotColumn(column=column, values=values)
+
     def visitTableExprUnpivot(self, ctx: HogQLParser.TableExprUnpivotContext):
         table = self.visit(ctx.tableExpr())
         columns = self.visit(ctx.unpivotColumnList())
