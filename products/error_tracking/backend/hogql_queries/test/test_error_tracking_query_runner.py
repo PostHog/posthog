@@ -857,12 +857,6 @@ class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, Clickho
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
-    def test_issue_filters(self):
-        self.skipTest("Issue property filtering not yet implemented in V2")
-
-    def test_first_seen_filters(self):
-        self.skipTest("Issue property filtering not yet implemented in V2")
-
 
 class TestSearchTokenizer(TestCase):
     test_cases = [

@@ -1,6 +1,6 @@
 import datetime
 
-from posthog.schema import ErrorTrackingQuery, HogQLFilters
+from posthog.schema import ErrorTrackingIssueFilter, ErrorTrackingQuery, HogQLFilters, PropertyOperator
 
 from posthog.hogql import ast
 
@@ -213,6 +213,11 @@ class ErrorTrackingQueryV2Builder:
                     )
                 )
 
+        for prop in self._issue_properties:
+            expr = self._issue_property_to_ast(prop)
+            if expr is not None:
+                exprs.append(expr)
+
         return ast.And(exprs=exprs) if exprs else None
 
     # ------------------------------------------------------------------ #
@@ -233,5 +238,86 @@ class ErrorTrackingQueryV2Builder:
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
     @cached_property
+    def _issue_properties(self) -> list[ErrorTrackingIssueFilter]:
+        return [v for v in self._properties if v.type == "error_tracking_issue"]  # type: ignore[return-value]
+
+    @cached_property
     def _hogql_properties(self):
         return [v for v in self._properties if v.type != "error_tracking_issue"]
+
+    def _issue_property_to_ast(self, prop: ErrorTrackingIssueFilter) -> ast.Expr | None:
+        key = "description" if prop.key == "issue_description" else prop.key
+
+        field_chain_map: dict[str, list[str | int]] = {
+            "name": ["issues", "name"],
+            "description": ["issues", "description"],
+            "status": ["issues", "status"],
+            "first_seen": ["fp", "first_seen"],
+        }
+
+        field_chain = field_chain_map.get(key)
+        if field_chain is None:
+            return None
+
+        field = ast.Field(chain=field_chain)
+        value = prop.value
+        operator = prop.operator
+
+        def make_value(v) -> ast.Expr:
+            if key == "first_seen":
+                return ast.Call(name="toDateTime", args=[ast.Constant(value=str(v))])
+            return ast.Constant(value=v)
+
+        if operator == PropertyOperator.EXACT:
+            values = value if isinstance(value, list) else [value]
+            if not values:
+                return None
+            if len(values) == 1:
+                return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=make_value(values[0]))
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=field,
+                right=ast.Tuple(exprs=[make_value(v) for v in values]),
+            )
+
+        if operator == PropertyOperator.IS_NOT:
+            values = value if isinstance(value, list) else [value]
+            if not values:
+                return None
+            if len(values) == 1:
+                return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=make_value(values[0]))
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotIn,
+                left=field,
+                right=ast.Tuple(exprs=[make_value(v) for v in values]),
+            )
+
+        if operator == PropertyOperator.ICONTAINS:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike, left=field, right=ast.Constant(value=f"%{value}%")
+            )
+
+        if operator == PropertyOperator.NOT_ICONTAINS:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike, left=field, right=ast.Constant(value=f"%{value}%")
+            )
+
+        if operator in (PropertyOperator.GT, PropertyOperator.IS_DATE_AFTER):
+            return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=field, right=make_value(value))
+
+        if operator == PropertyOperator.GTE:
+            return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=field, right=make_value(value))
+
+        if operator in (PropertyOperator.LT, PropertyOperator.IS_DATE_BEFORE):
+            return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=field, right=make_value(value))
+
+        if operator == PropertyOperator.LTE:
+            return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=field, right=make_value(value))
+
+        if operator == PropertyOperator.IS_SET:
+            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
+
+        if operator == PropertyOperator.IS_NOT_SET:
+            return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None))
+
+        return None
