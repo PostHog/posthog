@@ -522,14 +522,11 @@ export async function toolbarFetch(
     })
 
     if (response.status === 403) {
-        try {
-            const responseData = await response.clone().json()
-            if (responseData.detail === "You don't have access to the project.") {
-                toolbarConfigLogic.actions.authenticate()
-            }
-        } catch {
-            // Response wasn't JSON (e.g. HTML error page) — ignore
-        }
+        // The toolbar can't distinguish "token lost access" from "user switched projects" —
+        // both are project-level access failures. Clear tokens and let the user re-auth
+        // rather than auto-redirecting to /toolbar_oauth/authorize/ (which would use the
+        // session's current team, potentially causing a "Domain not authorized" loop).
+        toolbarConfigLogic.actions.tokenExpired()
     }
     return response
 }
@@ -577,10 +574,8 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
     }
 
     if (response.status === 403) {
-        const responseData = await response.json()
-        if (responseData.detail === "You don't have access to the project.") {
-            toolbarConfigLogic.actions.authenticate()
-        }
+        toolbarConfigLogic.findMounted()?.actions.tokenExpired()
+        const responseData = await response.json().catch(() => ({}))
         throw new Error(responseData.detail || 'Access denied')
     }
 
