@@ -1885,6 +1885,9 @@ importers:
       '@posthog/icons':
         specifier: '*'
         version: 0.36.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.5.4)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
