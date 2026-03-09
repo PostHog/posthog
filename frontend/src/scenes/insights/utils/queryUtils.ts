@@ -120,7 +120,7 @@ export const validateQuery = (q: DataNode): boolean => {
         return q.series.length >= 2
     }
     if (isTrendsQuery(q) && q.trendsFilter?.display === ChartDisplayType.BoxPlot) {
-        return !!q.series?.[0]?.math_property
+        return q.series?.length > 0 && q.series.every((s) => !!s?.math_property)
     }
     if (hasInvalidRegexFilter(q)) {
         return false
