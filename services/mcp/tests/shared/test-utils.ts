@@ -104,7 +104,11 @@ export async function cleanupResources(
 
     for (const actionId of resources.actions) {
         try {
-            await client.actions({ projectId }).delete({ actionId })
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/actions/${actionId}/`,
+                body: { deleted: true },
+            })
         } catch (error) {
             console.warn(`Failed to cleanup action ${actionId}:`, error)
         }

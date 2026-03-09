@@ -69,7 +69,7 @@ function stripStepPrefix(name: string): string {
     return name.replace(/^[0-9]+_/, '')
 }
 
-function extractLayerIndex(name: string): number {
+export function extractLayerIndex(name: string): number {
     const match = name.match(/^([0-9]+)_/)
     return match ? parseInt(match[1], 10) : 0
 }

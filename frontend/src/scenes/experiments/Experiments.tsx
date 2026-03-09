@@ -352,8 +352,7 @@ const ExperimentsTable = ({
                                     }}
                                 />
                                 {!experiment.archived &&
-                                    experiment?.end_date &&
-                                    dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
+                                    getExperimentStatus(experiment) === ExperimentProgressStatus.Complete && (
                                         <AccessControlAction
                                             resourceType={AccessControlResourceType.Experiment}
                                             minAccessLevel={AccessControlLevel.Editor}
