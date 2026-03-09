@@ -262,7 +262,7 @@ vague or missing descriptions lead to worse agent behavior.
 See the [type system guide](/handbook/engineering/type-system) for the full backend → frontend pipeline,
 including how to set up viewsets, serializers, and `@extend_schema` correctly.
 For a comprehensive audit checklist, before/after examples, and detailed serializer/viewset patterns,
-see the [`improving-drf-endpoints` skill](/.agents/skills/improving-drf-endpoints/SKILL.md).
+see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).
 
 **Tips:**
 
