@@ -1994,6 +1994,67 @@ class GitHubIntegration:
 
         return None
 
+    def list_branches(self, repo: str) -> list[str]:
+        """List branches for a given repository via the GitHub API."""
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch(page: int = 1) -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return external_requests.get(
+                f"https://api.github.com/repos/{repo}/branches?per_page=100&page={page}",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=10,
+            )
+
+        try:
+            response = fetch()
+        except requests.RequestException:
+            logger.warning("GitHubIntegration: list_branches network error", repo=repo, exc_info=True)
+            return []
+
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+                return []
+            else:
+                try:
+                    response = fetch()
+                except requests.RequestException:
+                    logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
+                    return []
+
+        if response.status_code != 200:
+            logger.warning(
+                "GitHubIntegration: failed to list branches",
+                status_code=response.status_code,
+                repo=repo,
+            )
+            return []
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: list_branches non-JSON response",
+                status_code=response.status_code,
+            )
+            return []
+
+        if not isinstance(body, list):
+            return []
+
+        return [branch["name"] for branch in body if isinstance(branch, dict) and isinstance(branch.get("name"), str)]
+
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
         body: str = config.pop("body")

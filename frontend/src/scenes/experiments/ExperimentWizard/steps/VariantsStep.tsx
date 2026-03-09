@@ -7,7 +7,8 @@ import { alphabet, formatPercentage } from 'lib/utils'
 
 import type { FeatureFlagType } from '~/types'
 
-import { TrafficPreview, VariantsPanelCreateFeatureFlag } from '../../ExperimentForm/VariantsPanelCreateFeatureFlag'
+import { TrafficPreview } from '../../ExperimentForm/VariantDistributionEditor'
+import { VariantsPanelCreateFeatureFlag } from '../../ExperimentForm/VariantsPanelCreateFeatureFlag'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 const ReadOnlyVariantsStep = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {

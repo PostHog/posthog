@@ -347,6 +347,7 @@ export const VariableComponent = ({
                     value={variable.value ?? variable.default_value}
                     onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
                     options={variable.values.map((n) => ({ label: n, value: n }))}
+                    size={size}
                 />
             </LemonField.Pure>
         )
