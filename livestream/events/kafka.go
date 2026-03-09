@@ -210,6 +210,9 @@ func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 			return
 		}
 		phEvent := parse(c.geolocator, value)
+		if phEvent.Token == "" {
+			continue
+		}
 		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
 		if c.Broker != nil {
 			c.Broker.Publish(ctx, phEvent)
