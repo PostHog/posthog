@@ -86,43 +86,34 @@ export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 # Geo files
 ./bin/download-mmdb
 
-# Prefer hogprocs (PostHog's custom Bubble Tea TUI) over mprocs.
-# Build from source on first run if the binary is missing and Go is available.
-PHDEV_BINARY="$REPOSITORY_ROOT/bin/hogprocs"
-PHDEV_SOURCE="$REPOSITORY_ROOT/common/hogprocs"
-if [[ ! -f "$PHDEV_BINARY" ]] && [[ -d "$PHDEV_SOURCE" ]]; then
-    if command -v go &>/dev/null; then
+PROCESS_MANAGER="mprocs"
+
+# Only use hogprocs when --hog is explicitly passed
+if [[ " $* " == *" --hog "* ]]; then
+    PROCESS_MANAGER="$REPOSITORY_ROOT/bin/hogprocs"
+    HOGPROCS_SOURCE="$REPOSITORY_ROOT/common/hogprocs"
+
+    # Build hogprocs on first run if source exists
+    if [[ ! -x "$PROCESS_MANAGER" && -d "$HOGPROCS_SOURCE" && $(command -v go) ]]; then
         echo "🔨 Building hogprocs from source (first run)..."
-        if ! (cd "$PHDEV_SOURCE" && go build -o "$PHDEV_BINARY" . 2>&1); then
+        if ! (cd "$HOGPROCS_SOURCE" && go build -o "$PROCESS_MANAGER" . 2>&1); then
             echo "⚠️  hogprocs build failed; falling back to mprocs"
-            PHDEV_BINARY=""
         fi
     fi
 fi
 
-# Fall back to mprocs when hogprocs is unavailable.
-if [[ -z "$PHDEV_BINARY" ]] || [[ ! -f "$PHDEV_BINARY" ]]; then
+if [[ "$PROCESS_MANAGER" == "mprocs" ]]; then
+    # Ensure mprocs is available unless we have a usable hogprocs binary
     if ! command -v mprocs &>/dev/null; then
         if command -v brew &>/dev/null; then
             echo "🔁 Installing mprocs via Homebrew..."
             brew install mprocs
         else
-            echo "👉 To run bin/start, build hogprocs (cd common/hogprocs && go build) or install mprocs: https://github.com/pvolok/mprocs#installation"
+            echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
             exit 1
         fi
     fi
-    PHDEV_BINARY=""
 fi
-
-# Unified launcher: hogprocs takes a bare path; mprocs needs --config.
-run_process_manager() {
-    local config="$1"
-    if [[ -n "$PHDEV_BINARY" ]]; then
-        exec "$PHDEV_BINARY" --config "$config"
-    else
-        exec mprocs --config "$config"
-    fi
-}
 
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
 # Ensure to provide config path after --custom flag
@@ -143,7 +134,7 @@ if [[ "$*" == *"--custom"* ]]; then
         echo "Error: --custom requires a config path"
         exit 1
     fi
-    run_process_manager "$config_path"
+    exec "$PROCESS_MANAGER" --config "$config_path"
 else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
 
@@ -153,9 +144,9 @@ else
     fi
 
     if [[ -f "$GENERATED_CONFIG" ]]; then
-        run_process_manager "$GENERATED_CONFIG"
+        exec "$PROCESS_MANAGER" --config "$GENERATED_CONFIG"
     else
         # Fallback if hogli not available
-        run_process_manager "$REPOSITORY_ROOT/bin/mprocs.yaml"
+        exec "$PROCESS_MANAGER" --config "$REPOSITORY_ROOT/bin/mprocs.yaml"
     fi
 fi

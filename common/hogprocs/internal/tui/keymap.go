@@ -4,53 +4,43 @@ import "charm.land/bubbles/v2/key"
 
 // keyMap defines all keybindings for the TUI.
 type keyMap struct {
-	PrevProc     key.Binding
-	NextProc     key.Binding
-	ScrollUp     key.Binding
-	ScrollDown   key.Binding
-	HalfPageUp   key.Binding
-	HalfPageDown key.Binding
-	GotoTop      key.Binding
-	GotoBottom   key.Binding
-	SwapFocus    key.Binding
-	Restart      key.Binding
-	Quit         key.Binding
-	Help         key.Binding
+	PrevProc   key.Binding
+	NextProc   key.Binding
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
+	GotoTop    key.Binding
+	GotoBottom key.Binding
+	SwapFocus  key.Binding
+	Restart    key.Binding
+	Quit       key.Binding
+	Help       key.Binding
 }
 
 func defaultKeyMap() keyMap {
 	return keyMap{
 		PrevProc: key.NewBinding(
-			key.WithKeys("k", "up"),
-			key.WithHelp("k/↑", "prev process"),
+			key.WithKeys("up"),
+			key.WithHelp("↑", "prev process"),
 		),
 		NextProc: key.NewBinding(
-			key.WithKeys("j", "down"),
-			key.WithHelp("j/↓", "next process"),
+			key.WithKeys("down"),
+			key.WithHelp("↓", "next process"),
 		),
 		ScrollUp: key.NewBinding(
-			key.WithKeys("K", "pgup"),
-			key.WithHelp("K/pgup", "scroll up"),
+			key.WithKeys("pgup"),
+			key.WithHelp("pgup", "scroll up"),
 		),
 		ScrollDown: key.NewBinding(
-			key.WithKeys("J", "pgdn"),
-			key.WithHelp("J/pgdn", "scroll down"),
-		),
-		HalfPageUp: key.NewBinding(
-			key.WithKeys("ctrl+u"),
-			key.WithHelp("ctrl+u", "½ page up"),
-		),
-		HalfPageDown: key.NewBinding(
-			key.WithKeys("ctrl+d"),
-			key.WithHelp("ctrl+d", "½ page dn"),
+			key.WithKeys("pgdn"),
+			key.WithHelp("pgdn", "scroll down"),
 		),
 		GotoTop: key.NewBinding(
-			key.WithKeys("g", "home"),
-			key.WithHelp("g/home", "top"),
+			key.WithKeys("home"),
+			key.WithHelp("home", "top"),
 		),
 		GotoBottom: key.NewBinding(
-			key.WithKeys("G", "end"),
-			key.WithHelp("G/end", "bottom"),
+			key.WithKeys("end"),
+			key.WithHelp("end", "bottom"),
 		),
 		SwapFocus: key.NewBinding(
 			key.WithKeys("tab"),
@@ -80,7 +70,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.NextProc, k.PrevProc},
-		{k.ScrollUp, k.ScrollDown, k.HalfPageUp, k.HalfPageDown},
+		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
 		{k.SwapFocus},
 		{k.Restart, k.Quit, k.Help},
