@@ -87,8 +87,8 @@ Temporal and the temporal-django-worker start automatically via mprocs when you 
 
 The `process-task` workflow defined in `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox, starts an agent inside it, and waits for the agent to finish. The workflow orchestrates these activities:
 
-1. **get_task_processing_context** — Loads the TaskRun from the database, validates the GitHub integration and repository, and builds a `TaskProcessingContext` carrying all the IDs needed by later activities
-2. **get_sandbox_for_repository** — Creates an OAuth access token, provisions a Docker sandbox (reusing a snapshot if one exists), clones the repository, and stores the sandbox URL in `TaskRun.state`
+1. **get_task_processing_context** — Loads the TaskRun from the database, validates the GitHub integration and repository, and builds a `TaskProcessingContext` carrying all the IDs (including an optional branch) needed by later activities
+2. **get_sandbox_for_repository** — Creates an OAuth access token, provisions a Docker sandbox (reusing a snapshot if one exists), clones the repository, checks out the requested branch (if specified), and stores the sandbox URL in `TaskRun.state`
 3. **start_agent_server** — Runs `npx agent-server` inside the sandbox and polls `/health` until it responds
 4. **wait_condition** — The workflow blocks with a 5-minute inactivity timeout, extended by `heartbeat` signals from the agent. Exits on a `complete_task` signal or when no heartbeat arrives within 5 minutes
 5. **cleanup_sandbox** — Destroys the sandbox container (always runs, even on failure)
@@ -101,8 +101,9 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 
 1. Navigate to Tasks in PostHog (requires the `tasks` feature flag)
 2. Create a task with a title, description, and repository (format: `owner/repo`)
-3. Click "Run task"
-4. Watch logs stream in the session view
+3. Optionally select a branch — the sandbox will checkout that branch before the agent starts
+4. Click "Run task"
+5. Watch logs stream in the session view
 
 ## 7. Testing with local agent packages
 
@@ -136,3 +137,4 @@ This builds a `posthog-sandbox-base-local` Docker image that overlays your local
 | Port conflict on sandbox host port | DockerSandbox maps container port 47821 to a dynamic host port. Check sandbox logs or TaskRun state for the assigned port; if another process uses it, stop that process or restart Docker |
 | Sandbox can't reach PostHog API    | Don't set `SANDBOX_API_URL` with Docker — auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker)                             |
 | `DEBUG` not set                    | `SANDBOX_PROVIDER=docker` requires `DEBUG=1`. Without it, you'll get "DockerSandbox cannot be used in production"                                                                          |
+| Branch checkout fails              | Ensure the branch exists on the remote. For snapshot-based sandboxes, the remote token is updated automatically; if it still fails, try a fresh run without a snapshot                     |
