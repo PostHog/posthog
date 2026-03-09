@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    NonAtomicBaseTest,
     _create_event,
     _create_person,
     flush_persons_and_events,
@@ -12,6 +13,7 @@ from posthog.test.base import (
 )
 from unittest import TestCase
 
+from django.core.management import call_command
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -42,14 +44,14 @@ from products.error_tracking.backend.models import (
 from ee.models.rbac.role import Role
 
 
-class ErrorTrackingQueryRunnerTestBase(ClickhouseTestMixin, APIBaseTest):
-    """Base class shared by V1 and V2 test suites.
+class ErrorTrackingQueryRunnerTestsMixin:
+    """Pure test mixin — no Django test base.
 
-    Set use_v2 = True in a subclass to run the same tests against the V2 query path.
-    Override or skip tests that differ between the two paths.
+    Contains all shared test methods and helpers. Concrete subclasses mix this
+    with the appropriate Django test base (TestCase for V1, TransactionTestCase
+    for V2 so the CH postgres connector can see committed data).
     """
 
-    # Prevent pytest from collecting this base class directly
     __test__ = False
 
     use_v2: bool = False
@@ -506,7 +508,7 @@ class ErrorTrackingQueryRunnerTestBase(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=[self.distinct_id_one],
         )
         flush_persons_and_events()
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user)
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
 
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
@@ -522,7 +524,7 @@ class ErrorTrackingQueryRunnerTestBase(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         role = Role.objects.create(name="Test Team", organization=self.organization)
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role)
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role, team=self.team)
 
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
@@ -720,97 +722,97 @@ class ErrorTrackingQueryRunnerTestBase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
 
 
-class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestBase):
+class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, APIBaseTest):
     """V1 path — pure CH aggregation, Postgres metadata fetched separately."""
 
     __test__ = True
     use_v2 = False
 
 
-class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestBase):
+class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, NonAtomicBaseTest):
     """V2 path — CH inner aggregation + Postgres metadata join.
 
-    Most result-based tests are skipped because the CH postgres connector doesn't work
-    in the test environment (it can't reach the test postgres instance). Instead, the
-    snapshot tests verify the generated SQL structure.
+    Uses NonAtomicBaseTest (TransactionTestCase) so Django commits postgres data
+    before each test runs, making it visible to the CH postgres connector.
 
-    Overrides tests that differ in columns and skips ones not yet supported by V2.
+    _fixture_teardown only flushes the default DB. Touching the persons DB between
+    tests corrupts the sqlx migration state, and persons data leaking across tests
+    is safe because CH queries always filter by team_id (which auto-increments).
     """
 
     __test__ = True
     use_v2 = True
 
-    def _skip_if_no_ch_postgres(self):
-        """V2 joins against postgres via the CH postgres connector, which isn't available in tests."""
-        self.skipTest("V2 requires CH postgres connector which is not available in the test environment")
+    def _fixture_teardown(self):
+        call_command("flush", verbosity=0, interactive=False, database="default", allow_cascade=True)
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_column_names(self):
-        # Only verify generated SQL — results will be empty due to CH postgres connector unavailability
-        self._calculate()
-        self._calculate(withAggregations=True)
-        self._calculate(withFirstEvent=True)
+        columns = self._calculate()["columns"]
+        self.assertEqual(
+            columns,
+            [
+                "id",
+                "status",
+                "name",
+                "description",
+                "last_seen",
+                "first_seen",
+                "assignee_user_id",
+                "assignee_role_id",
+                "function",
+                "source",
+                "library",
+            ],
+        )
 
-    def test_issue_grouping(self):
-        self._skip_if_no_ch_postgres()
+        columns = self._calculate(withAggregations=True)["columns"]
+        self.assertEqual(
+            columns,
+            [
+                "id",
+                "status",
+                "name",
+                "description",
+                "last_seen",
+                "first_seen",
+                "assignee_user_id",
+                "assignee_role_id",
+                "function",
+                "source",
+                "occurrences",
+                "sessions",
+                "users",
+                "volumeRange",
+                "library",
+            ],
+        )
 
-    def test_search_query(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_empty_search_query(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_search_query_with_multiple_search_items(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_search_person_properties(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_only_returns_exception_events(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_correctly_counts_session_ids(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_correctly_counts_persons(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_hogql_filters(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_ordering(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_status(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_overrides_aggregation(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_user_assignee(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_role_assignee(self):
-        self._skip_if_no_ch_postgres()
+        columns = self._calculate(withFirstEvent=True)["columns"]
+        self.assertEqual(
+            columns,
+            [
+                "id",
+                "status",
+                "name",
+                "description",
+                "last_seen",
+                "first_seen",
+                "assignee_user_id",
+                "assignee_role_id",
+                "function",
+                "source",
+                "first_event",
+                "library",
+            ],
+        )
 
     def test_issue_filters(self):
         self.skipTest("Issue property filtering not yet implemented in V2")
 
-    def test_person_id_filter(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_group_key_filter(self):
-        self._skip_if_no_ch_postgres()
-
     def test_first_seen_filters(self):
         self.skipTest("Issue property filtering not yet implemented in V2")
-
-    def test_volume_aggregation_simple(self):
-        self._skip_if_no_ch_postgres()
-
-    def test_volume_aggregation_advanced(self):
-        self._skip_if_no_ch_postgres()
 
 
 class TestSearchTokenizer(TestCase):
