@@ -36,7 +36,7 @@ function ActionListContent({ data, app }: { data: ActionListData; app: App | nul
             try {
                 const result = await app.callServerTool({
                     name: 'action-get',
-                    arguments: { actionId: action.id },
+                    arguments: { id: action.id },
                 })
                 if (result.isError || !result.structuredContent) {
                     fallbackToChat(action.name)
