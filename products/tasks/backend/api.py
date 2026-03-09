@@ -216,10 +216,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
         mode = request.validated_data.get("mode", "background")
+        branch = request.validated_data.get("branch")
 
-        logger.info(f"Creating task run for task {task.id} with mode={mode}")
+        logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
-        task_run = task.create_run(mode=mode)
+        task_run = task.create_run(mode=mode, branch=branch)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 
@@ -478,6 +479,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def relay_message(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         if task_run.is_terminal:
+            return Response({"status": "skipped"})
+
+        # Skip relay for non-Slack tasks — no thread to post to
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        if not SlackThreadTaskMapping.objects.filter(task_run=task_run).exists():
             return Response({"status": "skipped"})
 
         text = request.validated_data["text"].strip()

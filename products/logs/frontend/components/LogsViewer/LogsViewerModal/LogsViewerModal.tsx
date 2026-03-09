@@ -11,7 +11,7 @@ import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import { logsViewerModalLogic } from './logsViewerModalLogic'
 
 export function LogsViewerModal(): JSX.Element | null {
-    const { isOpen, viewerId, fullScreen } = useValues(logsViewerModalLogic)
+    const { isOpen, viewerId, fullScreen, initialFilters } = useValues(logsViewerModalLogic)
     const { closeLogsViewerModal } = useActions(logsViewerModalLogic)
     const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
     const floatingContainerRef = useCallback((el: HTMLDivElement | null) => setFloatingContainer(el), [])
@@ -35,7 +35,11 @@ export function LogsViewerModal(): JSX.Element | null {
                 </div>
                 <LemonModal.Content embedded className="flex flex-col flex-1 min-h-0 overflow-x-hidden">
                     <div className="flex-1 min-h-0 overflow-hidden p-2">
-                        <LogsViewer id={viewerId} showFullScreenButton={false} />
+                        <LogsViewer
+                            id={viewerId}
+                            showFullScreenButton={false}
+                            initialFilters={initialFilters ?? undefined}
+                        />
                     </div>
                 </LemonModal.Content>
                 <div ref={floatingContainerRef} />
