@@ -26,8 +26,15 @@ export const actionsListResponseResultsItemNameMax = 400
 
 export const actionsListResponseResultsItemSlackMessageFormatMax = 1200
 
-export const actionsListResponseResultsItemStepsItemPropertiesItemOperatorDefault = `exact`
-export const actionsListResponseResultsItemStepsItemPropertiesItemTypeDefault = `event`
+export const actionsListResponseResultsItemStepsItemPropertiesItemOneTypeDefault = `event`
+export const actionsListResponseResultsItemStepsItemPropertiesItemOneOperatorDefault = `exact`
+export const actionsListResponseResultsItemStepsItemPropertiesItemTwoTypeDefault = `event`
+export const actionsListResponseResultsItemStepsItemPropertiesItemTwoOperatorDefault = `exact`
+export const actionsListResponseResultsItemStepsItemPropertiesItemThreeTypeDefault = `event`
+export const actionsListResponseResultsItemStepsItemPropertiesItemThreeOperatorDefault = `exact`
+export const actionsListResponseResultsItemStepsItemPropertiesItemFourTypeDefault = `event`
+export const actionsListResponseResultsItemStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
+export const actionsListResponseResultsItemStepsItemPropertiesItemFiveTypeDefault = `event`
 export const actionsListResponseResultsItemCreatedByOneDistinctIdMax = 200
 
 export const actionsListResponseResultsItemCreatedByOneFirstNameMax = 150
@@ -76,56 +83,15 @@ export const ActionsListResponse = zod.object({
                                 ),
                             properties: zod
                                 .array(
-                                    zod.object({
-                                        key: zod
-                                            .string()
-                                            .describe(
-                                                "Key of the property you're filtering on. For example `email` or `$current_url`"
-                                            ),
-                                        value: zod
-                                            .union([
-                                                zod.string(),
-                                                zod.number(),
-                                                zod.boolean(),
-                                                zod.array(zod.union([zod.string(), zod.number()])),
-                                            ])
-                                            .describe(
-                                                'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
-                                            ),
-                                        operator: zod
-                                            .union([
-                                                zod
-                                                    .enum([
-                                                        'exact',
-                                                        'is_not',
-                                                        'icontains',
-                                                        'not_icontains',
-                                                        'regex',
-                                                        'not_regex',
-                                                        'gt',
-                                                        'lt',
-                                                        'gte',
-                                                        'lte',
-                                                        'is_set',
-                                                        'is_not_set',
-                                                        'is_date_exact',
-                                                        'is_date_after',
-                                                        'is_date_before',
-                                                        'in',
-                                                        'not_in',
-                                                    ])
+                                    zod.union([
+                                        zod
+                                            .object({
+                                                key: zod
+                                                    .string()
                                                     .describe(
-                                                        '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
+                                                        "Key of the property you're filtering on. For example `email` or `$current_url`."
                                                     ),
-                                                zod.enum(['']),
-                                                zod.literal(null),
-                                            ])
-                                            .default(
-                                                actionsListResponseResultsItemStepsItemPropertiesItemOperatorDefault
-                                            ),
-                                        type: zod
-                                            .union([
-                                                zod
+                                                type: zod
                                                     .enum([
                                                         'event',
                                                         'event_metadata',
@@ -154,11 +120,269 @@ export const ActionsListResponse = zod.object({
                                                     ])
                                                     .describe(
                                                         '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                                    )
+                                                    .default(
+                                                        actionsListResponseResultsItemStepsItemPropertiesItemOneTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
                                                     ),
-                                                zod.enum(['']),
-                                            ])
-                                            .default(actionsListResponseResultsItemStepsItemPropertiesItemTypeDefault),
-                                    })
+                                                value: zod.string().describe('String value to match against.'),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                    ])
+                                                    .describe(
+                                                        '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                                    )
+                                                    .default(
+                                                        actionsListResponseResultsItemStepsItemPropertiesItemOneOperatorDefault
+                                                    )
+                                                    .describe(
+                                                        'String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                                    ),
+                                            })
+                                            .describe('Matches string values with text-oriented operators.'),
+                                        zod
+                                            .object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                                    ),
+                                                type: zod
+                                                    .enum([
+                                                        'event',
+                                                        'event_metadata',
+                                                        'feature',
+                                                        'person',
+                                                        'cohort',
+                                                        'element',
+                                                        'static-cohort',
+                                                        'dynamic-cohort',
+                                                        'precalculated-cohort',
+                                                        'group',
+                                                        'recording',
+                                                        'log_entry',
+                                                        'behavioral',
+                                                        'session',
+                                                        'hogql',
+                                                        'data_warehouse',
+                                                        'data_warehouse_person_property',
+                                                        'error_tracking_issue',
+                                                        'log',
+                                                        'log_attribute',
+                                                        'log_resource_attribute',
+                                                        'revenue_analytics',
+                                                        'flag',
+                                                        'workflow_variable',
+                                                    ])
+                                                    .describe(
+                                                        '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                                    )
+                                                    .default(
+                                                        actionsListResponseResultsItemStepsItemPropertiesItemTwoTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                                    ),
+                                                value: zod.number().describe('Numeric value to compare against.'),
+                                                operator: zod
+                                                    .enum(['exact', 'is_not', 'gt', 'lt', 'gte', 'lte'])
+                                                    .describe(
+                                                        '* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                                    )
+                                                    .default(
+                                                        actionsListResponseResultsItemStepsItemPropertiesItemTwoOperatorDefault
+                                                    )
+                                                    .describe(
+                                                        'Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                                    ),
+                                            })
+                                            .describe('Matches numeric values with comparison operators.'),
+                                        zod
+                                            .object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                                    ),
+                                                type: zod
+                                                    .enum([
+                                                        'event',
+                                                        'event_metadata',
+                                                        'feature',
+                                                        'person',
+                                                        'cohort',
+                                                        'element',
+                                                        'static-cohort',
+                                                        'dynamic-cohort',
+                                                        'precalculated-cohort',
+                                                        'group',
+                                                        'recording',
+                                                        'log_entry',
+                                                        'behavioral',
+                                                        'session',
+                                                        'hogql',
+                                                        'data_warehouse',
+                                                        'data_warehouse_person_property',
+                                                        'error_tracking_issue',
+                                                        'log',
+                                                        'log_attribute',
+                                                        'log_resource_attribute',
+                                                        'revenue_analytics',
+                                                        'flag',
+                                                        'workflow_variable',
+                                                    ])
+                                                    .describe(
+                                                        '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                                    )
+                                                    .default(
+                                                        actionsListResponseResultsItemStepsItemPropertiesItemThreeTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                                    ),
+                                                value: zod
+                                                    .array(zod.string())
+                                                    .describe(
+                                                        'List of values to match. For example `["test@example.com", "ok@example.com"]`.'
+                                                    ),
+                                                operator: zod
+                                                    .enum(['exact', 'is_not', 'in', 'not_in'])
+                                                    .describe(
+                                                        '* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                                    )
+                                                    .default(
+                                                        actionsListResponseResultsItemStepsItemPropertiesItemThreeOperatorDefault
+                                                    )
+                                                    .describe(
+                                                        'Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                                    ),
+                                            })
+                                            .describe(
+                                                'Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).'
+                                            ),
+                                        zod
+                                            .object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                                    ),
+                                                type: zod
+                                                    .enum([
+                                                        'event',
+                                                        'event_metadata',
+                                                        'feature',
+                                                        'person',
+                                                        'cohort',
+                                                        'element',
+                                                        'static-cohort',
+                                                        'dynamic-cohort',
+                                                        'precalculated-cohort',
+                                                        'group',
+                                                        'recording',
+                                                        'log_entry',
+                                                        'behavioral',
+                                                        'session',
+                                                        'hogql',
+                                                        'data_warehouse',
+                                                        'data_warehouse_person_property',
+                                                        'error_tracking_issue',
+                                                        'log',
+                                                        'log_attribute',
+                                                        'log_resource_attribute',
+                                                        'revenue_analytics',
+                                                        'flag',
+                                                        'workflow_variable',
+                                                    ])
+                                                    .describe(
+                                                        '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                                    )
+                                                    .default(
+                                                        actionsListResponseResultsItemStepsItemPropertiesItemFourTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                                    ),
+                                                value: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z')."
+                                                    ),
+                                                operator: zod
+                                                    .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                                    .describe(
+                                                        '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                                    )
+                                                    .default(
+                                                        actionsListResponseResultsItemStepsItemPropertiesItemFourOperatorDefault
+                                                    )
+                                                    .describe(
+                                                        'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                                    ),
+                                            })
+                                            .describe('Matches date/datetime values with date-specific operators.'),
+                                        zod
+                                            .object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                                    ),
+                                                type: zod
+                                                    .enum([
+                                                        'event',
+                                                        'event_metadata',
+                                                        'feature',
+                                                        'person',
+                                                        'cohort',
+                                                        'element',
+                                                        'static-cohort',
+                                                        'dynamic-cohort',
+                                                        'precalculated-cohort',
+                                                        'group',
+                                                        'recording',
+                                                        'log_entry',
+                                                        'behavioral',
+                                                        'session',
+                                                        'hogql',
+                                                        'data_warehouse',
+                                                        'data_warehouse_person_property',
+                                                        'error_tracking_issue',
+                                                        'log',
+                                                        'log_attribute',
+                                                        'log_resource_attribute',
+                                                        'revenue_analytics',
+                                                        'flag',
+                                                        'workflow_variable',
+                                                    ])
+                                                    .describe(
+                                                        '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                                    )
+                                                    .default(
+                                                        actionsListResponseResultsItemStepsItemPropertiesItemFiveTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                                    ),
+                                                operator: zod
+                                                    .enum(['is_set', 'is_not_set'])
+                                                    .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                                    .describe(
+                                                        'Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                                    ),
+                                            })
+                                            .describe(
+                                                'Checks whether a property is set or not, without comparing values.'
+                                            ),
+                                    ])
                                 )
                                 .nullish()
                                 .describe(
@@ -286,8 +510,15 @@ export const actionsCreateBodyNameMax = 400
 
 export const actionsCreateBodySlackMessageFormatMax = 1200
 
-export const actionsCreateBodyStepsItemPropertiesItemOperatorDefault = `exact`
-export const actionsCreateBodyStepsItemPropertiesItemTypeDefault = `event`
+export const actionsCreateBodyStepsItemPropertiesItemOneTypeDefault = `event`
+export const actionsCreateBodyStepsItemPropertiesItemOneOperatorDefault = `exact`
+export const actionsCreateBodyStepsItemPropertiesItemTwoTypeDefault = `event`
+export const actionsCreateBodyStepsItemPropertiesItemTwoOperatorDefault = `exact`
+export const actionsCreateBodyStepsItemPropertiesItemThreeTypeDefault = `event`
+export const actionsCreateBodyStepsItemPropertiesItemThreeOperatorDefault = `exact`
+export const actionsCreateBodyStepsItemPropertiesItemFourTypeDefault = `event`
+export const actionsCreateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
+export const actionsCreateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
 
 export const ActionsCreateBody = zod
     .object({
@@ -316,54 +547,15 @@ export const ActionsCreateBody = zod
                         .describe("Event name to match (e.g. '$pageview', '$autocapture', or a custom event name)."),
                     properties: zod
                         .array(
-                            zod.object({
-                                key: zod
-                                    .string()
-                                    .describe(
-                                        "Key of the property you're filtering on. For example `email` or `$current_url`"
-                                    ),
-                                value: zod
-                                    .union([
-                                        zod.string(),
-                                        zod.number(),
-                                        zod.boolean(),
-                                        zod.array(zod.union([zod.string(), zod.number()])),
-                                    ])
-                                    .describe(
-                                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
-                                    ),
-                                operator: zod
-                                    .union([
-                                        zod
-                                            .enum([
-                                                'exact',
-                                                'is_not',
-                                                'icontains',
-                                                'not_icontains',
-                                                'regex',
-                                                'not_regex',
-                                                'gt',
-                                                'lt',
-                                                'gte',
-                                                'lte',
-                                                'is_set',
-                                                'is_not_set',
-                                                'is_date_exact',
-                                                'is_date_after',
-                                                'is_date_before',
-                                                'in',
-                                                'not_in',
-                                            ])
+                            zod.union([
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
                                             ),
-                                        zod.enum(['']),
-                                        zod.literal(null),
-                                    ])
-                                    .default(actionsCreateBodyStepsItemPropertiesItemOperatorDefault),
-                                type: zod
-                                    .union([
-                                        zod
+                                        type: zod
                                             .enum([
                                                 'event',
                                                 'event_metadata',
@@ -392,11 +584,249 @@ export const ActionsCreateBody = zod
                                             ])
                                             .describe(
                                                 '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsCreateBodyStepsItemPropertiesItemOneTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
                                             ),
-                                        zod.enum(['']),
-                                    ])
-                                    .default(actionsCreateBodyStepsItemPropertiesItemTypeDefault),
-                            })
+                                        value: zod.string().describe('String value to match against.'),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                            ])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            )
+                                            .default(actionsCreateBodyStepsItemPropertiesItemOneOperatorDefault)
+                                            .describe(
+                                                'String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            ),
+                                    })
+                                    .describe('Matches string values with text-oriented operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsCreateBodyStepsItemPropertiesItemTwoTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod.number().describe('Numeric value to compare against.'),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'gt', 'lt', 'gte', 'lte'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            )
+                                            .default(actionsCreateBodyStepsItemPropertiesItemTwoOperatorDefault)
+                                            .describe(
+                                                'Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            ),
+                                    })
+                                    .describe('Matches numeric values with comparison operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsCreateBodyStepsItemPropertiesItemThreeTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'List of values to match. For example `["test@example.com", "ok@example.com"]`.'
+                                            ),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'in', 'not_in'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            )
+                                            .default(actionsCreateBodyStepsItemPropertiesItemThreeOperatorDefault)
+                                            .describe(
+                                                'Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            ),
+                                    })
+                                    .describe(
+                                        'Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).'
+                                    ),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsCreateBodyStepsItemPropertiesItemFourTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .string()
+                                            .describe(
+                                                "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z')."
+                                            ),
+                                        operator: zod
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                            .describe(
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            )
+                                            .default(actionsCreateBodyStepsItemPropertiesItemFourOperatorDefault)
+                                            .describe(
+                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            ),
+                                    })
+                                    .describe('Matches date/datetime values with date-specific operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsCreateBodyStepsItemPropertiesItemFiveTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        operator: zod
+                                            .enum(['is_set', 'is_not_set'])
+                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe(
+                                                'Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                            ),
+                                    })
+                                    .describe('Checks whether a property is set or not, without comparing values.'),
+                            ])
                         )
                         .nullish()
                         .describe(
@@ -480,8 +910,15 @@ export const actionsRetrieveResponseNameMax = 400
 
 export const actionsRetrieveResponseSlackMessageFormatMax = 1200
 
-export const actionsRetrieveResponseStepsItemPropertiesItemOperatorDefault = `exact`
-export const actionsRetrieveResponseStepsItemPropertiesItemTypeDefault = `event`
+export const actionsRetrieveResponseStepsItemPropertiesItemOneTypeDefault = `event`
+export const actionsRetrieveResponseStepsItemPropertiesItemOneOperatorDefault = `exact`
+export const actionsRetrieveResponseStepsItemPropertiesItemTwoTypeDefault = `event`
+export const actionsRetrieveResponseStepsItemPropertiesItemTwoOperatorDefault = `exact`
+export const actionsRetrieveResponseStepsItemPropertiesItemThreeTypeDefault = `event`
+export const actionsRetrieveResponseStepsItemPropertiesItemThreeOperatorDefault = `exact`
+export const actionsRetrieveResponseStepsItemPropertiesItemFourTypeDefault = `event`
+export const actionsRetrieveResponseStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
+export const actionsRetrieveResponseStepsItemPropertiesItemFiveTypeDefault = `event`
 export const actionsRetrieveResponseCreatedByOneDistinctIdMax = 200
 
 export const actionsRetrieveResponseCreatedByOneFirstNameMax = 150
@@ -520,54 +957,15 @@ export const ActionsRetrieveResponse = zod
                         .describe("Event name to match (e.g. '$pageview', '$autocapture', or a custom event name)."),
                     properties: zod
                         .array(
-                            zod.object({
-                                key: zod
-                                    .string()
-                                    .describe(
-                                        "Key of the property you're filtering on. For example `email` or `$current_url`"
-                                    ),
-                                value: zod
-                                    .union([
-                                        zod.string(),
-                                        zod.number(),
-                                        zod.boolean(),
-                                        zod.array(zod.union([zod.string(), zod.number()])),
-                                    ])
-                                    .describe(
-                                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
-                                    ),
-                                operator: zod
-                                    .union([
-                                        zod
-                                            .enum([
-                                                'exact',
-                                                'is_not',
-                                                'icontains',
-                                                'not_icontains',
-                                                'regex',
-                                                'not_regex',
-                                                'gt',
-                                                'lt',
-                                                'gte',
-                                                'lte',
-                                                'is_set',
-                                                'is_not_set',
-                                                'is_date_exact',
-                                                'is_date_after',
-                                                'is_date_before',
-                                                'in',
-                                                'not_in',
-                                            ])
+                            zod.union([
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
                                             ),
-                                        zod.enum(['']),
-                                        zod.literal(null),
-                                    ])
-                                    .default(actionsRetrieveResponseStepsItemPropertiesItemOperatorDefault),
-                                type: zod
-                                    .union([
-                                        zod
+                                        type: zod
                                             .enum([
                                                 'event',
                                                 'event_metadata',
@@ -596,11 +994,249 @@ export const ActionsRetrieveResponse = zod
                                             ])
                                             .describe(
                                                 '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsRetrieveResponseStepsItemPropertiesItemOneTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
                                             ),
-                                        zod.enum(['']),
-                                    ])
-                                    .default(actionsRetrieveResponseStepsItemPropertiesItemTypeDefault),
-                            })
+                                        value: zod.string().describe('String value to match against.'),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                            ])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            )
+                                            .default(actionsRetrieveResponseStepsItemPropertiesItemOneOperatorDefault)
+                                            .describe(
+                                                'String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            ),
+                                    })
+                                    .describe('Matches string values with text-oriented operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsRetrieveResponseStepsItemPropertiesItemTwoTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod.number().describe('Numeric value to compare against.'),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'gt', 'lt', 'gte', 'lte'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            )
+                                            .default(actionsRetrieveResponseStepsItemPropertiesItemTwoOperatorDefault)
+                                            .describe(
+                                                'Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            ),
+                                    })
+                                    .describe('Matches numeric values with comparison operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsRetrieveResponseStepsItemPropertiesItemThreeTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'List of values to match. For example `["test@example.com", "ok@example.com"]`.'
+                                            ),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'in', 'not_in'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            )
+                                            .default(actionsRetrieveResponseStepsItemPropertiesItemThreeOperatorDefault)
+                                            .describe(
+                                                'Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            ),
+                                    })
+                                    .describe(
+                                        'Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).'
+                                    ),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsRetrieveResponseStepsItemPropertiesItemFourTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .string()
+                                            .describe(
+                                                "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z')."
+                                            ),
+                                        operator: zod
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                            .describe(
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            )
+                                            .default(actionsRetrieveResponseStepsItemPropertiesItemFourOperatorDefault)
+                                            .describe(
+                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            ),
+                                    })
+                                    .describe('Matches date/datetime values with date-specific operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsRetrieveResponseStepsItemPropertiesItemFiveTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        operator: zod
+                                            .enum(['is_set', 'is_not_set'])
+                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe(
+                                                'Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                            ),
+                                    })
+                                    .describe('Checks whether a property is set or not, without comparing values.'),
+                            ])
                         )
                         .nullish()
                         .describe(
@@ -721,8 +1357,15 @@ export const actionsUpdateBodyNameMax = 400
 
 export const actionsUpdateBodySlackMessageFormatMax = 1200
 
-export const actionsUpdateBodyStepsItemPropertiesItemOperatorDefault = `exact`
-export const actionsUpdateBodyStepsItemPropertiesItemTypeDefault = `event`
+export const actionsUpdateBodyStepsItemPropertiesItemOneTypeDefault = `event`
+export const actionsUpdateBodyStepsItemPropertiesItemOneOperatorDefault = `exact`
+export const actionsUpdateBodyStepsItemPropertiesItemTwoTypeDefault = `event`
+export const actionsUpdateBodyStepsItemPropertiesItemTwoOperatorDefault = `exact`
+export const actionsUpdateBodyStepsItemPropertiesItemThreeTypeDefault = `event`
+export const actionsUpdateBodyStepsItemPropertiesItemThreeOperatorDefault = `exact`
+export const actionsUpdateBodyStepsItemPropertiesItemFourTypeDefault = `event`
+export const actionsUpdateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
+export const actionsUpdateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
 
 export const ActionsUpdateBody = zod
     .object({
@@ -751,54 +1394,15 @@ export const ActionsUpdateBody = zod
                         .describe("Event name to match (e.g. '$pageview', '$autocapture', or a custom event name)."),
                     properties: zod
                         .array(
-                            zod.object({
-                                key: zod
-                                    .string()
-                                    .describe(
-                                        "Key of the property you're filtering on. For example `email` or `$current_url`"
-                                    ),
-                                value: zod
-                                    .union([
-                                        zod.string(),
-                                        zod.number(),
-                                        zod.boolean(),
-                                        zod.array(zod.union([zod.string(), zod.number()])),
-                                    ])
-                                    .describe(
-                                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
-                                    ),
-                                operator: zod
-                                    .union([
-                                        zod
-                                            .enum([
-                                                'exact',
-                                                'is_not',
-                                                'icontains',
-                                                'not_icontains',
-                                                'regex',
-                                                'not_regex',
-                                                'gt',
-                                                'lt',
-                                                'gte',
-                                                'lte',
-                                                'is_set',
-                                                'is_not_set',
-                                                'is_date_exact',
-                                                'is_date_after',
-                                                'is_date_before',
-                                                'in',
-                                                'not_in',
-                                            ])
+                            zod.union([
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
                                             ),
-                                        zod.enum(['']),
-                                        zod.literal(null),
-                                    ])
-                                    .default(actionsUpdateBodyStepsItemPropertiesItemOperatorDefault),
-                                type: zod
-                                    .union([
-                                        zod
+                                        type: zod
                                             .enum([
                                                 'event',
                                                 'event_metadata',
@@ -827,11 +1431,249 @@ export const ActionsUpdateBody = zod
                                             ])
                                             .describe(
                                                 '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateBodyStepsItemPropertiesItemOneTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
                                             ),
-                                        zod.enum(['']),
-                                    ])
-                                    .default(actionsUpdateBodyStepsItemPropertiesItemTypeDefault),
-                            })
+                                        value: zod.string().describe('String value to match against.'),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                            ])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            )
+                                            .default(actionsUpdateBodyStepsItemPropertiesItemOneOperatorDefault)
+                                            .describe(
+                                                'String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            ),
+                                    })
+                                    .describe('Matches string values with text-oriented operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateBodyStepsItemPropertiesItemTwoTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod.number().describe('Numeric value to compare against.'),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'gt', 'lt', 'gte', 'lte'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            )
+                                            .default(actionsUpdateBodyStepsItemPropertiesItemTwoOperatorDefault)
+                                            .describe(
+                                                'Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            ),
+                                    })
+                                    .describe('Matches numeric values with comparison operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateBodyStepsItemPropertiesItemThreeTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'List of values to match. For example `["test@example.com", "ok@example.com"]`.'
+                                            ),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'in', 'not_in'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            )
+                                            .default(actionsUpdateBodyStepsItemPropertiesItemThreeOperatorDefault)
+                                            .describe(
+                                                'Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            ),
+                                    })
+                                    .describe(
+                                        'Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).'
+                                    ),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateBodyStepsItemPropertiesItemFourTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .string()
+                                            .describe(
+                                                "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z')."
+                                            ),
+                                        operator: zod
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                            .describe(
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            )
+                                            .default(actionsUpdateBodyStepsItemPropertiesItemFourOperatorDefault)
+                                            .describe(
+                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            ),
+                                    })
+                                    .describe('Matches date/datetime values with date-specific operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateBodyStepsItemPropertiesItemFiveTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        operator: zod
+                                            .enum(['is_set', 'is_not_set'])
+                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe(
+                                                'Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                            ),
+                                    })
+                                    .describe('Checks whether a property is set or not, without comparing values.'),
+                            ])
                         )
                         .nullish()
                         .describe(
@@ -902,8 +1744,15 @@ export const actionsUpdateResponseNameMax = 400
 
 export const actionsUpdateResponseSlackMessageFormatMax = 1200
 
-export const actionsUpdateResponseStepsItemPropertiesItemOperatorDefault = `exact`
-export const actionsUpdateResponseStepsItemPropertiesItemTypeDefault = `event`
+export const actionsUpdateResponseStepsItemPropertiesItemOneTypeDefault = `event`
+export const actionsUpdateResponseStepsItemPropertiesItemOneOperatorDefault = `exact`
+export const actionsUpdateResponseStepsItemPropertiesItemTwoTypeDefault = `event`
+export const actionsUpdateResponseStepsItemPropertiesItemTwoOperatorDefault = `exact`
+export const actionsUpdateResponseStepsItemPropertiesItemThreeTypeDefault = `event`
+export const actionsUpdateResponseStepsItemPropertiesItemThreeOperatorDefault = `exact`
+export const actionsUpdateResponseStepsItemPropertiesItemFourTypeDefault = `event`
+export const actionsUpdateResponseStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
+export const actionsUpdateResponseStepsItemPropertiesItemFiveTypeDefault = `event`
 export const actionsUpdateResponseCreatedByOneDistinctIdMax = 200
 
 export const actionsUpdateResponseCreatedByOneFirstNameMax = 150
@@ -942,54 +1791,15 @@ export const ActionsUpdateResponse = zod
                         .describe("Event name to match (e.g. '$pageview', '$autocapture', or a custom event name)."),
                     properties: zod
                         .array(
-                            zod.object({
-                                key: zod
-                                    .string()
-                                    .describe(
-                                        "Key of the property you're filtering on. For example `email` or `$current_url`"
-                                    ),
-                                value: zod
-                                    .union([
-                                        zod.string(),
-                                        zod.number(),
-                                        zod.boolean(),
-                                        zod.array(zod.union([zod.string(), zod.number()])),
-                                    ])
-                                    .describe(
-                                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
-                                    ),
-                                operator: zod
-                                    .union([
-                                        zod
-                                            .enum([
-                                                'exact',
-                                                'is_not',
-                                                'icontains',
-                                                'not_icontains',
-                                                'regex',
-                                                'not_regex',
-                                                'gt',
-                                                'lt',
-                                                'gte',
-                                                'lte',
-                                                'is_set',
-                                                'is_not_set',
-                                                'is_date_exact',
-                                                'is_date_after',
-                                                'is_date_before',
-                                                'in',
-                                                'not_in',
-                                            ])
+                            zod.union([
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
                                             ),
-                                        zod.enum(['']),
-                                        zod.literal(null),
-                                    ])
-                                    .default(actionsUpdateResponseStepsItemPropertiesItemOperatorDefault),
-                                type: zod
-                                    .union([
-                                        zod
+                                        type: zod
                                             .enum([
                                                 'event',
                                                 'event_metadata',
@@ -1018,11 +1828,249 @@ export const ActionsUpdateResponse = zod
                                             ])
                                             .describe(
                                                 '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateResponseStepsItemPropertiesItemOneTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
                                             ),
-                                        zod.enum(['']),
-                                    ])
-                                    .default(actionsUpdateResponseStepsItemPropertiesItemTypeDefault),
-                            })
+                                        value: zod.string().describe('String value to match against.'),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                            ])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            )
+                                            .default(actionsUpdateResponseStepsItemPropertiesItemOneOperatorDefault)
+                                            .describe(
+                                                'String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            ),
+                                    })
+                                    .describe('Matches string values with text-oriented operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateResponseStepsItemPropertiesItemTwoTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod.number().describe('Numeric value to compare against.'),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'gt', 'lt', 'gte', 'lte'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            )
+                                            .default(actionsUpdateResponseStepsItemPropertiesItemTwoOperatorDefault)
+                                            .describe(
+                                                'Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            ),
+                                    })
+                                    .describe('Matches numeric values with comparison operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateResponseStepsItemPropertiesItemThreeTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'List of values to match. For example `["test@example.com", "ok@example.com"]`.'
+                                            ),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'in', 'not_in'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            )
+                                            .default(actionsUpdateResponseStepsItemPropertiesItemThreeOperatorDefault)
+                                            .describe(
+                                                'Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            ),
+                                    })
+                                    .describe(
+                                        'Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).'
+                                    ),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateResponseStepsItemPropertiesItemFourTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .string()
+                                            .describe(
+                                                "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z')."
+                                            ),
+                                        operator: zod
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                            .describe(
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            )
+                                            .default(actionsUpdateResponseStepsItemPropertiesItemFourOperatorDefault)
+                                            .describe(
+                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            ),
+                                    })
+                                    .describe('Matches date/datetime values with date-specific operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsUpdateResponseStepsItemPropertiesItemFiveTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        operator: zod
+                                            .enum(['is_set', 'is_not_set'])
+                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe(
+                                                'Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                            ),
+                                    })
+                                    .describe('Checks whether a property is set or not, without comparing values.'),
+                            ])
                         )
                         .nullish()
                         .describe(
@@ -1143,8 +2191,15 @@ export const actionsPartialUpdateBodyNameMax = 400
 
 export const actionsPartialUpdateBodySlackMessageFormatMax = 1200
 
-export const actionsPartialUpdateBodyStepsItemPropertiesItemOperatorDefault = `exact`
-export const actionsPartialUpdateBodyStepsItemPropertiesItemTypeDefault = `event`
+export const actionsPartialUpdateBodyStepsItemPropertiesItemOneTypeDefault = `event`
+export const actionsPartialUpdateBodyStepsItemPropertiesItemOneOperatorDefault = `exact`
+export const actionsPartialUpdateBodyStepsItemPropertiesItemTwoTypeDefault = `event`
+export const actionsPartialUpdateBodyStepsItemPropertiesItemTwoOperatorDefault = `exact`
+export const actionsPartialUpdateBodyStepsItemPropertiesItemThreeTypeDefault = `event`
+export const actionsPartialUpdateBodyStepsItemPropertiesItemThreeOperatorDefault = `exact`
+export const actionsPartialUpdateBodyStepsItemPropertiesItemFourTypeDefault = `event`
+export const actionsPartialUpdateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
+export const actionsPartialUpdateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
 
 export const ActionsPartialUpdateBody = zod
     .object({
@@ -1173,54 +2228,15 @@ export const ActionsPartialUpdateBody = zod
                         .describe("Event name to match (e.g. '$pageview', '$autocapture', or a custom event name)."),
                     properties: zod
                         .array(
-                            zod.object({
-                                key: zod
-                                    .string()
-                                    .describe(
-                                        "Key of the property you're filtering on. For example `email` or `$current_url`"
-                                    ),
-                                value: zod
-                                    .union([
-                                        zod.string(),
-                                        zod.number(),
-                                        zod.boolean(),
-                                        zod.array(zod.union([zod.string(), zod.number()])),
-                                    ])
-                                    .describe(
-                                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
-                                    ),
-                                operator: zod
-                                    .union([
-                                        zod
-                                            .enum([
-                                                'exact',
-                                                'is_not',
-                                                'icontains',
-                                                'not_icontains',
-                                                'regex',
-                                                'not_regex',
-                                                'gt',
-                                                'lt',
-                                                'gte',
-                                                'lte',
-                                                'is_set',
-                                                'is_not_set',
-                                                'is_date_exact',
-                                                'is_date_after',
-                                                'is_date_before',
-                                                'in',
-                                                'not_in',
-                                            ])
+                            zod.union([
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
                                             ),
-                                        zod.enum(['']),
-                                        zod.literal(null),
-                                    ])
-                                    .default(actionsPartialUpdateBodyStepsItemPropertiesItemOperatorDefault),
-                                type: zod
-                                    .union([
-                                        zod
+                                        type: zod
                                             .enum([
                                                 'event',
                                                 'event_metadata',
@@ -1249,11 +2265,251 @@ export const ActionsPartialUpdateBody = zod
                                             ])
                                             .describe(
                                                 '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsPartialUpdateBodyStepsItemPropertiesItemOneTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
                                             ),
-                                        zod.enum(['']),
-                                    ])
-                                    .default(actionsPartialUpdateBodyStepsItemPropertiesItemTypeDefault),
-                            })
+                                        value: zod.string().describe('String value to match against.'),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                            ])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            )
+                                            .default(actionsPartialUpdateBodyStepsItemPropertiesItemOneOperatorDefault)
+                                            .describe(
+                                                'String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            ),
+                                    })
+                                    .describe('Matches string values with text-oriented operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsPartialUpdateBodyStepsItemPropertiesItemTwoTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod.number().describe('Numeric value to compare against.'),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'gt', 'lt', 'gte', 'lte'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            )
+                                            .default(actionsPartialUpdateBodyStepsItemPropertiesItemTwoOperatorDefault)
+                                            .describe(
+                                                'Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            ),
+                                    })
+                                    .describe('Matches numeric values with comparison operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsPartialUpdateBodyStepsItemPropertiesItemThreeTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'List of values to match. For example `["test@example.com", "ok@example.com"]`.'
+                                            ),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'in', 'not_in'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            )
+                                            .default(
+                                                actionsPartialUpdateBodyStepsItemPropertiesItemThreeOperatorDefault
+                                            )
+                                            .describe(
+                                                'Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            ),
+                                    })
+                                    .describe(
+                                        'Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).'
+                                    ),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsPartialUpdateBodyStepsItemPropertiesItemFourTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .string()
+                                            .describe(
+                                                "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z')."
+                                            ),
+                                        operator: zod
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                            .describe(
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            )
+                                            .default(actionsPartialUpdateBodyStepsItemPropertiesItemFourOperatorDefault)
+                                            .describe(
+                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            ),
+                                    })
+                                    .describe('Matches date/datetime values with date-specific operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsPartialUpdateBodyStepsItemPropertiesItemFiveTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        operator: zod
+                                            .enum(['is_set', 'is_not_set'])
+                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe(
+                                                'Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                            ),
+                                    })
+                                    .describe('Checks whether a property is set or not, without comparing values.'),
+                            ])
                         )
                         .nullish()
                         .describe(
@@ -1324,8 +2580,15 @@ export const actionsPartialUpdateResponseNameMax = 400
 
 export const actionsPartialUpdateResponseSlackMessageFormatMax = 1200
 
-export const actionsPartialUpdateResponseStepsItemPropertiesItemOperatorDefault = `exact`
-export const actionsPartialUpdateResponseStepsItemPropertiesItemTypeDefault = `event`
+export const actionsPartialUpdateResponseStepsItemPropertiesItemOneTypeDefault = `event`
+export const actionsPartialUpdateResponseStepsItemPropertiesItemOneOperatorDefault = `exact`
+export const actionsPartialUpdateResponseStepsItemPropertiesItemTwoTypeDefault = `event`
+export const actionsPartialUpdateResponseStepsItemPropertiesItemTwoOperatorDefault = `exact`
+export const actionsPartialUpdateResponseStepsItemPropertiesItemThreeTypeDefault = `event`
+export const actionsPartialUpdateResponseStepsItemPropertiesItemThreeOperatorDefault = `exact`
+export const actionsPartialUpdateResponseStepsItemPropertiesItemFourTypeDefault = `event`
+export const actionsPartialUpdateResponseStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
+export const actionsPartialUpdateResponseStepsItemPropertiesItemFiveTypeDefault = `event`
 export const actionsPartialUpdateResponseCreatedByOneDistinctIdMax = 200
 
 export const actionsPartialUpdateResponseCreatedByOneFirstNameMax = 150
@@ -1364,54 +2627,15 @@ export const ActionsPartialUpdateResponse = zod
                         .describe("Event name to match (e.g. '$pageview', '$autocapture', or a custom event name)."),
                     properties: zod
                         .array(
-                            zod.object({
-                                key: zod
-                                    .string()
-                                    .describe(
-                                        "Key of the property you're filtering on. For example `email` or `$current_url`"
-                                    ),
-                                value: zod
-                                    .union([
-                                        zod.string(),
-                                        zod.number(),
-                                        zod.boolean(),
-                                        zod.array(zod.union([zod.string(), zod.number()])),
-                                    ])
-                                    .describe(
-                                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
-                                    ),
-                                operator: zod
-                                    .union([
-                                        zod
-                                            .enum([
-                                                'exact',
-                                                'is_not',
-                                                'icontains',
-                                                'not_icontains',
-                                                'regex',
-                                                'not_regex',
-                                                'gt',
-                                                'lt',
-                                                'gte',
-                                                'lte',
-                                                'is_set',
-                                                'is_not_set',
-                                                'is_date_exact',
-                                                'is_date_after',
-                                                'is_date_before',
-                                                'in',
-                                                'not_in',
-                                            ])
+                            zod.union([
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
                                             .describe(
-                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
                                             ),
-                                        zod.enum(['']),
-                                        zod.literal(null),
-                                    ])
-                                    .default(actionsPartialUpdateResponseStepsItemPropertiesItemOperatorDefault),
-                                type: zod
-                                    .union([
-                                        zod
+                                        type: zod
                                             .enum([
                                                 'event',
                                                 'event_metadata',
@@ -1440,11 +2664,259 @@ export const ActionsPartialUpdateResponse = zod
                                             ])
                                             .describe(
                                                 '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsPartialUpdateResponseStepsItemPropertiesItemOneTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
                                             ),
-                                        zod.enum(['']),
-                                    ])
-                                    .default(actionsPartialUpdateResponseStepsItemPropertiesItemTypeDefault),
-                            })
+                                        value: zod.string().describe('String value to match against.'),
+                                        operator: zod
+                                            .enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                            ])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            )
+                                            .default(
+                                                actionsPartialUpdateResponseStepsItemPropertiesItemOneOperatorDefault
+                                            )
+                                            .describe(
+                                                'String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex'
+                                            ),
+                                    })
+                                    .describe('Matches string values with text-oriented operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsPartialUpdateResponseStepsItemPropertiesItemTwoTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod.number().describe('Numeric value to compare against.'),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'gt', 'lt', 'gte', 'lte'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            )
+                                            .default(
+                                                actionsPartialUpdateResponseStepsItemPropertiesItemTwoOperatorDefault
+                                            )
+                                            .describe(
+                                                'Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte'
+                                            ),
+                                    })
+                                    .describe('Matches numeric values with comparison operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(
+                                                actionsPartialUpdateResponseStepsItemPropertiesItemThreeTypeDefault
+                                            )
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'List of values to match. For example `["test@example.com", "ok@example.com"]`.'
+                                            ),
+                                        operator: zod
+                                            .enum(['exact', 'is_not', 'in', 'not_in'])
+                                            .describe(
+                                                '* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            )
+                                            .default(
+                                                actionsPartialUpdateResponseStepsItemPropertiesItemThreeOperatorDefault
+                                            )
+                                            .describe(
+                                                'Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in'
+                                            ),
+                                    })
+                                    .describe(
+                                        'Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).'
+                                    ),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsPartialUpdateResponseStepsItemPropertiesItemFourTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        value: zod
+                                            .string()
+                                            .describe(
+                                                "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z')."
+                                            ),
+                                        operator: zod
+                                            .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                            .describe(
+                                                '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            )
+                                            .default(
+                                                actionsPartialUpdateResponseStepsItemPropertiesItemFourOperatorDefault
+                                            )
+                                            .describe(
+                                                'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            ),
+                                    })
+                                    .describe('Matches date/datetime values with date-specific operators.'),
+                                zod
+                                    .object({
+                                        key: zod
+                                            .string()
+                                            .describe(
+                                                "Key of the property you're filtering on. For example `email` or `$current_url`."
+                                            ),
+                                        type: zod
+                                            .enum([
+                                                'event',
+                                                'event_metadata',
+                                                'feature',
+                                                'person',
+                                                'cohort',
+                                                'element',
+                                                'static-cohort',
+                                                'dynamic-cohort',
+                                                'precalculated-cohort',
+                                                'group',
+                                                'recording',
+                                                'log_entry',
+                                                'behavioral',
+                                                'session',
+                                                'hogql',
+                                                'data_warehouse',
+                                                'data_warehouse_person_property',
+                                                'error_tracking_issue',
+                                                'log',
+                                                'log_attribute',
+                                                'log_resource_attribute',
+                                                'revenue_analytics',
+                                                'flag',
+                                                'workflow_variable',
+                                            ])
+                                            .describe(
+                                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            )
+                                            .default(actionsPartialUpdateResponseStepsItemPropertiesItemFiveTypeDefault)
+                                            .describe(
+                                                'Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                            ),
+                                        operator: zod
+                                            .enum(['is_set', 'is_not_set'])
+                                            .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                            .describe(
+                                                'Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                            ),
+                                    })
+                                    .describe('Checks whether a property is set or not, without comparing values.'),
+                            ])
                         )
                         .nullish()
                         .describe(

@@ -3,7 +3,7 @@ from typing import Any, cast
 
 from django.db.models import Count
 
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -24,14 +24,32 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
-from .documentation import PropertyItemSerializer
+from .documentation import (
+    ArrayPropertyFilterSerializer,
+    DatePropertyFilterSerializer,
+    ExistencePropertyFilterSerializer,
+    NumericPropertyFilterSerializer,
+    StringPropertyFilterSerializer,
+)
 from .forbid_destroy_model import ForbidDestroyModel
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 
+_PropertyFilterUnion = PolymorphicProxySerializer(
+    component_name="ActionStepPropertyFilter",
+    serializers=[
+        StringPropertyFilterSerializer,
+        NumericPropertyFilterSerializer,
+        ArrayPropertyFilterSerializer,
+        DatePropertyFilterSerializer,
+        ExistencePropertyFilterSerializer,
+    ],
+    resource_type_field_name=None,
+)
 
-@extend_schema_field(serializers.ListSerializer(child=PropertyItemSerializer()))
+
+@extend_schema_field(serializers.ListSerializer(child=_PropertyFilterUnion))
 class _ActionStepPropertiesField(serializers.ListField):
-    """ListField annotated with a typed OpenAPI schema via PropertyItemSerializer.
+    """ListField annotated with a typed OpenAPI schema via a oneOf property filter union.
 
     Runtime validation remains a simple ListField(child=DictField()) — the
     @extend_schema_field decorator only affects the generated OpenAPI spec.

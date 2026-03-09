@@ -8,57 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- * `regex` - regex
- * `not_regex` - not_regex
- * `gt` - gt
- * `lt` - lt
- * `gte` - gte
- * `lte` - lte
- * `is_set` - is_set
- * `is_not_set` - is_not_set
- * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
- * `is_date_before` - is_date_before
- * `in` - in
- * `not_in` - not_in
- */
-export type OperatorEnumApi = (typeof OperatorEnumApi)[keyof typeof OperatorEnumApi]
-
-export const OperatorEnumApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-    Gt: 'gt',
-    Lt: 'lt',
-    Gte: 'gte',
-    Lte: 'lte',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-    IsDateExact: 'is_date_exact',
-    IsDateAfter: 'is_date_after',
-    IsDateBefore: 'is_date_before',
-    In: 'in',
-    NotIn: 'not_in',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
-/**
  * * `event` - event
  * `event_metadata` - event_metadata
  * `feature` - feature
@@ -84,9 +33,9 @@ export const NullEnumApi = {} as const
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type PropertyItemTypeEnumApi = (typeof PropertyItemTypeEnumApi)[keyof typeof PropertyItemTypeEnumApi]
+export type Type19aEnumApi = (typeof Type19aEnumApi)[keyof typeof Type19aEnumApi]
 
-export const PropertyItemTypeEnumApi = {
+export const Type19aEnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -113,14 +62,313 @@ export const PropertyItemTypeEnumApi = {
     WorkflowVariable: 'workflow_variable',
 } as const
 
-export interface PropertyItemApi {
-    /** Key of the property you're filtering on. For example `email` or `$current_url` */
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
+ */
+export type StringPropertyFilterOperatorEnumApi =
+    (typeof StringPropertyFilterOperatorEnumApi)[keyof typeof StringPropertyFilterOperatorEnumApi]
+
+export const StringPropertyFilterOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+/**
+ * Matches string values with text-oriented operators.
+ */
+export interface StringPropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
     key: string
-    /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
-    value: string | number | boolean | (string | number)[]
-    operator?: OperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: PropertyItemTypeEnumApi | BlankEnumApi
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnumApi
+    /** String value to match against. */
+    value: string
+    /** String comparison operator.
+
+* `exact` - exact
+* `is_not` - is_not
+* `icontains` - icontains
+* `not_icontains` - not_icontains
+* `regex` - regex
+* `not_regex` - not_regex */
+    operator?: StringPropertyFilterOperatorEnumApi
 }
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `gt` - gt
+ * `lt` - lt
+ * `gte` - gte
+ * `lte` - lte
+ */
+export type NumericPropertyFilterOperatorEnumApi =
+    (typeof NumericPropertyFilterOperatorEnumApi)[keyof typeof NumericPropertyFilterOperatorEnumApi]
+
+export const NumericPropertyFilterOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Gt: 'gt',
+    Lt: 'lt',
+    Gte: 'gte',
+    Lte: 'lte',
+} as const
+
+/**
+ * Matches numeric values with comparison operators.
+ */
+export interface NumericPropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnumApi
+    /** Numeric value to compare against. */
+    value: number
+    /** Numeric comparison operator.
+
+* `exact` - exact
+* `is_not` - is_not
+* `gt` - gt
+* `lt` - lt
+* `gte` - gte
+* `lte` - lte */
+    operator?: NumericPropertyFilterOperatorEnumApi
+}
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `in` - in
+ * `not_in` - not_in
+ */
+export type ArrayPropertyFilterOperatorEnumApi =
+    (typeof ArrayPropertyFilterOperatorEnumApi)[keyof typeof ArrayPropertyFilterOperatorEnumApi]
+
+export const ArrayPropertyFilterOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+/**
+ * Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).
+ */
+export interface ArrayPropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnumApi
+    /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
+    value: string[]
+    /** Array comparison operator.
+
+* `exact` - exact
+* `is_not` - is_not
+* `in` - in
+* `not_in` - not_in */
+    operator?: ArrayPropertyFilterOperatorEnumApi
+}
+
+/**
+ * * `is_date_exact` - is_date_exact
+ * `is_date_before` - is_date_before
+ * `is_date_after` - is_date_after
+ */
+export type DatePropertyFilterOperatorEnumApi =
+    (typeof DatePropertyFilterOperatorEnumApi)[keyof typeof DatePropertyFilterOperatorEnumApi]
+
+export const DatePropertyFilterOperatorEnumApi = {
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+/**
+ * Matches date/datetime values with date-specific operators.
+ */
+export interface DatePropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnumApi
+    /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
+    value: string
+    /** Date comparison operator.
+
+* `is_date_exact` - is_date_exact
+* `is_date_before` - is_date_before
+* `is_date_after` - is_date_after */
+    operator?: DatePropertyFilterOperatorEnumApi
+}
+
+/**
+ * * `is_set` - is_set
+ * `is_not_set` - is_not_set
+ */
+export type ExistencePropertyFilterOperatorEnumApi =
+    (typeof ExistencePropertyFilterOperatorEnumApi)[keyof typeof ExistencePropertyFilterOperatorEnumApi]
+
+export const ExistencePropertyFilterOperatorEnumApi = {
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+/**
+ * Checks whether a property is set or not, without comparing values.
+ */
+export interface ExistencePropertyFilterApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url`. */
+    key: string
+    /** Property type (event, person, session, etc.).
+
+* `event` - event
+* `event_metadata` - event_metadata
+* `feature` - feature
+* `person` - person
+* `cohort` - cohort
+* `element` - element
+* `static-cohort` - static-cohort
+* `dynamic-cohort` - dynamic-cohort
+* `precalculated-cohort` - precalculated-cohort
+* `group` - group
+* `recording` - recording
+* `log_entry` - log_entry
+* `behavioral` - behavioral
+* `session` - session
+* `hogql` - hogql
+* `data_warehouse` - data_warehouse
+* `data_warehouse_person_property` - data_warehouse_person_property
+* `error_tracking_issue` - error_tracking_issue
+* `log` - log
+* `log_attribute` - log_attribute
+* `log_resource_attribute` - log_resource_attribute
+* `revenue_analytics` - revenue_analytics
+* `flag` - flag
+* `workflow_variable` - workflow_variable */
+    type?: Type19aEnumApi
+    /** Existence check operator.
+
+* `is_set` - is_set
+* `is_not_set` - is_not_set */
+    operator: ExistencePropertyFilterOperatorEnumApi
+}
+
+export type ActionStepPropertyFilterApi =
+    | StringPropertyFilterApi
+    | NumericPropertyFilterApi
+    | ArrayPropertyFilterApi
+    | DatePropertyFilterApi
+    | ExistencePropertyFilterApi
 
 /**
  * * `contains` - contains
@@ -135,6 +383,10 @@ export const UrlMatchingEnumApi = {
     Exact: 'exact',
 } as const
 
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
 export interface ActionStepJSONApi {
     /**
      * Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).
@@ -145,7 +397,7 @@ export interface ActionStepJSONApi {
      * Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person).
      * @nullable
      */
-    properties?: PropertyItemApi[] | null
+    properties?: ActionStepPropertyFilterApi[] | null
     /**
      * CSS selector to match the target element (e.g. 'div > button.cta').
      * @nullable
@@ -214,6 +466,12 @@ export const RoleAtOrganizationEnumApi = {
     Marketing: 'marketing',
     Sales: 'sales',
     Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
 } as const
 
 /**
