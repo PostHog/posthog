@@ -36,7 +36,12 @@ def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
-def get_sandbox_mcp_configs() -> list[McpServerConfig]:
+def get_sandbox_mcp_configs(
+    token: str,
+    project_id: int,
+    *,
+    read_only: bool = True,
+) -> list[McpServerConfig]:
     """Return MCP server configurations for sandbox agents.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
@@ -47,7 +52,13 @@ def get_sandbox_mcp_configs() -> list[McpServerConfig]:
     url = _resolve_mcp_url()
     if not url:
         return []
-    return [McpServerConfig(type="http", name="posthog", url=url)]
+    headers = [
+        {"name": "Authorization", "value": f"Bearer {token}"},
+        {"name": "x-posthog-project-id", "value": str(project_id)},
+        {"name": "x-posthog-mcp-version", "value": "2"},
+        {"name": "x-posthog-read-only", "value": str(read_only).lower()},
+    ]
+    return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
 
 
 def _resolve_mcp_url() -> str | None:

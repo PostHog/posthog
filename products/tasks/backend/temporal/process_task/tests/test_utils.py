@@ -8,6 +8,17 @@ from products.tasks.backend.temporal.process_task.utils import McpServerConfig, 
 
 
 class TestGetSandboxMcpConfigs(TestCase):
+    TOKEN = "phx_test_token"
+    PROJECT_ID = 42
+
+    def _expected_headers(self, *, read_only: bool = True) -> list[dict[str, str]]:
+        return [
+            {"name": "Authorization", "value": f"Bearer {self.TOKEN}"},
+            {"name": "x-posthog-project-id", "value": str(self.PROJECT_ID)},
+            {"name": "x-posthog-mcp-version", "value": "2"},
+            {"name": "x-posthog-read-only", "value": str(read_only).lower()},
+        ]
+
     @parameterized.expand(
         [
             ("https://app.posthog.com", "https://mcp.posthog.com/mcp"),
@@ -19,15 +30,43 @@ class TestGetSandboxMcpConfigs(TestCase):
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = site_url
-            configs = get_sandbox_mcp_configs()
-            assert configs == [McpServerConfig(type="http", name="posthog", url=expected_mcp_url)]
+            configs = get_sandbox_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url=expected_mcp_url,
+                    headers=self._expected_headers(),
+                )
+            ]
 
     def test_explicit_sandbox_mcp_url_takes_precedence(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = "https://custom-mcp.example.com/mcp"
             mock_settings.SITE_URL = "https://app.posthog.com"
-            configs = get_sandbox_mcp_configs()
-            assert configs == [McpServerConfig(type="http", name="posthog", url="https://custom-mcp.example.com/mcp")]
+            configs = get_sandbox_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="https://custom-mcp.example.com/mcp",
+                    headers=self._expected_headers(),
+                )
+            ]
+
+    def test_read_only_false(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_mcp_configs(self.TOKEN, self.PROJECT_ID, read_only=False)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="https://mcp.posthog.com/mcp",
+                    headers=self._expected_headers(read_only=False),
+                )
+            ]
 
     @parameterized.expand(
         [
@@ -39,13 +78,13 @@ class TestGetSandboxMcpConfigs(TestCase):
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = site_url
-            assert get_sandbox_mcp_configs() == []
+            assert get_sandbox_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
 
     def test_returns_empty_list_when_no_site_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = ""
-            assert get_sandbox_mcp_configs() == []
+            assert get_sandbox_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
 
 
 class TestMcpServerConfigToDict(TestCase):
