@@ -1,4 +1,4 @@
-import type { AxisFormat } from './types'
+import type { AxisFormat } from '../types'
 
 export function formatValue(
     value: number,

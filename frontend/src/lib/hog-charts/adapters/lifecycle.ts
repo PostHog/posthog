@@ -1,8 +1,7 @@
 import type { ChartConfiguration, ChartDataset } from 'chart.js'
 
-import { mergeTheme } from '../theme'
 import type { LifecycleProps } from '../types'
-
+import { mergeTheme } from '../utils/theme'
 import { baseOptions, buildGoalLineAnnotations, buildScaleConfig } from './common'
 
 export function buildLifecycleConfig(props: LifecycleProps): ChartConfiguration<'bar'> {
@@ -41,7 +40,7 @@ export function buildLifecycleConfig(props: LifecycleProps): ChartConfiguration<
                 } as never,
             },
             plugins: {
-                ...(opts.plugins as Record<string, unknown>),
+                ...opts.plugins,
                 annotation: {
                     annotations: buildGoalLineAnnotations(props.goalLines, theme),
                 },

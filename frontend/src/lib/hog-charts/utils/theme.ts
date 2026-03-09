@@ -1,4 +1,4 @@
-import type { HogChartTheme } from './types'
+import type { HogChartTheme } from '../types'
 
 export const hogColors = [
     '#1D4AFF', // blue

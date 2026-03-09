@@ -1,13 +1,14 @@
 import type { ChartConfiguration } from 'chart.js'
 
-import { mergeTheme, seriesColor } from '../theme'
 import type { PieProps } from '../types'
-
+import { mergeTheme, seriesColor } from '../utils/theme'
 import { baseOptions } from './common'
 
 export function buildPieConfig(props: PieProps): ChartConfiguration<'doughnut'> {
     const theme = mergeTheme(props.theme)
     const colors = props.data.map((d, i) => d.color ?? seriesColor(theme, i))
+
+    const opts = baseOptions(props, theme)
 
     return {
         type: 'doughnut',
@@ -23,12 +24,12 @@ export function buildPieConfig(props: PieProps): ChartConfiguration<'doughnut'> 
             ],
         },
         options: {
-            ...baseOptions(props, theme),
+            ...opts,
             cutout: (props.donut ?? true) ? `${(props.innerRadius ?? 0.6) * 100}%` : '0%',
             plugins: {
-                ...((baseOptions(props, theme) as Record<string, unknown>).plugins as Record<string, unknown>),
+                ...opts.plugins,
                 datalabels:
-                    props.showLabels ?? true
+                    (props.showLabels ?? true)
                         ? {
                               display: true,
                               color: '#fff',

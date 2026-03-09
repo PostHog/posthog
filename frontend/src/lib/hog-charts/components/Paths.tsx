@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
-import { mergeTheme } from '../theme'
 import type { PathsProps } from '../types'
+import { mergeTheme } from '../utils/theme'
 
 export function Paths(props: PathsProps): JSX.Element {
     const { nodes, links, maxPaths = 50 } = props

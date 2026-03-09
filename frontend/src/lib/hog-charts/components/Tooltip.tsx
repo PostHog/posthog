@@ -2,9 +2,9 @@ import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { formatValue } from '../format'
-import { mergeTheme } from '../theme'
 import type { HogChartTheme, TooltipConfig, TooltipContext } from '../types'
+import { formatValue } from '../utils/format'
+import { mergeTheme } from '../utils/theme'
 
 export function DefaultTooltip({
     context,

@@ -1,9 +1,9 @@
 import { useMemo } from 'react'
 
-import { interpolateColor } from '../color'
-import { formatValue } from '../format'
-import { mergeTheme } from '../theme'
 import type { HeatmapProps } from '../types'
+import { interpolateColor } from '../utils/color'
+import { formatValue } from '../utils/format'
+import { mergeTheme } from '../utils/theme'
 
 export function Heatmap(props: HeatmapProps): JSX.Element {
     const { data, xLabels, yLabels, showValues = true, borderRadius = 2 } = props
@@ -28,8 +28,8 @@ export function Heatmap(props: HeatmapProps): JSX.Element {
     }, [data])
 
     const style: React.CSSProperties = {
-        width: typeof props.width === 'number' ? `${props.width}px` : props.width ?? '100%',
-        height: typeof props.height === 'number' ? `${props.height}px` : props.height ?? 'auto',
+        width: typeof props.width === 'number' ? `${props.width}px` : (props.width ?? '100%'),
+        height: typeof props.height === 'number' ? `${props.height}px` : (props.height ?? 'auto'),
         fontFamily: theme.fontFamily,
         fontSize: theme.fontSize,
         overflow: 'auto',

@@ -1,15 +1,15 @@
-import type React from 'react'
-import { useEffect, useRef } from 'react'
-
 import { Chart, registerables } from 'chart.js'
 import type { ChartConfiguration, ChartType } from 'chart.js'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
+import type React from 'react'
+import { useEffect, useRef } from 'react'
 
 import { buildTooltipContext } from './adapters'
-import type { BaseChartProps, ClickEvent, LineProps, Series, TooltipContext } from './types'
+import type { HogTooltipMeta } from './adapters/common'
+import type { BaseChartProps, ClickEvent, LineProps, TooltipContext } from './types'
 
 let pluginsRegistered = false
 function ensurePluginsRegistered(): void {
@@ -87,7 +87,7 @@ export function useHogChart<TType extends ChartType = ChartType>(
                     caretY: number
                 }
 
-                const meta = (mergedOptions._hogTooltipMeta as { seriesData: Series[] }) ?? { seriesData: [] }
+                const meta = mergedOptions._hogTooltipMeta as HogTooltipMeta
                 const chartBounds = ctx.chart.canvas.getBoundingClientRect()
                 const context = buildTooltipContext(tooltipModel, chartBounds, meta.seriesData)
 
@@ -109,8 +109,7 @@ export function useHogChart<TType extends ChartType = ChartType>(
             if (event.native) {
                 const target = event.native.target as HTMLElement | null
                 if (target) {
-                    target.style.cursor =
-                        propsRef.current.onClick && elements.length > 0 ? 'pointer' : 'default'
+                    target.style.cursor = propsRef.current.onClick && elements.length > 0 ? 'pointer' : 'default'
                 }
             }
             const currentProps = propsRef.current as LineProps
@@ -121,11 +120,18 @@ export function useHogChart<TType extends ChartType = ChartType>(
         }
 
         if (propsRef.current.onClick) {
-            const hogMeta = (mergedOptions._hogTooltipMeta as { seriesData: Series[] }) ?? { seriesData: [] }
+            const hogMeta = mergedOptions._hogTooltipMeta as HogTooltipMeta
             mergedOptions.onClick = (
                 event: { native?: Event },
                 _elements: unknown[],
-                chart: { getElementsAtEventForMode: (e: Event, mode: string, opts: object, useFinalPosition: boolean) => Array<{ datasetIndex: number; index: number }> }
+                chart: {
+                    getElementsAtEventForMode: (
+                        e: Event,
+                        mode: string,
+                        opts: object,
+                        useFinalPosition: boolean
+                    ) => Array<{ datasetIndex: number; index: number }>
+                }
             ) => {
                 if (!event.native) {
                     return

@@ -14,10 +14,10 @@ export { WorldMap } from './components/WorldMap'
 
 export { DefaultTooltip } from './components/Tooltip'
 
-export { defaultTheme, hogColors, lifecycleColors, mergeTheme, seriesColor } from './theme'
+export { defaultTheme, hogColors, lifecycleColors, mergeTheme, seriesColor } from './utils/theme'
 
-export { computeDelta, formatValue } from './format'
-export { createXAxisTickCallback } from './formatXAxisTick'
+export { computeDelta, formatValue } from './utils/format'
+export { createXAxisTickCallback } from './utils/dates'
 
 export type {
     Annotation,

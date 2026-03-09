@@ -1,7 +1,5 @@
-import type { ChartConfiguration } from 'chart.js'
+import type { ChartOptions } from 'chart.js'
 
-import { formatValue } from '../format'
-import { mergeTheme, seriesColor } from '../theme'
 import type {
     AxisConfig,
     BaseChartProps,
@@ -12,6 +10,8 @@ import type {
     TooltipContext,
     TooltipPoint,
 } from '../types'
+import { formatValue } from '../utils/format'
+import { seriesColor } from '../utils/theme'
 
 export interface TooltipCallbacks {
     onShow: (context: TooltipContext) => void
@@ -22,7 +22,7 @@ export function resolveColor(series: Series, index: number, theme: HogChartTheme
     return series.color ?? seriesColor(theme, index)
 }
 
-export function chartBaseOptions(): Record<string, unknown> {
+function chartBaseOptions(): ChartOptions {
     return {
         responsive: true,
         maintainAspectRatio: false,
@@ -32,10 +32,7 @@ export function chartBaseOptions(): Record<string, unknown> {
     }
 }
 
-export function crosshairConfig(
-    enabled: boolean,
-    crosshairColor: string | null | undefined
-): Record<string, unknown> {
+export function crosshairConfig(enabled: boolean, crosshairColor: string | null | undefined): Record<string, unknown> {
     if (!enabled) {
         return { crosshair: false }
     }
@@ -58,8 +55,7 @@ export function incompleteSegment(
     }
     const startIndex = dataLength - count
     return {
-        borderDash: (ctx: { p1DataIndex: number }) =>
-            ctx.p1DataIndex >= startIndex ? [10, 10] : undefined,
+        borderDash: (ctx: { p1DataIndex: number }) => (ctx.p1DataIndex >= startIndex ? [10, 10] : undefined),
     }
 }
 
@@ -91,7 +87,7 @@ export function buildScaleConfig(
         min: merged.min,
         max: merged.max,
         beginAtZero: merged.startAtZero,
-        type: merged.scale === 'logarithmic' ? 'logarithmic' : merged.scale === 'linear' ? 'linear' : 'category',
+        type: merged.scale === 'logarithmic' ? 'logarithmic' : merged.scale === 'linear' ? 'linear' : undefined,
     }
 }
 
@@ -124,17 +120,21 @@ export function buildGoalLineAnnotations(
     }))
 }
 
-export function baseOptions(
-    props: BaseChartProps,
-    theme: HogChartTheme,
-    seriesData?: Series[]
-): Record<string, unknown> {
+export interface HogTooltipMeta {
+    seriesData: Series[]
+    theme: HogChartTheme
+}
+
+export type BaseChartOptions = ChartOptions & {
+    _hogTooltipMeta: HogTooltipMeta
+}
+
+export function baseOptions(props: BaseChartProps, theme: HogChartTheme, seriesData?: Series[]): BaseChartOptions {
     const hasCustomTooltip = !!props.tooltip?.render
     const shared = props.tooltip?.shared ?? true
 
-    const base = chartBaseOptions()
     return {
-        ...base,
+        ...chartBaseOptions(),
         animation: props.animate ? undefined : false,
         interaction: {
             includeInvisible: true,
@@ -147,7 +147,7 @@ export function baseOptions(
         plugins: {
             legend: {
                 display: (props.legend?.position ?? 'none') !== 'none',
-                position: props.legend?.position ?? 'bottom',
+                position: (props.legend?.position !== 'none' ? props.legend?.position : undefined) ?? 'bottom',
                 labels: {
                     color: theme.axisColor,
                     font: { family: theme.fontFamily, size: theme.fontSize },
@@ -158,7 +158,7 @@ export function baseOptions(
             },
             tooltip: hasCustomTooltip
                 ? {
-                                    enabled: false,
+                      enabled: false,
                       mode: shared ? 'index' : 'nearest',
                       intersect: !shared,
                   }
@@ -239,7 +239,12 @@ export function buildTooltipContext(
             datasetIndex: number
             dataIndex: number
             raw: number
-            dataset: { label?: string; borderColor?: string | string[]; _hogMeta?: Record<string, unknown>; _hogHideFromTooltip?: boolean }
+            dataset: {
+                label?: string
+                borderColor?: string | string[]
+                _hogMeta?: Record<string, unknown>
+                _hogHideFromTooltip?: boolean
+            }
         }>
         caretX: number
         caretY: number

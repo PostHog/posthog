@@ -1,8 +1,7 @@
 import type { ChartConfiguration } from 'chart.js'
 
-import { mergeTheme } from '../theme'
 import type { BoxPlotProps } from '../types'
-
+import { mergeTheme } from '../utils/theme'
 import { baseOptions, buildScaleConfig } from './common'
 
 export function buildBoxPlotConfig(props: BoxPlotProps): ChartConfiguration {

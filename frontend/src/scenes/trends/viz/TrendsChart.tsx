@@ -1,25 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { getGraphColors } from 'lib/colors'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { getGraphColors } from 'lib/colors'
 import { Line } from 'lib/hog-charts'
 import type { ClickEvent, LineProps, TooltipContext } from 'lib/hog-charts'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { isMultiSeriesFormula } from 'lib/utils'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { groupsModel } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { groupsModel } from '~/models/groupsModel'
 import { ChartDisplayType, ChartParams } from '~/types'
 
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
@@ -43,10 +43,7 @@ export function TrendsChart(props: ChartParams): JSX.Element | null {
     )
 }
 
-function TrendsChartInner({
-    showPersonsModal = true,
-    context,
-}: ChartParams): JSX.Element | null {
+function TrendsChartInner({ showPersonsModal = true, context }: ChartParams): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
 
     const {
@@ -99,7 +96,9 @@ function TrendsChartInner({
     const isBar =
         display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar || isLifecycle
     const isArea = display === ChartDisplayType.ActionsAreaGraph
-    const isStacked = isLifecycle ? (lifecycleFilter?.stacked ?? true) : display !== ChartDisplayType.ActionsUnstackedBar
+    const isStacked = isLifecycle
+        ? (lifecycleFilter?.stacked ?? true)
+        : display !== ChartDisplayType.ActionsUnstackedBar
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const isLog10 = yAxisScaleType === 'log10'
     const isInProgress = !isStickiness && incompletenessOffsetFromEnd < 0
@@ -141,9 +140,7 @@ function TrendsChartInner({
         ]
     )
 
-    if (
-        !(indexedResults && indexedResults[0]?.data && indexedResults.filter((r) => r.count !== 0).length > 0)
-    ) {
+    if (!(indexedResults && indexedResults[0]?.data && indexedResults.filter((r) => r.count !== 0).length > 0)) {
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
@@ -151,8 +148,7 @@ function TrendsChartInner({
     const yAxis = buildYAxis(isLog10, isPercentStackView, showMultipleYAxes ?? null, series.length)
 
     const canClick =
-        !!context?.onDataPointClick ||
-        (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)
+        !!context?.onDataPointClick || (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)
 
     const groupTypeLabel = resolveGroupTypeLabel(context?.groupTypeLabel, labelGroupType, aggregationLabel)
 
@@ -192,7 +188,13 @@ function TrendsChartInner({
                 showShiftKeyHint={isBar && isStacked && !isHighlightBarMode}
                 renderSeries={renderSeriesLabel}
                 renderCount={(value: number) =>
-                    formatTooltipCount(value, { isStickiness, isPercentStackView, trendsFilter, indexedResults, seriesData })
+                    formatTooltipCount(value, {
+                        isStickiness,
+                        isPercentStackView,
+                        trendsFilter,
+                        indexedResults,
+                        seriesData,
+                    })
                 }
                 hideInspectActorsSection={!showPersonsModal}
                 groupTypeLabel={groupTypeLabel}
@@ -279,8 +281,7 @@ function TrendsChartInner({
         isArea,
         fillOpacity: isPercentStackView ? 1 : 0.5,
         crosshair: !isBar,
-        incompletePoints:
-            isInProgress && incompletenessOffsetFromEnd < 0 ? Math.abs(incompletenessOffsetFromEnd) : 0,
+        incompletePoints: isInProgress ? Math.abs(incompletenessOffsetFromEnd) : 0,
         hideXAxis: false,
         hideYAxis: false,
         showValues: !!showValuesOnSeries,
@@ -288,9 +289,7 @@ function TrendsChartInner({
         tooltip: { shared: true, render: renderTooltip },
         onClick: canClick ? handleClick : undefined,
         highlightSeriesIndex: isHighlightBarMode ? hoveredDatasetIndex : null,
-        onHighlightChange: isHighlightBarMode
-            ? (idx) => setHoveredDatasetIndex(idx)
-            : undefined,
+        onHighlightChange: isHighlightBarMode ? (idx) => setHoveredDatasetIndex(idx) : undefined,
         dates: indexedResults[0]?.days,
         interval: interval ?? undefined,
         timezone,

@@ -1,5 +1,5 @@
-import { mergeTheme } from '../theme'
 import type { RetentionProps } from '../types'
+import { mergeTheme } from '../utils/theme'
 
 export function Retention(props: RetentionProps): JSX.Element {
     const { data, periodLabels, showPercentages = true, showCounts = false } = props
@@ -10,8 +10,8 @@ export function Retention(props: RetentionProps): JSX.Element {
     }
 
     const style: React.CSSProperties = {
-        width: typeof props.width === 'number' ? `${props.width}px` : props.width ?? '100%',
-        height: typeof props.height === 'number' ? `${props.height}px` : props.height ?? 'auto',
+        width: typeof props.width === 'number' ? `${props.width}px` : (props.width ?? '100%'),
+        height: typeof props.height === 'number' ? `${props.height}px` : (props.height ?? 'auto'),
         fontFamily: theme.fontFamily,
         fontSize: theme.fontSize,
         overflow: 'auto',
@@ -45,9 +45,7 @@ export function Retention(props: RetentionProps): JSX.Element {
                                 <td style={{ ...cellStyle(theme), fontWeight: 600, textAlign: 'left' }}>
                                     {cohort.label}
                                 </td>
-                                <td style={{ ...cellStyle(theme), fontWeight: 600 }}>
-                                    {cohortSize.toLocaleString()}
-                                </td>
+                                <td style={{ ...cellStyle(theme), fontWeight: 600 }}>{cohortSize.toLocaleString()}</td>
                                 {cohort.values.slice(1).map((count, i) => {
                                     const pct = cohortSize > 0 ? count / cohortSize : 0
                                     const bg = retentionCellColor(pct, theme.colors[0])

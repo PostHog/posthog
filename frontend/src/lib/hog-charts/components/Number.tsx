@@ -1,6 +1,6 @@
-import { computeDelta, formatValue } from '../format'
-import { mergeTheme } from '../theme'
 import type { NumberProps } from '../types'
+import { computeDelta, formatValue } from '../utils/format'
+import { mergeTheme } from '../utils/theme'
 
 export function BigNumber(props: NumberProps): JSX.Element {
     const { value, previousValue, label, format = 'compact', prefix, suffix, theme: themeOverrides } = props
@@ -15,9 +15,7 @@ export function BigNumber(props: NumberProps): JSX.Element {
         const isZero = delta === 0
         const deltaColor = isZero ? theme.axisColor : isPositive ? '#1AA35C' : '#F04F58'
         const arrow = isZero ? '' : isPositive ? '\u2191' : '\u2193'
-        const deltaText = Number.isFinite(delta)
-            ? `${arrow} ${Math.abs(delta * 100).toFixed(1)}%`
-            : `${arrow} \u221E`
+        const deltaText = Number.isFinite(delta) ? `${arrow} ${Math.abs(delta * 100).toFixed(1)}%` : `${arrow} \u221E`
 
         deltaEl = (
             <div
@@ -35,8 +33,8 @@ export function BigNumber(props: NumberProps): JSX.Element {
     }
 
     const style: React.CSSProperties = {
-        width: typeof props.width === 'number' ? `${props.width}px` : props.width ?? '100%',
-        height: typeof props.height === 'number' ? `${props.height}px` : props.height ?? 'auto',
+        width: typeof props.width === 'number' ? `${props.width}px` : (props.width ?? '100%'),
+        height: typeof props.height === 'number' ? `${props.height}px` : (props.height ?? 'auto'),
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',

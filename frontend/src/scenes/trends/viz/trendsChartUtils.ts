@@ -2,7 +2,6 @@ import { getBarColorFromStatus } from 'lib/colors'
 import type { Series } from 'lib/hog-charts'
 import { ciRanges, movingAverage } from 'lib/statistics'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
-
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import type { IndexedTrendResult } from 'scenes/trends/types'
@@ -10,7 +9,12 @@ import type { IndexedTrendResult } from 'scenes/trends/types'
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 import type { LifecycleToggle, TrendsFilterType } from '~/types'
 
-export { buildGoalLines, buildYAxis, resolveGroupTypeLabel, tooltipPointsToSeriesDatum } from 'scenes/insights/chartUtils'
+export {
+    buildGoalLines,
+    buildYAxis,
+    resolveGroupTypeLabel,
+    tooltipPointsToSeriesDatum,
+} from 'scenes/insights/chartUtils'
 
 const MAX_SERIES = 50
 
@@ -42,6 +46,7 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
         if (opts.getTrendsHidden(dataset)) {
             continue
         }
+
         if (result.length >= MAX_SERIES) {
             break
         }
@@ -50,12 +55,14 @@ export function buildTrendsSeries(opts: BuildSeriesOptions): Series[] {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
 
         let data = dataset.data as number[]
+
         if (opts.isLog10 && Array.isArray(data)) {
             data = data.map((v) => (v === 0 ? 1e-10 : v))
         }
+
         if (opts.isStickiness && Array.isArray(data)) {
             const count = dataset.count
-            data = data.map((v) => (typeof v === 'number' ? (v / count) * 100 : v))
+            data = data.map((v) => (typeof v === 'number' && count > 0 ? (v / count) * 100 : 0))
         }
 
         const yAxisID = opts.showMultipleYAxes && index > 0 ? `y${index}` : 'y'
@@ -159,22 +166,29 @@ export interface FormatTooltipCountOptions {
 export function formatTooltipCount(value: number, opts: FormatTooltipCountOptions): string {
     if (opts.isStickiness) {
         const datum = opts.seriesData.find((s) => s.count === value)
+
         if (datum) {
             const origDataset = opts.indexedResults[datum.datasetIndex]
             const origValue = origDataset?.data?.[datum.dataIndex]
+
             if (origValue !== undefined && origValue !== null) {
                 return `${value.toFixed(1)}% (${formatAggregationAxisValue(opts.trendsFilter, origValue)})`
             }
         }
+
         return `${value.toFixed(1)}%`
     }
+
     if (!opts.isPercentStackView) {
         return formatAggregationAxisValue(opts.trendsFilter, value)
     }
+
     const total = opts.seriesData.reduce((a, b) => a + b.count, 0)
     const pct = parseFloat(((value / total) * 100).toFixed(1))
+
     if (Number.isNaN(pct)) {
         return formatAggregationAxisValue(opts.trendsFilter, value)
     }
+
     return `${formatAggregationAxisValue(opts.trendsFilter, value)} (${pct}%)`
 }

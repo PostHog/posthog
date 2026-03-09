@@ -1,7 +1,7 @@
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 
-import type { ChartInterval } from './types'
+import type { ChartInterval } from '../types'
 
 interface CreateXAxisTickCallbackArgs {
     interval?: ChartInterval

@@ -1,11 +1,7 @@
 export function hexToRgb(hex: string): [number, number, number] {
     const clean = hex.replace('#', '')
     if (clean.length === 3) {
-        return [
-            parseInt(clean[0] + clean[0], 16),
-            parseInt(clean[1] + clean[1], 16),
-            parseInt(clean[2] + clean[2], 16),
-        ]
+        return [parseInt(clean[0] + clean[0], 16), parseInt(clean[1] + clean[1], 16), parseInt(clean[2] + clean[2], 16)]
     }
     return [parseInt(clean.slice(0, 2), 16), parseInt(clean.slice(2, 4), 16), parseInt(clean.slice(4, 6), 16)]
 }

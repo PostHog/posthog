@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 
-import { formatValue } from '../format'
-import { mergeTheme } from '../theme'
 import type { WorldMapProps } from '../types'
+import { formatValue } from '../utils/format'
+import { mergeTheme } from '../utils/theme'
 
 export function WorldMap(props: WorldMapProps): JSX.Element {
     const { data } = props
@@ -27,8 +27,8 @@ export function WorldMap(props: WorldMapProps): JSX.Element {
     const height = typeof props.height === 'number' ? props.height : 400
 
     const style: React.CSSProperties = {
-        width: typeof props.width === 'number' ? `${props.width}px` : props.width ?? '100%',
-        height: typeof props.height === 'number' ? `${props.height}px` : props.height ?? 'auto',
+        width: typeof props.width === 'number' ? `${props.width}px` : (props.width ?? '100%'),
+        height: typeof props.height === 'number' ? `${props.height}px` : (props.height ?? 'auto'),
         fontFamily: theme.fontFamily,
         position: 'relative',
     }

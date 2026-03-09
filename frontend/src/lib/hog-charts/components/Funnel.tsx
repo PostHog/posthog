@@ -1,6 +1,6 @@
-import { formatValue } from '../format'
-import { mergeTheme, seriesColor } from '../theme'
 import type { FunnelProps, FunnelStep } from '../types'
+import { formatValue } from '../utils/format'
+import { mergeTheme, seriesColor } from '../utils/theme'
 
 export function Funnel(props: FunnelProps): JSX.Element {
     const { steps, layout = 'horizontal', showConversionRates = true, showTime = false } = props
@@ -14,8 +14,8 @@ export function Funnel(props: FunnelProps): JSX.Element {
     const isHorizontal = layout === 'horizontal'
 
     const style: React.CSSProperties = {
-        width: typeof props.width === 'number' ? `${props.width}px` : props.width ?? '100%',
-        height: typeof props.height === 'number' ? `${props.height}px` : props.height ?? 'auto',
+        width: typeof props.width === 'number' ? `${props.width}px` : (props.width ?? '100%'),
+        height: typeof props.height === 'number' ? `${props.height}px` : (props.height ?? 'auto'),
         display: 'flex',
         flexDirection: isHorizontal ? 'column' : 'row',
         gap: 2,
@@ -98,12 +98,27 @@ function FunnelStepRow({
                         {formatValue(step.count, 'compact')}
                     </div>
                 </div>
-                <div style={{ width: 80, flexShrink: 0, textAlign: 'left', color: theme.axisColor, fontSize: theme.fontSize ? theme.fontSize - 1 : 11 }}>
+                <div
+                    style={{
+                        width: 80,
+                        flexShrink: 0,
+                        textAlign: 'left',
+                        color: theme.axisColor,
+                        fontSize: theme.fontSize ? theme.fontSize - 1 : 11,
+                    }}
+                >
                     {showConversionRate && conversionRate && index > 0 ? `${conversionRate}%` : ''}
                     {showConversionRate && overallRate && index > 0 ? ` (${overallRate}%)` : ''}
                 </div>
                 {showTime && step.medianTime !== undefined && (
-                    <div style={{ width: 60, flexShrink: 0, color: theme.axisColor, fontSize: theme.fontSize ? theme.fontSize - 1 : 11 }}>
+                    <div
+                        style={{
+                            width: 60,
+                            flexShrink: 0,
+                            color: theme.axisColor,
+                            fontSize: theme.fontSize ? theme.fontSize - 1 : 11,
+                        }}
+                    >
                         {formatValue(step.medianTime, 'duration')}
                     </div>
                 )}
@@ -130,7 +145,13 @@ function FunnelStepRow({
             >
                 {formatValue(step.count, 'compact')}
             </div>
-            <div style={{ color: theme.axisColor, fontSize: theme.fontSize ? theme.fontSize - 1 : 11, textAlign: 'center' }}>
+            <div
+                style={{
+                    color: theme.axisColor,
+                    fontSize: theme.fontSize ? theme.fontSize - 1 : 11,
+                    textAlign: 'center',
+                }}
+            >
                 {step.label}
             </div>
             {showConversionRate && conversionRate && index > 0 && (

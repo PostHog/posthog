@@ -1,9 +1,8 @@
 import type { ChartConfiguration, ChartDataset } from 'chart.js'
 
-import { createXAxisTickCallback } from '../formatXAxisTick'
-import { mergeTheme } from '../theme'
 import type { AreaProps, LineProps } from '../types'
-
+import { createXAxisTickCallback } from '../utils/dates'
+import { mergeTheme } from '../utils/theme'
 import {
     baseOptions,
     buildGoalLineAnnotations,
@@ -42,7 +41,9 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
         if (isDimmed) {
             bgColor = `${color}33`
         } else if (shouldFill) {
-            const hex = Math.round(fillOpacity * 255).toString(16).padStart(2, '0')
+            const hex = Math.round(fillOpacity * 255)
+                .toString(16)
+                .padStart(2, '0')
             bgColor = `${color}${hex}`
         } else {
             bgColor = `${color}18`
@@ -156,7 +157,7 @@ export function buildLineConfig(props: LineProps): ChartConfiguration<'line'> {
                 ...yAxes,
             },
             plugins: {
-                ...(opts.plugins as Record<string, unknown>),
+                ...opts.plugins,
                 ...crosshairPluginConfig,
                 annotation: {
                     annotations: buildGoalLineAnnotations(props.goalLines, theme),
