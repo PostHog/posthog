@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     SSLRequiredError,
     filter_postgres_incremental_fields,
+    get_foreign_keys as get_postgres_foreign_keys,
     get_postgres_row_count,
     get_schemas as get_postgres_schemas,
     postgres_source,
@@ -157,6 +158,14 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 database=config.database,
                 schema=config.schema,
             )
+            db_foreign_keys = get_postgres_foreign_keys(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                schema=config.schema,
+            )
 
             if with_counts:
                 row_counts = get_postgres_row_count(
@@ -190,6 +199,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
+                    columns=columns,
+                    foreign_keys=db_foreign_keys.get(table_name, []),
                 )
             )
 

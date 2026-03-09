@@ -27,7 +27,9 @@ import { getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
 import { processAllSnapshots } from './snapshot-processing/process-all-snapshots'
 import { keyForSource } from './snapshot-processing/source-key'
 import { SnapshotStore } from './snapshot-store/SnapshotStore'
+import { SourceLoadingState } from './snapshot-store/types'
 import { snapshotDataLogic } from './snapshotDataLogic'
+import { convertSegmentKinds } from './utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
@@ -298,27 +300,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 snapshotStore: SnapshotStore | null
             ): RecordingSegment[] => {
                 const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
-
-                return segments.map((segment) => {
-                    if (segment.kind === 'buffer') {
-                        // Store path: if all sources covering this buffer range are already
-                        // loaded, the data isn't pending — it's a gap with no events.
-                        // Guard on sourceCount > 0: an empty store has no entries, so
-                        // getUnloadedIndicesInRange returns [] which would falsely convert.
-                        if (snapshotStore && snapshotStore.sourceCount > 0) {
-                            const startIdx = snapshotStore.getSourceIndexForTimestamp(segment.startTimestamp)
-                            const endIdx = snapshotStore.getSourceIndexForTimestamp(segment.endTimestamp)
-                            if (snapshotStore.getUnloadedIndicesInRange(startIdx, endIdx).length === 0) {
-                                return { ...segment, kind: 'gap' as const }
-                            }
-                        }
-                        return {
-                            ...segment,
-                            isLoading: isLoadingSnapshots,
-                        }
-                    }
-                    return segment
-                })
+                return convertSegmentKinds(segments, snapshotStore, isLoadingSnapshots)
             },
         ],
 
@@ -472,6 +454,23 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             (s) => [s.snapshots],
             (snapshots): customEvent[] => {
                 return snapshots.filter((snapshot) => snapshot.type === EventType.Custom).map((x) => x as customEvent)
+            },
+        ],
+
+        effectiveSourceLoadingStates: [
+            (s) => [s.sourceLoadingStates, s.segments],
+            (states: SourceLoadingState[], segments: RecordingSegment[]): SourceLoadingState[] => {
+                let lastNonGapState: 'loaded' | 'unloaded' = 'unloaded'
+                return states.map((s) => {
+                    const inGap = !segments.some(
+                        (seg) => seg.kind !== 'gap' && seg.startTimestamp < s.endMs && seg.endTimestamp > s.startMs
+                    )
+                    if (inGap) {
+                        return { ...s, state: lastNonGapState }
+                    }
+                    lastNonGapState = s.state
+                    return s
+                })
             },
         ],
 

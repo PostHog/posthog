@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { type RenderResult, cleanup, render, screen } from '@testing-library/react'
+import { type RenderResult, cleanup, render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
@@ -181,15 +181,17 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             const { container } = renderComponent(defaultExperiment)
 
             // Click pencil button to enable custom split editing
-            const customizeButton = screen.getByRole('button', { name: /customize split/i })
-            await userEvent.click(customizeButton)
+            await userEvent.click(screen.getByRole('button', { name: /customize split/i }))
 
             const percentageInputs = container.querySelectorAll(
                 '[data-attr="experiment-variant-rollout-percentage-input"]'
             )
+            const percentageInput = percentageInputs[0]
 
-            await userEvent.clear(percentageInputs[0] as Element)
-            await userEvent.type(percentageInputs[0] as Element, '70')
+            await userEvent.clear(percentageInput)
+            // Setting the value on type=number inputs with userEvent.type can be flaky
+            // https://github.com/testing-library/user-event/issues/411
+            await fireEvent.change(percentageInput, { target: { value: '70' } })
 
             // Check the last call
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1]
@@ -288,7 +290,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             renderComponent(unevenExperiment)
 
-            const balanceButton = screen.getByRole('button', { name: /distribute split evenly/i })
+            const balanceButton = screen.getByTestId('distribute-variants-equally')
             await userEvent.click(balanceButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({
@@ -319,7 +321,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
                 )
 
                 await userEvent.clear(percentageInputs[0] as Element)
-                await userEvent.type(percentageInputs[0] as Element, inputValue)
+                await fireEvent.change(percentageInputs[0] as Element, { target: { value: inputValue } })
 
                 const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
                 expect(lastCall.parameters.feature_flag_variants).toEqual([
@@ -351,7 +353,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             )
 
             await userEvent.clear(percentageInputs[0] as Element)
-            await userEvent.type(percentageInputs[0] as Element, '10')
+            await fireEvent.change(percentageInputs[0] as Element, { target: { value: '10' } })
 
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
             expect(lastCall.parameters.feature_flag_variants).toEqual([
@@ -416,7 +418,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             ) as HTMLInputElement
 
             await userEvent.clear(rolloutInput)
-            await userEvent.type(rolloutInput, '50')
+            await fireEvent.change(rolloutInput, { target: { value: '50' } })
 
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
             expect(lastCall.parameters).toEqual(

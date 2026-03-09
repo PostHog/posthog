@@ -13,7 +13,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
 
-from .cache import invalidate_tickets_cache
+from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent
 from .models import Ticket
 from .models.constants import Channel
@@ -88,9 +88,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         # Emit analytics events and invalidate cache
         try:
             ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
-            # Invalidate widget tickets cache so list shows updated last_message
+            # Invalidate widget caches so list and messages reflect the new message
             if ticket.widget_session_id:
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
+            invalidate_messages_cache(team_id, item_id)
 
             # Customer-facing analytics (to customer's project)
             if is_team_message:
@@ -103,7 +104,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             if is_team_message and created_by_id:
                 user = User.objects.filter(id=created_by_id).first()
                 if user:
-                    report_user_action(user, "support message sent", props, ticket.team)
+                    report_user_action(user, "support message sent", props, team=ticket.team)
             else:
                 report_team_action(ticket.team, "support message received", props)
         except Ticket.DoesNotExist:

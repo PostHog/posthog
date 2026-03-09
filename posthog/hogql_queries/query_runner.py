@@ -3,11 +3,27 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
 from types import UnionType
-from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Optional,
+    Protocol,
+    TypeGuard,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+)
 
 import structlog
 import posthoganalytics
+from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
@@ -87,7 +103,7 @@ from posthog.clickhouse.client.limit import (
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
@@ -102,6 +118,18 @@ from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
 
+QUERY_EXECUTION_TOTAL = Counter(
+    "posthog_query_execution_total",
+    "Query executions by status",
+    labelnames=["query_type", "status"],
+)
+
+QUERY_EXECUTION_DURATION = Histogram(
+    "posthog_query_execution_duration_seconds",
+    "Query execution duration in seconds",
+    labelnames=["query_type"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
+)
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 
@@ -212,6 +240,17 @@ def get_query_runner(
             from .insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
 
             return CalendarHeatmapTrendsQueryRunner(
+                query=query_obj,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+            )
+
+        if display_type == ChartDisplayType.BOX_PLOT:
+            from .insights.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
+
+            return BoxPlotTrendsQueryRunner(
                 query=query_obj,
                 team=team,
                 timings=timings,
@@ -849,6 +888,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "PropertyValuesQuery":
+        from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryRunner
+
+        return PropertyValuesQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
@@ -902,7 +952,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
         workload: Workload = Workload.DEFAULT,
-        extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
+        extract_modifiers=lambda query: query.modifiers if hasattr(query, "modifiers") else None,
         user: Optional[User] = None,
     ):
         self.team = team
@@ -1157,6 +1207,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
+        request: Optional["Request"] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         # Set user for access control during query execution
         if user is not None:
@@ -1252,20 +1303,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             "last_refresh": last_refresh.isoformat() if last_refresh else None,
                         }
 
-                    posthoganalytics.capture(
-                        distinct_id=user.distinct_id if user else str(self.team.uuid),
-                        event="query executed",
-                        properties={
-                            "insight_id": insight_id,
-                            "dashboard_id": dashboard_id,
-                            "execution_mode": execution_mode.value,
-                            "query_type": getattr(self.query, "kind", "Other"),
-                            "cache_key": cache_key,
-                            "cache_hit": True if isinstance(results, CachedResponse) else False,
-                            "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
-                            **cache_tracking_props,
-                        },
-                        groups=(groups(self.team.organization, self.team)),
+                    query_executed_props = {
+                        "insight_id": insight_id,
+                        "dashboard_id": dashboard_id,
+                        "execution_mode": execution_mode.value,
+                        "query_type": getattr(self.query, "kind", "Other"),
+                        "cache_key": cache_key,
+                        "cache_hit": True if isinstance(results, CachedResponse) else False,
+                        "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                        **cache_tracking_props,
+                    }
+                    report_user_or_team_action(
+                        "query executed",
+                        query_executed_props,
+                        user=user,
+                        team=self.team,
+                        organization=self.team.organization,
+                        request=request,
                     )
 
                     return results
@@ -1279,7 +1333,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
                 self.modifiers.useMaterializedViews = True
 
-            query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+            query_type = getattr(self.query, "kind", "Other")
+            query_start = perf_counter()
+            try:
+                query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success").inc()
+            except Exception:
+                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="failure").inc()
+                raise
+            finally:
+                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
 
             fresh_response_dict = {
                 **query_result.model_dump(),
@@ -1314,6 +1377,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Don't cache debug queries with errors and export queries
             errors: Optional[list] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
+
             if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
                     response=fresh_response_dict,
@@ -1323,22 +1387,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     target_age=target_age,
                 )
 
-            posthoganalytics.capture(
-                distinct_id=user.distinct_id if user else str(self.team.uuid),
-                event="query executed",
-                properties={
-                    "insight_id": insight_id,
-                    "dashboard_id": dashboard_id,
-                    "cache_hit": False,
-                    "cache_key": cache_key,
-                    "calculation_trigger": trigger,
-                    "execution_mode": execution_mode.value,
-                    "query_type": getattr(self.query, "kind", "Other"),
-                    "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
-                    "query_duration_ms": query_duration_ms,
-                    "has_error": has_error,
-                },
-                groups=(groups(self.team.organization, self.team)),
+            query_executed_props = {
+                "insight_id": insight_id,
+                "dashboard_id": dashboard_id,
+                "cache_hit": False,
+                "cache_key": cache_key,
+                "calculation_trigger": trigger,
+                "execution_mode": execution_mode.value,
+                "query_type": getattr(self.query, "kind", "Other"),
+                "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                "query_duration_ms": query_duration_ms,
+                "has_error": has_error,
+            }
+            report_user_or_team_action(
+                "query executed",
+                query_executed_props,
+                user=user,
+                team=self.team,
+                organization=self.team.organization,
+                request=request,
             )
 
             return CachedResponse(**fresh_response_dict)

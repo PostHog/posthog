@@ -22,6 +22,8 @@ from llm_gateway.metrics.prometheus import (
 from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
     RequestContext,
+    get_posthog_flags,
+    get_posthog_properties,
     get_request_id,
     set_auth_user,
     set_request_context,
@@ -56,7 +58,14 @@ async def handle_llm_request(
     settings = get_settings()
     start_time = time.monotonic()
 
-    set_request_context(RequestContext(request_id=get_request_id(), product=product))
+    set_request_context(
+        RequestContext(
+            request_id=get_request_id(),
+            product=product,
+            posthog_properties=get_posthog_properties(),
+            posthog_flags=get_posthog_flags(),
+        )
+    )
     set_auth_user(user)
 
     structlog.contextvars.bind_contextvars(

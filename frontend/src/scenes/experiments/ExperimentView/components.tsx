@@ -282,7 +282,6 @@ export function PageHeaderCustom(): JSX.Element {
         isExperimentRunning,
         isExperimentLaunched,
         isExperimentStopped,
-        hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
         experimentLoading,
     } = useValues(experimentLogic)
@@ -332,11 +331,6 @@ export function PageHeaderCustom(): JSX.Element {
                                     type="primary"
                                     data-attr="launch-experiment"
                                     onClick={() => launchExperiment()}
-                                    disabledReason={
-                                        !hasPrimaryMetricSet
-                                            ? 'Add at least one primary metric before launching the experiment'
-                                            : undefined
-                                    }
                                     size="small"
                                 >
                                     Launch
@@ -462,7 +456,7 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <LemonDivider />
 
-                        {!experiment.end_date &&
+                        {isExperimentRunning &&
                             experiment.feature_flag &&
                             (experiment.feature_flag.active ? (
                                 <ButtonPrimitive

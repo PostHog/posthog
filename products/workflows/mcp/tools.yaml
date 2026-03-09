@@ -1,0 +1,40 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Workflows
+feature: hog_flows
+url_prefix: /workflows
+tools:
+    workflows-list:
+        operation: hog_flows_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List workflows
+        description: >
+            List all workflows in the project. Returns workflows with their name,
+            description, status (draft/active/archived), version, trigger configuration,
+            and timestamps.
+        mcp_version: 1
+    workflows-get:
+        operation: hog_flows_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get workflow
+        description: >
+            Get a specific workflow by ID. Returns the full workflow definition
+            including trigger, edges, actions, exit condition, and variables.
+        mcp_version: 1

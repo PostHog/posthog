@@ -64,11 +64,13 @@ def parse_jsonl(data: bytes) -> list[dict]:
     return [json.loads(line) for line in data.decode().strip().split("\n") if line]
 
 
-def normalize_record(record: dict, json_columns: tuple[str, ...]) -> dict:
+def normalize_record(record: dict, json_columns: tuple[str, ...], skip_columns: set[str] | None = None) -> dict:
     """Format datetimes as ISO strings and parse JSON columns."""
     normalized = {}
     for key, value in record.items():
-        if isinstance(value, dt.datetime):
+        if skip_columns and key in skip_columns:
+            continue
+        elif isinstance(value, dt.datetime):
             normalized[key] = value.isoformat()
         elif key in json_columns and value is not None:
             normalized[key] = json.loads(value)
@@ -158,8 +160,16 @@ async def assert_clickhouse_records_in_azure_blob(
         compression=compression,
         json_columns=json_columns,
     )
-
     model_name, fields, filters, extra_query_parameters = extract_model_configuration(batch_export_model)
+
+    if model_name == "events":
+        assert all("azure_blob_ingested_timestamp" in record for record in exported_records), (
+            "Export didn't include ingested timestamp when expected"
+        )
+
+        exported_records = [
+            {k: v for k, v in record.items() if k != "azure_blob_ingested_timestamp"} for record in exported_records
+        ]
 
     expected_records = []
     queue = RecordBatchQueue()
@@ -187,7 +197,9 @@ async def assert_clickhouse_records_in_azure_blob(
         if record_batch is None:
             break
         for record in record_batch.to_pylist():
-            expected_records.append(normalize_record(record, json_columns))
+            expected_records.append(
+                normalize_record(record, json_columns, skip_columns={"azure_blob_ingested_timestamp"})
+            )
 
     assert len(exported_records) > 0, "No records were exported to Azure Blob"
     assert len(expected_records) > 0, "No expected records were produced from Producer"

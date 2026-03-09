@@ -1,3 +1,4 @@
+import uuid
 import socket
 import typing
 import builtins
@@ -31,6 +32,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
 from posthog.batch_exports.service import (
@@ -197,7 +199,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         batch_export_run = self.get_object()
 
         temporal = sync_connect()
-        backfill_workflow_id = backfill_export(
+        backfill_id = backfill_export(
             temporal,
             str(batch_export_run.batch_export.id),
             self.team_id,
@@ -205,7 +207,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             batch_export_run.data_interval_end,
         )
 
-        return response.Response({"backfill_id": backfill_workflow_id})
+        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
@@ -233,7 +235,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
-    integration_id = serializers.PrimaryKeyRelatedField(
+    integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
     )
 
@@ -1231,7 +1233,7 @@ def create_backfill(
         end_at_input: ISO formatted datetime string for backfill end
 
     Returns:
-        The backfill workflow ID
+        The pre-generated backfill ID.
     """
     # Currently, backfills from the beginning of time usually fail due to us hitting ClickHouse memory limits.
     # Therefore, this feature is behind a feature flag while we improve backfilling behavior.
@@ -1266,8 +1268,18 @@ def create_backfill(
     # via the get_backfill_info activity. This allows the potentially slow ClickHouse query to run
     # asynchronously rather than blocking the HTTP request.
 
+    backfill_id = str(uuid.uuid4())
+
     if start_at is None or end_at is None:
-        return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
+        backfill_export(
+            temporal=temporal,
+            batch_export_id=str(batch_export.pk),
+            team_id=team.pk,
+            start_at=start_at,
+            end_at=end_at,
+            backfill_id=backfill_id,
+        )
+        return backfill_id
 
     if start_at >= end_at:
         raise ValidationError("The initial backfill datetime 'start_at' must be before 'end_at'")
@@ -1275,7 +1287,15 @@ def create_backfill(
         raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 
     try:
-        return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
+        backfill_export(
+            temporal=temporal,
+            batch_export_id=str(batch_export.pk),
+            team_id=team.pk,
+            start_at=start_at,
+            end_at=end_at,
+            backfill_id=backfill_id,
+        )
+        return backfill_id
     except BatchExportWithNoEndNotAllowedError:
         raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
 
@@ -1313,13 +1333,13 @@ class BatchExportBackfillViewSet(
         except BatchExport.DoesNotExist:
             raise NotFound("BatchExport not found.")
 
-        backfill_workflow_id = create_backfill(
+        backfill_id = create_backfill(
             self.team,
             batch_export,
             request.data.get("start_at"),
             request.data.get("end_at"),
         )
-        return response.Response({"backfill_id": backfill_workflow_id})
+        return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:

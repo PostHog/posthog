@@ -8,8 +8,7 @@ import { P, match } from 'ts-pattern'
 import { IconBox, IconEllipsis, IconSpinner, IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { CollapsiblePrimitiveTrigger } from 'lib/ui/CollapsiblePrimitive/CollapsiblePrimitive'
+import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { cn } from 'lib/utils/css-classes'
 
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
@@ -59,37 +58,30 @@ export function CollapsibleFrameHeader({
 
     return (
         <div className={cn('flex w-full h-7')}>
-            <CollapsiblePrimitiveTrigger asChild>
-                <ButtonPrimitive
-                    className={cn(
-                        'collapsible-frame-header flex justify-start items-center rounded-none h-full disabled:opacity-60 grow max-w-[calc(100%-30px)] text-xs p-0 px-2',
-                        {
-                            'cursor-progress': recordLoading,
-                        }
-                    )}
-                    disabled={!hasRecordContext && !recordLoading}
-                >
-                    {functionName && (
-                        <span ref={functionRef} className="font-medium frame-function" title={functionName}>
-                            {functionName}
-                        </span>
-                    )}
-                    <span ref={sourceRef} className="font-light frame-source px-1" title={sourceContent!}>
-                        {sourceContent}
+            <Collapsible.Trigger
+                className={cn('collapsible-frame-header grow max-w-[calc(100%-30px)]', {
+                    'cursor-progress': recordLoading,
+                })}
+                disabled={!hasRecordContext && !recordLoading}
+            >
+                {functionName && (
+                    <span ref={functionRef} className="font-medium frame-function" title={functionName}>
+                        {functionName}
                     </span>
-                    <div className="gap-x-1 frame-icons">
-                        {part && <FingerprintRecordPartDisplay part={part} />}
-                        {match([in_app, resolved, recordLoading, hasRecordContext])
-                            .with([false, P.any, P.any, P.any], () => <VendorIcon />)
-                            .with([true, false, P.any, P.any], () => (
-                                <UnresolvedIcon resolve_failure={resolve_failure} />
-                            ))
-                            .with([true, true, true, false], () => <SpinnerIcon />)
-                            .with([true, true, false, false], () => <NoContextIcon lang={lang} raw_id={raw_id} />)
-                            .otherwise(() => null)}
-                    </div>
-                </ButtonPrimitive>
-            </CollapsiblePrimitiveTrigger>
+                )}
+                <span ref={sourceRef} className="font-light frame-source px-1" title={sourceContent!}>
+                    {sourceContent}
+                </span>
+                <div className="gap-x-1 frame-icons">
+                    {part && <FingerprintRecordPartDisplay part={part} />}
+                    {match([in_app, resolved, recordLoading, hasRecordContext])
+                        .with([false, P.any, P.any, P.any], () => <VendorIcon />)
+                        .with([true, false, P.any, P.any], () => <UnresolvedIcon resolve_failure={resolve_failure} />)
+                        .with([true, true, true, false], () => <SpinnerIcon />)
+                        .with([true, true, false, false], () => <NoContextIcon lang={lang} raw_id={raw_id} />)
+                        .otherwise(() => null)}
+                </div>
+            </Collapsible.Trigger>
             <div className="border-l-1 shrink-0 w-7">
                 <FrameDropDownMenu className="h-full w-7 rounded-none outline-none" frame={frame} record={record}>
                     <IconEllipsis />

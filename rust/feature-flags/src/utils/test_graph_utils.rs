@@ -908,7 +908,10 @@ mod filter_graph_by_keys_tests {
         let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -935,7 +938,10 @@ mod filter_graph_by_keys_tests {
         let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -970,7 +976,10 @@ mod filter_graph_by_keys_tests {
         let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1011,7 +1020,10 @@ mod filter_graph_by_keys_tests {
         let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3, flag4];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1052,7 +1064,10 @@ mod filter_graph_by_keys_tests {
         let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
 
         let flags = vec![flag1, flag2];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1082,7 +1097,10 @@ mod filter_graph_by_keys_tests {
         let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
 
         let flags = vec![flag1, flag2];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1123,7 +1141,10 @@ mod filter_graph_by_keys_tests {
         let flag6 = create_test_flag_with_dependencies(6, "flag6", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3, flag4, flag5, flag6];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1173,7 +1194,10 @@ mod filter_graph_by_keys_tests {
         let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3, flag4];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1220,7 +1244,10 @@ mod filter_graph_by_keys_tests {
         let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1313,7 +1340,10 @@ mod inactive_flag_dependency_tests {
         let other_flag = create_flag(2, "other_flag", HashSet::new(), true);
 
         let flags = vec![inactive_flag, other_flag];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert!(
@@ -1333,7 +1363,10 @@ mod inactive_flag_dependency_tests {
         let inactive_dep = create_flag(2, "inactive_dep", HashSet::new(), false);
 
         let flags = vec![active_flag, inactive_dep];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert!(
@@ -1358,7 +1391,10 @@ mod inactive_flag_dependency_tests {
         let inactive_flag = create_flag(2, "inactive_flag", HashSet::from([999]), false);
 
         let flags = vec![active_flag, inactive_flag];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert!(result.errors.is_empty());
@@ -1374,7 +1410,10 @@ mod inactive_flag_dependency_tests {
         let present_dep = create_flag(2, "present_dep", HashSet::new(), true);
 
         let flags = vec![inactive_flag, present_dep];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert!(result.errors.is_empty());
@@ -1393,7 +1432,10 @@ mod inactive_flag_dependency_tests {
         let active_flag = create_flag(1, "active_flag", HashSet::from([999]), true);
 
         let flags = vec![active_flag];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert_eq!(result.errors.len(), 1);

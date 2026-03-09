@@ -5,6 +5,78 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from llm_gateway.api.anthropic import (
+    extract_posthog_flags_from_headers,
+    extract_posthog_properties_from_headers,
+)
+
+
+class TestExtractPosthogFlagsFromHeaders:
+    def test_extracts_x_posthog_flag_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-POSTHOG-FLAG-EXPERIMENT-FEATURE-FLAG-KEY", "variant-name"),
+            ("X-POSTHOG-FLAG-ANOTHER-FLAG", "control"),
+            ("Content-Type", "application/json"),
+        ]
+        result = extract_posthog_flags_from_headers(request)
+        assert result == {
+            "experiment-feature-flag-key": "variant-name",
+            "another-flag": "control",
+        }
+
+    def test_extract_case_insensitive(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("x-posthog-flag-my-flag", "value"),
+        ]
+        result = extract_posthog_flags_from_headers(request)
+        assert result == {"my-flag": "value"}
+
+    def test_extract_ignores_non_matching_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-POSTHOG-PROPERTY-FOO", "prop"),
+            ("Authorization", "Bearer x"),
+        ]
+        result = extract_posthog_flags_from_headers(request)
+        assert result == {}
+
+
+class TestExtractPosthogPropertiesFromHeaders:
+    def test_extracts_x_posthog_property_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-POSTHOG-PROPERTY-VARIANT", "memes"),
+            ("X-POSTHOG-PROPERTY-FOO", "bar"),
+            ("Content-Type", "application/json"),
+        ]
+        result = extract_posthog_properties_from_headers(request)
+        assert result == {"variant": "memes", "foo": "bar"}
+
+    def test_extract_case_insensitive(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("x-posthog-property-key", "value"),
+        ]
+        result = extract_posthog_properties_from_headers(request)
+        assert result == {"key": "value"}
+
+    def test_extract_ignores_non_matching_headers(self) -> None:
+        request = MagicMock()
+        request.headers = MagicMock()
+        request.headers.items.return_value = [
+            ("X-Other-Header", "other"),
+            ("Authorization", "Bearer x"),
+        ]
+        result = extract_posthog_properties_from_headers(request)
+        assert result == {}
+
 
 class TestAnthropicMessagesEndpoint:
     @pytest.fixture

@@ -42,7 +42,7 @@ export class CdpEventsConsumer<
         groupId: string = 'cdp-processed-events-consumer'
     ) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config, 'hog')
+        this.cyclotronJobQueue = new CyclotronJobQueue(config)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {
@@ -93,12 +93,7 @@ export class CdpEventsConsumer<
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-
-        if (this.config.CDP_GROUPS_MANAGER_V2_ENABLED) {
-            await this.groupsManagerV2.addGroupsToGlobalsList(invocationGlobals)
-        } else {
-            await this.groupsManager.enrichGroups(invocationGlobals)
-        }
+        await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
@@ -262,7 +257,7 @@ export class CdpEventsConsumer<
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
         // TODO: Add back in group enrichment if necessary
-        // await this.groupsManager.enrichGroups(invocationGlobals)
+        // await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)

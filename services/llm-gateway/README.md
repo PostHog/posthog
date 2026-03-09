@@ -118,6 +118,14 @@ response = client.messages.create(
 )
 ```
 
+## Feature flags
+
+The gateway supports feature flags via the `X-POSTHOG-FLAG-*` headers. Feature flags are sent as `X-POSTHOG-FLAG-<FLAG_KEY>: <VALUE>` headers and appear on PostHog events as `$feature/<FLAG_KEY>: <VALUE>`.
+
+## Custom event properties
+
+The gateway supports capturing additional event properties to PostHog via the `X-POSTHOG-PROPERTY-*` headers. Event properties are sent as `X-POSTHOG-PROPERTY-<PROPERTY_KEY>: <VALUE>` headers and appear on PostHog events as `<PROPERTY_KEY>: <VALUE>`.
+
 ## API endpoints
 
 ### OpenAI-compatible
@@ -153,7 +161,7 @@ Defined in `src/llm_gateway/products/config.py`:
 | Product              | Auth            | Models                     | Notes                           |
 | -------------------- | --------------- | -------------------------- | ------------------------------- |
 | `llm_gateway`        | API key + OAuth | All                        | Default when no product in path |
-| `twig`               | OAuth only      | Restricted set             | Desktop coding agent            |
+| `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
 | `wizard`             | OAuth only      | All                        | Max AI assistant                |
 | `django`             | API key + OAuth | All                        | Server-side Django calls        |
@@ -162,7 +170,7 @@ Defined in `src/llm_gateway/products/config.py`:
 | `llma_summarization` | API key + OAuth | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
 | `llma_eval_summary`  | API key + OAuth | gpt-5-mini                 | LLM analytics eval summary      |
 
-Aliases: `array` resolves to `twig`.
+Aliases: `twig` and `array` resolve to `posthog_code`.
 
 ### Adding a new product
 

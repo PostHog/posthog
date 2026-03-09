@@ -8,7 +8,7 @@ import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
-import { llmAnalyticsPlaygroundLogic } from '../llmAnalyticsPlaygroundLogic'
+import { llmPlaygroundPromptsLogic } from '../playground/llmPlaygroundPromptsLogic'
 import { normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
@@ -19,17 +19,20 @@ export interface ConversationDisplayProps {
 }
 
 export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
-    const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
+    const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
 
+    const rawInput = eventProperties.$ai_input ?? eventProperties.$ai_input_state
+    const rawOutput = eventProperties.$ai_output_choices ?? eventProperties.$ai_output_state
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
-        input: eventProperties.$ai_input,
-        output: eventProperties.$ai_output_choices,
+        input: rawInput,
+        output: rawOutput,
     })
 
     const handleTryInPlayground = (): void => {
         setupPlaygroundFromEvent({
             model: eventProperties.$ai_model,
+            provider: eventProperties.$ai_provider,
             input,
         })
     }

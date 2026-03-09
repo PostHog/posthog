@@ -6,6 +6,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { InsightModals } from 'scenes/insights/InsightModals'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
@@ -79,6 +80,7 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
+            <InsightModals insightLogicProps={insightProps} />
             <SceneContent className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 

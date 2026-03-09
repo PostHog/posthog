@@ -74,7 +74,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalyticsTrace: () => import('../../products/llm_analytics/frontend/LLMAnalyticsTraceScene'),
     LLMAnalyticsSession: () => import('../../products/llm_analytics/frontend/LLMAnalyticsSessionScene'),
     LLMAnalyticsUsers: () => import('../../products/llm_analytics/frontend/LLMAnalyticsUsers'),
-    LLMAnalyticsPlayground: () => import('../../products/llm_analytics/frontend/LLMAnalyticsPlaygroundScene'),
+    LLMAnalyticsPlayground: () =>
+        import('../../products/llm_analytics/frontend/playground/LLMAnalyticsPlaygroundScene'),
     LLMAnalyticsDatasets: () => import('../../products/llm_analytics/frontend/datasets/LLMAnalyticsDatasetsScene'),
     LLMAnalyticsDataset: () => import('../../products/llm_analytics/frontend/datasets/LLMAnalyticsDatasetScene'),
     LLMAnalyticsEvaluations: () =>
@@ -96,6 +97,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
+    VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
+    VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
+    VisualReviewSettings: () => import('../../products/visual_review/frontend/scenes/VisualReviewSettingsScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
@@ -142,7 +146,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/tools': ['LLMAnalytics', 'llmAnalyticsTools'],
     '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
     '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
-    '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
+    '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
     '/llm-analytics/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
     '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
     '/llm-analytics/evaluations': ['LLMAnalyticsEvaluations', 'llmAnalyticsEvaluations'],
@@ -168,6 +172,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
     '/user_interviews': ['UserInterviews', 'userInterviews'],
     '/user_interviews/:id': ['UserInterview', 'userInterview'],
+    '/visual_review': ['VisualReviewRuns', 'visualReviewRuns'],
+    '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
+    '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -359,9 +366,11 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsPlayground: {
         projectBased: true,
-        name: 'LLM playground',
-        layout: 'app-container',
+        name: 'Playground',
+        description: 'Test and experiment with LLM prompts in a sandbox environment.',
+        layout: 'app-full-scene-height',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_playground',
     },
     LLMAnalyticsDatasets: {
         projectBased: true,
@@ -488,6 +497,9 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'user_interview',
     },
     UserInterview: { name: 'User interview', projectBased: true, activityScope: 'UserInterview' },
+    VisualReviewRuns: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
+    VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
+    VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',
@@ -610,10 +622,12 @@ export const productUrls = {
         type,
         sourceId,
         template,
+        intent,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
+        intent?: 'local-eval' | 'first-page-load'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -624,6 +638,9 @@ export const productUrls = {
         }
         if (template) {
             params.set('template', template)
+        }
+        if (intent) {
+            params.set('intent', intent)
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -795,14 +812,17 @@ export const productUrls = {
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
-    surveyTemplates: (): string => '/survey_templates',
-    surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
+    surveyWizard: (id: string = 'new', template?: string): string =>
+        `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
     toolbarLaunch: (): string => '/toolbar',
     userInterviews: (): string => '/user_interviews',
     userInterview: (id: string): string => `/user_interviews/${id}`,
+    visualReviewRuns: (): string => '/visual_review',
+    visualReviewSettings: (): string => '/visual_review/settings',
+    visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -1123,8 +1143,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_clusters' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsClusters(),
-        flag: FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB,
-        tags: ['alpha'],
         sceneKey: 'LLMAnalyticsClusters',
         sceneKeys: [
             'LLMAnalytics',
@@ -1413,6 +1431,33 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Notebook', 'Notebooks'],
     },
     {
+        path: 'Playground',
+        intents: [ProductKey.LLM_ANALYTICS],
+        category: 'AI engineering',
+        type: 'llm_playground',
+        iconType: 'llm_playground' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        href: urls.llmAnalyticsPlayground(),
+        tags: ['beta'],
+        sceneKey: 'LLMAnalyticsPlayground',
+        sceneKeys: [
+            'LLMAnalytics',
+            'LLMAnalyticsTrace',
+            'LLMAnalyticsSession',
+            'LLMAnalyticsUsers',
+            'LLMAnalyticsPlayground',
+            'LLMAnalyticsDatasets',
+            'LLMAnalyticsDataset',
+            'LLMAnalyticsEvaluations',
+            'LLMAnalyticsEvaluation',
+            'LLMAnalyticsEvaluationTemplates',
+            'LLMAnalyticsPrompts',
+            'LLMAnalyticsPrompt',
+            'LLMAnalyticsClusters',
+            'LLMAnalyticsCluster',
+        ],
+    },
+    {
         path: 'Product analytics',
         intents: [ProductKey.PRODUCT_ANALYTICS],
         category: 'Analytics',
@@ -1444,7 +1489,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsPrompts(),
         flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'LLMAnalyticsPrompts',
         sceneKeys: [
             'LLMAnalytics',
@@ -1555,6 +1600,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-user-interviews-light)'] as FileSystemIconColor,
         sceneKey: 'UserInterviews',
         sceneKeys: ['UserInterviews', 'UserInterview'],
+    },
+    {
+        path: 'Visual review',
+        intents: [ProductKey.VISUAL_REVIEW],
+        category: 'Unreleased',
+        href: urls.visualReviewRuns(),
+        iconType: 'visual_review' as FileSystemIconType,
+        tags: ['alpha'],
+        sceneKey: 'VisualReviewRuns',
+        sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings'],
     },
     {
         path: 'Web analytics',

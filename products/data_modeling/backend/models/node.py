@@ -11,6 +11,7 @@ class NodeType(models.TextChoices):
     TABLE = "table"
     VIEW = "view"
     MAT_VIEW = "matview"
+    ENDPOINT = "endpoint"
 
 
 class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):

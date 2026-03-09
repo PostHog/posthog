@@ -19,7 +19,7 @@ export function FrameContextLine({
         <div className={highlight ? 'bg-fill-error-highlight' : 'bg-surface-primary'}>
             {sortedLines.map(({ number, line }) => (
                 <div key={number} className="flex">
-                    <div className="w-12 text-center">{number}</div>
+                    <div className="w-12 shrink-0 text-center">{number}</div>
                     <CodeLine text={line} wrapLines={true} language={language} />
                 </div>
             ))}

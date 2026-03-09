@@ -4,7 +4,7 @@ from typing import Any
 import httpx
 import litellm
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, handle_llm_request
@@ -13,14 +13,37 @@ from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.metrics.prometheus import REQUEST_COUNT, REQUEST_LATENCY
 from llm_gateway.models.anthropic import AnthropicCountTokensRequest, AnthropicMessagesRequest
 from llm_gateway.products.config import validate_product
+from llm_gateway.request_context import set_posthog_flags, set_posthog_properties
 
 logger = structlog.get_logger(__name__)
 
 anthropic_router = APIRouter()
 
+POSTHOG_PROPERTY_PREFIX = "x-posthog-property-"
+POSTHOG_FLAG_PREFIX = "x-posthog-flag-"
+
 ANTHROPIC_COUNT_TOKENS_URL = "https://api.anthropic.com/v1/messages/count_tokens"
 ANTHROPIC_API_VERSION = "2023-06-01"
 COUNT_TOKENS_ENDPOINT_NAME = "anthropic_count_tokens"
+
+
+def _extract_headers_with_prefix(request: Request, prefix: str) -> dict[str, str]:
+    """Extract headers whose name (lowercased) starts with prefix; key = remainder after prefix, lowercased."""
+    result: dict[str, str] = {}
+    prefix_lower = prefix.lower()
+    for name, value in request.headers.items():
+        if name.lower().startswith(prefix_lower):
+            key = name[len(prefix) :].lower()
+            result[key] = value
+    return result
+
+
+def extract_posthog_properties_from_headers(request: Request) -> dict[str, str]:
+    return _extract_headers_with_prefix(request, POSTHOG_PROPERTY_PREFIX)
+
+
+def extract_posthog_flags_from_headers(request: Request) -> dict[str, str]:
+    return _extract_headers_with_prefix(request, POSTHOG_FLAG_PREFIX)
 
 
 async def _handle_anthropic_messages(
@@ -131,7 +154,14 @@ async def anthropic_count_tokens_with_product(
 async def anthropic_messages(
     body: AnthropicMessagesRequest,
     user: RateLimitedUser,
+    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
+    properties = extract_posthog_properties_from_headers(request)
+    if properties:
+        set_posthog_properties(properties)
+    flags = extract_posthog_flags_from_headers(request)
+    if flags:
+        set_posthog_flags(flags)
     return await _handle_anthropic_messages(body, user)
 
 
@@ -140,6 +170,13 @@ async def anthropic_messages_with_product(
     body: AnthropicMessagesRequest,
     user: RateLimitedUser,
     product: str,
+    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
+    properties = extract_posthog_properties_from_headers(request)
+    if properties:
+        set_posthog_properties(properties)
+    flags = extract_posthog_flags_from_headers(request)
+    if flags:
+        set_posthog_flags(flags)
     return await _handle_anthropic_messages(body, user, product=product)

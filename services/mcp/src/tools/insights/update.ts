@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import type { Insight } from '@/schema/insights'
 import { InsightUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -9,7 +10,9 @@ const schema = InsightUpdateSchema
 
 type Params = z.infer<typeof schema>
 
-export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = Insight & { url: string }
+
+export const updateHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { insightId, data } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -32,7 +35,7 @@ export const updateHandler: ToolBase<typeof schema>['handler'] = async (context:
     return insightWithUrl
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'insight-update',
     schema,
     handler: updateHandler,
