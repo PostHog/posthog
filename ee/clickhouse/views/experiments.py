@@ -482,7 +482,9 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 feature_flag_filters["groups"] = existing_groups
                 feature_flag_filters["multivariate"] = {"variants": variants or default_variants}
                 feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
-                feature_flag_filters.update(holdout_filters_for_flag(holdout))
+                feature_flag_filters.update(
+                    holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None)
+                )
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
@@ -497,7 +499,14 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 if "holdout" in validated_data:
                     existing_flag_serializer = FeatureFlagSerializer(
                         feature_flag,
-                        data={"filters": {**feature_flag.filters, **holdout_filters_for_flag(holdout)}},
+                        data={
+                            "filters": {
+                                **feature_flag.filters,
+                                **holdout_filters_for_flag(
+                                    holdout.id if holdout else None, holdout.filters if holdout else None
+                                ),
+                            }
+                        },
                         partial=True,
                         context=self.context,
                     )

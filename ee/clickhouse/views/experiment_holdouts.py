@@ -14,7 +14,7 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import ExperimentHoldout
+from posthog.models.experiment import ExperimentHoldout, holdout_filters_for_flag
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
 
@@ -80,9 +80,6 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
             # update flags on all experiments in this holdout group
             new_filters = self._get_filters_with_holdout_id(instance.id, filters)
             validated_data["filters"] = new_filters
-            # Can't use holdout_filters_for_flag() here because instance.filters
-            # is stale — the new filters are in validated_data but not yet saved.
-            # TODO: refactor so the helper can accept raw filters instead of the model instance.
             with transaction.atomic():
                 for experiment in instance.experiment_set.all():
                     flag = experiment.feature_flag
@@ -91,11 +88,7 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
                         data={
                             "filters": {
                                 **flag.filters,
-                                "holdout_groups": validated_data["filters"],
-                                "holdout": {
-                                    "id": instance.id,
-                                    "exclusion_percentage": validated_data["filters"][0]["rollout_percentage"],
-                                },
+                                **holdout_filters_for_flag(instance.id, validated_data["filters"]),
                             },
                         },
                         partial=True,
@@ -117,7 +110,6 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
 
-        # Inline rather than holdout_filters_for_flag(None) to keep it explicit at the deletion boundary.
         with transaction.atomic():
             for experiment in instance.experiment_set.all():
                 flag = experiment.feature_flag
@@ -126,8 +118,7 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={
                         "filters": {
                             **flag.filters,
-                            "holdout_groups": None,
-                            "holdout": None,
+                            **holdout_filters_for_flag(None, None),
                         }
                     },
                     partial=True,

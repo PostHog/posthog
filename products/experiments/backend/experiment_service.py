@@ -172,7 +172,7 @@ class ExperimentService:
             "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
             "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
             "aggregation_group_type_index": aggregation_group_type_index,
-            **holdout_filters_for_flag(holdout),
+            **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
         }
 
         feature_flag_data: dict[str, Any] = {
