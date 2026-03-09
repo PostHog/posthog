@@ -83,6 +83,8 @@ class PublicHogFunctionTemplateViewSet(
     serializer_class = HogFunctionTemplateSerializer
     queryset = HogFunctionTemplate.objects.all()
     lookup_field = "template_id"
+    # Required for the OpenAPI preprocessor to include this viewset in the schema.
+    scope_object = "hog_function"
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
