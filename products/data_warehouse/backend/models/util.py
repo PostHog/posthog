@@ -107,6 +107,12 @@ def remove_named_tuples(type):
                     i += 1
                 if i < len(tokenified_type):
                     filtered_tokens.append(tokenified_type[i])
+        elif token == "`":
+            # Skip backtick-quoted identifiers (field names like `1`, `deal_id`)
+            i += 1
+            while i < len(tokenified_type) and tokenified_type[i] != "`":
+                i += 1
+            # Skip closing backtick
         elif (
             token == "Nullable" or (len(token) == 1 and not token.isalnum()) or token in CLICKHOUSE_HOGQL_MAPPING.keys()
         ):

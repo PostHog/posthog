@@ -24,7 +24,10 @@ export const boxPlotChartLogic = kea<boxPlotChartLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'BoxPlot', 'boxPlotChartLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['insightData', 'yAxisScaleType', 'querySource', 'interval']],
+        values: [
+            insightVizDataLogic(props),
+            ['insightData', 'yAxisScaleType', 'querySource', 'interval', 'trendsFilter'],
+        ],
     })),
     selectors({
         boxplotData: [
