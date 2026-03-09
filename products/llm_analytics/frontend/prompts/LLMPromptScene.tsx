@@ -276,6 +276,5 @@ export function LLMPromptScene(): JSX.Element {
             </SceneContent>
         </Form>
     )
-
     return content
 }
