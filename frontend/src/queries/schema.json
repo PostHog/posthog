@@ -22659,6 +22659,10 @@
                     "description": "Notebook",
                     "type": "string"
                 },
+                "is_saved": {
+                    "description": "Whether this notebook has been saved to the database (not stored, set during enrichment)",
+                    "type": "boolean"
+                },
                 "title": {
                     "description": "Title for the notebook",
                     "type": ["string", "null"]
