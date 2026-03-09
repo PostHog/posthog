@@ -11,6 +11,7 @@ import {
     IconNotification,
     IconRocket,
     IconSearch,
+    IconSparkles,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -43,7 +44,7 @@ function IdleInput(): JSX.Element {
         <div className="flex flex-col items-center w-full px-3">
             <label
                 htmlFor="homepage-input"
-                className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2"
+                className="h-[42px] group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2 rounded-lg"
             >
                 <IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />
                 {!query && (
@@ -78,6 +79,22 @@ function IdleInput(): JSX.Element {
                     className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
                     autoFocus
                 />
+                {query.trim() && (
+                    <div className="rounded-[calc(--theme.radius)] flex items-center gap-1 shrink-0 transition-opacity duration-150 ease-out starting:opacity-0">
+                        <ButtonPrimitive
+                            size="xs"
+                            className="text-tertiary hover:text-primary"
+                            onClick={() => submitQuery('search')}
+                        >
+                            <IconSearch className="size-3.5" />
+                            <span className="text-xxs">Search</span>
+                        </ButtonPrimitive>
+                        <ButtonPrimitive size="xs" onClick={() => submitQuery('ai')} variant="panel">
+                            <IconSparkles className="size-3.5" />
+                            <span className="text-xxs">Ask AI</span>
+                        </ButtonPrimitive>
+                    </div>
+                )}
             </label>
             <div className="flex flex-col items-center gap-2 w-full">
                 <div className="px-4 w-full">
@@ -87,19 +104,15 @@ function IdleInput(): JSX.Element {
                                 <KeyboardShortcut forwardslash /> <span className="text-xxs">For commands</span>
                             </ButtonPrimitive>
                         </div>
-
+                        {/*
                         <div className="flex items-center gap-1">
-                            {query.trim() && (
-                                <>
-                                    <ButtonPrimitive size="xs" className="text-tertiary">
-                                        <KeyboardShortcut tab /> <span className="text-xxs">Search</span>
-                                    </ButtonPrimitive>
-                                    <ButtonPrimitive size="xs" className="text-tertiary">
-                                        <KeyboardShortcut enter /> <span className="text-xxs">AI</span>
-                                    </ButtonPrimitive>
-                                </>
-                            )}
-                        </div>
+                            <ButtonPrimitive size="xs" className="text-tertiary">
+                                <KeyboardShortcut tab /> <span className="text-xxs">Search</span>
+                            </ButtonPrimitive>
+                            <ButtonPrimitive size="xs" className="text-tertiary">
+                                <KeyboardShortcut enter /> <span className="text-xxs">AI</span>
+                            </ButtonPrimitive>
+                        </div> */}
                     </div>
                 </div>
             </div>
