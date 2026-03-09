@@ -72,12 +72,13 @@ public:
     RuleHogqlxChildElement = 68, RuleHogqlxText = 69, RuleHogqlxTagElement = 70, 
     RuleHogqlxTagAttribute = 71, RuleWithExprList = 72, RuleWithExpr = 73, 
     RuleWithExprColumnNameList = 74, RuleColumnIdentifier = 75, RuleNestedIdentifier = 76, 
-    RuleTableExpr = 77, RuleTableFunctionExpr = 78, RuleTableIdentifier = 79, 
-    RuleTableArgList = 80, RuleDatabaseIdentifier = 81, RuleFloatingLiteral = 82, 
-    RuleNumberLiteral = 83, RuleLiteral = 84, RuleInterval = 85, RuleKeyword = 86, 
-    RuleKeywordForAlias = 87, RuleAlias = 88, RuleIdentifier = 89, RuleEnumValue = 90, 
-    RulePlaceholder = 91, RuleString = 92, RuleTemplateString = 93, RuleStringContents = 94, 
-    RuleFullTemplateString = 95, RuleStringContentsFull = 96
+    RuleTableExpr = 77, RuleColumnAliases = 78, RuleTableFunctionExpr = 79, 
+    RuleTableIdentifier = 80, RuleTableArgList = 81, RuleDatabaseIdentifier = 82, 
+    RuleFloatingLiteral = 83, RuleNumberLiteral = 84, RuleLiteral = 85, 
+    RuleInterval = 86, RuleKeyword = 87, RuleKeywordForAlias = 88, RuleAlias = 89, 
+    RuleIdentifier = 90, RuleEnumValue = 91, RulePlaceholder = 92, RuleString = 93, 
+    RuleTemplateString = 94, RuleStringContents = 95, RuleFullTemplateString = 96, 
+    RuleStringContentsFull = 97
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -175,6 +176,7 @@ public:
   class ColumnIdentifierContext;
   class NestedIdentifierContext;
   class TableExprContext;
+  class ColumnAliasesContext;
   class TableFunctionExprContext;
   class TableIdentifierContext;
   class TableArgListContext;
@@ -649,6 +651,7 @@ public:
     TopClauseContext *topClause();
     ArrayJoinClauseContext *arrayJoinClause();
     PrewhereClauseContext *prewhereClause();
+    SampleClauseContext *sampleClause();
     GroupByClauseContext *groupByClause();
     std::vector<antlr4::tree::TerminalNode *> WITH();
     antlr4::tree::TerminalNode* WITH(size_t i);
@@ -666,6 +669,7 @@ public:
     WhereClauseContext *whereClause();
     antlr4::tree::TerminalNode *CUBE();
     antlr4::tree::TerminalNode *ROLLUP();
+    antlr4::tree::TerminalNode *USING();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -1054,6 +1058,8 @@ public:
     JoinOpInnerContext(JoinOpContext *ctx);
 
     antlr4::tree::TerminalNode *INNER();
+    antlr4::tree::TerminalNode *ANTI();
+    antlr4::tree::TerminalNode *SEMI();
     antlr4::tree::TerminalNode *ALL();
     antlr4::tree::TerminalNode *ANY();
     antlr4::tree::TerminalNode *ASOF();
@@ -1119,6 +1125,9 @@ public:
     std::vector<RatioExprContext *> ratioExpr();
     RatioExprContext* ratioExpr(size_t i);
     antlr4::tree::TerminalNode *OFFSET();
+    antlr4::tree::TerminalNode *LPAREN();
+    IdentifierContext *identifier();
+    antlr4::tree::TerminalNode *RPAREN();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -2400,6 +2409,7 @@ public:
     AliasContext *alias();
     antlr4::tree::TerminalNode *AS();
     IdentifierContext *identifier();
+    ColumnAliasesContext *columnAliases();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -2415,6 +2425,24 @@ public:
 
   TableExprContext* tableExpr();
   TableExprContext* tableExpr(int precedence);
+  class  ColumnAliasesContext : public antlr4::ParserRuleContext {
+  public:
+    ColumnAliasesContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *LPAREN();
+    std::vector<IdentifierContext *> identifier();
+    IdentifierContext* identifier(size_t i);
+    antlr4::tree::TerminalNode *RPAREN();
+    std::vector<antlr4::tree::TerminalNode *> COMMA();
+    antlr4::tree::TerminalNode* COMMA(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  ColumnAliasesContext* columnAliases();
+
   class  TableFunctionExprContext : public antlr4::ParserRuleContext {
   public:
     TableFunctionExprContext(antlr4::ParserRuleContext *parent, size_t invokingState);

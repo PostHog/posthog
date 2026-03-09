@@ -582,7 +582,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             tokens.append("ANY")
         if ctx.ASOF():
             tokens.append("ASOF")
-        tokens.append("INNER")
+        if ctx.ANTI():
+            tokens.append("ANTI")
+        if ctx.SEMI():
+            tokens.append("SEMI")
+        if ctx.INNER() or (not ctx.ANTI() and not ctx.SEMI()):
+            tokens.append("INNER")
         return " ".join(tokens)
 
     def visitJoinOpLeftRight(self, ctx: HogQLParser.JoinOpLeftRightContext):
@@ -1187,11 +1192,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         alias: str = self.visit(ctx.alias() or ctx.identifier())
         if alias.lower() in RESERVED_KEYWORDS:
             raise SyntaxError(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
+        column_aliases = self.visit(ctx.columnAliases()) if ctx.columnAliases() else None
         table = self.visit(ctx.tableExpr())
         if isinstance(table, ast.JoinExpr):
             table.alias = alias
+            table.column_aliases = column_aliases
             return table
-        return ast.JoinExpr(table=table, alias=alias)
+        return ast.JoinExpr(table=table, alias=alias, column_aliases=column_aliases)
+
+    def visitColumnAliases(self, ctx: HogQLParser.ColumnAliasesContext):
+        return [self.visit(ident) for ident in ctx.identifier()]
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
         return self.visit(ctx.tableFunctionExpr())

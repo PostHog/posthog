@@ -940,7 +940,15 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (ctx->ASOF()) {
       tokens.push_back("ASOF");
     }
-    tokens.push_back("INNER");
+    if (ctx->ANTI()) {
+      tokens.push_back("ANTI");
+    }
+    if (ctx->SEMI()) {
+      tokens.push_back("SEMI");
+    }
+    if (ctx->INNER() || (!ctx->ANTI() && !ctx->SEMI())) {
+      tokens.push_back("INNER");
+    }
     return join(tokens, " ");
   }
 
@@ -2017,6 +2025,16 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       throw SyntaxError("ALIAS is a reserved keyword");
     }
 
+    // Parse column aliases if present
+    Json column_aliases = nullptr;
+    auto column_aliases_ctx = ctx->columnAliases();
+    if (column_aliases_ctx) {
+      column_aliases = Json::array();
+      for (auto ident_ctx : column_aliases_ctx->identifier()) {
+        column_aliases.pushBack(any_cast<string>(visit(ident_ctx)));
+      }
+    }
+
     Json table_json = visitAsJSON(ctx->tableExpr());
 
     // Check if table is already a JoinExpr
@@ -2024,6 +2042,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (is_table_a_join_expr) {
       // Inject alias into the existing JoinExpr
       table_json["alias"] = alias;
+      table_json["column_aliases"] = column_aliases;
       return table_json;
     }
 
@@ -2034,6 +2053,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["table"] = std::move(table_json);
     json["alias"] = alias;
+    json["column_aliases"] = column_aliases;
     json["next_join"] = nullptr;
     return json;
   }

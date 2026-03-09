@@ -57,6 +57,8 @@ VALID_JOIN_TYPES = frozenset(
         "FULL ANY JOIN",
         "FULL ALL JOIN",
         "ASOF LEFT JOIN",
+        "ANTI JOIN",
+        "SEMI JOIN",
     }
 )
 
@@ -880,6 +882,7 @@ class JoinExpr(Expr):
     table: Optional[Union["SelectQuery", "SelectSetQuery", "Placeholder", "HogQLXTag", "Field"]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
+    column_aliases: Optional[list[str]] = None
     table_final: Optional[bool] = None
     constraint: Optional[JoinConstraint] = None
     next_join: Optional["JoinExpr"] = None

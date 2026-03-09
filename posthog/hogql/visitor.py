@@ -656,6 +656,7 @@ class CloningVisitor(Visitor[Any]):
             next_join=self.visit(node.next_join),
             table_final=node.table_final,
             alias=node.alias,
+            column_aliases=node.column_aliases,
             join_type=node.join_type,
             constraint=self.visit(node.constraint),
             sample=self.visit(node.sample),

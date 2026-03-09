@@ -66,6 +66,7 @@ selectStmt:
     arrayJoinClause?
     prewhereClause?
     where=whereClause?
+    (USING? sampleClause)?
     groupByClause? (WITH (CUBE | ROLLUP))? (WITH TOTALS)?
     havingClause?
     qualifyClause?
@@ -109,7 +110,7 @@ joinExpr
     | LPAREN joinExpr RPAREN                                                 # JoinExprParens
     ;
 joinOp
-    : ((ALL | ANY | ASOF)? INNER | INNER (ALL | ANY | ASOF)? | (ALL | ANY | ASOF))  # JoinOpInner
+    : ((ALL | ANY | ASOF)? INNER | INNER (ALL | ANY | ASOF)? | (ALL | ANY | ASOF) | ANTI | SEMI)  # JoinOpInner
     | ( (SEMI | ALL | ANTI | ANY | ASOF)? (LEFT | RIGHT) OUTER?
       | (LEFT | RIGHT) OUTER? (SEMI | ALL | ANTI | ANY | ASOF)?
       )                                                                             # JoinOpLeftRight
@@ -125,7 +126,7 @@ joinConstraintClause
     | USING columnExprList
     ;
 
-sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
+sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)? (LPAREN identifier RPAREN)?;
 limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
@@ -279,10 +280,11 @@ tableExpr
     : tableIdentifier                    # TableExprIdentifier
     | tableFunctionExpr                  # TableExprFunction
     | LPAREN selectSetStmt RPAREN      # TableExprSubquery
-    | tableExpr (alias | AS identifier)  # TableExprAlias
+    | tableExpr (alias | AS identifier) columnAliases?  # TableExprAlias
     | hogqlxTagElement                   # TableExprTag
     | placeholder                        # TableExprPlaceholder
     ;
+columnAliases: LPAREN identifier (COMMA identifier)* RPAREN;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? nestedIdentifier;
 tableArgList: columnExpr (COMMA columnExpr)* COMMA?;

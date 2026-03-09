@@ -583,6 +583,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnAliases(HogQLParser::ColumnAliasesContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitTableFunctionExpr(HogQLParser::TableFunctionExprContext *ctx) override {
     return visitChildren(ctx);
   }

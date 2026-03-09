@@ -303,6 +303,8 @@ public:
 
     virtual std::any visitTableExprFunction(HogQLParser::TableExprFunctionContext *context) = 0;
 
+    virtual std::any visitColumnAliases(HogQLParser::ColumnAliasesContext *context) = 0;
+
     virtual std::any visitTableFunctionExpr(HogQLParser::TableFunctionExprContext *context) = 0;
 
     virtual std::any visitTableIdentifier(HogQLParser::TableIdentifierContext *context) = 0;

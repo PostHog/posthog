@@ -427,6 +427,10 @@ class HogQLPrinter(Visitor[str]):
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
             )
 
+        if node.column_aliases:
+            col_aliases = ", ".join(self._print_identifier(ca) for ca in node.column_aliases)
+            join_strings.append(f"({col_aliases})")
+
         if node.table_final:
             raise QueryError("The FINAL keyword is not supported in HogQL as it causes slow queries")
 
