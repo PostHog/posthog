@@ -58,6 +58,14 @@ VALID_JOIN_TYPES = frozenset(
         "FULL ANY JOIN",
         "FULL ALL JOIN",
         "ASOF LEFT JOIN",
+        "ASOF RIGHT JOIN",
+        "ASOF ANTI JOIN",
+        "ASOF SEMI JOIN",
+        "ASOF ANTI LEFT JOIN",
+        "ASOF ANTI RIGHT JOIN",
+        "ASOF SEMI LEFT JOIN",
+        "ASOF SEMI RIGHT JOIN",
+        "POSITIONAL JOIN",
         "ANTI JOIN",
         "SEMI JOIN",
     }
@@ -916,6 +924,7 @@ class Call(Expr):
     distinct: bool = False
     within_group: Optional[list["OrderExpr"]] = None
     order_by: Optional[list["OrderExpr"]] = None
+    filter_expr: Optional[Expr] = None
 
 
 @dataclass(kw_only=True)
@@ -945,6 +954,7 @@ class UnpivotColumn(Expr):
 class UnpivotExpr(Expr):
     table: Expr
     columns: list[UnpivotColumn]
+    include_nulls: bool = False
 
 
 @dataclass(kw_only=True)

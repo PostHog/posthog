@@ -543,7 +543,8 @@ class HogQLPrinter(Visitor[str]):
         table_expr = self.visit(node.table)
         table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr
         columns = " ".join(self.visit(col) for col in node.columns)
-        return f"{table} UNPIVOT ({columns})"
+        include_nulls = "INCLUDE NULLS " if node.include_nulls else ""
+        return f"{table} UNPIVOT {include_nulls}({columns})"
 
     def visit_unpivot_column(self, node: ast.UnpivotColumn):
         value_cols = self.visit(node.value_columns)
@@ -793,10 +794,8 @@ class HogQLPrinter(Visitor[str]):
             if node.within_group is not None and not func_meta.requires_within_group:
                 raise QueryError(f"Aggregation '{node.name}' does not support WITHIN GROUP")
 
-            return (
-                f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}"
-                f"{params_part}{args_part}{within_group}"
-            )
+            filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}{within_group}{filter_part}"
 
         elif func_meta := find_hogql_function(node.name):
             validate_function_args(
@@ -949,10 +948,12 @@ class HogQLPrinter(Visitor[str]):
                 params_part = f"({', '.join(params)})" if params is not None else ""
                 order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
                 args_part = f"({', '.join(args)}{order_by_part})"
-                return f"{relevant_clickhouse_name}{params_part}{args_part}"
+                filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+                return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
             else:
                 order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])}{order_by_part})"
+                filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])}{order_by_part}){filter_part}"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(
                 node.args,

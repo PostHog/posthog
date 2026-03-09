@@ -590,7 +590,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             join2.join_type = f"{self.visit(ctx.joinOp())} JOIN"
         else:
             join2.join_type = "JOIN"
-        join2.constraint = self.visit(ctx.joinConstraintClause())
+        if ctx.joinConstraintClause():
+            join2.constraint = self.visit(ctx.joinConstraintClause())
 
         last_join = join1
         while last_join.next_join is not None:
@@ -619,7 +620,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitJoinExprCrossOp(self, ctx: HogQLParser.JoinExprCrossOpContext):
         join1: ast.JoinExpr = self.visit(ctx.joinExpr(0))
         join2: ast.JoinExpr = self.visit(ctx.joinExpr(1))
-        join2.join_type = "CROSS JOIN"
+        join2.join_type = "POSITIONAL JOIN" if ctx.joinOpCross().POSITIONAL() else "CROSS JOIN"
         last_join = join1
         while last_join.next_join is not None:
             last_join = last_join.next_join
@@ -1188,13 +1189,18 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         parameters: list[ast.Expr] | None = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else None
         # two sets of parameters fn()(), return an empty list for the first even if no parameters
-        if ctx.LPAREN(1) and parameters is None:
+        # FILTER adds an extra LPAREN, so account for it when detecting parametric calls
+        lparen_threshold = 2 if ctx.FILTER() else 1
+        if ctx.LPAREN(lparen_threshold) and parameters is None:
             parameters = []
 
         args: list[ast.Expr] = self.visit(ctx.columnArgList) if ctx.columnArgList is not None else []
         distinct = True if ctx.DISTINCT() else False
         order_by = self.visit(ctx.orderExprList()) if ctx.orderExprList() else None
-        return ast.Call(name=name, params=parameters, args=args, distinct=distinct, order_by=order_by)
+        filter_expr = self.visit(ctx.filterExpr) if ctx.filterExpr is not None else None
+        return ast.Call(
+            name=name, params=parameters, args=args, distinct=distinct, order_by=order_by, filter_expr=filter_expr
+        )
 
     def visitColumnExprFunctionWithinGroup(self, ctx: HogQLParser.ColumnExprFunctionWithinGroupContext):
         name = self.visit(ctx.identifier())
@@ -1385,7 +1391,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTableExprUnpivot(self, ctx: HogQLParser.TableExprUnpivotContext):
         table = self.visit(ctx.tableExpr())
         columns = self.visit(ctx.unpivotColumnList())
-        return ast.UnpivotExpr(table=table, columns=columns)
+        include_nulls = ctx.INCLUDE() is not None
+        return ast.UnpivotExpr(table=table, columns=columns, include_nulls=include_nulls)
 
     def visitUnpivotColumnList(self, ctx: HogQLParser.UnpivotColumnListContext):
         return [self.visit(col) for col in ctx.unpivotColumn()]

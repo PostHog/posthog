@@ -176,6 +176,8 @@ class TraversingVisitor(Visitor[None]):
         if node.order_by:
             for expr in node.order_by:
                 self.visit(expr)
+        if node.filter_expr:
+            self.visit(node.filter_expr)
 
     def visit_expr_call(self, node: ast.ExprCall):
         self.visit(node.expr)
@@ -771,6 +773,7 @@ class CloningVisitor(Visitor[Any]):
             distinct=node.distinct,
             within_group=[self.visit(order_by) for order_by in node.within_group] if node.within_group else None,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by is not None else None,
+            filter_expr=self.visit(node.filter_expr) if node.filter_expr is not None else None,
         )
 
     def visit_expr_call(self, node: ast.ExprCall):

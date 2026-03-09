@@ -16,38 +16,39 @@ public:
     ASOF = 8, BETWEEN = 9, BOTH = 10, BY = 11, CASE = 12, CAST = 13, CATCH = 14, 
     COHORT = 15, COLLATE = 16, COLUMNS = 17, CROSS = 18, CUBE = 19, CURRENT = 20, 
     DATE = 21, DAY = 22, DESC = 23, DESCENDING = 24, DISTINCT = 25, ELSE = 26, 
-    END = 27, EXCEPT = 28, EXCLUDE = 29, EXTRACT = 30, FINAL = 31, FINALLY = 32, 
-    FIRST = 33, FN = 34, FOLLOWING = 35, FOR = 36, FROM = 37, FULL = 38, 
-    FUN = 39, GROUP = 40, GROUPING = 41, HAVING = 42, HOUR = 43, ID = 44, 
-    IF = 45, ILIKE = 46, IN = 47, INF = 48, INNER = 49, INTERSECT = 50, 
-    INTERVAL = 51, IS = 52, JOIN = 53, KEY = 54, LAMBDA = 55, LAST = 56, 
-    LEADING = 57, LEFT = 58, LET = 59, LIKE = 60, LIMIT = 61, MATERIALIZED = 62, 
-    MINUTE = 63, MONTH = 64, NAME = 65, NAN_SQL = 66, NOT = 67, NULL_SQL = 68, 
-    NULLS = 69, OFFSET = 70, ON = 71, OR = 72, ORDER = 73, OUTER = 74, OVER = 75, 
-    PARTITION = 76, PIVOT = 77, PRECEDING = 78, PREWHERE = 79, QUALIFY = 80, 
-    QUARTER = 81, RANGE = 82, RECURSIVE = 83, REPLACE = 84, RETURN = 85, 
-    RIGHT = 86, ROLLUP = 87, ROW = 88, ROWS = 89, SAMPLE = 90, SECOND = 91, 
-    SELECT = 92, SEMI = 93, SETS = 94, SETTINGS = 95, SUBSTRING = 96, THEN = 97, 
-    THROW = 98, TIES = 99, TIMESTAMP = 100, TO = 101, TOP = 102, TOTALS = 103, 
-    TRAILING = 104, TRIM = 105, TRUNCATE = 106, TRY = 107, TRY_CAST = 108, 
-    UNBOUNDED = 109, UNION = 110, UNPIVOT = 111, USING = 112, VALUES = 113, 
-    WEEK = 114, WHEN = 115, WHERE = 116, WHILE = 117, WINDOW = 118, WITH = 119, 
-    WITHIN = 120, YEAR = 121, ESCAPE_CHAR_COMMON = 122, IDENTIFIER = 123, 
-    FLOATING_LITERAL = 124, OCTAL_LITERAL = 125, DECIMAL_LITERAL = 126, 
-    HEXADECIMAL_LITERAL = 127, STRING_LITERAL = 128, ARROW = 129, ASTERISK = 130, 
-    BACKQUOTE = 131, BACKSLASH = 132, DOUBLECOLON = 133, COLONEQUALS = 134, 
-    COLON = 135, COMMA = 136, CONCAT = 137, DASH = 138, DOLLAR = 139, DOT = 140, 
-    EQ_DOUBLE = 141, EQ_SINGLE = 142, GT_EQ = 143, GT = 144, HASH = 145, 
-    IREGEX_SINGLE = 146, IREGEX_DOUBLE = 147, LBRACE = 148, LBRACKET = 149, 
-    LPAREN = 150, LT_EQ = 151, LT = 152, LT_SLASH = 153, NOT_EQ = 154, NOT_IREGEX = 155, 
-    NOT_REGEX = 156, NULL_PROPERTY = 157, NULLISH = 158, PERCENT = 159, 
-    PLUS = 160, QUERY = 161, QUOTE_DOUBLE = 162, QUOTE_SINGLE_TEMPLATE = 163, 
-    QUOTE_SINGLE_TEMPLATE_FULL = 164, QUOTE_SINGLE = 165, REGEX_SINGLE = 166, 
-    REGEX_DOUBLE = 167, RBRACE = 168, RBRACKET = 169, RPAREN = 170, SEMICOLON = 171, 
-    SLASH = 172, SLASH_GT = 173, UNDERSCORE = 174, MULTI_LINE_COMMENT = 175, 
-    SINGLE_LINE_COMMENT = 176, WHITESPACE = 177, STRING_TEXT = 178, STRING_ESCAPE_TRIGGER = 179, 
-    FULL_STRING_TEXT = 180, FULL_STRING_ESCAPE_TRIGGER = 181, TAG_WS = 182, 
-    TAGC_WS = 183, HOGQLX_TEXT_TEXT = 184, HOGQLX_TEXT_WS = 185
+    END = 27, EXCEPT = 28, EXCLUDE = 29, EXTRACT = 30, FINAL = 31, FILTER = 32, 
+    FINALLY = 33, FIRST = 34, FN = 35, FOLLOWING = 36, FOR = 37, FROM = 38, 
+    FULL = 39, FUN = 40, GROUP = 41, GROUPING = 42, HAVING = 43, HOUR = 44, 
+    ID = 45, IF = 46, ILIKE = 47, INCLUDE = 48, IN = 49, INF = 50, INNER = 51, 
+    INTERSECT = 52, INTERVAL = 53, IS = 54, JOIN = 55, KEY = 56, LAMBDA = 57, 
+    LAST = 58, LEADING = 59, LEFT = 60, LET = 61, LIKE = 62, LIMIT = 63, 
+    MATERIALIZED = 64, MINUTE = 65, MONTH = 66, NAME = 67, NATURAL = 68, 
+    NAN_SQL = 69, NOT = 70, NULL_SQL = 71, NULLS = 72, OFFSET = 73, ON = 74, 
+    OR = 75, ORDER = 76, OUTER = 77, OVER = 78, PARTITION = 79, PIVOT = 80, 
+    POSITIONAL = 81, PRECEDING = 82, PREWHERE = 83, QUALIFY = 84, QUARTER = 85, 
+    RANGE = 86, RECURSIVE = 87, REPLACE = 88, RETURN = 89, RIGHT = 90, ROLLUP = 91, 
+    ROW = 92, ROWS = 93, SAMPLE = 94, SECOND = 95, SELECT = 96, SEMI = 97, 
+    SETS = 98, SETTINGS = 99, SUBSTRING = 100, THEN = 101, THROW = 102, 
+    TIES = 103, TIMESTAMP = 104, TO = 105, TOP = 106, TOTALS = 107, TRAILING = 108, 
+    TRIM = 109, TRUNCATE = 110, TRY = 111, TRY_CAST = 112, UNBOUNDED = 113, 
+    UNION = 114, UNPIVOT = 115, USING = 116, VALUES = 117, WEEK = 118, WHEN = 119, 
+    WHERE = 120, WHILE = 121, WINDOW = 122, WITH = 123, WITHIN = 124, YEAR = 125, 
+    ESCAPE_CHAR_COMMON = 126, IDENTIFIER = 127, FLOATING_LITERAL = 128, 
+    OCTAL_LITERAL = 129, DECIMAL_LITERAL = 130, HEXADECIMAL_LITERAL = 131, 
+    STRING_LITERAL = 132, ARROW = 133, ASTERISK = 134, BACKQUOTE = 135, 
+    BACKSLASH = 136, DOUBLECOLON = 137, COLONEQUALS = 138, COLON = 139, 
+    COMMA = 140, CONCAT = 141, DASH = 142, DOLLAR = 143, DOT = 144, EQ_DOUBLE = 145, 
+    EQ_SINGLE = 146, GT_EQ = 147, GT = 148, HASH = 149, IREGEX_SINGLE = 150, 
+    IREGEX_DOUBLE = 151, LBRACE = 152, LBRACKET = 153, LPAREN = 154, LT_EQ = 155, 
+    LT = 156, LT_SLASH = 157, NOT_EQ = 158, NOT_IREGEX = 159, NOT_REGEX = 160, 
+    NULL_PROPERTY = 161, NULLISH = 162, PERCENT = 163, PLUS = 164, QUERY = 165, 
+    QUOTE_DOUBLE = 166, QUOTE_SINGLE_TEMPLATE = 167, QUOTE_SINGLE_TEMPLATE_FULL = 168, 
+    QUOTE_SINGLE = 169, REGEX_SINGLE = 170, REGEX_DOUBLE = 171, RBRACE = 172, 
+    RBRACKET = 173, RPAREN = 174, SEMICOLON = 175, SLASH = 176, SLASH_GT = 177, 
+    UNDERSCORE = 178, MULTI_LINE_COMMENT = 179, SINGLE_LINE_COMMENT = 180, 
+    WHITESPACE = 181, STRING_TEXT = 182, STRING_ESCAPE_TRIGGER = 183, FULL_STRING_TEXT = 184, 
+    FULL_STRING_ESCAPE_TRIGGER = 185, TAG_WS = 186, TAGC_WS = 187, HOGQLX_TEXT_TEXT = 188, 
+    HOGQLX_TEXT_WS = 189
   };
 
   enum {
@@ -1063,8 +1064,9 @@ public:
     std::vector<JoinExprContext *> joinExpr();
     JoinExprContext* joinExpr(size_t i);
     antlr4::tree::TerminalNode *JOIN();
-    JoinConstraintClauseContext *joinConstraintClause();
+    antlr4::tree::TerminalNode *NATURAL();
     JoinOpContext *joinOp();
+    JoinConstraintClauseContext *joinConstraintClause();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -1136,9 +1138,9 @@ public:
     antlr4::tree::TerminalNode *INNER();
     antlr4::tree::TerminalNode *ANTI();
     antlr4::tree::TerminalNode *SEMI();
+    antlr4::tree::TerminalNode *ASOF();
     antlr4::tree::TerminalNode *ALL();
     antlr4::tree::TerminalNode *ANY();
-    antlr4::tree::TerminalNode *ASOF();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -1147,14 +1149,14 @@ public:
   public:
     JoinOpLeftRightContext(JoinOpContext *ctx);
 
+    antlr4::tree::TerminalNode *ASOF();
     antlr4::tree::TerminalNode *LEFT();
     antlr4::tree::TerminalNode *RIGHT();
-    antlr4::tree::TerminalNode *OUTER();
-    antlr4::tree::TerminalNode *SEMI();
-    antlr4::tree::TerminalNode *ALL();
     antlr4::tree::TerminalNode *ANTI();
+    antlr4::tree::TerminalNode *SEMI();
+    antlr4::tree::TerminalNode *OUTER();
+    antlr4::tree::TerminalNode *ALL();
     antlr4::tree::TerminalNode *ANY();
-    antlr4::tree::TerminalNode *ASOF();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -1167,6 +1169,7 @@ public:
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *CROSS();
     antlr4::tree::TerminalNode *JOIN();
+    antlr4::tree::TerminalNode *POSITIONAL();
     antlr4::tree::TerminalNode *COMMA();
 
 
@@ -1737,6 +1740,7 @@ public:
 
     antlr4::tree::TerminalNode *LBRACKET();
     antlr4::tree::TerminalNode *RBRACKET();
+    antlr4::tree::TerminalNode *ARRAY();
     ColumnExprListContext *columnExprList();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -1985,6 +1989,7 @@ public:
 
     HogQLParser::ColumnExprListContext *columnExprs = nullptr;
     HogQLParser::ColumnExprListContext *columnArgList = nullptr;
+    HogQLParser::ColumnExprContext *filterExpr = nullptr;
     IdentifierContext *identifier();
     std::vector<antlr4::tree::TerminalNode *> LPAREN();
     antlr4::tree::TerminalNode* LPAREN(size_t i);
@@ -1994,8 +1999,11 @@ public:
     antlr4::tree::TerminalNode *ORDER();
     antlr4::tree::TerminalNode *BY();
     OrderExprListContext *orderExprList();
+    antlr4::tree::TerminalNode *FILTER();
+    antlr4::tree::TerminalNode *WHERE();
     std::vector<ColumnExprListContext *> columnExprList();
     ColumnExprListContext* columnExprList(size_t i);
+    ColumnExprContext *columnExpr();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -2777,7 +2785,6 @@ public:
     antlr4::tree::TerminalNode *LPAREN();
     std::vector<ColumnExprListContext *> columnExprList();
     ColumnExprListContext* columnExprList(size_t i);
-    antlr4::tree::TerminalNode *FOR();
     PivotColumnListContext *pivotColumnList();
     antlr4::tree::TerminalNode *RPAREN();
     antlr4::tree::TerminalNode *GROUP();
@@ -2828,6 +2835,8 @@ public:
     antlr4::tree::TerminalNode *LPAREN();
     UnpivotColumnListContext *unpivotColumnList();
     antlr4::tree::TerminalNode *RPAREN();
+    antlr4::tree::TerminalNode *INCLUDE();
+    antlr4::tree::TerminalNode *NULLS();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -2838,6 +2847,7 @@ public:
   public:
     PivotColumnListContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *FOR();
     std::vector<PivotColumnContext *> pivotColumn();
     PivotColumnContext* pivotColumn(size_t i);
 
@@ -3097,6 +3107,7 @@ public:
     antlr4::tree::TerminalNode *END();
     antlr4::tree::TerminalNode *EXCLUDE();
     antlr4::tree::TerminalNode *EXTRACT();
+    antlr4::tree::TerminalNode *FILTER();
     antlr4::tree::TerminalNode *FINAL();
     antlr4::tree::TerminalNode *FIRST();
     antlr4::tree::TerminalNode *FOR();
@@ -3110,6 +3121,7 @@ public:
     antlr4::tree::TerminalNode *GROUPING();
     antlr4::tree::TerminalNode *IF();
     antlr4::tree::TerminalNode *ILIKE();
+    antlr4::tree::TerminalNode *INCLUDE();
     antlr4::tree::TerminalNode *IN();
     antlr4::tree::TerminalNode *INNER();
     antlr4::tree::TerminalNode *INTERVAL();
@@ -3122,6 +3134,7 @@ public:
     antlr4::tree::TerminalNode *LIKE();
     antlr4::tree::TerminalNode *LIMIT();
     antlr4::tree::TerminalNode *NAME();
+    antlr4::tree::TerminalNode *NATURAL();
     antlr4::tree::TerminalNode *NOT();
     antlr4::tree::TerminalNode *NULLS();
     antlr4::tree::TerminalNode *OFFSET();
@@ -3132,6 +3145,7 @@ public:
     antlr4::tree::TerminalNode *OVER();
     antlr4::tree::TerminalNode *PARTITION();
     antlr4::tree::TerminalNode *PIVOT();
+    antlr4::tree::TerminalNode *POSITIONAL();
     antlr4::tree::TerminalNode *PRECEDING();
     antlr4::tree::TerminalNode *PREWHERE();
     antlr4::tree::TerminalNode *QUALIFY();
