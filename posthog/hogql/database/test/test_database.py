@@ -146,7 +146,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         assert "postgres.ph3.posthog_dashboard" not in filtered_tables
-        assert "dashboard" not in filtered_tables["events"].fields
+        events_table = cast(DatabaseSchemaPostHogTable, filtered_tables["events"])
+        assert "dashboard" not in events_table.fields
 
     def test_serialize_database_deleted_saved_query(self):
         saved_query_name = "deleted_saved_query"
@@ -1207,6 +1208,53 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         activitylog = database.get_table("posthog_activitylog")
 
         assert activitylog.fields.get("person") is None
+
+    def test_direct_postgres_foreign_key_fallback_uses_generic_table_names_only(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="public",
+        )
+        customer_table = DataWarehouseTable.objects.create(
+            name="public_postgres_customers",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "email": {"hogql": "string", "clickhouse": "String", "schema_valid": True},
+            },
+        )
+        order_table = DataWarehouseTable.objects.create(
+            name="public_postgres_orders",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "customer_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(name="customers", team=self.team, source=source, table=customer_table)
+        ExternalDataSchema.objects.create(name="orders", team=self.team, source=source, table=order_table)
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        orders = database.get_table("orders")
+        customers = database.get_table("customers")
+
+        assert isinstance(orders.fields.get("customer"), LazyJoin)
+        assert isinstance(customers.fields.get("orders"), LazyJoin)
 
     def test_direct_postgres_foreign_key_join_allows_user_traversal(self):
         credentials = DataWarehouseCredential.objects.create(

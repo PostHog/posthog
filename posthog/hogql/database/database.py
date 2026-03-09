@@ -1593,16 +1593,8 @@ def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehou
     source_parts = hogql_table.name.split(".")
     namespace = source_parts[:-1]
 
-    known_target_overrides = {
-        "team": ["posthog_team", "team"],
-        "user": ["posthog_user", "user"],
-        "person": ["posthog_person", "persons", "person"],
-        "organization": ["posthog_organization", "organization"],
-    }
-
     def _candidate_target_tables(base_name: str) -> list[str]:
         local_candidates = [base_name, f"{base_name}s", f"posthog_{base_name}"]
-        local_candidates = [*known_target_overrides.get(base_name, []), *local_candidates]
         scoped_candidates = [".".join([*namespace, name]) for name in local_candidates] if namespace else []
         if scoped_candidates:
             return scoped_candidates
