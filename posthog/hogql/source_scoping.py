@@ -1,3 +1,5 @@
+from typing import TypeVar
+
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import FunctionCallTable, TableNode
@@ -5,6 +7,8 @@ from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import S3Table
 
 from products.data_warehouse.backend.models import ExternalDataSource
+
+TTable = TypeVar("TTable")
 
 
 def connection_source_identifiers(source: ExternalDataSource | None) -> set[str] | None:
@@ -14,8 +18,8 @@ def connection_source_identifiers(source: ExternalDataSource | None) -> set[str]
     return {str(source.id)}
 
 
-def filter_schema_tables_for_connection(tables: dict[str, object], source_ids: set[str] | None) -> dict[str, object]:
-    filtered_tables: dict[str, object]
+def filter_schema_tables_for_connection(tables: dict[str, TTable], source_ids: set[str] | None) -> dict[str, TTable]:
+    filtered_tables: dict[str, TTable]
     if not source_ids:
         filtered_tables = {
             name: table
@@ -29,7 +33,7 @@ def filter_schema_tables_for_connection(tables: dict[str, object], source_ids: s
         _remove_inaccessible_lazy_joins(filtered_tables)
         return filtered_tables
 
-    def is_queriable(table: object) -> bool:
+    def is_queriable(table: TTable) -> bool:
         schema = getattr(table, "schema_", None) or getattr(table, "schema", None)
         if schema is None:
             return True
@@ -48,7 +52,7 @@ def filter_schema_tables_for_connection(tables: dict[str, object], source_ids: s
     return filtered_tables
 
 
-def _remove_inaccessible_lazy_joins(tables: dict[str, object]) -> None:
+def _remove_inaccessible_lazy_joins(tables: dict[str, TTable]) -> None:
     allowed_table_names = set(tables.keys())
 
     for table in tables.values():
