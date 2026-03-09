@@ -40,7 +40,7 @@ function IdleInput(): JSX.Element {
     }, [])
 
     return (
-        <div className="flex flex-col items-center w-full">
+        <div className="flex flex-col items-center w-full px-3">
             <label
                 htmlFor="homepage-input"
                 className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2"
