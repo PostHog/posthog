@@ -1973,9 +1973,72 @@
                         "type": "string"
                     }
                 },
-                "searchTerm": {
-                    "description": "Free text search term to filter logs",
-                    "type": "string"
+                "filters": {
+                    "description": "Structured attribute filters. Each filter targets a log field or attribute. Combined with AND by default (use filtersType to change).",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "key": {
+                                "type": "string",
+                                "description": "The attribute key to filter on. For type \"log\", use \"message\" to filter the log body. For \"log_attribute\" or \"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\")."
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": ["log", "log_attribute", "log_resource_attribute"],
+                                "description": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes (e.g. k8s labels)."
+                            },
+                            "operator": {
+                                "type": "string",
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "is_set",
+                                    "is_not_set",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "in",
+                                    "not_in"
+                                ],
+                                "description": "Comparison operator"
+                            },
+                            "value": {
+                                "description": "Value to compare against. Omit for is_set/is_not_set operators.",
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["key", "type", "operator"]
+                    }
+                },
+                "filtersType": {
+                    "description": "Logical operator to combine filters (default: AND)",
+                    "type": "string",
+                    "enum": ["AND", "OR"]
                 },
                 "orderBy": {
                     "description": "Order results by timestamp (default: latest)",
