@@ -526,6 +526,7 @@ export interface PluginsServerConfig
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
     CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
+    CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
 
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number

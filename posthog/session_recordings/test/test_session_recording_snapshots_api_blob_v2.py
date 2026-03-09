@@ -303,7 +303,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             team=self.team,
             session_id=session_id,
             deleted=False,
-            storage_version="2023-08-01",
             full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
         )
 
@@ -357,7 +356,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             team=self.team,
             session_id=session_id,
             deleted=False,
-            storage_version="2023-08-01",
             full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
         )
 
@@ -391,7 +389,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             team=self.team,
             session_id=session_a,
             deleted=False,
-            storage_version="2023-08-01",
             full_recording_v2_path="s3://the_bucket/lts_path/session_a_uuid?range=0-1000",
         )
 
@@ -399,7 +396,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             team=self.team,
             session_id=session_b,
             deleted=False,
-            storage_version="2023-08-01",
             full_recording_v2_path="s3://the_bucket/lts_path/session_b_uuid?range=0-2000",
         )
 
