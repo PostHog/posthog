@@ -45,7 +45,7 @@ Default.parameters = { testOptions: { waitForSelector: '.BoldNumber__value' } }
 export const EmptyResult: Story = createInsightStory(
     require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsNumberEmpty.json')
 )
-EmptyResult.parameters = { testOptions: { waitForSelector: '.insight-empty-state' } }
+EmptyResult.parameters = { testOptions: { waitForSelector: '[data-attr="insight-empty-state"]' } }
 
 export const CompareNullPrevious: Story = createInsightStory(
     require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsNumberCompareNullPrevious.json')

@@ -195,7 +195,7 @@ function BoldNumberComparison({
     return (
         <LemonRow
             icon={
-                !hasComparableDiff ? (
+                !hasComparableDiff || percentageDiff === null ? (
                     <IconFlare />
                 ) : percentageDiff > 0 ? (
                     <IconTrending />
