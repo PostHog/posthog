@@ -123,30 +123,32 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                     {"access_method": ExternalDataSource.AccessMethod.DIRECT},
                 )()
 
+        tables: dict[str, DatabaseSchemaPostHogTable | DirectTableStub] = {
+            "events": DatabaseSchemaPostHogTable(
+                id="events",
+                name="events",
+                fields={
+                    "dashboard": DatabaseSchemaField(
+                        name="dashboard",
+                        hogql_value="dashboard",
+                        type="lazy_table",
+                        schema_valid=True,
+                        table="postgres.ph3.posthog_dashboard",
+                        fields=["id"],
+                        id="dashboard",
+                    )
+                },
+            ),
+            "postgres.ph3.posthog_dashboard": DirectTableStub(),
+        }
         filtered_tables = filter_schema_tables_for_connection(
-            {
-                "events": DatabaseSchemaPostHogTable(
-                    id="events",
-                    name="events",
-                    fields={
-                        "dashboard": DatabaseSchemaField(
-                            name="dashboard",
-                            hogql_value="dashboard",
-                            type="lazy_table",
-                            schema_valid=True,
-                            table="postgres.ph3.posthog_dashboard",
-                            fields=["id"],
-                            id="dashboard",
-                        )
-                    },
-                ),
-                "postgres.ph3.posthog_dashboard": DirectTableStub(),
-            },
+            tables,
             None,
         )
 
         assert "postgres.ph3.posthog_dashboard" not in filtered_tables
-        events_table = cast(DatabaseSchemaPostHogTable, filtered_tables["events"])
+        events_table = filtered_tables["events"]
+        assert isinstance(events_table, DatabaseSchemaPostHogTable)
         assert "dashboard" not in events_table.fields
 
     def test_serialize_database_deleted_saved_query(self):
