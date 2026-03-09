@@ -29,12 +29,13 @@ export function DistributionModal(): JSX.Element {
     const [variants, setVariants] = useState<MultivariateFlagVariant[]>([])
     const { areVariantRolloutsValid } = useVariantDistributionValidation(variants)
 
-    // Reset local state when modal opens with fresh data from the experiment
+    // Initialize local state only when the modal transitions from closed to open.
+    // Intentionally omit experiment data from deps so auto-refresh doesn't clobber edits.
     useEffect(() => {
         if (isDistributionModalOpen) {
             setVariants(experiment.feature_flag?.filters?.multivariate?.variants || [])
         }
-    }, [isDistributionModalOpen, experiment.feature_flag?.filters?.multivariate?.variants])
+    }, [isDistributionModalOpen])
 
     const handleClose = (): void => {
         closeDistributionModal()

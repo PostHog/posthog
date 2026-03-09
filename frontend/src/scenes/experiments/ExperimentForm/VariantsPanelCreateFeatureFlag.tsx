@@ -20,6 +20,7 @@ import { ensureIsPercent, isEvenlyDistributed } from '../utils'
 import {
     computeUpdatedVariantSplit,
     distributeVariantsEvenly,
+    parseVariantPercentage,
     TrafficPreview,
     useVariantDistributionValidation,
 } from './VariantDistributionEditor'
@@ -240,16 +241,11 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                             max={100}
                                                             value={variant.rollout_percentage}
                                                             onChange={(changedValue) => {
-                                                                const valueInt =
-                                                                    changedValue !== undefined &&
-                                                                    !Number.isNaN(changedValue)
-                                                                        ? parseInt(changedValue.toString(), 10)
-                                                                        : 0
                                                                 updateVariants(
                                                                     computeUpdatedVariantSplit(
                                                                         variants,
                                                                         index,
-                                                                        valueInt
+                                                                        parseVariantPercentage(changedValue)
                                                                     )
                                                                 )
                                                             }}

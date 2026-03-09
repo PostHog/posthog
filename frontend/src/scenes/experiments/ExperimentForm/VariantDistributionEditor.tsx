@@ -147,6 +147,11 @@ export function distributeVariantsEvenly(variants: MultivariateFlagVariant[]): M
     }))
 }
 
+/** Parse a LemonInput number value into an integer suitable for variant rollout percentages */
+export function parseVariantPercentage(value: number | undefined): number {
+    return value !== undefined && !Number.isNaN(value) ? parseInt(value.toString(), 10) : 0
+}
+
 interface VariantDistributionEditorProps {
     variants: MultivariateFlagVariant[]
     onVariantsChange: (variants: MultivariateFlagVariant[]) => void
@@ -210,11 +215,13 @@ export const VariantDistributionEditor = ({
                                             max={100}
                                             value={variant.rollout_percentage}
                                             onChange={(changedValue) => {
-                                                const valueInt =
-                                                    changedValue !== undefined && !Number.isNaN(changedValue)
-                                                        ? parseInt(changedValue.toString(), 10)
-                                                        : 0
-                                                onVariantsChange(computeUpdatedVariantSplit(variants, index, valueInt))
+                                                onVariantsChange(
+                                                    computeUpdatedVariantSplit(
+                                                        variants,
+                                                        index,
+                                                        parseVariantPercentage(changedValue)
+                                                    )
+                                                )
                                             }}
                                             suffix={<span>%</span>}
                                             className="w-30"
