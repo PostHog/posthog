@@ -27,6 +27,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             refreshToken,
             clientId,
         }),
+        setUiHostCheckStatus: (status: 'idle' | 'checking' | 'ok' | 'error') => ({ status }),
+        openUiHostConfigModal: true,
+        closeUiHostConfigModal: true,
     }),
 
     reducers(({ props }) => ({
@@ -61,25 +64,34 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
+        uiHostCheckStatus: [
+            'idle' as 'idle' | 'checking' | 'ok' | 'error',
+            { setUiHostCheckStatus: (_, { status }) => status },
+        ],
+        uiHostConfigModalVisible: [false, { openUiHostConfigModal: () => true, closeUiHostConfigModal: () => false }],
     })),
 
     selectors({
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
-        // PostHog server URL for API requests, OAuth, and navigation links.
-        // For PostHog Cloud, always use the canonical cloud URL directly —
-        // this bypasses any reverse proxy or misconfigured ui_host.
+        // PostHog app URL used for OAuth and navigation links.
         uiHost: [
             (s) => [s.props],
             (props: ToolbarProps): string => {
-                const region = (props.posthog as any)?.requestRouter?.region
-                if (region === 'us') {
-                    return 'https://us.posthog.com'
-                }
-                if (region === 'eu') {
-                    return 'https://eu.posthog.com'
+                // Explicit uiHost passed from the PostHog app (authorizedUrlListLogic) wins —
+                // it's window.location.origin of the app itself, so it's always correct even
+                // for reverse-proxy customers who haven't set ui_host in posthog.init().
+                if (props.uiHost) {
+                    return props.uiHost.replace(/\/+$/, '')
                 }
 
-                // Self-hosted: prefer explicit ui_host, then apiURL
+                // requestRouter.uiHost honours explicit ui_host config and derives from
+                // api_host for Cloud (strips the .i. ingestion infix).
+                const uiHost = (props.posthog as any)?.requestRouter?.uiHost as string | undefined
+                if (uiHost) {
+                    return uiHost.replace(/\/+$/, '')
+                }
+
+                // Fallback for old posthog-js without requestRouter.
                 if (props.posthog?.config?.ui_host) {
                     return props.posthog.config.ui_host.replace(/\/+$/, '')
                 }
@@ -114,6 +126,18 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     listeners(({ values, actions }) => ({
         authenticate: async () => {
+            // If the uiHost check found a problem, open the config modal instead of proceeding.
+            if (values.uiHostCheckStatus === 'error') {
+                toolbarPosthogJS.capture('toolbar ui host config modal opened', { ui_host: values.uiHost })
+                actions.openUiHostConfigModal()
+                return
+            }
+
+            // Don't start OAuth while the reachability check is still in flight.
+            if (values.uiHostCheckStatus === 'checking') {
+                return
+            }
+
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             actions.persistConfig()
 
@@ -196,58 +220,26 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     })),
 
     afterMount(({ props, values, actions, cache }) => {
-        // Extract authorization code from URL hash and clean it immediately.
         const authParams = cleanToolbarAuthHash()
-        const pendingCodeExchange = !!authParams
         if (authParams) {
-            exchangeCodeForTokens(
-                authParams.tokenEndpoint || `${values.uiHost}/oauth/token/`,
-                authParams.redirectUri || `${values.uiHost}/toolbar_oauth/callback`,
-                authParams.code,
-                authParams.clientId,
-                actions
-            )
             // Defensive retry: some SPAs re-apply the original URL on initial render,
             // undoing the replaceState above. Re-clean after a short delay.
             cache.hashRetryTimeout = setTimeout(cleanToolbarAuthHash, 500)
         }
 
-        // Restore OAuth tokens from separate storage.
-        // posthog-js overwrites LOCALSTORAGE_KEY with hash params on each launch,
-        // losing the OAuth tokens. This separate key survives that overwrite.
-        if (!values.accessToken && !pendingCodeExchange) {
-            try {
-                const stored = localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)
-                if (stored) {
-                    const { accessToken, refreshToken, clientId } = JSON.parse(stored)
-                    if (accessToken && refreshToken && clientId) {
-                        actions.setOAuthTokens(accessToken, refreshToken, clientId)
-                    }
-                }
-            } catch {
-                // ignore localStorage errors
-            }
+        restoreOAuthTokens(!!authParams, values, actions)
+        maybeMigrateTemporaryToken(!!authParams, props, values, actions)
+        initInstrumentation(props, values)
+
+        // Verify uiHost reachability, then exchange the OAuth code if present.
+        // When uiHost was explicitly passed from the PostHog app it's always correct — skip check.
+        // Otherwise always check: token_endpoint and redirect_uri are derived from uiHost,
+        // so a wrong uiHost means the exchange will silently fail.
+        if (!props.uiHost) {
+            verifyUiHostReachability(props, values, actions, authParams)
+        } else if (authParams) {
+            startCodeExchange(values.uiHost, authParams, actions)
         }
-
-        // Migrate users from the old temporaryToken flow to OAuth.
-        // Skip if we're in the middle of a code exchange — the async token swap
-        // will set the tokens once it completes.
-        // TODO(@fcgomes): Remove after September 2026 — gives users 6 months to re-authenticate.
-        if (!values.accessToken && props.temporaryToken && !pendingCodeExchange) {
-            actions.tokenExpired()
-        }
-
-        if (props.instrument) {
-            const distinctId = props.distinctId
-
-            toolbarPosthogJS.opt_in_capturing()
-
-            if (distinctId) {
-                toolbarPosthogJS.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
-            }
-        }
-
-        toolbarPosthogJS.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
 
     beforeUnmount(({ cache }) => {
@@ -258,6 +250,170 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     }),
 ])
 
+// ---------------------------------------------------------------------------
+// afterMount helpers — extracted to keep the mount handler readable
+// ---------------------------------------------------------------------------
+
+type TokenActions = { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
+type CheckActions = TokenActions & {
+    setUiHostCheckStatus: (status: 'idle' | 'checking' | 'ok' | 'error') => void
+    openUiHostConfigModal: () => void
+}
+
+/** Restore OAuth tokens from a separate localStorage key that survives posthog-js overwrites. */
+function restoreOAuthTokens(
+    pendingCodeExchange: boolean,
+    values: { accessToken: string | null },
+    actions: TokenActions
+): void {
+    if (values.accessToken || pendingCodeExchange) {
+        return
+    }
+    try {
+        const stored = localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)
+        if (stored) {
+            const { accessToken, refreshToken, clientId } = JSON.parse(stored)
+            if (accessToken && refreshToken && clientId) {
+                actions.setOAuthTokens(accessToken, refreshToken, clientId)
+            }
+        }
+    } catch {
+        // ignore localStorage errors
+    }
+}
+
+/**
+ * Migrate users from the old temporaryToken flow to OAuth.
+ * TODO(@fcgomes): Remove after September 2026 — gives users 6 months to re-authenticate.
+ */
+function maybeMigrateTemporaryToken(
+    pendingCodeExchange: boolean,
+    props: ToolbarProps,
+    values: { accessToken: string | null },
+    actions: { tokenExpired: () => void }
+): void {
+    if (!values.accessToken && props.temporaryToken && !pendingCodeExchange) {
+        actions.tokenExpired()
+    }
+}
+
+/** Set up PostHog instrumentation and capture the "toolbar loaded" event. */
+function initInstrumentation(
+    props: ToolbarProps,
+    values: { isAuthenticated: boolean; uiHost: string; apiHost: string }
+): void {
+    if (props.instrument) {
+        toolbarPosthogJS.opt_in_capturing()
+        if (props.distinctId) {
+            toolbarPosthogJS.identify(props.distinctId, props.userEmail ? { email: props.userEmail } : {})
+        }
+    }
+
+    toolbarPosthogJS.capture('toolbar loaded', {
+        is_authenticated: values.isAuthenticated,
+        ui_host: values.uiHost,
+        api_host: values.apiHost,
+        ui_host_explicit: !!props.uiHost,
+        ui_host_matches_api_host: values.uiHost === values.apiHost,
+    })
+}
+
+function classifyFetchError(error: unknown): string {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+        return 'timeout'
+    }
+    if (error instanceof TypeError) {
+        return 'network_or_cors'
+    }
+    if (error instanceof Error && error.message.startsWith('HTTP ')) {
+        return 'http_error'
+    }
+    return 'unknown'
+}
+
+/**
+ * Run a CORS HEAD check against the PostHog app to verify uiHost is reachable.
+ * If a pending OAuth code exchange exists, it runs after the check succeeds
+ * (or shows the config modal on failure).
+ */
+function verifyUiHostReachability(
+    props: ToolbarProps,
+    values: { uiHost: string; apiHost: string; isAuthenticated: boolean },
+    actions: CheckActions,
+    authParams: { code: string; clientId: string } | null
+): void {
+    actions.setUiHostCheckStatus('checking')
+
+    const uiHostSource = (props.posthog as any)?.requestRouter?.uiHost
+        ? 'request_router'
+        : props.posthog?.config?.ui_host
+          ? 'posthog_config'
+          : props.posthog?.config?.api_host
+            ? 'posthog_api_host'
+            : 'window_origin'
+
+    const checkBaseProps = {
+        ui_host: values.uiHost,
+        api_host: values.apiHost,
+        ui_host_source: uiHostSource,
+        is_authenticated: values.isAuthenticated,
+    }
+
+    const checkStart = Date.now()
+    void fetch(`${values.uiHost}/toolbar_oauth/check`, {
+        method: 'HEAD',
+        mode: 'cors',
+        signal: AbortSignal.timeout(5000),
+    })
+        .then((response) => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`)
+            }
+            actions.setUiHostCheckStatus('ok')
+            toolbarPosthogJS.capture('toolbar ui host check', {
+                ...checkBaseProps,
+                status: 'ok',
+                duration_ms: Date.now() - checkStart,
+            })
+
+            if (authParams) {
+                startCodeExchange(values.uiHost, authParams, actions)
+            }
+        })
+        .catch((error: unknown) => {
+            actions.setUiHostCheckStatus('error')
+            toolbarPosthogJS.capture('toolbar ui host check', {
+                ...checkBaseProps,
+                status: 'error',
+                error_type: classifyFetchError(error),
+                duration_ms: Date.now() - checkStart,
+            })
+
+            if (authParams) {
+                actions.openUiHostConfigModal()
+            }
+        })
+}
+
+/** Exchange an OAuth authorization code for access + refresh tokens. */
+function startCodeExchange(
+    uiHost: string,
+    authParams: { code: string; clientId: string },
+    actions: TokenActions
+): void {
+    exchangeCodeForTokens(
+        `${uiHost}/oauth/token/`,
+        `${uiHost}/toolbar_oauth/callback`,
+        authParams.code,
+        authParams.clientId,
+        actions
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Token exchange
+// ---------------------------------------------------------------------------
+
 const PKCE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
 async function exchangeCodeForTokens(
@@ -265,7 +421,7 @@ async function exchangeCodeForTokens(
     redirectUri: string,
     code: string,
     clientId: string,
-    actions: { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
+    actions: TokenActions
 ): Promise<void> {
     let pkceData: { verifier?: string; ts?: number } = {}
     try {

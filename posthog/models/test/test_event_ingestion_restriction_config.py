@@ -2,6 +2,8 @@ import json
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.models.event_ingestion_restriction_config import (
     DYNAMIC_CONFIG_REDIS_KEY_PREFIX,
     EventIngestionRestrictionConfig,
@@ -51,12 +53,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         expected_entry = {
             "version": 2,
+            "index": 0,
             "token": "test_token",
             "pipelines": ["analytics", "session_recordings"],
             "distinct_ids": ["id1", "id2"],
             "session_ids": [],
             "event_names": [],
             "event_uuids": [],
+            "args": None,
         }
         self.assertEqual(data[0], expected_entry)
 
@@ -75,12 +79,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         data = json.loads(redis_data if redis_data is not None else b"[]")
         expected_entry = {
             "version": 2,
+            "index": 0,
             "token": "test_token",
             "pipelines": ["analytics"],
             "distinct_ids": [],
             "session_ids": [],
             "event_names": [],
             "event_uuids": [],
+            "args": None,
         }
         self.assertEqual(data, [expected_entry])
 
@@ -113,24 +119,28 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             data_by_token["existing_token"],
             {
                 "version": 2,
+                "index": 0,
                 "token": "existing_token",
                 "pipelines": ["session_recordings"],
                 "distinct_ids": ["existing_id"],
                 "session_ids": [],
                 "event_names": [],
                 "event_uuids": [],
+                "args": None,
             },
         )
         self.assertEqual(
             data_by_token["test_token"],
             {
                 "version": 2,
+                "index": 1,
                 "token": "test_token",
                 "pipelines": ["analytics"],
                 "distinct_ids": ["id1", "id2"],
                 "session_ids": [],
                 "event_names": [],
                 "event_uuids": [],
+                "args": None,
             },
         )
 
@@ -161,12 +171,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             [
                 {
                     "version": 2,
+                    "index": 0,
                     "token": "other_token",
                     "pipelines": ["analytics"],
                     "distinct_ids": [],
                     "session_ids": [],
                     "event_names": [],
                     "event_uuids": [],
+                    "args": None,
                 }
             ],
         )
@@ -233,12 +245,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             [
                 {
                     "version": 2,
+                    "index": 0,
                     "token": "test_token",
                     "pipelines": ["analytics"],
                     "distinct_ids": [],
                     "session_ids": [],
                     "event_names": [],
                     "event_uuids": [],
+                    "args": None,
                 }
             ],
         )
@@ -267,12 +281,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             [
                 {
                     "version": 2,
+                    "index": 0,
                     "token": "test_token",
                     "pipelines": ["analytics"],
                     "distinct_ids": ["id1", "id2"],
                     "session_ids": [],
                     "event_names": [],
                     "event_uuids": [],
+                    "args": None,
                 }
             ],
         )
@@ -340,12 +356,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             [
                 {
                     "version": 2,
+                    "index": 0,
                     "token": "test_token_2",
                     "pipelines": ["session_recordings"],
                     "distinct_ids": [],
                     "session_ids": [],
                     "event_names": [],
                     "event_uuids": [],
+                    "args": None,
                 }
             ],
         )
@@ -372,12 +390,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             [
                 {
                     "version": 2,
+                    "index": 0,
                     "token": "test_token",
                     "pipelines": ["analytics"],
                     "distinct_ids": [],
                     "session_ids": [],
                     "event_names": [],
                     "event_uuids": [],
+                    "args": None,
                 }
             ],
         )
@@ -390,12 +410,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             [
                 {
                     "version": 2,
+                    "index": 0,
                     "token": "test_token",
                     "pipelines": ["session_recordings"],
                     "distinct_ids": [],
                     "session_ids": [],
                     "event_names": [],
                     "event_uuids": [],
+                    "args": None,
                 }
             ],
         )
@@ -439,24 +461,28 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             data_by_token["test_token_1"],
             {
                 "version": 2,
+                "index": 0,
                 "token": "test_token_1",
                 "pipelines": ["analytics", "session_recordings"],
                 "distinct_ids": ["id1"],
                 "session_ids": [],
                 "event_names": [],
                 "event_uuids": [],
+                "args": None,
             },
         )
         self.assertEqual(
             data_by_token["test_token_2"],
             {
                 "version": 2,
+                "index": 1,
                 "token": "test_token_2",
                 "pipelines": ["session_recordings"],
                 "distinct_ids": ["id2"],
                 "session_ids": [],
                 "event_names": [],
                 "event_uuids": [],
+                "args": None,
             },
         )
 
@@ -478,12 +504,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         expected_entry = {
             "version": 2,
+            "index": 0,
             "token": "test_token",
             "pipelines": ["analytics", "session_recordings"],
             "distinct_ids": [],
             "session_ids": ["session1", "session2"],
             "event_names": [],
             "event_uuids": [],
+            "args": None,
         }
         self.assertEqual(data[0], expected_entry)
 
@@ -605,12 +633,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         expected_entry = {
             "version": 2,
+            "index": 0,
             "token": "test_token",
             "pipelines": ["analytics"],
             "distinct_ids": ["user1"],
             "session_ids": ["session1"],
             "event_names": ["$pageview"],
             "event_uuids": ["uuid-123"],
+            "args": None,
         }
         self.assertEqual(data[0], expected_entry)
 
@@ -654,12 +684,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         data = json.loads(redis_data if redis_data is not None else b"[]")
         expected_entry = {
             "version": 2,
+            "index": 0,
             "token": "test_token",
             "pipelines": ["analytics"],
             "distinct_ids": [],
             "session_ids": [],
             "event_names": [],
             "event_uuids": [],
+            "args": None,
         }
         self.assertEqual(data, [expected_entry])
 
@@ -699,12 +731,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             [
                 {
                     "version": 2,
+                    "index": 0,
                     "token": "test_token",
                     "pipelines": ["session_recordings"],
                     "distinct_ids": [],
                     "session_ids": ["large-session-1", "large-session-2"],
                     "event_names": [],
                     "event_uuids": [],
+                    "args": None,
                 }
             ],
         )
@@ -728,12 +762,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             [
                 {
                     "version": 2,
+                    "index": 0,
                     "token": "test_token",
                     "pipelines": ["session_recordings"],
                     "distinct_ids": [],
                     "session_ids": ["problematic-session-1", "problematic-session-2"],
                     "event_names": [],
                     "event_uuids": [],
+                    "args": None,
                 }
             ],
         )
@@ -758,12 +794,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             [
                 {
                     "version": 2,
+                    "index": 0,
                     "token": "test_token",
                     "pipelines": ["session_recordings"],
                     "distinct_ids": [],
                     "session_ids": ["session-1", "session-2"],
                     "event_names": ["$snapshot", "$replay_event"],
                     "event_uuids": [],
+                    "args": None,
                 }
             ],
         )
@@ -808,3 +846,169 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         # The old key should be cleared (no configs left for that type)
         old_redis_data = self.redis_client.get(old_redis_key)
         self.assertIsNone(old_redis_data)
+
+    def test_redirect_to_topic_with_args(self):
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
+            args={"topic": "my_custom_topic"},
+            pipelines=["analytics"],
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        self.assertIsNotNone(redis_data)
+
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        expected_entry = {
+            "version": 2,
+            "index": 0,
+            "token": "test_token",
+            "pipelines": ["analytics"],
+            "distinct_ids": [],
+            "session_ids": [],
+            "event_names": [],
+            "event_uuids": [],
+            "args": {"topic": "my_custom_topic"},
+        }
+        self.assertEqual(data, [expected_entry])
+
+    def test_redirect_to_topic_args_included_in_redis(self):
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
+            args={"topic": "my_topic"},
+            distinct_ids=["user1"],
+            pipelines=["analytics", "session_recordings"],
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["args"], {"topic": "my_topic"})
+        self.assertEqual(data[0]["distinct_ids"], ["user1"])
+
+    @parameterized.expand(
+        [
+            ("missing_args", None),
+            ("empty_topic", {"topic": ""}),
+            ("whitespace_topic", {"topic": "   "}),
+            ("non_dict_args", "not_a_dict"),
+            ("missing_topic_key", {"other": "value"}),
+        ]
+    )
+    def test_redirect_to_topic_rejects_invalid_args(self, _name, args):
+        from django.core.exceptions import ValidationError
+
+        kwargs: dict = {
+            "token": "test_token",
+            "restriction_type": RestrictionType.REDIRECT_TO_TOPIC,
+            "pipelines": ["analytics"],
+        }
+        if args is not None:
+            kwargs["args"] = args
+
+        with self.assertRaises(ValidationError) as ctx:
+            EventIngestionRestrictionConfig.objects.create(**kwargs)
+        self.assertIn("args", ctx.exception.message_dict)
+
+    def test_multiple_redirect_to_topic_index_ordering(self):
+        config1 = EventIngestionRestrictionConfig.objects.create(
+            token="token_a",
+            restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
+            args={"topic": "topic_alpha"},
+            pipelines=["analytics"],
+        )
+        config2 = EventIngestionRestrictionConfig.objects.create(
+            token="token_b",
+            restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
+            args={"topic": "topic_beta"},
+            pipelines=["analytics"],
+        )
+        EventIngestionRestrictionConfig.objects.create(
+            token="token_c",
+            restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
+            args={"topic": "topic_gamma"},
+            pipelines=["analytics", "session_recordings"],
+        )
+
+        redis_key = config1.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+
+        self.assertEqual(len(data), 3)
+
+        # Entries are ordered by UUIDT id (time-sortable), so creation order is preserved
+        self.assertEqual(data[0]["index"], 0)
+        self.assertEqual(data[0]["token"], "token_a")
+        self.assertEqual(data[0]["args"], {"topic": "topic_alpha"})
+
+        self.assertEqual(data[1]["index"], 1)
+        self.assertEqual(data[1]["token"], "token_b")
+        self.assertEqual(data[1]["args"], {"topic": "topic_beta"})
+
+        self.assertEqual(data[2]["index"], 2)
+        self.assertEqual(data[2]["token"], "token_c")
+        self.assertEqual(data[2]["args"], {"topic": "topic_gamma"})
+        self.assertEqual(data[2]["pipelines"], ["analytics", "session_recordings"])
+
+        # Delete the middle one and verify indices are recalculated
+        config2.delete()
+
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["index"], 0)
+        self.assertEqual(data[0]["token"], "token_a")
+        self.assertEqual(data[1]["index"], 1)
+        self.assertEqual(data[1]["token"], "token_c")
+
+    def test_indices_are_independent_per_restriction_type(self):
+        # Same token, different restriction types — each type has its own Redis key and indices
+        drop_config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+            pipelines=["analytics"],
+        )
+        redirect_config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
+            args={"topic": "my_topic"},
+            pipelines=["analytics"],
+        )
+        overflow_config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.FORCE_OVERFLOW_FROM_INGESTION,
+            pipelines=["analytics"],
+        )
+
+        # Each restriction type should have exactly one entry at index 0
+        for config in [drop_config, redirect_config, overflow_config]:
+            redis_data = self.redis_client.get(config.get_redis_key())
+            data = json.loads(redis_data if redis_data is not None else b"[]")
+            self.assertEqual(len(data), 1, f"Expected 1 entry for {config.restriction_type}")
+            self.assertEqual(data[0]["index"], 0)
+            self.assertEqual(data[0]["token"], "test_token")
+
+        # Add a second token for redirect_to_topic
+        EventIngestionRestrictionConfig.objects.create(
+            token="other_token",
+            restriction_type=RestrictionType.REDIRECT_TO_TOPIC,
+            args={"topic": "other_topic"},
+            pipelines=["analytics"],
+        )
+
+        # redirect_to_topic now has 2 entries, others still have 1
+        redirect_data = json.loads(self.redis_client.get(redirect_config.get_redis_key()) or b"[]")
+        self.assertEqual(len(redirect_data), 2)
+        self.assertEqual(redirect_data[0]["index"], 0)
+        self.assertEqual(redirect_data[0]["args"], {"topic": "my_topic"})
+        self.assertEqual(redirect_data[1]["index"], 1)
+        self.assertEqual(redirect_data[1]["args"], {"topic": "other_topic"})
+
+        drop_data = json.loads(self.redis_client.get(drop_config.get_redis_key()) or b"[]")
+        self.assertEqual(len(drop_data), 1)
+        self.assertEqual(drop_data[0]["index"], 0)

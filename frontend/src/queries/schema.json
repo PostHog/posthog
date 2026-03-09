@@ -2544,6 +2544,12 @@
                 },
                 "p75": {
                     "type": "number"
+                },
+                "series_index": {
+                    "$ref": "#/definitions/integer"
+                },
+                "series_label": {
+                    "type": "string"
                 }
             },
             "required": ["day", "label", "min", "p25", "median", "p75", "max", "mean"],
