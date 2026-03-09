@@ -1491,7 +1491,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsPrompts(),
         flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'LLMAnalyticsPrompts',
         sceneKeys: [
             'LLMAnalytics',
