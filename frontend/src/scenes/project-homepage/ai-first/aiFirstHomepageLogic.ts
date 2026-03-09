@@ -136,9 +136,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         enterAiMode: () => {
             return [urls.projectHomepage(), { mode: 'ai' }, undefined, { replace: false }]
         },
-        returnToIdle: () => {
-            return [urls.projectHomepage(), {}, undefined, { replace: true }]
-        },
     })),
 
     urlToAction(({ actions, values }) => ({
