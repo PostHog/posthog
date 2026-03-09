@@ -4,6 +4,7 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.sandbox import Sandbox
@@ -21,7 +22,7 @@ logger = get_logger(__name__)
 class StartAgentServerInput:
     context: TaskProcessingContext
     sandbox_id: str
-    read_only_mcp: bool = True
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only"
 
 
 @dataclass
@@ -66,9 +67,11 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
+        scopes: PosthogMcpScopes = input.posthog_mcp_scopes
+
         try:
             task = Task.objects.select_related("created_by").get(id=ctx.task_id)
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token(task, scopes=scopes)
         except OAuthTokenError:
             raise
         except Exception as e:
@@ -81,7 +84,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         mcp_configs = get_sandbox_mcp_configs(
             token=access_token,
             project_id=ctx.team_id,
-            read_only=input.read_only_mcp,
+            scopes=scopes,
         )
 
         try:

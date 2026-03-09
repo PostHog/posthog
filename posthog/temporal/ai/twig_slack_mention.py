@@ -691,6 +691,7 @@ def create_twig_task_for_repo_activity(
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             start_workflow=False,
+            mcp_scopes="full",
         )
     except Exception as e:
         log.exception(

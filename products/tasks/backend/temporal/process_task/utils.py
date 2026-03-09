@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,7 @@ def get_sandbox_mcp_configs(
     token: str,
     project_id: int,
     *,
-    read_only: bool = True,
+    scopes: PosthogMcpScopes = "read_only",
 ) -> list[McpServerConfig]:
     """Return MCP server configurations for sandbox agents.
 
@@ -52,6 +53,7 @@ def get_sandbox_mcp_configs(
     url = _resolve_mcp_url()
     if not url:
         return []
+    read_only = not has_write_scopes(scopes)
     headers = [
         {"name": "Authorization", "value": f"Bearer {token}"},
         {"name": "x-posthog-project-id", "value": str(project_id)},

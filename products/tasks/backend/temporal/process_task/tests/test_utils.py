@@ -54,17 +54,47 @@ class TestGetSandboxMcpConfigs(TestCase):
                 )
             ]
 
-    def test_read_only_false(self) -> None:
+    def test_full_scopes_preset(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = "https://app.posthog.com"
-            configs = get_sandbox_mcp_configs(self.TOKEN, self.PROJECT_ID, read_only=False)
+            configs = get_sandbox_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes="full")
             assert configs == [
                 McpServerConfig(
                     type="http",
                     name="posthog",
                     url="https://mcp.posthog.com/mcp",
                     headers=self._expected_headers(read_only=False),
+                )
+            ]
+
+    def test_custom_scopes_with_write(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_mcp_configs(
+                self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "feature_flag:write"]
+            )
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="https://mcp.posthog.com/mcp",
+                    headers=self._expected_headers(read_only=False),
+                )
+            ]
+
+    def test_custom_scopes_read_only(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "insight:read"])
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="https://mcp.posthog.com/mcp",
+                    headers=self._expected_headers(read_only=True),
                 )
             ]
 
