@@ -56,11 +56,20 @@ class ErrorTrackingIssue(UUIDTModel):
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
+        own_fingerprints = set(
+            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=self.team.pk, issue_id=self.id).values_list(
+                "fingerprint", flat=True
+            )
+        )
+
         overrides: list[ErrorTrackingIssueFingerprintV2] = []
         new_issues: list[ErrorTrackingIssue] = []
 
         with transaction.atomic():
             for entry in fingerprints:
+                fp = entry["fingerprint"]
+                if fp not in own_fingerprints:
+                    continue
                 new_issue = ErrorTrackingIssue.objects.create(
                     team=self.team,
                     name=entry.get("name") or "Untitled issue",
@@ -69,7 +78,7 @@ class ErrorTrackingIssue(UUIDTModel):
                 new_issues.append(new_issue)
                 overrides.extend(
                     update_error_tracking_issue_fingerprints(
-                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[entry["fingerprint"]]
+                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
                     )
                 )
 

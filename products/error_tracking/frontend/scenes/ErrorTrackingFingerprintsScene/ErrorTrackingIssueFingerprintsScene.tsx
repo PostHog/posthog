@@ -34,7 +34,7 @@ export const scene: SceneExport<ErrorTrackingIssueFingerprintsSceneProps> = {
 }
 
 export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
-    const { issue, issueFingerprints, fingerprintSamples, isLoading } = useValues(
+    const { issue, issueFingerprints, fingerprintSamples, isLoading, unmergingFingerprints } = useValues(
         errorTrackingIssueFingerprintsSceneLogic
     )
     const { loadFingerprintSamples, unmerge } = useActions(errorTrackingIssueFingerprintsSceneLogic)
@@ -74,7 +74,9 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                     disabledReason={
                         fingerprintSamples.length === 1
                             ? 'This issue only has one fingerprint and cannot be unmerged'
-                            : undefined
+                            : unmergingFingerprints.has(record.fingerprint)
+                              ? 'Unmerging in progress...'
+                              : undefined
                     }
                     onClick={() => unmerge(record.fingerprint)}
                 />
@@ -128,20 +130,24 @@ function FingerprintStackTrace({ fingerprint }: { fingerprint: string }): JSX.El
 
     const fetchEvent = useCallback(async () => {
         setLoading(true)
-        const query: EventsQuery = {
-            kind: NodeKind.EventsQuery,
-            event: '$exception',
-            select: ['uuid', 'properties'],
-            where: [`properties.$exception_fingerprint = '${fingerprint}'`],
-            limit: 1,
+        try {
+            const query: EventsQuery = {
+                kind: NodeKind.EventsQuery,
+                event: '$exception',
+                select: ['uuid', 'properties'],
+                where: [`properties.$exception_fingerprint = '${fingerprint.replace(/'/g, "\\'")}'`],
+                orderBy: ['timestamp DESC'],
+                limit: 1,
+            }
+            const response = await api.query(query)
+            if (response.results.length > 0) {
+                const [uuid, props] = response.results[0]
+                setEventId(uuid)
+                setProperties(typeof props === 'string' ? JSON.parse(props) : props)
+            }
+        } finally {
+            setLoading(false)
         }
-        const response = await api.query(query)
-        if (response.results.length > 0) {
-            const [uuid, props] = response.results[0]
-            setEventId(uuid)
-            setProperties(typeof props === 'string' ? JSON.parse(props) : props)
-        }
-        setLoading(false)
     }, [fingerprint])
 
     useEffect(() => {

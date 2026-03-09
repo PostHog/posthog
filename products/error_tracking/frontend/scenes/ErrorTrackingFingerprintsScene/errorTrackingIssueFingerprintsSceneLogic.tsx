@@ -1,4 +1,4 @@
-import { actions, connect, defaults, events, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -42,13 +42,25 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
     }),
 
     connect(() => ({
-        actions: [issueActionsLogic, ['splitIssue', 'splitIssueSuccess']],
+        actions: [issueActionsLogic, ['splitIssue', 'splitIssueSuccess', 'mutationFailure']],
     })),
 
     defaults({
         issue: null as ErrorTrackingRelationalIssue | null,
         issueFingerprints: null as ErrorTrackingFingerprint[] | null,
         fingerprintSamples: [] as ErrorTrackingFingerprintSamples[],
+        unmergingFingerprints: new Set<string>(),
+    }),
+
+    reducers({
+        unmergingFingerprints: [
+            new Set<string>(),
+            {
+                unmerge: (state, { fingerprint }) => new Set([...state, fingerprint]),
+                splitIssueSuccess: () => new Set<string>(),
+                mutationFailure: () => new Set<string>(),
+            },
+        ],
     }),
 
     loaders(({ values, props }) => ({
@@ -160,6 +172,12 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
                 })
             } else {
                 lemonToast.success(`${newIssueIds.length} fingerprints unmerged successfully`)
+            }
+        },
+        mutationFailure: ({ mutationName }) => {
+            if (mutationName === 'splitIssues') {
+                lemonToast.error('Failed to unmerge fingerprint')
+                actions.loadIssueFingerprints()
             }
         },
     })),
