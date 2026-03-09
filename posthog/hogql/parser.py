@@ -765,7 +765,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.identifier()).lower()
 
     def visitColumnTypeExprNested(self, ctx: HogQLParser.ColumnTypeExprNestedContext):
-        raise NotImplementedError(f"Unsupported node: ColumnTypeExprNested")
+        identifiers = ctx.identifier()
+        type_name = self.visit(identifiers[0])
+        type_exprs = ctx.columnTypeExpr()
+        fields = ", ".join(
+            f"{self.visit(identifiers[i + 1])} {self.visit(type_exprs[i])}" for i in range(len(type_exprs))
+        )
+        return f"{type_name}({fields})".lower()
 
     def visitColumnTypeExprEnum(self, ctx: HogQLParser.ColumnTypeExprEnumContext):
         raise NotImplementedError(f"Unsupported node: ColumnTypeExprEnum")
@@ -777,7 +783,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return " ".join(self.visit(ident) for ident in ctx.identifier()).lower()
 
     def visitColumnTypeExprParam(self, ctx: HogQLParser.ColumnTypeExprParamContext):
-        raise NotImplementedError(f"Unsupported node: ColumnTypeExprParam")
+        name = self.visit(ctx.identifier())
+        params = ", ".join(c.getText() for c in ctx.columnExprList().columnExpr()) if ctx.columnExprList() else ""
+        return f"{name}({params})".lower()
 
     def visitColumnExprList(self, ctx: HogQLParser.ColumnExprListContext):
         return [self.visit(c) for c in ctx.columnExpr()]
