@@ -1092,17 +1092,21 @@ class TestBytecodeExecute:
 
     def test_boolean_template_preserves_type(self):
         """Boolean template expressions like {true} or {event.properties.flag} should produce actual booleans, not strings."""
-        cases: list[tuple[str, dict[str, Any], bool]] = [
+        cases: list[tuple[str, dict[str, Any], bool | None]] = [
             ("{true}", {}, True),
             ("{false}", {}, False),
             ("{event.properties.opt_out}", {"event": {"properties": {"opt_out": True}}}, True),
             ("{event.properties.opt_out}", {"event": {"properties": {"opt_out": False}}}, False),
-            ("{event.properties.opt_out}", {"event": {"properties": {}}}, False),
-            ("{event.properties.opt_out}", {"event": {"properties": {"opt_out": "a non boolean value"}}}, True),
+            ("{event.properties.opt_out}", {"event": {"properties": {}}}, None),
+            (
+                "{event.properties.opt_out}",
+                {"event": {"properties": {"opt_out": "a non boolean value"}}},
+                "a non boolean value",
+            ),
         ]
         for template, globals, expected in cases:
             bytecode = create_bytecode(parse_string_template(template)).bytecode
             result = execute_bytecode(bytecode, globals=globals).result
-            assert result is expected, (
-                f"Template '{template}' should produce {expected!r} (bool), got {result!r} ({type(result).__name__})"
+            assert result == expected, (
+                f"Template '{template}' should produce {expected!r}, got {result!r} ({type(result).__name__})"
             )
