@@ -11,6 +11,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
@@ -39,6 +40,7 @@ async def execute_task_processing_workflow_async(
     create_pr: bool = True,
     slack_thread_context: Optional[Any] = None,
     skip_user_check: bool = False,
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only",
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
@@ -98,6 +100,7 @@ async def execute_task_processing_workflow_async(
             run_id=run_id,
             create_pr=create_pr,
             slack_thread_context=slack_context_dict,
+            posthog_mcp_scopes=posthog_mcp_scopes,
         )
 
         logger.info(
@@ -137,6 +140,7 @@ def execute_task_processing_workflow(
     create_pr: bool = True,
     slack_thread_context: Optional["SlackThreadContext"] = None,
     skip_user_check: bool = False,
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only",
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
@@ -195,6 +199,7 @@ def execute_task_processing_workflow(
             run_id=run_id,
             create_pr=create_pr,
             slack_thread_context=slack_context_dict,
+            posthog_mcp_scopes=posthog_mcp_scopes,
         )
 
         logger.info(

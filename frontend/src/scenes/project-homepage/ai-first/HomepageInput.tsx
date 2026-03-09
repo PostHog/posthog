@@ -1,15 +1,25 @@
 import { Menu } from '@base-ui/react/menu'
 import { Menubar } from '@base-ui/react/menubar'
-import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronRight, IconLightBulb, IconNotification, IconRocket, IconSearch } from '@posthog/icons'
+import {
+    IconArrowRight,
+    IconChevronRight,
+    IconLightBulb,
+    IconLock,
+    IconNotification,
+    IconRocket,
+    IconSearch,
+} from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { uuid } from 'lib/utils'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { Intro } from 'scenes/max/Intro'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -21,7 +31,7 @@ import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
     const { query, placeholder } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery } = useActions(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, enterAiMode } = useActions(aiFirstHomepageLogic)
     const inputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
@@ -30,7 +40,7 @@ function IdleInput(): JSX.Element {
     }, [])
 
     return (
-        <div className="flex flex-col items-center w-full">
+        <div className="flex flex-col items-center w-full px-3">
             <label
                 htmlFor="homepage-input"
                 className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2"
@@ -45,7 +55,15 @@ function IdleInput(): JSX.Element {
                     ref={inputRef}
                     id="homepage-input"
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={(e) => {
+                        const value = e.target.value
+                        // Typing / or @ as the first character enters AI mode without sending
+                        if (value === '/' || value === '@') {
+                            enterAiMode(value)
+                            return
+                        }
+                        setQuery(value)
+                    }}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' && query.trim()) {
                             e.preventDefault()
@@ -65,11 +83,8 @@ function IdleInput(): JSX.Element {
                 <div className="px-4 w-full">
                     <div className="w-full bg-surface-tertiary justify-between rounded-b-lg px-1 pt-0.5 pb-1 font-medium select-none flex items-center gap-1 border-l border-r border-b">
                         <div className="flex items-center gap-0.5">
-                            <ButtonPrimitive size="xs" className="text-tertiary" tooltip="Not implemented yet">
+                            <ButtonPrimitive size="xs" className="text-tertiary" onClick={() => enterAiMode('/')}>
                                 <KeyboardShortcut forwardslash /> <span className="text-xxs">For commands</span>
-                            </ButtonPrimitive>
-                            <ButtonPrimitive size="xs" className="text-tertiary" tooltip="Not implemented yet">
-                                <KeyboardShortcut atsign /> <span className="text-xxs">Add context</span>
                             </ButtonPrimitive>
                         </div>
 
@@ -94,11 +109,41 @@ function IdleInput(): JSX.Element {
 
 function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
 
+    const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
         tabId: HOMEPAGE_TAB_ID,
-        conversationId: threadLogicKey || uuid(),
+        conversationId: threadLogicKey || fallbackConversationId,
         conversation,
+    }
+
+    if (!dataProcessingAccepted) {
+        const isAdmin = !dataProcessingApprovalDisabledReason
+        return (
+            <div className="border border-primary rounded-lg bg-surface-primary p-4 flex flex-col gap-2">
+                <p className="font-medium text-pretty m-0">
+                    PostHog AI needs your approval to potentially process identifying user data with external AI
+                    providers.
+                </p>
+                <p className="text-muted text-xs m-0">Your data won't be used for training models.</p>
+                {isAdmin ? (
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={() => void acceptDataProcessing().catch(console.error)}
+                        sideIcon={<IconArrowRight />}
+                    >
+                        I allow AI analysis in this organization
+                    </LemonButton>
+                ) : (
+                    <LemonButton type="secondary" size="small" disabled sideIcon={<IconLock />}>
+                        {dataProcessingApprovalDisabledReason}
+                    </LemonButton>
+                )}
+            </div>
+        )
     }
 
     return (

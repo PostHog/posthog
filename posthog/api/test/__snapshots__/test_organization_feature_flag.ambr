@@ -1163,6 +1163,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND "posthog_featureflag"."key" = 'copied-flag-key'
+         AND "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."project_id" = 99999)
   LIMIT 21
   '''
@@ -2931,7 +2932,7 @@
   SELECT 1 AS "a"
   FROM "posthog_team"
   WHERE ("posthog_team"."project_id" = 99999
-         AND "posthog_team"."session_recording_linked_flag" @> '{"id": 65}'::jsonb)
+         AND "posthog_team"."session_recording_linked_flag" @> '{"id": 63}'::jsonb)
   LIMIT 1
   '''
 # ---
