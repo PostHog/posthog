@@ -39,6 +39,7 @@ from products.conversations.backend.api.serializers import (
 from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
+    invalidate_messages_cache,
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
@@ -166,10 +167,6 @@ class WidgetMessageView(APIView):
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
 
-        # Invalidate caches
-        invalidate_unread_count_cache(team.id)
-        invalidate_tickets_cache(team.id, widget_session_id)
-
         # Create message
         comment = Comment.objects.create(
             team=team,
@@ -178,6 +175,11 @@ class WidgetMessageView(APIView):
             content=message_content,
             item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
+
+        # Invalidate caches AFTER writing so concurrent reads don't re-cache stale data
+        invalidate_unread_count_cache(team.id)
+        invalidate_tickets_cache(team.id, widget_session_id)
+        invalidate_messages_cache(team.id, str(ticket.id))
 
         # Send email notification for new tickets
         if not ticket_id:
