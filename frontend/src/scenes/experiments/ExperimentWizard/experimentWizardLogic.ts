@@ -282,6 +282,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
 
     events(({ actions, values }) => ({
         afterMount: () => {
+            actions.resetWizard()
             actions.reportExperimentWizardStarted(values.showGuide)
             actions.loadFeatureFlagsForAutocomplete()
         },
