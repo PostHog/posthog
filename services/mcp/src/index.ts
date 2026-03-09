@@ -2,7 +2,7 @@ import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from 
 import { ErrorCode } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash, sanitizeUserAgent } from '@/lib/utils'
+import { hash, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
@@ -70,6 +70,8 @@ const errorHandler = async (response: Response): Promise<Response> => {
         const body = await response.clone().text()
         if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
             return new Response('OAuth token is inactive', { status: 401 })
+        } else if (body.includes(ErrorCode.INVALID_API_KEY)) {
+            return new Response('Invalid API key', { status: 401 })
         }
     }
 
@@ -203,7 +205,7 @@ const handleRequest = async (
     const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
 
     const rawUserAgent = request.headers.get('User-Agent') || undefined
-    const clientUserAgent = sanitizeUserAgent(rawUserAgent)
+    const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
 
     Object.assign(ctx.props, {
         apiToken: token,
@@ -227,7 +229,10 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    Object.assign(ctx.props, { features, region: regionParam, version })
+    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
+
+    Object.assign(ctx.props, { features, region: regionParam, version, readOnly })
     log.extend({ features, version })
 
     if (url.pathname.startsWith('/mcp')) {

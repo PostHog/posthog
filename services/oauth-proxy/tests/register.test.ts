@@ -11,13 +11,15 @@ beforeEach(() => {
 })
 
 describe('handleRegister', () => {
-    it('dual-registers on both US and EU and stores the mapping', async () => {
+    it('dual-registers on both US and EU, adds proxy callback to redirect_uris, and stores mapping', async () => {
         const usClientId = 'us_client_abc123'
         const euClientId = 'eu_client_def456'
+        const sentBodies: Record<string, unknown>[] = []
 
         vi.stubGlobal(
             'fetch',
-            vi.fn().mockImplementation((url: string) => {
+            vi.fn().mockImplementation((url: string, init: RequestInit) => {
+                sentBodies.push(JSON.parse(init.body as string))
                 if (new URL(url).hostname === 'us.posthog.com') {
                     return Promise.resolve(
                         new Response(JSON.stringify({ client_id: usClientId, client_name: 'Test App' }), {
@@ -46,11 +48,19 @@ describe('handleRegister', () => {
 
         expect(response.status).toBe(201)
         expect(data.client_id).toBe(usClientId)
-        expect(vi.mocked(mockKV.put)).toHaveBeenCalledOnce()
 
+        // Proxy callback URL should be added to redirect_uris sent to both regions
+        for (const body of sentBodies) {
+            expect(body.redirect_uris).toContain('http://localhost:3000/callback')
+            expect(body.redirect_uris).toContain('https://oauth.posthog.com/oauth/callback/')
+        }
+
+        // Stored mapping should have original redirect_uris (without proxy callback)
+        expect(vi.mocked(mockKV.put)).toHaveBeenCalledOnce()
         const storedMapping = JSON.parse(vi.mocked(mockKV.put).mock.calls[0]![1] as string)
         expect(storedMapping.us_client_id).toBe(usClientId)
         expect(storedMapping.eu_client_id).toBe(euClientId)
+        expect(storedMapping.redirect_uris).toEqual(['http://localhost:3000/callback'])
     })
 
     it('returns error when one region fails', async () => {

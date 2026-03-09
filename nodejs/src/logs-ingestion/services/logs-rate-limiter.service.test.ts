@@ -244,6 +244,9 @@ describe('LogsRateLimiterService', () => {
             hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 1
             hub.LOGS_LIMITER_TTL_SECONDS = 3600
             hub.LOGS_LIMITER_ENABLED_TEAMS = '*'
+            hub.LOGS_LIMITER_DISABLED_FOR_TEAMS = ''
+            hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB = ''
+            hub.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND = ''
 
             redis = createRedisV2PoolFromConfig({
                 connection: hub.LOGS_REDIS_HOST

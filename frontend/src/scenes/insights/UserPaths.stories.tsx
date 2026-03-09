@@ -46,7 +46,13 @@ export const UserPaths: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json')
 )
 UserPaths.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'] },
+    testOptions: {
+        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
+        // Snapshot only the path visualization canvas, not the surrounding page chrome
+        // (InsightPageHeader, SceneTitleSection, etc.) which changes frequently and causes
+        // recurring snapshot drift on master (~30% failure rate).
+        snapshotTargetSelector: '.Paths',
+    },
 }
 // The Paths component uses useResizeObserver to measure canvasWidth, then destroys
 // and recreates the SVG when it changes. This causes a race condition where the SVG

@@ -17,7 +17,6 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiRespo
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
-from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey, PropertyOperator
@@ -30,6 +29,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
@@ -141,12 +141,17 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
     labelnames=["result"],  # "hit" (304), "miss" (200), "none" (no client etag)
 )
 
+LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
+    "posthog_local_evaluation_secret_api_key_in_body_total",
+    "Local evaluation requests where secret_api_key was passed in request body instead of Authorization header",
+)
+
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
     return list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
+        FeatureFlag.objects.filter(team=flag_to_check.team, active=True)
         .exclude(id=flag_to_check.id)
         .extra(
             where=[
@@ -186,7 +191,7 @@ def find_dependent_flags_batch(
 
     dependent_flags = list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        FeatureFlag.objects.filter(team=team, deleted=False, active=True)
+        FeatureFlag.objects.filter(team=team, active=True)
         .exclude(id__in=flag_ids)
         .extra(
             where=[
@@ -272,7 +277,7 @@ def check_flag_limits_for_team(
         return
 
     count_limit = settings.MAX_FEATURE_FLAGS_PER_TEAM
-    flag_count = FeatureFlag.objects.filter(team_id=team_id, deleted=False).count()
+    flag_count = FeatureFlag.objects.filter(team_id=team_id).count()
 
     if flag_count >= count_limit:
         raise serializers.ValidationError(
@@ -538,7 +543,7 @@ class FeatureFlagSerializer(
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
-    analytics_dashboards = serializers.PrimaryKeyRelatedField(
+    analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
         queryset=Dashboard.objects.all(),
@@ -607,16 +612,6 @@ class FeatureFlagSerializer(
             "_should_create_usage_dashboard",
             "is_used_in_replay_settings",
         ]
-
-    def get_fields(self):
-        fields = super().get_fields()
-        analytics_dashboards_field = cast(ManyRelatedField, fields["analytics_dashboards"])
-        if team_id := self.context.get("team_id"):
-            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.filter(team_id=team_id)
-        else:
-            # Fail safe: if no team context, allow no dashboards to prevent IDOR
-            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.none()
-        return fields
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         from typing import cast
@@ -732,7 +727,7 @@ class FeatureFlagSerializer(
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"], deleted=False)
+            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"])
             .exclude(**exclude_kwargs)
             .exists()
         ):
@@ -1015,7 +1010,7 @@ class FeatureFlagSerializer(
             )
 
         try:
-            flag = FeatureFlag.objects.get(id=flag_id, team__project_id=self.context["project_id"], deleted=False)
+            flag = FeatureFlag.objects.get(id=flag_id, team__project_id=self.context["project_id"])
 
             # Check if the referenced flag is active
             if not flag.active:
@@ -1084,7 +1079,6 @@ class FeatureFlagSerializer(
                 flag = FeatureFlag.objects.get(
                     key=flag_key,
                     team__project_id=self.context["project_id"],
-                    deleted=False,
                 )
                 flag_deps = self._extract_flag_dependencies(flag.filters or {})
                 for dep_key in flag_deps:
@@ -1132,7 +1126,7 @@ class FeatureFlagSerializer(
         encrypt_flag_payloads(validated_data)
 
         try:
-            FeatureFlag.objects.filter(
+            FeatureFlag.objects_including_soft_deleted.filter(
                 key=validated_data["key"],
                 team__project_id=self.context["project_id"],
                 deleted=True,
@@ -1221,6 +1215,26 @@ class FeatureFlagSerializer(
             if instance.experiment_set.filter(deleted=True).exists():
                 validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
 
+        if "deleted" in validated_data and validated_data["deleted"] is False:
+            # Restoring a soft-deleted flag — if the key was renamed during
+            # soft-delete, restore the original key. If the original key has
+            # been claimed by another flag, append a numeric suffix.
+            deleted_suffix = f":deleted:{instance.id}"
+            if instance.key.endswith(deleted_suffix):
+                original_key = instance.key[: -len(deleted_suffix)]
+                candidate = original_key
+                counter = 2
+                while (
+                    FeatureFlag.objects_including_soft_deleted.filter(
+                        key=candidate, team__project_id=self.context["project_id"]
+                    )
+                    .exclude(pk=instance.pk)
+                    .exists()
+                ):
+                    candidate = f"{original_key}-{counter}"
+                    counter += 1
+                validated_data["key"] = candidate
+
         # Check for dependency conflicts when disabling a flag
         if "active" in validated_data and validated_data["active"] is False and instance.active is True:
             # Check for other flags that depend on this flag
@@ -1267,8 +1281,10 @@ class FeatureFlagSerializer(
         version = request.data.get("version", -1)
 
         with transaction.atomic():
-            # select_for_update locks the database row so we ensure version updates are atomic
-            locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
+            # select_for_update locks the database row so we ensure version updates are atomic.
+            # Uses objects_including_soft_deleted so that restoring a soft-deleted flag
+            # (setting deleted=False) can acquire the lock.
+            locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
             locked_version = locked_instance.version or 0
 
             # NOW check for conflicts after all transformations
@@ -1405,7 +1421,6 @@ class FeatureFlagSerializer(
             FeatureFlag.objects.filter(
                 team=flag_to_check.team,
                 id__in=dependency_ids,
-                deleted=False,
                 active=False,
             ).order_by("key")
         )
@@ -1663,7 +1678,10 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
-    queryset = FeatureFlag.objects.all()
+    # Use the unfiltered manager so non-list actions (retrieve, update, etc.)
+    # can access soft-deleted flags. The list action applies its own
+    # deleted=False filter in safely_get_queryset.
+    queryset = FeatureFlag.objects_including_soft_deleted.all()
     serializer_class = FeatureFlagSerializer
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
@@ -1962,7 +1980,7 @@ class FeatureFlagViewSet(
         ).values_list("internal_targeting_flag_id", flat=True)
 
         feature_flags = list(
-            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
+            FeatureFlag.objects.filter(team__project_id=self.project_id)
             .exclude(Q(id__in=survey_flag_ids))
             .exclude(Q(id__in=product_tour_internal_targeting_flags))
             .order_by("-created_at")
@@ -2048,9 +2066,7 @@ class FeatureFlagViewSet(
             response_data["warning"] = f"Invalid flag IDs ignored: {invalid_ids}"
 
         # Fetch flags by IDs
-        flags = FeatureFlag.objects.filter(
-            id__in=flag_ids, team__project_id=self.project_id, deleted=False
-        ).values_list("id", "key")
+        flags = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id).values_list("id", "key")
 
         # Create mapping of ID to key
         keys_mapping = {str(flag_id): key for flag_id, key in flags}
@@ -2510,6 +2526,17 @@ class FeatureFlagViewSet(
         start_time = time.time()
         logger = logging.getLogger(__name__)
 
+        # Track if secret_api_key was passed in request body AND was the actual auth mechanism.
+        # If the header also has a phs_ token, the header wins and the body value is ignored,
+        # so Rust (header-only) would still authenticate fine — no need to count those.
+        auth_header = request.headers.get("authorization", "")
+        if (
+            request.data.get("secret_api_key")
+            and isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
+            and not re.match(r"^Bearer\s+phs_[a-zA-Z0-9]+$", auth_header)
+        ):
+            LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER.inc()
+
         # Use validated boolean value from serializer
         include_cohorts = request.validated_query_data.get("send_cohorts", False)
 
@@ -2719,9 +2746,9 @@ class FeatureFlagViewSet(
                 },
             }
 
-        disabled_flags = FeatureFlag.objects.filter(
-            team__project_id=self.project_id, active=False, deleted=False
-        ).values_list("key", flat=True)
+        disabled_flags = FeatureFlag.objects.filter(team__project_id=self.project_id, active=False).values_list(
+            "key", flat=True
+        )
 
         for flag_key in disabled_flags:
             flags_with_evaluation_reasons[flag_key] = {
@@ -2864,7 +2891,7 @@ class FeatureFlagViewSet(
         page = request.validated_query_data["page"]
 
         item_id = kwargs["pk"]
-        if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
+        if not FeatureFlag.objects_including_soft_deleted.filter(id=item_id, team__project_id=self.project_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(

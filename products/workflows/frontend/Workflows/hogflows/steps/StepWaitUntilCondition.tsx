@@ -31,16 +31,6 @@ export function StepWaitUntilConditionConfiguration({
             <StepSchemaErrors />
 
             <div className="flex flex-col gap-1">
-                <LemonLabel>Wait time</LemonLabel>
-                <HogFlowDuration
-                    value={max_wait_duration}
-                    onChange={(value) => {
-                        partialSetWorkflowActionConfig(action.id, { max_wait_duration: value })
-                    }}
-                />
-            </div>
-
-            <div className="flex flex-col gap-1">
                 <LemonLabel>Conditions to wait for</LemonLabel>
                 <LemonInput
                     value={localConditionName || ''}
@@ -55,6 +45,16 @@ export function StepWaitUntilConditionConfiguration({
                         partialSetWorkflowActionConfig(action.id, { condition: { ...condition, filters } })
                     }
                     typeKey="workflow-wait-until-condition"
+                />
+            </div>
+
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Max time to wait for condition</LemonLabel>
+                <HogFlowDuration
+                    value={max_wait_duration}
+                    onChange={(value) => {
+                        partialSetWorkflowActionConfig(action.id, { max_wait_duration: value })
+                    }}
                 />
             </div>
         </>

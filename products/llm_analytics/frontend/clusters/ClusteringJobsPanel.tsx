@@ -67,7 +67,7 @@ function JobEditor({
                 <PropertyFilters
                     propertyFilters={eventFilters}
                     onChange={(properties) => setEventFilters(properties)}
-                    pageKey={`clustering-job-editor-${job.id ?? 'new'}`}
+                    pageKey={`llma-clustering-job-editor-${job.id ?? 'new'}`}
                     taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.EventProperties,
                         TaxonomicFilterGroupType.EventMetadata,
@@ -83,11 +83,12 @@ function JobEditor({
                 <span className="text-sm">Enabled</span>
             </div>
             <div className="flex justify-end gap-2">
-                <LemonButton type="secondary" onClick={onCancel}>
+                <LemonButton type="secondary" data-attr="llma-clustering-job-cancel" onClick={onCancel}>
                     Cancel
                 </LemonButton>
                 <LemonButton
                     type="primary"
+                    data-attr="llma-clustering-job-save"
                     disabled={!name.trim()}
                     loading={saving}
                     onClick={() =>
@@ -149,7 +150,12 @@ export function ClusteringJobsPanel(): JSX.Element {
                                 {!job.enabled && <span className="text-xs text-muted">Disabled</span>}
                             </div>
                             <div className="flex items-center gap-1">
-                                <LemonButton size="small" type="secondary" onClick={() => setEditingJob(job)}>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    data-attr="llma-clustering-job-edit"
+                                    onClick={() => setEditingJob(job)}
+                                >
                                     Edit
                                 </LemonButton>
                                 <LemonButton
@@ -157,6 +163,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                                     type="secondary"
                                     status="danger"
                                     icon={<IconTrash />}
+                                    data-attr="llma-clustering-job-delete"
                                     onClick={() => {
                                         LemonDialog.open({
                                             title: 'Delete clustering job?',
@@ -190,6 +197,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         icon={<IconPlus />}
+                        data-attr="llma-clustering-job-add"
                         onClick={() => setEditingJob({})}
                         disabled={jobs.length >= MAX_JOBS}
                         tooltip={jobs.length >= MAX_JOBS ? `Maximum of ${MAX_JOBS} jobs` : undefined}

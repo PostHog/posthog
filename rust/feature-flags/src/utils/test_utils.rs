@@ -1377,6 +1377,29 @@ impl TestContext {
             .await
     }
 
+    /// Populate cache for a team and store an ETag alongside it.
+    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
+    /// matching Django's HyperCache behavior.
+    pub async fn populate_cache_for_team_with_etag(
+        &self,
+        team_id: i32,
+        etag: &str,
+    ) -> Result<(), Error> {
+        let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.populate_flag_definitions_cache(redis_client.clone(), team_id)
+            .await?;
+
+        let etag_key =
+            format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag");
+        let pickled_etag =
+            serde_pickle::to_vec(&etag, Default::default()).expect("Failed to pickle ETag");
+        redis_client
+            .set_bytes(etag_key, pickled_etag, None)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to set ETag: {e}"))?;
+        Ok(())
+    }
+
     /// Generates a unique test email address with an optional prefix
     pub fn generate_test_email(prefix: &str) -> String {
         let unique_id = &uuid::Uuid::new_v4().to_string()[..8];

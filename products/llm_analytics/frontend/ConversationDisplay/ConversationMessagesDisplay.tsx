@@ -12,8 +12,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 
 import { MessageSentimentBar } from '../components/SentimentTag'
+import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from '../LLMInputOutput'
-import { llmSentimentLazyLoaderLogic } from '../llmSentimentLazyLoaderLogic'
 import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
@@ -87,10 +87,9 @@ export function ConversationMessagesDisplay({
     const previousSearchQueryRef = React.useRef('')
     const inputMessageShowStates = messageShowStates.input
     const outputMessageShowStates = messageShowStates.output
-    const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
+    const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
 
-    const generationSentiment =
-        traceId && generationEventId ? getGenerationSentiment(traceId, generationEventId) : undefined
+    const generationSentiment = generationEventId ? getGenerationSentiment(generationEventId) : undefined
 
     // Sentiment is only available for user messages that have a known original
     // index in $ai_input (sourceIndex). System/assistant messages and messages

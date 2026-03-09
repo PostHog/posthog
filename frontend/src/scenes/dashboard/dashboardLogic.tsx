@@ -26,7 +26,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -81,7 +81,7 @@ import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
-    MAX_TILES_FOR_AUTOPREVIEW,
+    DEFAULT_AUTO_PREVIEW_TILE_LIMIT,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
@@ -939,7 +939,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         canAutoPreview: [
             (s) => [s.dashboard],
-            (dashboard) => (dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW,
+            (dashboard) => {
+                const payload = getFeatureFlagPayload(FEATURE_FLAGS.DASHBOARD_AUTO_PREVIEW_LIMIT)
+                const limit = typeof payload === 'number' ? payload : DEFAULT_AUTO_PREVIEW_TILE_LIMIT
+                return (dashboard?.tiles.length || 0) < limit
+            },
         ],
         hasIntermittentFilters: [
             (s) => [s.intermittentFilters],
@@ -949,7 +953,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.urlFilters],
             (urlFilters) => Object.values(urlFilters).some((filter) => filter !== undefined),
         ],
-        showEditBarApplyPopover: [
+        showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
             (canAutoPreview, hasIntermittentFilters) => !canAutoPreview && hasIntermittentFilters,
         ],

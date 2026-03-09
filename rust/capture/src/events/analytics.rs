@@ -13,11 +13,8 @@ use tracing::{error, instrument, Span};
 
 use crate::{
     api::CaptureError,
-    config::CaptureMode,
-    debug_or_info,
-    event_restrictions::{
-        AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
-    },
+    debug_or_info, error_tracking_sampler,
+    event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     prometheus::report_dropped_events,
     router, sinks,
     utils::uuid_v7,
@@ -87,6 +84,7 @@ pub fn process_single_event(
         force_overflow: false,
         skip_person_processing: false,
         redirect_to_dlq: false,
+        redirect_to_topic: None,
     };
 
     if historical_cfg.should_reroute(metadata.data_type, computed_timestamp) {
@@ -170,18 +168,32 @@ pub async fn process_events<'a>(
                 now_ts,
             };
 
-            let restrictions = service.get_restrictions(&e.event.token, &event_ctx).await;
-            let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Events);
+            let applied = service.get_restrictions(&e.event.token, &event_ctx).await;
 
-            if applied.should_drop {
+            if applied.should_drop() {
                 report_dropped_events("event_restriction_drop", 1);
                 continue;
             }
 
             let mut event = e;
-            event.metadata.force_overflow |= applied.force_overflow;
-            event.metadata.skip_person_processing |= applied.skip_person_processing;
-            event.metadata.redirect_to_dlq |= applied.redirect_to_dlq;
+            event.metadata.force_overflow |= applied.force_overflow();
+            event.metadata.skip_person_processing |= applied.skip_person_processing();
+            event.metadata.redirect_to_dlq |= applied.redirect_to_dlq();
+            if let Some(topic) = applied.redirect_to_topic() {
+                event.metadata.redirect_to_topic = Some(topic.to_string());
+            }
+
+            // Dual-write exception events to error tracking pipeline if feature flag is enabled
+            // This is temporary, and will be removed once the new error tracking pipeline is tested.
+            if event.metadata.data_type == DataType::ExceptionMain
+                && !event.metadata.redirect_to_dlq
+                && error_tracking_sampler::should_dual_write_error_tracking()
+            {
+                let mut dual_event = event.clone();
+                dual_event.metadata.data_type = DataType::ExceptionErrorTracking;
+                filtered_events.push(dual_event);
+                metrics::counter!("capture_exception_events_dual_written").increment(1);
+            }
 
             filtered_events.push(event);
         }
@@ -239,6 +251,15 @@ mod tests {
         offset: Option<i64>,
         ignore_sent_at: Option<bool>,
     ) -> RawEvent {
+        create_test_event_with_name("test_event", timestamp, offset, ignore_sent_at)
+    }
+
+    fn create_test_event_with_name(
+        event_name: &str,
+        timestamp: Option<String>,
+        offset: Option<i64>,
+        ignore_sent_at: Option<bool>,
+    ) -> RawEvent {
         let mut properties = HashMap::new();
         if let Some(ignore) = ignore_sent_at {
             properties.insert("$ignore_sent_at".to_string(), json!(ignore));
@@ -248,7 +269,7 @@ mod tests {
         RawEvent {
             uuid: Some(uuid_v7()),
             distinct_id: None,
-            event: "test_event".to_string(),
+            event: event_name.to_string(),
             properties,
             timestamp,
             offset,
@@ -437,6 +458,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -480,6 +502,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::ForceOverflow,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -524,6 +547,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::SkipPersonProcessing,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -568,6 +592,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::RedirectToDlq,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -613,10 +638,12 @@ mod tests {
                 Restriction {
                     restriction_type: RestrictionType::ForceOverflow,
                     scope: RestrictionScope::AllEvents,
+                    args: None,
                 },
                 Restriction {
                     restriction_type: RestrictionType::SkipPersonProcessing,
                     scope: RestrictionScope::AllEvents,
+                    args: None,
                 },
             ],
         );
@@ -672,6 +699,7 @@ mod tests {
         assert!(!captured[0].metadata.force_overflow);
         assert!(!captured[0].metadata.skip_person_processing);
         assert!(!captured[0].metadata.redirect_to_dlq);
+        assert!(captured[0].metadata.redirect_to_topic.is_none());
     }
 
     #[tokio::test]
@@ -700,6 +728,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::Filtered(filters),
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -718,5 +747,103 @@ mod tests {
         // Event should NOT be dropped because filter doesn't match
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_process_events_exception_dual_write() {
+        // Initialize the error tracking sampler at 100% to ensure dual-write happens.
+        // Note: OnceLock means this only succeeds once per test binary, so this test
+        // assumes no other test initializes the sampler first.
+        crate::error_tracking_sampler::init_dual_write(true, 100.0);
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event_with_name(
+            "$exception",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        // Create restriction service with no restrictions (just to enter the dual-write code path)
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+
+        let result = process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            &events,
+            &context,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let captured = sink.get_events();
+
+        // Should have 2 events: the dual-write copy (ExceptionErrorTracking) and the original (ExceptionMain)
+        assert_eq!(captured.len(), 2);
+        assert_eq!(
+            captured[0].metadata.data_type,
+            DataType::ExceptionErrorTracking
+        );
+        assert_eq!(captured[1].metadata.data_type, DataType::ExceptionMain);
+
+        // Both should have the same event data
+        assert_eq!(captured[0].event.uuid, captured[1].event.uuid);
+        assert_eq!(captured[0].event.distinct_id, captured[1].event.distinct_id);
+    }
+
+    #[tokio::test]
+    async fn test_process_events_redirect_to_topic_restriction() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToTopic,
+                scope: RestrictionScope::AllEvents,
+                args: Some(json!({"topic": "custom_events_topic"})),
+            }],
+        );
+        service.update(manager).await;
+
+        let result = process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            &events,
+            &context,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].metadata.redirect_to_topic,
+            Some("custom_events_topic".to_string())
+        );
     }
 }

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-04 10:10:04 UTC
+// Generated at: 2026-03-06 20:04:53 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -9,7 +9,6 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
-    | 'ambient-bf16'
     | 'anthropic'
     | 'arcee-ai-bf16'
     | 'arcee-ai-modal'
@@ -63,6 +62,7 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'inflection'
     | 'io-net-bf16'
+    | 'io-net-fp16'
     | 'ionstream-bf16'
     | 'ionstream-fp8'
     | 'liquid'

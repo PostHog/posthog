@@ -20,6 +20,7 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -57,7 +58,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
     holdout = ExperimentHoldoutSerializer(read_only=True)
-    holdout_id = serializers.PrimaryKeyRelatedField(
+    holdout_id = TeamScopedPrimaryKeyRelatedField(
         queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
@@ -99,6 +100,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "exposure_preaggregation_enabled",
+            "status",
             "user_access_level",
         ]
         read_only_fields = [
@@ -110,6 +112,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "exposure_cohort",
             "holdout",
             "saved_metrics",
+            "status",
             "user_access_level",
         ]
 
@@ -881,9 +884,7 @@ class EnterpriseExperimentsViewSet(
         # If so, we need to update parameters.feature_flag_variants to match the new flag
         parameters = deepcopy(source_experiment.parameters) or {}
         if feature_flag_key != source_experiment.feature_flag.key:
-            existing_flag = FeatureFlag.objects.filter(
-                key=feature_flag_key, team_id=self.team_id, deleted=False
-            ).first()
+            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team_id).first()
             if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
                 parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
 
@@ -1053,7 +1054,7 @@ class EnterpriseExperimentsViewSet(
         except ValueError:
             return Response({"error": "Invalid limit or offset"}, status=400)
 
-        queryset = FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
+        queryset = FeatureFlag.objects.filter(team__project_id=self.project_id)
 
         # Filter for multivariate flags with at least 2 variants and first variant is "control"
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)

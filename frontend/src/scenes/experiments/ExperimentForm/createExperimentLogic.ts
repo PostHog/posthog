@@ -383,9 +383,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     // This ensures we have the full experiment data including feature_flag, etc.
                     actions.setExperiment(response)
 
-                    const isWizard = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]
                     actions.reportExperimentCreated(response, {
-                        creation_source: isWizard ? 'wizard' : 'classic_form',
+                        creation_source: 'wizard',
                         has_linked_flag: !!response.feature_flag?.id,
                     })
                     actions.addProductIntent({
