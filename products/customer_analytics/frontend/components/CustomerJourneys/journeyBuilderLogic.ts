@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
+import { funnelPathsExpansionLogic } from 'scenes/funnels/FunnelFlowGraph/funnelPathsExpansionLogic'
 import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
@@ -62,6 +63,8 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
         actions: [
             insightDataLogic(JOURNEY_BUILDER_INSIGHT_PROPS),
             ['setQuery as setInsightQuery'],
+            funnelPathsExpansionLogic(JOURNEY_BUILDER_INSIGHT_PROPS),
+            ['collapsePath'],
             customerJourneysLogic,
             ['addJourney', 'addJourneySuccess', 'addJourneyFailure'],
         ],
@@ -152,6 +155,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
 
     listeners(({ actions, values }) => ({
         setQuery: () => {
+            actions.collapsePath()
             actions.setInsightQuery(values.query)
         },
 

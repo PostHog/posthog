@@ -77,16 +77,20 @@ function StepHandle({
 
     const menuItems = []
 
+    const pathDisabledReason = pathsLoading ? 'Loading paths…' : undefined
+
     if (direction === 'right') {
         if (!isLast) {
             menuItems.push({
                 label: 'Explore paths to next step',
+                disabledReason: pathDisabledReason,
                 onClick: () =>
                     expandPath({ stepIndex: stepIndex + 1, pathType: FunnelPathType.between, dropOff: false }),
             })
         } else {
             menuItems.push({
                 label: 'Explore paths after step',
+                disabledReason: pathDisabledReason,
                 onClick: () => expandPath({ stepIndex, pathType: FunnelPathType.after, dropOff: false }),
             })
         }
@@ -98,11 +102,13 @@ function StepHandle({
         if (!isFirst) {
             menuItems.push({
                 label: 'Explore paths from previous step',
+                disabledReason: pathDisabledReason,
                 onClick: () => expandPath({ stepIndex, pathType: FunnelPathType.between, dropOff: false }),
             })
         } else {
             menuItems.push({
                 label: 'Explore paths before step',
+                disabledReason: pathDisabledReason,
                 onClick: () => expandPath({ stepIndex: 0, pathType: FunnelPathType.before, dropOff: false }),
             })
         }
@@ -137,7 +143,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
     const { stepCount, taxonomicGroupTypes } = useValues(journeyBuilderLogic)
 
     const canRemove = stepCount > 1
-    const hasEvent = step.action_id !== null
+    const hasEvent = !!step.action_id
     const hasConversionData = step.count != null && step.count > 0
 
     return (

@@ -11,17 +11,19 @@ import { journeyBuilderLogic } from 'products/customer_analytics/frontend/compon
 import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
 import { funnelPathsExpansionLogic } from './funnelPathsExpansionLogic'
 import { PathFlowNodeShell, PathFlowNodeProps } from './PathFlowNode'
+import { usePathNodeAddability } from './usePathNodeAddability'
 
 export const BuilderPathFlowNode = React.memo(function BuilderPathFlowNode({
     id,
     data,
 }: PathFlowNodeProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { expandedPath, funnelNodes } = useValues(funnelFlowGraphLogic(insightProps))
+    const { expandedPath } = useValues(funnelFlowGraphLogic(insightProps))
     const { collapsePath } = useActions(funnelPathsExpansionLogic(insightProps))
+    const { stepCount } = useValues(journeyBuilderLogic)
     const { addStepFromPath } = useActions(journeyBuilderLogic)
 
-    const addable = expandedPath !== null && !expandedPath.dropOff
+    const addable = usePathNodeAddability()
 
     return (
         <PathFlowNodeShell id={id} data={data}>
@@ -31,7 +33,7 @@ export const BuilderPathFlowNode = React.memo(function BuilderPathFlowNode({
                     icon={<IconPlus />}
                     className="ml-1 shrink-0"
                     onClick={() => {
-                        addStepFromPath(data.eventName, expandedPath, funnelNodes.length)
+                        addStepFromPath(data.eventName, expandedPath, stepCount)
                         collapsePath()
                     }}
                     tooltip="Add as funnel step"

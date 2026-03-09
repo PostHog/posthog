@@ -63,8 +63,8 @@ export const AllVariants: StoryFn = () => {
     const spacing = PROFILE_NODE_WIDTH + 40
     const nodes = [
         profileNode('s0', makeStep('Completed', 0, 1, 1), 0, false, 0),
-        profileNode('s1', makeStep('Not completed', 1, 1, 1), 1, false, spacing),
-        profileNode('s2', makeStep('Optional completed', 2, 0, 1), 2, true, spacing * 2),
+        profileNode('s1', makeStep('Not completed', 1, 0, 1), 1, false, spacing),
+        profileNode('s2', makeStep('Optional completed', 2, 1, 1), 2, true, spacing * 2),
         profileNode('s3', makeStep('Optional not completed', 3, 0, 1), 3, true, spacing * 3),
     ]
     return <NodeCanvas nodes={nodes} nodeTypes={nodeTypes} />
