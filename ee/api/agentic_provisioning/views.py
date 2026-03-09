@@ -25,6 +25,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.security.outbound_proxy import external_requests
+from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
