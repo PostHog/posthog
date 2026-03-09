@@ -5,7 +5,7 @@ from django.conf import settings
 
 import temporalio
 
-from posthog.schema import EmbeddingModelName
+from posthog.schema import EmbeddingModelName, SignalInput
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -118,16 +118,16 @@ async def emit_signal(
         )
     """
     # Raise if signal doesn't match any known schema
-    # SignalInput.model_validate(
-    #     {
-    #         "source_product": source_product,
-    #         "source_type": source_type,
-    #         "source_id": source_id,
-    #         "description": description,
-    #         "weight": weight,
-    #         "extra": extra or {},
-    #     }
-    # )
+    SignalInput.model_validate(
+        {
+            "source_product": source_product,
+            "source_type": source_type,
+            "source_id": source_id,
+            "description": description,
+            "weight": weight,
+            "extra": extra or {},
+        }
+    )
 
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
