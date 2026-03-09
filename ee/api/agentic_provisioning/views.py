@@ -18,8 +18,10 @@ from .signature import SUPPORTED_VERSIONS, verify_stripe_signature
 logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Service catalog — fetched from the billing service and mapped to the
-# APP 0.1d services format with `stripe_price` pricing.
+# Service catalog — a parent "posthog" service with component children per
+# product. Users provision "posthog" and get all products; individual products
+# use component pricing with their Stripe price IDs so the orchestrator can
+# display pricing info.
 # ---------------------------------------------------------------------------
 
 SERVICES_CACHE_KEY = "agentic_provisioning:services"
@@ -43,6 +45,15 @@ _CATEGORY_MAP: dict[str, list[str]] = {
     "workflows_emails": ["email"],
 }
 
+POSTHOG_SERVICE_ID = "posthog"
+
+POSTHOG_PARENT_SERVICE: dict[str, Any] = {
+    "id": POSTHOG_SERVICE_ID,
+    "description": "PostHog — product analytics, session replay, feature flags, A/B testing, surveys, and more",
+    "categories": ["analytics", "observability", "feature_flags", "ai"],
+    "pricing": {"type": "free"},
+}
+
 
 def _fetch_services_from_billing() -> list[dict[str, Any]]:
     try:
@@ -54,9 +65,9 @@ def _fetch_services_from_billing() -> list[dict[str, Any]]:
         products = res.json().get("products", [])
     except Exception:
         logger.exception("agentic_provisioning.services.billing_fetch_failed")
-        return []
+        return [POSTHOG_PARENT_SERVICE]
 
-    services = []
+    services: list[dict[str, Any]] = [POSTHOG_PARENT_SERVICE]
     for product in products:
         product_type = product.get("type", "")
         if product_type in _EXCLUDED_PRODUCT_TYPES:
@@ -74,10 +85,18 @@ def _fetch_services_from_billing() -> list[dict[str, Any]]:
                 "description": product.get("headline") or product.get("description", ""),
                 "categories": _CATEGORY_MAP.get(product_type, ["analytics"]),
                 "pricing": {
-                    "type": "paid",
-                    "paid": {
-                        "type": "stripe_price",
-                        "stripe_price": paid_plan["price_id"],
+                    "type": "component",
+                    "component": {
+                        "options": [
+                            {
+                                "parent_service_ids": [POSTHOG_SERVICE_ID],
+                                "type": "paid",
+                                "paid": {
+                                    "type": "stripe_price",
+                                    "stripe_price": paid_plan["price_id"],
+                                },
+                            }
+                        ]
                     },
                 },
             }
@@ -97,7 +116,7 @@ def _get_services() -> list[dict[str, Any]]:
     return services
 
 
-VALID_SERVICE_IDS: set[str] = set(_CATEGORY_MAP.keys())
+VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID} | set(_CATEGORY_MAP.keys())
 
 
 # ---------------------------------------------------------------------------

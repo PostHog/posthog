@@ -49,53 +49,93 @@ def _mock_billing_response():
 class TestProvisioningServices(StripeProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views.external_requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache")
-    def test_returns_services_from_billing(self, mock_cache, mock_get):
+    def test_returns_parent_posthog_service(self, mock_cache, mock_get):
+        mock_cache.get.return_value = None
+        res = self._get_signed("/api/agentic/provisioning/services")
+        assert res.status_code == 200
+        data = res.json()
+        services = data["data"]
+        parent = services[0]
+        assert parent["id"] == "posthog"
+        assert parent["pricing"]["type"] == "free"
+        assert "analytics" in parent["categories"]
+        assert data["next_cursor"] == ""
+
+    @patch("ee.api.agentic_provisioning.views.external_requests.get", return_value=_mock_billing_response())
+    @patch("ee.api.agentic_provisioning.views.cache")
+    def test_returns_component_services_from_billing(self, mock_cache, mock_get):
         mock_cache.get.return_value = None
         res = self._get_signed("/api/agentic/provisioning/services")
         assert res.status_code == 200
         data = res.json()
         service_ids = {s["id"] for s in data["data"]}
+        assert "posthog" in service_ids
         assert "product_analytics" in service_ids
         assert "session_replay" in service_ids
         assert "platform_and_support" not in service_ids
-        assert data["next_cursor"] == ""
 
     @patch("ee.api.agentic_provisioning.views.external_requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache")
-    def test_each_service_has_stripe_price(self, mock_cache, mock_get):
+    def test_component_services_have_parent_and_stripe_price(self, mock_cache, mock_get):
         mock_cache.get.return_value = None
         res = self._get_signed("/api/agentic/provisioning/services")
         assert res.status_code == 200
-        for service in res.json()["data"]:
-            assert service["pricing"]["type"] == "paid"
-            assert service["pricing"]["paid"]["type"] == "stripe_price"
-            assert service["pricing"]["paid"]["stripe_price"].startswith("price_")
+        component_services = [s for s in res.json()["data"] if s["id"] != "posthog"]
+        assert len(component_services) > 0
+        for service in component_services:
+            assert service["pricing"]["type"] == "component"
+            options = service["pricing"]["component"]["options"]
+            assert len(options) == 1
+            assert options[0]["parent_service_ids"] == ["posthog"]
+            assert options[0]["type"] == "paid"
+            assert options[0]["paid"]["type"] == "stripe_price"
+            assert options[0]["paid"]["stripe_price"].startswith("price_")
 
     @patch("ee.api.agentic_provisioning.views.external_requests.get")
     @patch("ee.api.agentic_provisioning.views.cache")
     def test_uses_cache(self, mock_cache, mock_get):
         cached = [
             {
+                "id": "posthog",
+                "description": "PostHog",
+                "categories": ["analytics"],
+                "pricing": {"type": "free"},
+            },
+            {
                 "id": "product_analytics",
                 "description": "cached",
                 "categories": ["analytics"],
-                "pricing": {"type": "paid", "paid": {"type": "stripe_price", "stripe_price": "price_cached"}},
-            }
+                "pricing": {
+                    "type": "component",
+                    "component": {
+                        "options": [
+                            {
+                                "parent_service_ids": ["posthog"],
+                                "type": "paid",
+                                "paid": {"type": "stripe_price", "stripe_price": "price_cached"},
+                            }
+                        ]
+                    },
+                },
+            },
         ]
         mock_cache.get.return_value = cached
         res = self._get_signed("/api/agentic/provisioning/services")
         assert res.status_code == 200
-        assert res.json()["data"][0]["pricing"]["paid"]["stripe_price"] == "price_cached"
+        component = res.json()["data"][1]
+        assert component["pricing"]["component"]["options"][0]["paid"]["stripe_price"] == "price_cached"
         mock_get.assert_not_called()
 
     @patch("ee.api.agentic_provisioning.views.external_requests.get")
     @patch("ee.api.agentic_provisioning.views.cache")
-    def test_billing_failure_returns_empty(self, mock_cache, mock_get):
+    def test_billing_failure_returns_parent_only(self, mock_cache, mock_get):
         mock_cache.get.return_value = None
         mock_get.side_effect = Exception("connection error")
         res = self._get_signed("/api/agentic/provisioning/services")
         assert res.status_code == 200
-        assert res.json()["data"] == []
+        data = res.json()["data"]
+        assert len(data) == 1
+        assert data[0]["id"] == "posthog"
 
     @patch("ee.api.agentic_provisioning.views.external_requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache")
