@@ -283,7 +283,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert len(table.fields.keys()) == 1
 
         assert table.source is not None
-        assert table.source.id == source.source_id
+        assert table.source.id == str(source.id)
         assert table.source.status == "Completed"
         assert table.source.source_type == "Stripe"
 

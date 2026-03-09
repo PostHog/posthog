@@ -52,20 +52,11 @@ def _validated_source_for_connection(team: Team, connection_id: str | None) -> E
     return source
 
 
-def _source_id_for_connection(team: Team, connection_id: str | None) -> str | None:
-    source = get_external_data_source_for_connection(team_id=team.pk, connection_id=connection_id)
-    return source.source_id if source else None
-
-
 def _connection_source_identifiers(source: ExternalDataSource | None) -> set[str] | None:
     if source is None:
         return None
 
-    return {
-        identifier
-        for identifier in [str(source.id), source.source_id, source.connection_id]
-        if identifier is not None and identifier != ""
-    }
+    return {str(source.id)}
 
 
 def _filter_schema_tables_for_connection(tables: dict, source_ids: set[str] | None) -> dict:

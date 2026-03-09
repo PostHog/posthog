@@ -2,7 +2,6 @@ from datetime import datetime
 from uuid import UUID
 
 from django.db import models
-from django.db.models import QuerySet
 
 import structlog
 import temporalio
@@ -140,19 +139,9 @@ def get_external_data_source_for_connection(team_id: int, connection_id: str | N
     if not connection_id:
         return None
 
-    sources: QuerySet[ExternalDataSource] = ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True)
-
-    source = sources.filter(connection_id=connection_id).first()
-    if source:
-        return source
-
-    source = sources.filter(source_id=connection_id).first()
-    if source:
-        return source
-
     try:
         source_uuid = UUID(connection_id)
     except ValueError:
         return None
 
-    return sources.filter(id=source_uuid).first()
+    return ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True).filter(id=source_uuid).first()

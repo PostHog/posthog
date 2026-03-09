@@ -7,7 +7,10 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
 from posthog.hogql.query import HogQLQueryExecutor, postgres_error_to_message, postgres_oid_to_clickhouse_type
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -207,6 +210,44 @@ class TestDirectPostgresQuery(APIBaseTest):
             executor.generate_clickhouse_sql()
 
         self.assertEqual(str(error.exception), "Direct Postgres queries require selecting a connection.")
+
+    def test_mixed_direct_and_clickhouse_query_without_connection_rejects_clickhouse_printing(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT dashboard.id FROM postgres.ph3.posthog_dashboard AS dashboard JOIN events ON 1 = 1",
+            team=self.team,
+        )
+
+        with self.assertRaises(HogQLNotImplementedError) as error:
+            executor.generate_clickhouse_sql()
+
+        self.assertEqual(str(error.exception), "Direct Postgres tables cannot be printed to ClickHouse SQL")
 
     def test_selected_connection_prioritizes_matching_direct_source_for_canonical_table_name(self):
         first_source = ExternalDataSource.objects.create(

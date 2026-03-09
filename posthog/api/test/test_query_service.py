@@ -26,7 +26,6 @@ from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.api.services.query import (
     _connection_source_identifiers,
     _filter_schema_tables_for_connection,
-    _source_id_for_connection,
     process_query_model,
 )
 
@@ -35,55 +34,6 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestQueryService(APIBaseTest):
-    def test_source_id_for_connection_uses_source_id(self):
-        source = ExternalDataSource.objects.create(
-            source_id="upstream-source",
-            connection_id="selected-connection",
-            destination_id="destination",
-            team=self.team,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-        )
-
-        result = _source_id_for_connection(self.team, "selected-connection")
-
-        self.assertEqual(result, source.source_id)
-
-    def test_source_id_for_connection_supports_external_data_source_uuid(self):
-        source = ExternalDataSource.objects.create(
-            source_id="upstream-source",
-            connection_id="selected-connection",
-            destination_id="destination",
-            team=self.team,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-        )
-
-        result = _source_id_for_connection(self.team, str(source.id))
-
-        self.assertEqual(result, source.source_id)
-
-    @parameterized.expand(
-        [
-            ("connection_id", "selected-connection"),
-            ("source_id", "upstream-source"),
-        ]
-    )
-    def test_source_id_for_connection_ignores_soft_deleted_sources(self, _label: str, connection_identifier: str):
-        ExternalDataSource.objects.create(
-            source_id="upstream-source",
-            connection_id="selected-connection",
-            destination_id="destination",
-            team=self.team,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-            deleted=True,
-        )
-
-        result = _source_id_for_connection(self.team, connection_identifier)
-
-        self.assertIsNone(result)
-
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
     def test_database_schema_query_filters_tables_to_selected_connection(
@@ -123,26 +73,6 @@ class TestQueryService(APIBaseTest):
                     incremental=False,
                 ),
                 source=DatabaseSchemaSource(
-                    id=selected_source.source_id,
-                    status=selected_source.status,
-                    source_type=selected_source.source_type,
-                    access_method=selected_source.access_method,
-                    prefix=selected_source.prefix or "",
-                ),
-            ),
-            "selected_table_legacy_uuid": DatabaseSchemaDataWarehouseTable(
-                fields={},
-                format="Parquet",
-                id="selected_table_legacy_uuid_id",
-                name="selected_table_legacy_uuid",
-                url_pattern="direct://postgres",
-                schema=DatabaseSchemaSchema(
-                    id="schema-selected-legacy",
-                    name="selected_table_legacy_uuid",
-                    should_sync=True,
-                    incremental=False,
-                ),
-                source=DatabaseSchemaSource(
                     id=str(selected_source.id),
                     status=selected_source.status,
                     source_type=selected_source.source_type,
@@ -163,7 +93,7 @@ class TestQueryService(APIBaseTest):
                     incremental=False,
                 ),
                 source=DatabaseSchemaSource(
-                    id=other_source.source_id,
+                    id=str(other_source.id),
                     status=other_source.status,
                     source_type=other_source.source_type,
                     access_method=other_source.access_method,
@@ -204,7 +134,7 @@ class TestQueryService(APIBaseTest):
                 incremental=False,
             ),
             source=DatabaseSchemaSource(
-                id=selected_source.source_id,
+                id=str(selected_source.id),
                 status=selected_source.status,
                 source_type=selected_source.source_type,
                 access_method=selected_source.access_method,
@@ -216,19 +146,17 @@ class TestQueryService(APIBaseTest):
             DatabaseSchemaQueryResponse,
             process_query_model(
                 self.team,
-                DatabaseSchemaQuery(connectionId="selected-connection"),
+                DatabaseSchemaQuery(connectionId=str(selected_source.id)),
             ),
         )
 
         self.assertIsInstance(response, DatabaseSchemaQueryResponse)
-        self.assertEqual(
-            set(response.tables.keys()), {"selected_table", "selected_table_legacy_uuid", "selected_table_2"}
-        )
+        self.assertEqual(set(response.tables.keys()), {"selected_table", "selected_table_2"})
         self.assertEqual(len(response.joins), 1)
         self.assertEqual(response.joins[0].field_name, "selected_join")
         mock_filtered_join_queryset.filter.assert_called_once_with(
-            source_table_name__in={"selected_table", "selected_table_legacy_uuid", "selected_table_2"},
-            joining_table_name__in={"selected_table", "selected_table_legacy_uuid", "selected_table_2"},
+            source_table_name__in={"selected_table", "selected_table_2"},
+            joining_table_name__in={"selected_table", "selected_table_2"},
         )
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
@@ -263,7 +191,7 @@ class TestQueryService(APIBaseTest):
                     incremental=False,
                 ),
                 source=DatabaseSchemaSource(
-                    id=selected_source.source_id,
+                    id=str(selected_source.id),
                     status=selected_source.status,
                     source_type=selected_source.source_type,
                     access_method=selected_source.access_method,
@@ -283,7 +211,7 @@ class TestQueryService(APIBaseTest):
                     incremental=False,
                 ),
                 source=DatabaseSchemaSource(
-                    id=selected_source.source_id,
+                    id=str(selected_source.id),
                     status=selected_source.status,
                     source_type=selected_source.source_type,
                     access_method=selected_source.access_method,
@@ -303,7 +231,7 @@ class TestQueryService(APIBaseTest):
             DatabaseSchemaQueryResponse,
             process_query_model(
                 self.team,
-                DatabaseSchemaQuery(connectionId="selected-connection"),
+                DatabaseSchemaQuery(connectionId=str(selected_source.id)),
             ),
         )
 
@@ -320,7 +248,7 @@ class TestQueryService(APIBaseTest):
         mock_create_for: MagicMock,
         mock_get_hogql_autocomplete: MagicMock,
     ):
-        ExternalDataSource.objects.create(
+        source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
             destination_id="destination-1",
@@ -357,7 +285,7 @@ class TestQueryService(APIBaseTest):
                 language=HogLanguage.HOG_QL,
                 startPosition=14,
                 endPosition=14,
-                connectionId="selected-connection",
+                connectionId=str(source.id),
             ),
         )
 
@@ -479,7 +407,7 @@ class TestQueryService(APIBaseTest):
                     language=HogLanguage.HOG_QL,
                     startPosition=14,
                     endPosition=14,
-                    connectionId="selected-connection",
+                    connectionId=str(selected_source.id),
                 ),
             )
 
@@ -495,7 +423,7 @@ class TestQueryService(APIBaseTest):
         mock_create_for: MagicMock,
         mock_get_hogql_autocomplete: MagicMock,
     ):
-        ExternalDataSource.objects.create(
+        source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
             destination_id="destination-1",
@@ -520,7 +448,7 @@ class TestQueryService(APIBaseTest):
                     language=HogLanguage.HOG_QL,
                     startPosition=14,
                     endPosition=14,
-                    connectionId="selected-connection",
+                    connectionId=str(source.id),
                 ),
                 user=self.user,
             )
@@ -552,10 +480,10 @@ class TestQueryService(APIBaseTest):
                 language=HogLanguage.HOG_QL,
                 startPosition=14,
                 endPosition=14,
-                connectionId=source.connection_id,
+                connectionId=str(source.id),
             )
         else:
-            query = DatabaseSchemaQuery(connectionId=source.connection_id)
+            query = DatabaseSchemaQuery(connectionId=str(source.id))
 
         with self.assertRaises(ValidationError) as error:
             process_query_model(self.team, query)

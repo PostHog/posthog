@@ -513,7 +513,7 @@ class Database(BaseModel):
                     else None
                 )
                 source = DatabaseSchemaSource(
-                    id=str(db_source.source_id),
+                    id=str(db_source.id),
                     status=db_source.status,
                     source_type=db_source.source_type,
                     access_method=db_source.access_method,

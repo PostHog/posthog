@@ -204,7 +204,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 language=HogLanguage.HOG_QL,
                 query="SELECT 1",
                 response=None,
-                connectionId="selected-connection",
+                connectionId=str(source.id),
             ),
             team=self.team,
         )
@@ -232,7 +232,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 language=HogLanguage.HOG_QL,
                 query="SELECT 1",
                 response=None,
-                connectionId=source.connection_id,
+                connectionId=str(source.id),
             ),
             team=self.team,
         )
@@ -266,7 +266,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 language=HogLanguage.HOG_QL,
                 query="SELECT * FROM persons LIMIT 1",
                 response=None,
-                connectionId="selected-connection",
+                connectionId=str(source.id),
             ),
             team=self.team,
         )
@@ -307,7 +307,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 language=HogLanguage.HOG_QL,
                 query="SELECT * FROM posthog_user LIMIT 1",
                 response=None,
-                connectionId="selected-connection",
+                connectionId=str(source.id),
             ),
             team=self.team,
         )
