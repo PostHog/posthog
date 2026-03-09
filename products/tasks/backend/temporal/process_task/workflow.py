@@ -106,7 +106,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             sandbox_output = await self._get_sandbox_for_repository()
             sandbox_id = sandbox_output.sandbox_id
 
-            # TODO: Re-enable snapshot creation
+            # TODO(tasks): Re-enable snapshot creation
             # if sandbox_output.should_create_snapshot:
             #     await self._trigger_snapshot_workflow()
 

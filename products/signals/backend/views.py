@@ -1,6 +1,7 @@
 import json
 import uuid
 import logging
+from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
@@ -9,7 +10,7 @@ from django.db.models import Count, Q
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import filters, serializers, status, viewsets
+from rest_framework import filters, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -17,6 +18,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import EmbeddingModelName
 
@@ -41,6 +43,12 @@ from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
     SignalReportSerializer,
     SignalSourceConfigSerializer,
+)
+from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
+from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
+from products.signals.backend.temporal.types import (
+    SignalReportDeletionWorkflowInputs,
+    SignalReportReingestionWorkflowInputs,
 )
 
 logger = logging.getLogger(__name__)
@@ -131,8 +139,15 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 @extend_schema_view(
     list=extend_schema(exclude=True),
     retrieve=extend_schema(exclude=True),
+    destroy=extend_schema(exclude=True),
 )
-class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class SignalReportViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -158,6 +173,37 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft-delete a report and its signals via the deletion workflow."""
+        # TODO - I'm not sure about this - part of me feels like deletion should be sync, but it
+        # kind of can't be. We could pre-emptively delete the report, so it doesn't show up in the
+        # list, and then wrap the whole rest of the deletion workflow in a try-catch that undeletes
+        # the report on failure. Idk - not sure. For no, I think this is good enough.
+        report = cast(SignalReport, self.get_object())
+        report_id = str(report.id)
+        team_id = self.team.id
+
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "signal-report-deletion",  # type: ignore
+                SignalReportDeletionWorkflowInputs(team_id=team_id, report_id=report_id),  # type: ignore
+                id=SignalReportDeletionWorkflow.workflow_id_for(team_id, report_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                execution_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except WorkflowAlreadyStartedError:
+            return Response({"status": "already_running", "report_id": report_id}, status=status.HTTP_200_OK)
+        except Exception:
+            logger.exception("Failed to start deletion workflow for report %s", report_id)
+            return Response(
+                {"error": "Failed to start deletion workflow."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
@@ -271,3 +317,41 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         report.save(update_fields=updated_fields)
 
         return Response(SignalReportSerializer(report, context=self.get_serializer_context()).data)
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
+    def reingest(self, request, pk=None, **kwargs):
+        """
+        Delete a report and re-ingest its signals through the grouping pipeline.
+        Staff-only: the requesting user must have is_staff=True.
+        """
+        if not request.user.is_staff:
+            return Response(
+                {"error": "Only staff users can reingest reports."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        report = cast(SignalReport, self.get_object())
+        report_id = str(report.id)
+        team_id = self.team.id
+
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore
+                "signal-report-reingestion",  # type: ignore
+                SignalReportReingestionWorkflowInputs(team_id=team_id, report_id=report_id),  # type: ignore
+                id=SignalReportReingestionWorkflow.workflow_id_for(team_id, report_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                execution_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except WorkflowAlreadyStartedError:
+            return Response({"status": "already_running", "report_id": report_id}, status=status.HTTP_200_OK)
+        except Exception:
+            logger.exception("Failed to start reingestion workflow for report %s", report_id)
+            return Response(
+                {"error": "Failed to start reingestion workflow."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)

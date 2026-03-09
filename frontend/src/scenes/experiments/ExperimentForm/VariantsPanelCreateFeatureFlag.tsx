@@ -64,7 +64,7 @@ const RolloutPercentageControl = ({
                     suffix={<span>%</span>}
                     disabledReason={disabled ? 'Cannot edit rollout percentage in edit mode' : undefined}
                     data-attr="experiment-rollout-percentage-input"
-                    className="w-20"
+                    className="w-24"
                 />
             </div>
             <div className={disabled ? 'pointer-events-none opacity-50' : ''}>
@@ -329,6 +329,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                         <LemonButton
                                                             onClick={() => distributeVariantsEqually()}
                                                             tooltip="Distribute split evenly"
+                                                            data-attr="distribute-variants-equally"
                                                             className={isEvenlyDistributed(variants) ? 'invisible' : ''}
                                                         >
                                                             <IconBalance />

@@ -7,7 +7,10 @@ const schema = ErrorTrackingDetailsSchema
 
 type Params = z.infer<typeof schema>
 
-export const errorDetailsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const errorDetailsHandler: ToolBase<typeof schema, unknown>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const { issueId, dateFrom, dateTo } = params
     const projectId = await context.stateManager.getProjectId()
 

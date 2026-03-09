@@ -186,6 +186,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers
                     )
 
+                    breakpoint()
+
                     // Create a local copy of the registry state for synchronous lookups during parsing
                     const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
                     const registerWindowIdCallback = (uuid: string): number => {

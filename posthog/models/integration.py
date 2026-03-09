@@ -887,6 +887,13 @@ class OauthIntegration:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
+            # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
+            # refresh response includes a new refresh_token and the old one is
+            # invalidated.  Always store the latest one to avoid "invalid refresh
+            # token" errors on subsequent refreshes.
+            if config.get("refresh_token"):
+                self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
+
             # Handle case where Salesforce doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
             if not expires_in and self.integration.kind == "salesforce":
@@ -1851,7 +1858,7 @@ class GitHubIntegration:
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def list_repositories(self, page: int = 1) -> list[str]:
+    def list_repositories(self, page: int = 1) -> list[dict]:
         # Proactively refresh token if it's close to expiring to avoid intermittent 401s
         try:
             if self.access_token_expired():
@@ -1902,12 +1909,18 @@ class GitHubIntegration:
 
             repositories = body.get("repositories")
             if response.status_code == 200 and isinstance(repositories, list):
-                names: list[str] = [
-                    repo["name"]
+                return [
+                    {
+                        "id": repo["id"],
+                        "name": repo["name"],
+                        "full_name": repo["full_name"],
+                    }
                     for repo in repositories
-                    if isinstance(repo, dict) and isinstance(repo.get("name"), str)
+                    if isinstance(repo, dict)
+                    and isinstance(repo.get("id"), int)
+                    and isinstance(repo.get("name"), str)
+                    and isinstance(repo.get("full_name"), str)
                 ]
-                return names
 
             if response.status_code in transient_status_codes and attempt == 0:
                 logger.info(
@@ -2616,3 +2629,29 @@ class AzureBlobIntegration:
             if part.startswith("AccountName="):
                 return part.split("=", 1)[1]
         return None
+
+
+# TODO: This is a placeholder currently only used to store the scopes we use for Stripe
+# It should be extended with the actual integration code once we move over to OAuth for Stripe as well
+class StripeIntegration:
+    integration: Integration
+
+    # These are the scopes we'll give Stripe when creating a local OAuth App
+    # and sending them access
+    SCOPES = " ".join(
+        [
+            "query:read",
+            "conversation:read",
+            "conversation:write",
+            "experiment:read",
+            "feature_flag:read",
+            "organization:read",
+            "person:read",
+            "project:read",
+            "ticket:read",
+            "ticket:write",
+            "user:read",
+            "hog_flow:read",
+            "hog_flow:write",
+        ]
+    )

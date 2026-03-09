@@ -9,6 +9,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -26,8 +27,19 @@ export const scene: SceneExport<SurveyLogicProps> = {
 }
 
 export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
-    const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
+    const { editingSurvey, setSelectedPageIndex, loadSurvey } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
+
+    // register tool so edits from AI will always reload the survey data on-page
+    useMaxTool({
+        identifier: 'edit_survey',
+        active: !!id && id !== 'new',
+        callback: (toolOutput: { survey_id?: string; error?: string }) => {
+            if (!toolOutput?.error && toolOutput?.survey_id === id) {
+                loadSurvey()
+            }
+        },
+    })
 
     /**
      * Logic that cleans up surveyLogic state when the component unmounts.
