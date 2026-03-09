@@ -183,6 +183,18 @@ class TestPrinter(BaseTest):
             "Colon-style lambdas are not allowed in clickhouse dialect",
         )
 
+    def test_array_slice_non_postgres_error(self):
+        self._assert_query_error(
+            "select arr[1:3]",
+            "Array slices are not allowed in clickhouse dialect",
+        )
+
+    def test_try_cast_non_postgres_error(self):
+        self._assert_query_error(
+            "select try_cast(1 as Int64)",
+            "TRY_CAST is not allowed in clickhouse dialect",
+        )
+
     def test_limit_percent_non_postgres_error(self):
         self._assert_query_error(
             "select 1 from events limit 10 %",
@@ -4405,6 +4417,30 @@ class TestPostgresPrinter(BaseTest):
     def test_lambda_style(self):
         printed = self._select("SELECT lambda x, y: x + y")
         self.assertIn("lambda x, y: (x + y)", printed)
+
+    @parameterized.expand(
+        [
+            ("[1, 2, 3][1:2]", "[1, 2, 3][1:2]"),
+            ("[1, 2, 3][:]", "[1, 2, 3][:]"),
+            ("[1, 2, 3][(1 + 2):(-3)]", "[1, 2, 3][(1 + 2):-3]"),
+            ("[1, 2, 3][-5:]", "[1, 2, 3][-5:]"),
+            ("([1, 2, 3] || [4, 5, 6])[1:3]", "concat([1, 2, 3], [4, 5, 6])[1:3]"),
+        ]
+    )
+    def test_array_slice(self, expr: str, expected: str):
+        printed = self._select(f"SELECT {expr}")
+        self.assertIn(expected, printed)
+
+    @parameterized.expand(
+        [
+            ("try_cast(1 AS Int64)", "TRY_CAST(1 AS Int64)"),
+            ("try_cast(1 AS Int64) + 1", "TRY_CAST(1 AS Int64)"),
+            ("try_cast(1 AS time with time zone)", "TRY_CAST(1 AS TIME WITH TIME ZONE)"),
+        ]
+    )
+    def test_try_cast(self, expr: str, expected: str):
+        printed = self._select(f"SELECT {expr}")
+        self.assertIn(expected, printed)
 
     def test_limit_percent_with_subquery(self):
         printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")

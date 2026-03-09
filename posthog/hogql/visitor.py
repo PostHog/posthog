@@ -89,6 +89,13 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.array)
         self.visit(node.property)
 
+    def visit_array_slice(self, node: ast.ArraySlice):
+        self.visit(node.array)
+        if node.start_expr is not None:
+            self.visit(node.start_expr)
+        if node.end_expr is not None:
+            self.visit(node.end_expr)
+
     def visit_array(self, node: ast.Array):
         for expr in node.exprs:
             self.visit(expr)
@@ -113,6 +120,9 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.expr)
 
     def visit_placeholder(self, node: ast.Placeholder):
+        self.visit(node.expr)
+
+    def visit_try_cast(self, node: ast.TryCast):
         self.visit(node.expr)
 
     def visit_call(self, node: ast.Call):
@@ -542,6 +552,16 @@ class CloningVisitor(Visitor[Any]):
             nullish=node.nullish,
         )
 
+    def visit_array_slice(self, node: ast.ArraySlice):
+        return ast.ArraySlice(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            array=self.visit(node.array),
+            start_expr=self.visit(node.start_expr) if node.start_expr is not None else None,
+            end_expr=self.visit(node.end_expr) if node.end_expr is not None else None,
+        )
+
     def visit_array(self, node: ast.Array):
         return ast.Array(
             start=None if self.clear_locations else node.start,
@@ -606,6 +626,15 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
+        )
+
+    def visit_try_cast(self, node: ast.TryCast):
+        return ast.TryCast(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            type_name=node.type_name,
         )
 
     def visit_call(self, node: ast.Call):

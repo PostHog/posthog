@@ -72,6 +72,14 @@ class TypeCast(Expr):
 
 
 @dataclass(kw_only=True)
+class TryCast(Expr):
+    """A try-cast expression."""
+
+    expr: Expr
+    type_name: str
+
+
+@dataclass(kw_only=True)
 class Declaration(AST):
     pass
 
@@ -776,6 +784,13 @@ class ArrayAccess(Expr):
     array: Expr
     property: Expr
     nullish: bool = False
+
+
+@dataclass(kw_only=True)
+class ArraySlice(Expr):
+    array: Expr
+    start_expr: Optional[Expr] = None
+    end_expr: Optional[Expr] = None
 
 
 @dataclass(kw_only=True)

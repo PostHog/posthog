@@ -503,6 +503,9 @@ class HogQLPrinter(Visitor[str]):
         symbol = "?." if self.dialect == "hogql" and node.nullish else ""
         return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
 
+    def visit_array_slice(self, node: ast.ArraySlice):
+        raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
+
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
@@ -512,6 +515,9 @@ class HogQLPrinter(Visitor[str]):
         for key, value in node.items:
             str += f", {self.visit(key)}, {self.visit(value)}"
         return str + ")"
+
+    def visit_try_cast(self, node: ast.TryCast):
+        raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]

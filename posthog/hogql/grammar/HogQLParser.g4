@@ -148,11 +148,12 @@ winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | number
 // Columns
 expr: columnExpr EOF;
 columnTypeExpr
-    : identifier                                                                             # ColumnTypeExprSimple   // UInt64
-    | identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* COMMA? RPAREN  # ColumnTypeExprNested   // Nested
+    : identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* COMMA? RPAREN  # ColumnTypeExprNested   // Nested
     | identifier LPAREN enumValue (COMMA enumValue)* COMMA? RPAREN                                  # ColumnTypeExprEnum     // Enum
     | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* COMMA? RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
+    | identifier identifier+                                                                 # ColumnTypeExprCompound // TIME WITH TIME ZONE
+    | identifier                                                                             # ColumnTypeExprSimple   // UInt64
     ;
 columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
 selectColumnExprList: selectColumnExpr (COMMA selectColumnExpr)* COMMA?;
@@ -163,6 +164,7 @@ selectColumnExpr
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
+    | TRY_CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                 # ColumnExprTryCast
     | DATE STRING_LITERAL                                                                 # ColumnExprDate
 //    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract   // Interferes with a function call
     | INTERVAL STRING_LITERAL                                                             # ColumnExprIntervalString
@@ -185,6 +187,7 @@ columnExpr
 
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
     | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
+    | columnExpr LBRACKET columnExpr? COLON columnExpr? RBRACKET                         # ColumnExprArraySlice
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
     | columnExpr NULL_PROPERTY LBRACKET columnExpr RBRACKET                               # ColumnExprNullArrayAccess
@@ -319,7 +322,7 @@ keyword
     | NAME | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
     | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
-    | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
+    | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TRY_CAST | TO | TOP
     | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
     ;
 keywordForAlias

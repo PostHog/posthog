@@ -848,6 +848,24 @@ class Resolver(CloningVisitor):
 
         return new_node
 
+    def visit_try_cast(self, node: ast.TryCast):
+        if self.dialect != "postgres":
+            raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
+        node = cast(ast.TryCast, clone_expr(node))
+        node.expr = self.visit(node.expr)
+        return node
+
+    def visit_array_slice(self, node: ast.ArraySlice):
+        if self.dialect != "postgres":
+            raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
+        node = cast(ast.ArraySlice, clone_expr(node))
+        node.array = self.visit(node.array)
+        if node.start_expr is not None:
+            node.start_expr = self.visit(node.start_expr)
+        if node.end_expr is not None:
+            node.end_expr = self.visit(node.end_expr)
+        return node
+
     def visit_field(self, node: ast.Field):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
         if len(node.chain) == 0:

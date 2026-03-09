@@ -723,6 +723,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnTypeExprComplex(self, ctx: HogQLParser.ColumnTypeExprComplexContext):
         raise NotImplementedError(f"Unsupported node: ColumnTypeExprComplex")
 
+    def visitColumnTypeExprCompound(self, ctx: HogQLParser.ColumnTypeExprCompoundContext):
+        raise NotImplementedError(f"Unsupported node: ColumnTypeExprCompound")
+
     def visitColumnTypeExprParam(self, ctx: HogQLParser.ColumnTypeExprParamContext):
         raise NotImplementedError(f"Unsupported node: ColumnTypeExprParam")
 
@@ -793,6 +796,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprCast(self, ctx: HogQLParser.ColumnExprCastContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprCast")
+
+    def visitColumnExprTryCast(self, ctx: HogQLParser.ColumnExprTryCastContext):
+        type_expr = ctx.columnTypeExpr()
+        identifiers = type_expr.identifier() if hasattr(type_expr, "identifier") else None
+        if identifiers:
+            type_name = " ".join([identifier.getText() for identifier in identifiers])
+        else:
+            type_name = type_expr.getText()
+        return ast.TryCast(expr=self.visit(ctx.columnExpr()), type_name=type_name)
 
     def visitColumnExprPrecedence1(self, ctx: HogQLParser.ColumnExprPrecedence1Context):
         if ctx.SLASH():
@@ -960,6 +972,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         object: ast.Expr = self.visit(ctx.columnExpr(0))
         property: ast.Expr = self.visit(ctx.columnExpr(1))
         return ast.ArrayAccess(array=object, property=property)
+
+    def visitColumnExprArraySlice(self, ctx: HogQLParser.ColumnExprArraySliceContext):
+        exprs = ctx.columnExpr()
+        object_expr = self.visit(exprs[0])
+        start_expr = None
+        end_expr = None
+        if len(exprs) > 1:
+            colon_index = ctx.COLON().symbol.tokenIndex
+            if exprs[1].start.tokenIndex < colon_index:
+                start_expr = self.visit(exprs[1])
+                if len(exprs) > 2:
+                    end_expr = self.visit(exprs[2])
+            else:
+                end_expr = self.visit(exprs[1])
+        return ast.ArraySlice(array=object_expr, start_expr=start_expr, end_expr=end_expr)
 
     def visitColumnExprNullArrayAccess(self, ctx: HogQLParser.ColumnExprNullArrayAccessContext):
         object: ast.Expr = self.visit(ctx.columnExpr(0))

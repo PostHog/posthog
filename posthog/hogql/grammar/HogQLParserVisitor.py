@@ -349,11 +349,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnTypeExprSimple.
-    def visitColumnTypeExprSimple(self, ctx:HogQLParser.ColumnTypeExprSimpleContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnTypeExprNested.
     def visitColumnTypeExprNested(self, ctx:HogQLParser.ColumnTypeExprNestedContext):
         return self.visitChildren(ctx)
@@ -371,6 +366,16 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#ColumnTypeExprParam.
     def visitColumnTypeExprParam(self, ctx:HogQLParser.ColumnTypeExprParamContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnTypeExprCompound.
+    def visitColumnTypeExprCompound(self, ctx:HogQLParser.ColumnTypeExprCompoundContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnTypeExprSimple.
+    def visitColumnTypeExprSimple(self, ctx:HogQLParser.ColumnTypeExprSimpleContext):
         return self.visitChildren(ctx)
 
 
@@ -409,16 +414,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprDict.
-    def visitColumnExprDict(self, ctx:HogQLParser.ColumnExprDictContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprSubquery.
-    def visitColumnExprSubquery(self, ctx:HogQLParser.ColumnExprSubqueryContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprLiteral.
     def visitColumnExprLiteral(self, ctx:HogQLParser.ColumnExprLiteralContext):
         return self.visitChildren(ctx)
@@ -429,38 +424,8 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprSubstring.
-    def visitColumnExprSubstring(self, ctx:HogQLParser.ColumnExprSubstringContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprCast.
-    def visitColumnExprCast(self, ctx:HogQLParser.ColumnExprCastContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprOr.
     def visitColumnExprOr(self, ctx:HogQLParser.ColumnExprOrContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNullTupleAccess.
-    def visitColumnExprNullTupleAccess(self, ctx:HogQLParser.ColumnExprNullTupleAccessContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprColumnsRegex.
-    def visitColumnExprColumnsRegex(self, ctx:HogQLParser.ColumnExprColumnsRegexContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprTypeCast.
-    def visitColumnExprTypeCast(self, ctx:HogQLParser.ColumnExprTypeCastContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprSpreadColumnsList.
-    def visitColumnExprSpreadColumnsList(self, ctx:HogQLParser.ColumnExprSpreadColumnsListContext):
         return self.visitChildren(ctx)
 
 
@@ -484,11 +449,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprCallSelect.
-    def visitColumnExprCallSelect(self, ctx:HogQLParser.ColumnExprCallSelectContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprIsNull.
     def visitColumnExprIsNull(self, ctx:HogQLParser.ColumnExprIsNullContext):
         return self.visitChildren(ctx)
@@ -509,23 +469,8 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprTrim.
-    def visitColumnExprTrim(self, ctx:HogQLParser.ColumnExprTrimContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprTagElement.
     def visitColumnExprTagElement(self, ctx:HogQLParser.ColumnExprTagElementContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprTemplateString.
-    def visitColumnExprTemplateString(self, ctx:HogQLParser.ColumnExprTemplateStringContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprTuple.
-    def visitColumnExprTuple(self, ctx:HogQLParser.ColumnExprTupleContext):
         return self.visitChildren(ctx)
 
 
@@ -544,6 +489,101 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#ColumnExprParens.
+    def visitColumnExprParens(self, ctx:HogQLParser.ColumnExprParensContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprTimestamp.
+    def visitColumnExprTimestamp(self, ctx:HogQLParser.ColumnExprTimestampContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprAnd.
+    def visitColumnExprAnd(self, ctx:HogQLParser.ColumnExprAndContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprNot.
+    def visitColumnExprNot(self, ctx:HogQLParser.ColumnExprNotContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprFunction.
+    def visitColumnExprFunction(self, ctx:HogQLParser.ColumnExprFunctionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprDict.
+    def visitColumnExprDict(self, ctx:HogQLParser.ColumnExprDictContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprSubquery.
+    def visitColumnExprSubquery(self, ctx:HogQLParser.ColumnExprSubqueryContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprSubstring.
+    def visitColumnExprSubstring(self, ctx:HogQLParser.ColumnExprSubstringContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprCast.
+    def visitColumnExprCast(self, ctx:HogQLParser.ColumnExprCastContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprArraySlice.
+    def visitColumnExprArraySlice(self, ctx:HogQLParser.ColumnExprArraySliceContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprNullTupleAccess.
+    def visitColumnExprNullTupleAccess(self, ctx:HogQLParser.ColumnExprNullTupleAccessContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprColumnsRegex.
+    def visitColumnExprColumnsRegex(self, ctx:HogQLParser.ColumnExprColumnsRegexContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprTypeCast.
+    def visitColumnExprTypeCast(self, ctx:HogQLParser.ColumnExprTypeCastContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprSpreadColumnsList.
+    def visitColumnExprSpreadColumnsList(self, ctx:HogQLParser.ColumnExprSpreadColumnsListContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprCallSelect.
+    def visitColumnExprCallSelect(self, ctx:HogQLParser.ColumnExprCallSelectContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprTrim.
+    def visitColumnExprTrim(self, ctx:HogQLParser.ColumnExprTrimContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprTemplateString.
+    def visitColumnExprTemplateString(self, ctx:HogQLParser.ColumnExprTemplateStringContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprTuple.
+    def visitColumnExprTuple(self, ctx:HogQLParser.ColumnExprTupleContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprTryCast.
+    def visitColumnExprTryCast(self, ctx:HogQLParser.ColumnExprTryCastContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#ColumnExprColumnsList.
     def visitColumnExprColumnsList(self, ctx:HogQLParser.ColumnExprColumnsListContext):
         return self.visitChildren(ctx)
@@ -559,28 +599,13 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprParens.
-    def visitColumnExprParens(self, ctx:HogQLParser.ColumnExprParensContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprNullArrayAccess.
     def visitColumnExprNullArrayAccess(self, ctx:HogQLParser.ColumnExprNullArrayAccessContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprTimestamp.
-    def visitColumnExprTimestamp(self, ctx:HogQLParser.ColumnExprTimestampContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprNullish.
     def visitColumnExprNullish(self, ctx:HogQLParser.ColumnExprNullishContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprAnd.
-    def visitColumnExprAnd(self, ctx:HogQLParser.ColumnExprAndContext):
         return self.visitChildren(ctx)
 
 
@@ -599,11 +624,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprNot.
-    def visitColumnExprNot(self, ctx:HogQLParser.ColumnExprNotContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprWinFunction.
     def visitColumnExprWinFunction(self, ctx:HogQLParser.ColumnExprWinFunctionContext):
         return self.visitChildren(ctx)
@@ -616,11 +636,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#ColumnExprIdentifier.
     def visitColumnExprIdentifier(self, ctx:HogQLParser.ColumnExprIdentifierContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprFunction.
-    def visitColumnExprFunction(self, ctx:HogQLParser.ColumnExprFunctionContext):
         return self.visitChildren(ctx)
 
 

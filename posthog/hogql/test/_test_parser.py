@@ -185,6 +185,66 @@ def parser_test_factory(backend: HogQLParserBackend):
                     property=ast.Constant(value=1),
                 ),
             )
+            self.assertEqual(
+                self._expr("arr[1:3]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=ast.Constant(value=1),
+                    end_expr=ast.Constant(value=3),
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[:3]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=None,
+                    end_expr=ast.Constant(value=3),
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[1:]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=ast.Constant(value=1),
+                    end_expr=None,
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[:]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=None,
+                    end_expr=None,
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[(1 + 2):(-3)]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                    ),
+                    end_expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=ast.Constant(value=0),
+                        right=ast.Constant(value=3),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._expr("arr[-5:]"),
+                ast.ArraySlice(
+                    array=ast.Field(chain=["arr"]),
+                    start_expr=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=ast.Constant(value=0),
+                        right=ast.Constant(value=5),
+                    ),
+                    end_expr=None,
+                ),
+            )
 
         def test_tuples(self):
             self.assertEqual(
@@ -338,6 +398,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                         ]
                     ),
                 ),
+            )
+
+        def test_try_cast(self):
+            self.assertEqual(
+                self._expr("try_cast(1 AS Int64)"),
+                ast.TryCast(expr=ast.Constant(value=1), type_name="Int64"),
             )
 
         def test_call_expr(self):
