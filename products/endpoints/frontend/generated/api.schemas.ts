@@ -995,6 +995,10 @@ export interface BoxPlotDatumApi {
     min: number
     p25: number
     p75: number
+    /** @nullable */
+    series_index?: number | null
+    /** @nullable */
+    series_label?: string | null
 }
 
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }

@@ -618,20 +618,6 @@ class BingAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
-class BoxPlotDatum(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    day: str
-    label: str
-    max: float
-    mean: float
-    median: float
-    min: float
-    p25: float
-    p75: float
-
-
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -5000,6 +4986,22 @@ class AutocompleteCompletionItem(BaseModel):
             " is inserted when selecting this completion."
         ),
     )
+
+
+class BoxPlotDatum(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: str
+    label: str
+    max: float
+    mean: float
+    median: float
+    min: float
+    p25: float
+    p75: float
+    series_index: int | None = None
+    series_label: str | None = None
 
 
 class Breakdown(BaseModel):
