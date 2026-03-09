@@ -47,6 +47,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         setScimLogsModalId: (id: string | null) => ({ id }),
         setScimLogsStatusFilter: (filter: 'all' | 'success' | 'error') => ({ filter }),
         setScimLogsSearch: (search: string) => ({ search }),
+        setScimLogsPage: (page: number) => ({ page }),
         setVerifyModal: (id: string | null) => ({ id }),
     }),
     reducers({
@@ -97,6 +98,15 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             {
                 setScimLogsSearch: (_, { search }) => search,
                 setScimLogsModalId: () => '',
+            },
+        ],
+        scimLogsPage: [
+            1 as number,
+            {
+                setScimLogsPage: (_, { page }) => page,
+                setScimLogsModalId: () => 1,
+                setScimLogsStatusFilter: () => 1,
+                setScimLogsSearch: () => 1,
             },
         ],
         verifyModal: [
@@ -207,6 +217,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         scimLogs: [
             null as PaginatedSCIMRequestLogs | null,
             {
+                setScimLogsModalId: () => null,
                 loadScimLogs: async ({ domainId, page }: { domainId: string; page?: number }, breakpoint) => {
                     await breakpoint(300)
                     const params: Record<string, string> = {}
@@ -224,7 +235,9 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     }
                     const queryString = new URLSearchParams(params).toString()
                     const url = `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/logs${queryString ? `?${queryString}` : ''}`
-                    return await api.get(url)
+                    const response = await api.get(url)
+                    await breakpoint()
+                    return response
                 },
             },
         ],
@@ -255,6 +268,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         setScimLogsSearch: () => {
             if (values.scimLogsModalId) {
                 actions.loadScimLogs({ domainId: values.scimLogsModalId })
+            }
+        },
+        setScimLogsPage: ({ page }) => {
+            if (values.scimLogsModalId) {
+                actions.loadScimLogs({ domainId: values.scimLogsModalId, page })
             }
         },
     })),
