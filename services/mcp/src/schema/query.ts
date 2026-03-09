@@ -218,7 +218,7 @@ const PathsFilter = z.object({
 // Paths query
 const PathsQuerySchema = InsightsQueryBase.extend({
     kind: z.literal('PathsQuery'),
-    pathsFilter: PathsFilter.optional(),
+    pathsFilter: PathsFilter.default({ stepLimit: 5, edgeLimit: 50 }),
 })
 
 // Insight Schema

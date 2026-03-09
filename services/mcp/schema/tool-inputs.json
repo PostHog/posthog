@@ -3428,6 +3428,10 @@
                                                     "const": "PathsQuery"
                                                 },
                                                 "pathsFilter": {
+                                                    "default": {
+                                                        "stepLimit": 5,
+                                                        "edgeLimit": 50
+                                                    },
                                                     "type": "object",
                                                     "properties": {
                                                         "includeEventTypes": {
