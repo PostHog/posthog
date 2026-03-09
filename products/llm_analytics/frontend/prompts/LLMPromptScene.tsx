@@ -60,8 +60,12 @@ export function LLMPromptScene(): JSX.Element {
     const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions } =
         useActions(llmPromptLogic)
     const sourcePromptName = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.name : null
+    const sourcePromptVersion = isHistoricalVersion && isPrompt(prompt) ? prompt.version : null
     const openInPlaygroundUrl = sourcePromptName
-        ? combineUrl(urls.llmAnalyticsPlayground(), { source_prompt_name: sourcePromptName }).url
+        ? combineUrl(urls.llmAnalyticsPlayground(), {
+              source_prompt_name: sourcePromptName,
+              ...(sourcePromptVersion ? { source_prompt_version: sourcePromptVersion } : {}),
+          }).url
         : undefined
 
     if (isPromptMissing) {

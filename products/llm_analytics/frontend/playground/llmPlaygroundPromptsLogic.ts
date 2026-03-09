@@ -38,6 +38,7 @@ export interface PromptConfig {
     tools: Record<string, unknown>[] | null
     sourceType: 'prompt' | 'evaluation' | null
     sourcePromptName: string | null
+    sourcePromptVersion: number | null
     sourceEvaluationId: string | null
     sourceEvaluationName: string | null
     messages: Message[]
@@ -50,6 +51,7 @@ export interface PlaygroundSetupPayload {
     systemPrompt?: string
     sourceType?: 'prompt' | 'evaluation'
     sourcePromptName?: string
+    sourcePromptVersion?: number
     sourceEvaluationId?: string
     input?: unknown
     tools?: Record<string, unknown>[]
@@ -64,11 +66,16 @@ export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
 export function getLinkedSourceLabel(source: {
     type: 'prompt' | 'evaluation' | null
     promptName: string | null
+    promptVersion?: number | null
     evaluationId: string | null
     evaluationName: string | null
 }): string | null {
     if (source.type === 'prompt') {
-        return source.promptName ? `prompt "${source.promptName}"` : null
+        if (!source.promptName) {
+            return null
+        }
+        const versionSuffix = source.promptVersion ? ` v${source.promptVersion}` : ''
+        return `prompt "${source.promptName}"${versionSuffix}`
     }
     if (source.type === 'evaluation') {
         if (source.evaluationName) {
@@ -95,6 +102,7 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         tools: partial.tools ?? null,
         sourceType: partial.sourceType ?? null,
         sourcePromptName: partial.sourcePromptName ?? null,
+        sourcePromptVersion: partial.sourcePromptVersion ?? null,
         sourceEvaluationId: partial.sourceEvaluationId ?? null,
         sourceEvaluationName: partial.sourceEvaluationName ?? null,
         messages: partial.messages ?? [],
@@ -343,6 +351,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         ...prompt,
                         sourceType: null,
                         sourcePromptName: null,
+                        sourcePromptVersion: null,
                         sourceEvaluationId: null,
                         sourceEvaluationName: null,
                     })),
@@ -369,6 +378,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             selectedProviderKeyId: payload.providerKeyId ?? null,
                             sourceType: payload.sourceType ?? null,
                             sourcePromptName: payload.sourcePromptName ?? null,
+                            sourcePromptVersion: payload.sourcePromptVersion ?? null,
                             sourceEvaluationId: payload.sourceEvaluationId ?? null,
                             sourceEvaluationName: null,
                         },
@@ -552,16 +562,24 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             ): {
                 type: 'prompt' | 'evaluation' | null
                 promptName: string | null
+                promptVersion: number | null
                 evaluationId: string | null
                 evaluationName: string | null
             } => {
                 const first = promptConfigs[0]
                 if (!first) {
-                    return { type: null, promptName: null, evaluationId: null, evaluationName: null }
+                    return {
+                        type: null,
+                        promptName: null,
+                        promptVersion: null,
+                        evaluationId: null,
+                        evaluationName: null,
+                    }
                 }
                 return {
                     type: first.sourceType,
                     promptName: first.sourcePromptName,
+                    promptVersion: first.sourcePromptVersion,
                     evaluationId: first.sourceEvaluationId,
                     evaluationName: first.sourceEvaluationName,
                 }
@@ -579,7 +597,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             const activeTabId = sceneLogic.findMounted()?.values.activeTabId
             const isActiveTab = !activeTabId || activeTabId === props.tabId
             if (isActiveTab) {
-                const { source_prompt_name: _, source_evaluation_id: __, ...cleanParams } = router.values.searchParams
+                const {
+                    source_prompt_name: _,
+                    source_prompt_version: __,
+                    source_evaluation_id: ___,
+                    ...cleanParams
+                } = router.values.searchParams
                 router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanParams).url)
             }
         },
@@ -604,17 +627,31 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             const finishSourceSetup = (sourceParam: Record<string, string>): void => {
                 actions.setMessages([], promptId)
                 actions.setActivePromptId(promptId)
-                const { source_prompt_name: _, source_evaluation_id: __, ...cleanParams } = router.values.searchParams
+                const {
+                    source_prompt_name: _,
+                    source_prompt_version: __,
+                    source_evaluation_id: ___,
+                    ...cleanParams
+                } = router.values.searchParams
                 router.actions.push(combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, ...sourceParam }).url)
             }
 
             try {
                 if (payload.sourcePromptName) {
                     try {
-                        const fetchedPrompt = await api.llmPrompts.getByName(payload.sourcePromptName)
+                        const versionParam = payload.sourcePromptVersion
+                            ? { version: payload.sourcePromptVersion }
+                            : undefined
+                        const fetchedPrompt = await api.llmPrompts.getByName(payload.sourcePromptName, versionParam)
                         actions.setSystemPrompt(fetchedPrompt.prompt || DEFAULT_SYSTEM_PROMPT, promptId)
                         actions.setSourceNames(fetchedPrompt.name ?? null, null, promptId)
-                        finishSourceSetup({ source_prompt_name: payload.sourcePromptName })
+                        const sourceParams: Record<string, string> = {
+                            source_prompt_name: payload.sourcePromptName,
+                        }
+                        if (payload.sourcePromptVersion) {
+                            sourceParams.source_prompt_version = String(payload.sourcePromptVersion)
+                        }
+                        finishSourceSetup(sourceParams)
                     } catch {
                         lemonToast.error('Error loading prompt for playground')
                     }
@@ -721,7 +758,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 actions.saveComplete()
                 return
             }
-            const label = getLinkedSourceLabel(linkedSource) ?? 'linked prompt'
             try {
                 const current = await api.llmPrompts.getByName(linkedSource.promptName)
                 await api.llmPrompts.update(linkedSource.promptName, {
@@ -729,6 +765,18 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     base_version: current.latest_version,
                 })
                 const promptName = linkedSource.promptName!
+                // After saving, the playground is linked to the latest version
+                if (linkedSource.promptVersion) {
+                    actions.setPromptConfigs(
+                        updatePromptConfigs(values.promptConfigs, prompt.id, (p) => ({
+                            ...p,
+                            sourcePromptVersion: null,
+                        }))
+                    )
+                    const { source_prompt_version: _, ...cleanParams } = router.values.searchParams
+                    router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanParams).url)
+                }
+                const label = getLinkedSourceLabel(values.linkedSource) ?? 'linked prompt'
                 lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`, {
                     button: {
                         label: 'View',
@@ -806,11 +854,16 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         ...p,
                         sourceType: 'prompt',
                         sourcePromptName: name,
+                        sourcePromptVersion: null,
                         sourceEvaluationId: null,
                         sourceEvaluationName: null,
                     }))
                 )
-                const { source_evaluation_id: _, ...cleanParams } = router.values.searchParams
+                const {
+                    source_prompt_version: _,
+                    source_evaluation_id: __,
+                    ...cleanParams
+                } = router.values.searchParams
                 router.actions.replace(
                     combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, source_prompt_name: name }).url
                 )
@@ -913,17 +966,25 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
             const sourcePromptName =
                 typeof searchParams?.source_prompt_name === 'string' ? searchParams.source_prompt_name : null
+            const sourcePromptVersion = searchParams?.source_prompt_version
+                ? Number(searchParams.source_prompt_version) || null
+                : null
             const sourceEvaluationId =
                 typeof searchParams?.source_evaluation_id === 'string' ? searchParams.source_evaluation_id : null
 
             if (sourcePromptName) {
                 const currentSource = values.linkedSource
-                if (currentSource.type === 'prompt' && currentSource.promptName === sourcePromptName) {
+                if (
+                    currentSource.type === 'prompt' &&
+                    currentSource.promptName === sourcePromptName &&
+                    currentSource.promptVersion === sourcePromptVersion
+                ) {
                     return
                 }
                 actions.setupPlaygroundFromEvent({
                     sourceType: 'prompt',
                     sourcePromptName,
+                    sourcePromptVersion: sourcePromptVersion ?? undefined,
                 })
             } else if (sourceEvaluationId) {
                 const currentSource = values.linkedSource
