@@ -839,7 +839,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("p1", "2020-01-11T12:00:05Z", {"idx": 5}),
             ]
         )
-        flush_persons_and_events()
 
         all_results = []
         for offset in (0, 2, 4):
@@ -886,7 +885,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("p1", "2020-01-11T12:00:01Z", {"idx": "1"}),
             ]
         )
-        flush_persons_and_events()
 
         all_results = []
         cursor = None
@@ -925,7 +923,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("p1", "2020-01-11T12:00:03Z", {"idx": "3"}),
             ]
         )
-        flush_persons_and_events()
 
         with freeze_time("2020-01-12"):
             query = EventsQuery(
@@ -950,7 +947,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("p2", "2020-01-11T12:00:02Z", {}),
             ]
         )
-        flush_persons_and_events()
 
         with freeze_time("2020-01-12"):
             query = EventsQuery(
@@ -975,7 +971,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("p1", "2020-01-11T12:00:01Z", {}),
             ]
         )
-        flush_persons_and_events()
 
         with freeze_time("2020-01-12"):
             query = EventsQuery(
@@ -1005,7 +1000,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("p1", "2020-01-11T12:00:05Z", {"idx": "5"}),
             ]
         )
-        flush_persons_and_events()
 
         all_results = []
         cursor = None
