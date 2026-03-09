@@ -292,7 +292,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         minSearchQueryLength: [
-            (s, p) => [s.group, p.minSearchQueryLength],
+            (s) => [s.group, (_, props) => props.minSearchQueryLength],
             (group, propsMinSearchQueryLength) => propsMinSearchQueryLength ?? group?.minSearchQueryLength ?? 0,
         ],
         needsMoreSearchCharacters: [
