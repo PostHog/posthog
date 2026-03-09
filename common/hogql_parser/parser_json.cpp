@@ -1863,11 +1863,11 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
 
-  VISIT(ColumnLambdaExpr) {
+  VISIT(ArrowLambda) {
     auto column_expr_ctx = ctx->columnExpr();
     auto block_ctx = ctx->block();
     if (!column_expr_ctx && !block_ctx) {
-      throw ParsingError("ColumnLambdaExpr must have either a columnExpr or a block");
+      throw ParsingError("ArrowLambda must have either a columnExpr or a block");
     }
 
     Json expr_json;
@@ -1888,6 +1888,21 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     }
     json["args"] = std::move(args);
     json["expr"] = std::move(expr_json);
+    return json;
+  }
+
+  VISIT(DuckDBLambda) {
+    vector<string> args_vec = visitAsVectorOfStrings(ctx->identifier());
+
+    Json json = Json::object();
+    json["node"] = "Lambda";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json args = Json::array();
+    for (const auto& arg : args_vec) {
+      args.pushBack(arg);
+    }
+    json["args"] = std::move(args);
+    json["expr"] = visitAsJSON(ctx->columnExpr());
     return json;
   }
 

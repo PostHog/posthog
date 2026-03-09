@@ -1118,10 +1118,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
         return self.visit(ctx.hogqlxTagElement())
 
-    def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
+    def visitArrowLambda(self, ctx: HogQLParser.ArrowLambdaContext):
         return ast.Lambda(
             args=[self.visit(identifier) for identifier in ctx.identifier()],
             expr=self.visit(ctx.columnExpr() or ctx.block()),
+        )
+
+    def visitDuckDBLambda(self, ctx: HogQLParser.DuckDBLambdaContext):
+        return ast.Lambda(
+            args=[self.visit(identifier) for identifier in ctx.identifier()],
+            expr=self.visit(ctx.columnExpr()),
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):

@@ -240,7 +240,8 @@ columnLambdaExpr:
     |        identifier (COMMA identifier)* COMMA?
     | LPAREN RPAREN
     )
-    ARROW (columnExpr | block)
+    ARROW (columnExpr | block)                                                              # ArrowLambda
+    | LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr                        # DuckDBLambda
     ;
 
 hogqlxChildElement
@@ -314,7 +315,7 @@ keyword
     | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
     | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
     | GROUPING | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
-    | LAST | LEADING | LEFT | LIKE | LIMIT
+    | LAMBDA | LAST | LEADING | LEFT | LIKE | LIMIT
     | NAME | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
     | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING

@@ -267,7 +267,9 @@ public:
 
     virtual std::any visitColumnExprAsterisk(HogQLParser::ColumnExprAsteriskContext *context) = 0;
 
-    virtual std::any visitColumnLambdaExpr(HogQLParser::ColumnLambdaExprContext *context) = 0;
+    virtual std::any visitArrowLambda(HogQLParser::ArrowLambdaContext *context) = 0;
+
+    virtual std::any visitDuckDBLambda(HogQLParser::DuckDBLambdaContext *context) = 0;
 
     virtual std::any visitHogqlxChildElement(HogQLParser::HogqlxChildElementContext *context) = 0;
 
