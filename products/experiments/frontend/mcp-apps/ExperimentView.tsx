@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 
 import { Badge, Card, DataTable, type DataTableColumn, DescriptionList, formatDate, Stack } from '@posthog/mosaic'
 
-import { ExperimentData, ExperimentVariant, getStatus } from './utils'
+import { ExperimentData, ExperimentVariant, getConclusion, getStatus } from './utils'
 
 export interface ExperimentViewProps {
     experiment: ExperimentData
@@ -81,8 +81,8 @@ export function ExperimentView({ experiment }: ExperimentViewProps): ReactElemen
                         <Stack gap="sm">
                             <div className="flex items-center gap-2">
                                 <span className="text-sm font-semibold text-text-primary">Conclusion</span>
-                                <Badge variant="success" size="sm">
-                                    {experiment.conclusion}
+                                <Badge variant={getConclusion(experiment).variant} size="sm">
+                                    {getConclusion(experiment).label}
                                 </Badge>
                             </div>
                             {experiment.conclusion_comment && (

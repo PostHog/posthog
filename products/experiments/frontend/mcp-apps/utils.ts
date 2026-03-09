@@ -46,3 +46,17 @@ export function getStatus(exp: ExperimentData): { label: string; variant: 'succe
     }
     return { label: 'Running', variant: 'info' }
 }
+
+export function getConclusion(exp: ExperimentData): { label: string; variant: 'success' | 'danger' | 'neutral' } {
+    if (exp.conclusion === 'won') {
+        return { label: 'Won', variant: 'success' }
+    }
+    if (exp.conclusion === 'lost') {
+        return { label: 'Lost', variant: 'danger' }
+    }
+
+    return {
+        label: exp.conclusion ? exp.conclusion.charAt(0).toUpperCase() + exp.conclusion.slice(1) : 'Inconclusive',
+        variant: 'neutral',
+    }
+}
