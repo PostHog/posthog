@@ -86,6 +86,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "deleted": False,
             "title": "My Subscription",
             "next_delivery_date": data["next_delivery_date"],
+            "integration_id": None,
             "invite_message": None,
             "summary": "sent every week",
         }

@@ -73,6 +73,12 @@ class Subscription(models.Model):
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)

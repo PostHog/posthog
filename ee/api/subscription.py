@@ -71,6 +71,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "title",
             "summary",
             "next_delivery_date",
+            "integration_id",
             "invite_message",
         ]
         read_only_fields = [
@@ -94,6 +95,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         self._validate_dashboard_export_subscription(attrs)
+
+        if "integration" in attrs and attrs["integration"] is not None:
+            integration = attrs["integration"]
+            if integration.team_id != self.context["team_id"]:
+                raise ValidationError({"integration_id": ["This integration does not belong to your team."]})
+            target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
+            if target_type == Subscription.SubscriptionTarget.SLACK and integration.kind != "slack":
+                raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
 
         # SSRF protection for webhook subscriptions
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
