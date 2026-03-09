@@ -29,10 +29,8 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import (
-    ErrorTrackingQueryRunner,
-    search_tokenizer,
-)
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
