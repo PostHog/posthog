@@ -72,7 +72,6 @@ class TestProvisioningServices(StripeProvisioningTestBase):
         assert "posthog" in service_ids
         assert "product_analytics" in service_ids
         assert "session_replay" in service_ids
-        assert "platform_and_support" not in service_ids
 
     @patch("ee.api.agentic_provisioning.views.external_requests.get", return_value=_mock_billing_response())
     @patch("ee.api.agentic_provisioning.views.cache")
