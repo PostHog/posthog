@@ -71,25 +71,60 @@ describe('DatabaseTablePreview', () => {
     it.each([
         {
             description: 'table change',
-            initialProps: { table: eventsTable, whereClause: "event = '$pageview'", limit: 10 },
-            updatedProps: { table: personsTable, whereClause: "event = '$pageview'", limit: 10 },
+            initialProps: {
+                table: eventsTable,
+                whereClause: "event = '$pageview'",
+                limit: 10,
+                expressionColumns: undefined,
+            },
+            updatedProps: {
+                table: personsTable,
+                whereClause: "event = '$pageview'",
+                limit: 10,
+                expressionColumns: undefined,
+            },
             expectedQueryContains: 'FROM persons',
         },
         {
             description: 'where clause change',
-            initialProps: { table: eventsTable, whereClause: "event = '$pageview'", limit: 10 },
-            updatedProps: { table: eventsTable, whereClause: "event = '$autocapture'", limit: 10 },
+            initialProps: {
+                table: eventsTable,
+                whereClause: "event = '$pageview'",
+                limit: 10,
+                expressionColumns: undefined,
+            },
+            updatedProps: {
+                table: eventsTable,
+                whereClause: "event = '$autocapture'",
+                limit: 10,
+                expressionColumns: undefined,
+            },
             expectedQueryContains: "WHERE event = '$autocapture'",
         },
         {
             description: 'limit change',
-            initialProps: { table: eventsTable, whereClause: "event = '$pageview'", limit: 10 },
-            updatedProps: { table: eventsTable, whereClause: "event = '$pageview'", limit: 5 },
+            initialProps: {
+                table: eventsTable,
+                whereClause: "event = '$pageview'",
+                limit: 10,
+                expressionColumns: undefined,
+            },
+            updatedProps: {
+                table: eventsTable,
+                whereClause: "event = '$pageview'",
+                limit: 5,
+                expressionColumns: undefined,
+            },
             expectedQueryContains: 'LIMIT 5',
         },
         {
             description: 'expression column change',
-            initialProps: { table: eventsTable, whereClause: "event = '$pageview'", limit: 10 },
+            initialProps: {
+                table: eventsTable,
+                whereClause: "event = '$pageview'",
+                limit: 10,
+                expressionColumns: undefined,
+            },
             updatedProps: {
                 table: eventsTable,
                 whereClause: "event = '$pageview'",
