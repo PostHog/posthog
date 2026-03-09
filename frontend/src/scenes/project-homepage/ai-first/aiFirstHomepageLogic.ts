@@ -128,7 +128,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                     urls.projectHomepage(),
                     { mode, chat: values.threadLogicKey || undefined },
                     undefined,
-                    { replace: true },
+                    { replace: false },
                 ]
             }
             return [urls.projectHomepage(), { mode, q: query || undefined }, undefined, { replace: false }]

@@ -11,7 +11,6 @@ import {
     IconNotification,
     IconRocket,
     IconSearch,
-    IconSparkles,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -80,18 +79,16 @@ function IdleInput(): JSX.Element {
                     autoFocus
                 />
                 {query.trim() && (
-                    <div className="rounded-[calc(--theme.radius)] flex items-center gap-1 shrink-0 transition-opacity duration-150 ease-out starting:opacity-0">
+                    <div className="flex items-center gap-1 shrink-0 transition-opacity duration-150 ease-out starting:opacity-0">
                         <ButtonPrimitive
                             size="xs"
                             className="text-tertiary hover:text-primary"
                             onClick={() => submitQuery('search')}
                         >
-                            <IconSearch className="size-3.5" />
-                            <span className="text-xxs">Search</span>
+                            <span className="text-xxs">Tab to search</span>
                         </ButtonPrimitive>
                         <ButtonPrimitive size="xs" onClick={() => submitQuery('ai')} variant="panel">
-                            <IconSparkles className="size-3.5" />
-                            <span className="text-xxs">Ask AI</span>
+                            <span className="text-xxs">Enter to ask AI</span>
                         </ButtonPrimitive>
                     </div>
                 )}
@@ -104,15 +101,6 @@ function IdleInput(): JSX.Element {
                                 <KeyboardShortcut forwardslash /> <span className="text-xxs">For commands</span>
                             </ButtonPrimitive>
                         </div>
-                        {/*
-                        <div className="flex items-center gap-1">
-                            <ButtonPrimitive size="xs" className="text-tertiary">
-                                <KeyboardShortcut tab /> <span className="text-xxs">Search</span>
-                            </ButtonPrimitive>
-                            <ButtonPrimitive size="xs" className="text-tertiary">
-                                <KeyboardShortcut enter /> <span className="text-xxs">AI</span>
-                            </ButtonPrimitive>
-                        </div> */}
                     </div>
                 </div>
             </div>
