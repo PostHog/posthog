@@ -3,7 +3,7 @@ import typing as t
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -589,6 +589,7 @@ class TestExternalDataSource(APIBaseTest):
                 "latest_error",
                 "prefix",
                 "description",
+                "access_method",
                 "last_run_at",
                 "schemas",
                 "job_inputs",
@@ -799,6 +800,106 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
+
+    def test_create_direct_postgres_requires_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "   ",
+                "payload": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"message": "Name is required for direct query sources"})
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_does_not_require_prefix_namespace(self, mock_get_source):
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix=None,
+        )
+
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "Read replica",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [{"name": "accounts", "should_sync": True, "sync_type": None}],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_direct_non_postgres_is_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "access_method": "direct",
+                "prefix": "Read replica",
+                "payload": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"message": "Direct query mode is currently supported only for Postgres sources."},
+        )
+
+    def test_source_prefix_rejects_direct_non_postgres(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
+            data={
+                "source_type": "Stripe",
+                "access_method": "direct",
+                "prefix": "Read replica",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"message": "Direct query mode is currently supported only for Postgres sources."},
+        )
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
@@ -1566,6 +1667,35 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "original_password"
+
+    def test_update_direct_postgres_prefix(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+            prefix="Original name",
+            job_inputs={
+                "host": "172.16.0.0",
+                "port": "123",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+            data={"prefix": " Updated name ", "access_method": "direct"},
+        )
+
+        assert response.status_code == 200, response.content
+        source.refresh_from_db()
+        assert source.prefix == "Updated name"
 
     def test_update_source_with_ssh_tunnel_missing_auth(self):
         """Regression test: PATCH with ssh_tunnel but no auth key should not fail validation."""

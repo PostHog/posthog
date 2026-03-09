@@ -131,6 +131,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
         source="revenue_analytics_config_safe", read_only=True
     )
+    access_method = serializers.ChoiceField(
+        choices=ExternalDataSource.AccessMethod.choices,
+        required=False,
+        default=ExternalDataSource.AccessMethod.WAREHOUSE,
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -145,6 +150,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "latest_error",
             "prefix",
             "description",
+            "access_method",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -160,7 +166,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "latest_error",
             "last_run_at",
             "schemas",
-            "prefix",
             "revenue_analytics_config",
             "user_access_level",
         ]
@@ -297,6 +302,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        incoming_access_method = validated_data.get("access_method", instance.access_method)
+        incoming_prefix = validated_data.get("prefix", instance.prefix)
+        is_direct_postgres = (
+            incoming_access_method == ExternalDataSource.AccessMethod.DIRECT
+            and instance.source_type == ExternalDataSourceType.POSTGRES
+        )
+
+        if is_direct_postgres:
+            # we use the "prefix" field for the source's name for direct queries
+            normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
+            if not normalized_prefix:
+                raise ValidationError("Name is required for direct query sources")
+            validated_data["prefix"] = normalized_prefix
+        else:
+            validated_data["prefix"] = instance.prefix
+
         existing_job_inputs = instance.job_inputs or {}
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
@@ -420,22 +441,41 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         prefix = request.data.get("prefix", None)
         description = request.data.get("description", None)
         source_type = request.data["source_type"]
+        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        is_direct_postgres = (
+            access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
+        )
 
-        # Validate prefix characters
-        is_valid, error_message = validate_source_prefix(prefix)
-        if not is_valid:
-            raise ValidationError(error_message)
+        if access_method == ExternalDataSource.AccessMethod.DIRECT and source_type != ExternalDataSourceType.POSTGRES:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Direct query mode is currently supported only for Postgres sources."},
+            )
 
-        if self.prefix_required(source_type):
+        if is_direct_postgres:
+            prefix = prefix.strip() if isinstance(prefix, str) else ""
             if not prefix:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Source type already exists. Prefix is required"},
+                    data={"message": "Name is required for direct query sources"},
                 )
-            elif self.prefix_exists(source_type, prefix):
-                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+        else:
+            is_valid, error_message = validate_source_prefix(prefix)
+            if not is_valid:
+                raise ValidationError(error_message)
 
-        if is_any_external_data_schema_paused(self.team_id):
+            if self.prefix_required(source_type):
+                if not prefix:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Source type already exists. Prefix is required"},
+                    )
+                if self.prefix_exists(source_type, prefix):
+                    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+
+        if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
+            self.team_id
+        ):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
@@ -476,6 +516,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             job_inputs=source_config.to_dict(),
             prefix=prefix,
             description=description,
+            access_method=access_method,
         )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
@@ -757,6 +798,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
+        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+
+        if access_method == ExternalDataSource.AccessMethod.DIRECT:
+            if source_type != ExternalDataSourceType.POSTGRES:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Direct query mode is currently supported only for Postgres sources."},
+                )
+
+            normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""
+            if not normalized_prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Name is required for direct query sources"},
+                )
+
+            return Response(status=status.HTTP_200_OK)
 
         if self.prefix_required(source_type):
             if not prefix:

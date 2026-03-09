@@ -22,6 +22,10 @@ class ExternalDataSourceManager(models.Manager):
 
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
+    class AccessMethod(models.TextChoices):
+        WAREHOUSE = "warehouse", "warehouse"
+        DIRECT = "direct", "direct"
+
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -53,6 +57,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
     description = models.CharField(max_length=400, null=True, blank=True)
+    access_method = models.CharField(max_length=32, choices=AccessMethod.choices, default=AccessMethod.WAREHOUSE)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
