@@ -75,7 +75,6 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
 }
 
 export function getEventDefinitionIcon(definition: EventDefinition & { value?: string | null }): JSX.Element {
-    console.debug('definition', definition)
     // Rest are events
     if (definition.id === '$pageview' || definition.id === '$screen') {
         return (
