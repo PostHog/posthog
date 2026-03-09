@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { compactNumber, humanFriendlyCurrency, humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { formatCurrency } from 'lib/utils/geography/currency'
@@ -56,7 +58,14 @@ export const formatAggregationAxisValue = (
                 formattedValue = percentage(value, maxDecimalPlaces)
                 break
             case 'currency':
-                formattedValue = currency ? formatCurrency(value, currency) : humanFriendlyCurrency(value)
+                // In the rare case where we get an error because we have an invalid currency code
+                // let's make sure we fallback to the human friendly one
+                try {
+                    formattedValue = currency ? formatCurrency(value, currency) : humanFriendlyCurrency(value)
+                } catch (error) {
+                    posthog.captureException(error, { value, currency })
+                    formattedValue = humanFriendlyCurrency(value)
+                }
                 break
             case 'short':
                 formattedValue = compactNumber(value)
