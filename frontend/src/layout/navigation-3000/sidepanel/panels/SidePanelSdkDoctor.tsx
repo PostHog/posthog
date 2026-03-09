@@ -13,9 +13,14 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
+import {
+    AugmentedTeamSdkVersionsInfoRelease,
+    type OutdatedTrafficAlert,
+    type SdkType,
+    sidePanelSdkDoctorLogic,
+} from './sidePanelSdkDoctorLogic'
 
-const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
+export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     web: 'Web',
     'posthog-ios': 'iOS',
     'posthog-android': 'Android',
@@ -279,6 +284,15 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                                 onClick: snoozeWarning,
                             }}
                         >
+                            {Object.entries(augmentedData).flatMap(([sdkType, sdk]) =>
+                                sdk.outdatedTrafficAlerts.map((alert: OutdatedTrafficAlert) => (
+                                    <p key={`${sdkType}-${alert.version}`} className="text-sm mb-1">
+                                        Version <code className="text-xs font-mono">{alert.version}</code> of the{' '}
+                                        {SDK_TYPE_READABLE_NAME[sdkType as SdkType]} SDK has captured more than{' '}
+                                        {alert.thresholdPercent}% of events in the last 7 days.
+                                    </p>
+                                ))
+                            )}
                             <p className="font-semibold">
                                 An outdated SDK means you're missing out on bug fixes and enhancements.
                             </p>
