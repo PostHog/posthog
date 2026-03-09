@@ -1,6 +1,6 @@
 {
     "actions-get-all": {
-        "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels.",
+        "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not supported on this endpoint.",
         "category": "Actions",
         "feature": "actions",
         "summary": "Get all actions",
@@ -15,7 +15,7 @@
         }
     },
     "action-create": {
-        "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. At least one step is required.",
+        "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching button clicks on the signup page.",
         "category": "Actions",
         "feature": "actions",
         "summary": "Create action",
@@ -60,7 +60,7 @@
         }
     },
     "action-delete": {
-        "description": "Delete an action by ID. The action will no longer appear in lists but historical data is preserved.",
+        "description": "Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but historical data is preserved.",
         "category": "Actions",
         "feature": "actions",
         "summary": "Delete action",

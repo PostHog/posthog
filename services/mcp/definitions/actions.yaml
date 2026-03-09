@@ -23,7 +23,8 @@ tools:
         description: >
             Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger
             conditions (page views, clicks, form submissions) into a single trackable event for use in insights and
-            funnels.
+            funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not
+            supported on this endpoint.
         mcp_version: 1
     action-create:
         operation: actions_create
@@ -38,7 +39,9 @@ tools:
         title: Create action
         description: >
             Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form
-            submissions, or custom events. At least one step is required.
+            submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create
+            composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching
+            button clicks on the signup page.
         exclude_params:
             - deleted
             - is_calculating
@@ -96,5 +99,5 @@ tools:
             idempotent: false
         title: Delete action
         description: |
-            Delete an action by ID. The action will no longer appear in lists but historical data is preserved.
+            Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but historical data is preserved.
         soft_delete: true
