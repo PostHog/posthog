@@ -10,6 +10,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
 
+import structlog
 from dateutil.parser import isoparse
 
 from posthog.clickhouse.client import sync_execute
@@ -26,7 +27,10 @@ from posthog.models.person.sql import (
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL
 from posthog.settings import TEST
+
+logger = structlog.get_logger(__name__)
 
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
@@ -201,15 +205,98 @@ def create_person_distinct_id(
     )
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QuerySet:
-    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
-        team_id=team_id,
-        persondistinctid__team_id=team_id,
-        persondistinctid__distinct_id__in=distinct_ids,
+def _fetch_persons_by_distinct_ids_via_personhog(team_id: int, distinct_ids: list[str]) -> list[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_person_to_model
+    from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByDistinctIdsInTeamRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.get_persons_by_distinct_ids_in_team(
+        GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=distinct_ids)
     )
 
+    person_ids = [r.person.id for r in resp.results]
+    distinct_ids_resp = client.get_distinct_ids_for_persons(
+        GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
+    )
 
-def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
+    distinct_ids_by_person: dict[int, list[str]] = {}
+    for pd in distinct_ids_resp.person_distinct_ids:
+        distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+
+    return [
+        proto_person_to_model(r.person, distinct_ids=distinct_ids_by_person.get(r.person.id, [])) for r in resp.results
+    ]
+
+
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[Person]:
+    from posthog.personhog_client.gate import use_personhog
+
+    if use_personhog():
+        try:
+            result = _fetch_persons_by_distinct_ids_via_personhog(team_id, distinct_ids)
+            PERSONHOG_ROUTING_TOTAL.labels(operation="get_persons_by_distinct_ids", source="personhog").inc()
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_persons_by_distinct_ids", source="personhog", error_type="grpc_error"
+            ).inc()
+            logger.warning("personhog_get_persons_by_distinct_ids_failure", team_id=team_id, exc_info=True)
+
+    from django.db.models.query import Prefetch
+
+    persons = (
+        Person.objects.db_manager(READ_DB_FOR_PERSONS)
+        .filter(
+            team_id=team_id,
+            persondistinctid__team_id=team_id,
+            persondistinctid__distinct_id__in=distinct_ids,
+        )
+        .prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                .filter(team_id=team_id)
+                .order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
+    )
+    PERSONHOG_ROUTING_TOTAL.labels(operation="get_persons_by_distinct_ids", source="django_orm").inc()
+    return list(persons)
+
+
+def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_person_to_model
+    from posthog.personhog_client.proto import GetPersonsByUuidsRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
+    return [proto_person_to_model(p) for p in resp.persons]
+
+
+def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person]:
+    from posthog.personhog_client.gate import use_personhog
+
+    if use_personhog():
+        try:
+            result = _fetch_persons_by_uuids_via_personhog(team.pk, uuids)
+            PERSONHOG_ROUTING_TOTAL.labels(operation="get_persons_by_uuids", source="personhog").inc()
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_persons_by_uuids", source="personhog", error_type="grpc_error"
+            ).inc()
+            logger.warning("personhog_get_persons_by_uuids_failure", team_id=team.pk, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(operation="get_persons_by_uuids", source="django_orm").inc()
     return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
 
 
