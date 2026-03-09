@@ -292,6 +292,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
+    actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
 }
 
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
@@ -332,6 +333,7 @@ export type HogFunctionInputSchemaType = {
         | 'email'
         | 'native_email'
         | 'posthog_assignee'
+        | 'posthog_ticket_tags'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

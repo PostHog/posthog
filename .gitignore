@@ -173,8 +173,8 @@ agent-os/
 # MCP build files
 services/mcp/ui-apps-dist
 
-# Product skills
-.claude/skills/error-tracking
+# Product skills (synced by hogli sync:skill)
+.agents/skills/.gitignore
 
 # Test output
 junit.xml

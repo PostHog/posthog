@@ -10,7 +10,7 @@ import json
 import uuid
 from collections.abc import Callable, Generator
 from time import perf_counter
-from typing import Any, cast
+from typing import Any
 
 from django.http import StreamingHttpResponse
 from django.utils import timezone
@@ -25,7 +25,6 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
-from posthog.models import User
 from posthog.rate_limit import (
     LLMProxyBurstRateThrottle,
     LLMProxyBYOKBurstRateThrottle,
@@ -261,7 +260,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             tracking_properties["trace_id"] = trace_id
 
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "llma playground completion started",
                 tracking_properties,
                 team=getattr(request.user, "current_team", None),
@@ -321,7 +320,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     pass
 
                 report_user_action(
-                    cast(User, request.user),
+                    request.user,
                     "llma playground completion failed",
                     error_properties,
                     team=getattr(request.user, "current_team", None),

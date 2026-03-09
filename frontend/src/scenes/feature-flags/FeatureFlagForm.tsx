@@ -97,7 +97,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
         setTimeout(() => {
-            implementationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            implementationRef.current?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start',
+            })
         }, 150)
     }
 
@@ -108,17 +111,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     ): void => {
         const coercedValue = field === 'rollout_percentage' ? Number(value) || 0 : String(value)
         const currentVariants = [...variants]
-        const oldKey = currentVariants[index]?.key
-        currentVariants[index] = { ...currentVariants[index], [field]: coercedValue }
-
-        // If the key is being changed, migrate any existing payload to the new key
-        let updatedPayloads = { ...featureFlag?.filters?.payloads }
-        if (field === 'key' && oldKey && oldKey !== coercedValue) {
-            const existingPayload = updatedPayloads[oldKey]
-            if (existingPayload !== undefined) {
-                delete updatedPayloads[oldKey]
-                updatedPayloads[coercedValue as string] = existingPayload
-            }
+        currentVariants[index] = {
+            ...currentVariants[index],
+            [field]: coercedValue,
         }
 
         setFeatureFlag({
@@ -129,21 +124,16 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     ...featureFlag?.filters?.multivariate,
                     variants: currentVariants,
                 },
-                payloads: updatedPayloads,
             },
         })
     }
 
     const updateVariantPayload = (index: number, value: string | undefined): void => {
-        const variantKey = variants[index]?.key
-        if (!variantKey) {
-            return
-        }
         const currentPayloads = { ...featureFlag?.filters?.payloads }
         if (value === '' || value === undefined) {
-            delete currentPayloads[variantKey]
+            delete currentPayloads[index]
         } else {
-            currentPayloads[variantKey] = value
+            currentPayloads[index] = value
         }
         setFeatureFlag({
             ...featureFlag,
@@ -178,7 +168,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     }}
                     forceBackTo={
                         isNewFeatureFlag && featureFlagsV2Enabled
-                            ? { key: 'FeatureFlagTemplates', name: 'Templates', path: urls.featureFlagTemplates() }
+                            ? {
+                                  key: 'FeatureFlagTemplates',
+                                  name: 'Templates',
+                                  path: urls.featureFlagTemplates(),
+                              }
                             : undefined
                     }
                     actions={
@@ -686,7 +680,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         </LemonLabel>
                                                         <JSONEditorInput
                                                             onChange={(value) => updateVariantPayload(index, value)}
-                                                            value={featureFlag.filters?.payloads?.[variant.key]}
+                                                            value={featureFlag.filters?.payloads?.[index]}
                                                             placeholder='{"key": "value"}'
                                                         />
 
@@ -701,7 +695,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     const variantKey =
                                                                         variant.key || `Variant ${index + 1}`
                                                                     const hasPayload =
-                                                                        !!featureFlag.filters?.payloads?.[variant.key]
+                                                                        !!featureFlag.filters?.payloads?.[index]
                                                                     LemonDialog.open({
                                                                         title: `Remove variant "${variantKey}"?`,
                                                                         description: hasPayload
