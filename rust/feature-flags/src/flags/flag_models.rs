@@ -148,7 +148,7 @@ pub struct FeatureFlagRow {
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
     /// Runtime-only set of flag IDs that should be skipped during evaluation.
-    /// Includes inactive, deleted, survey-excluded, and tag-filtered flags.
+    /// Includes inactive, deleted, survey-excluded, runtime-mismatched, and tag-filtered flags.
     /// Not serialized — this is a request-scoped concern, not a cache concern.
     #[serde(skip)]
     pub filtered_out_flag_ids: HashSet<i32>,
