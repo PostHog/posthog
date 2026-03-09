@@ -4,6 +4,9 @@ import { InsightPage } from '../../../page-models/insightPage'
 import { stickinessPageviews, stickinessWithBreakdown } from '../../../utils/test-data'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
+const pv = stickinessPageviews.expected
+const bd = stickinessWithBreakdown.expected
+
 const events = [...stickinessPageviews.events, ...stickinessWithBreakdown.events]
 
 test.describe('Stickiness insights', () => {
@@ -41,20 +44,20 @@ test.describe('Stickiness insights', () => {
             await insight.stickiness.waitForDetailsTable()
 
             const day1 = await insight.stickiness.details.row('Pageview').column('Day 1')
-            expect(day1).toContain(stickinessPageviews.expected.day1Percent)
-            expect(day1).toContain(stickinessPageviews.expected.day1Count)
+            expect(day1).toContain(`${pv.day1.percent.toFixed(1)}%`)
+            expect(day1).toContain(`(${pv.day1.users})`)
 
             const day2 = await insight.stickiness.details.row('Pageview').column('Day 2')
-            expect(day2).toContain(stickinessPageviews.expected.zeroPercent)
-            expect(day2).toContain(stickinessPageviews.expected.zeroCount)
+            expect(day2).toContain(`${pv.day2.percent.toFixed(1)}%`)
+            expect(day2).toContain(`(${pv.day2.users})`)
 
             const day3 = await insight.stickiness.details.row('Pageview').column('Day 3')
-            expect(day3).toContain(stickinessPageviews.expected.day3Percent)
-            expect(day3).toContain(stickinessPageviews.expected.day3Count)
+            expect(day3).toContain(`${pv.day3.percent.toFixed(1)}%`)
+            expect(day3).toContain(`(${pv.day3.users})`)
 
             const day5 = await insight.stickiness.details.row('Pageview').column('Day 5')
-            expect(day5).toContain(stickinessPageviews.expected.day5Percent)
-            expect(day5).toContain(stickinessPageviews.expected.day5Count)
+            expect(day5).toContain(`${pv.day5.percent.toFixed(1)}%`)
+            expect(day5).toContain(`(${pv.day5.users})`)
         })
     })
 
@@ -73,16 +76,16 @@ test.describe('Stickiness insights', () => {
             await insight.stickiness.waitForDetailsTable()
 
             const day1 = await insight.stickiness.details.row(stickinessWithBreakdown.eventName).column('Day 1')
-            expect(day1).toContain(stickinessWithBreakdown.expected.totalDay1Percent)
-            expect(day1).toContain(stickinessWithBreakdown.expected.totalDay1Count)
+            expect(day1).toContain(`${bd.day1.percent.toFixed(1)}%`)
+            expect(day1).toContain(`(${bd.day1.users})`)
 
             const day3 = await insight.stickiness.details.row(stickinessWithBreakdown.eventName).column('Day 3')
-            expect(day3).toContain(stickinessWithBreakdown.expected.totalDay3Percent)
-            expect(day3).toContain(stickinessWithBreakdown.expected.totalDay3Count)
+            expect(day3).toContain(`${bd.day3.percent.toFixed(1)}%`)
+            expect(day3).toContain(`(${bd.day3.users})`)
 
             const day2 = await insight.stickiness.details.row(stickinessWithBreakdown.eventName).column('Day 2')
-            expect(day2).toContain('0.0%')
-            expect(day2).toContain('(0)')
+            expect(day2).toContain(`${bd.day2.percent.toFixed(1)}%`)
+            expect(day2).toContain(`(${bd.day2.users})`)
         })
 
         await test.step('switch back to Pageview and verify original distribution', async () => {
@@ -91,12 +94,12 @@ test.describe('Stickiness insights', () => {
             await insight.stickiness.waitForDetailsTable()
 
             const day1 = await insight.stickiness.details.row('Pageview').column('Day 1')
-            expect(day1).toContain(stickinessPageviews.expected.day1Percent)
-            expect(day1).toContain(stickinessPageviews.expected.day1Count)
+            expect(day1).toContain(`${pv.day1.percent.toFixed(1)}%`)
+            expect(day1).toContain(`(${pv.day1.users})`)
 
             const day5 = await insight.stickiness.details.row('Pageview').column('Day 5')
-            expect(day5).toContain(stickinessPageviews.expected.day5Percent)
-            expect(day5).toContain(stickinessPageviews.expected.day5Count)
+            expect(day5).toContain(`${pv.day5.percent.toFixed(1)}%`)
+            expect(day5).toContain(`(${pv.day5.users})`)
         })
     })
 
@@ -118,10 +121,10 @@ test.describe('Stickiness insights', () => {
             await insight.stickiness.waitForDetailsTable()
 
             const customDay1 = await insight.stickiness.details.row(stickinessWithBreakdown.eventName).column('Day 1')
-            expect(customDay1).toContain(stickinessWithBreakdown.expected.totalDay1Percent)
+            expect(customDay1).toContain(`${bd.day1.percent.toFixed(1)}%`)
 
             const pageviewDay1 = await insight.stickiness.details.row('Pageview').column('Day 1')
-            expect(pageviewDay1).toContain(stickinessPageviews.expected.day1Percent)
+            expect(pageviewDay1).toContain(`${pv.day1.percent.toFixed(1)}%`)
         })
     })
 
@@ -139,12 +142,12 @@ test.describe('Stickiness insights', () => {
             await insight.stickiness.waitForDetailsTable()
 
             const day1 = await insight.stickiness.details.row('Pageview').column('Day 1')
-            expect(day1).toContain(stickinessPageviews.expected.day1Percent)
-            expect(day1).toContain(stickinessPageviews.expected.day1Count)
+            expect(day1).toContain(`${pv.day1.percent.toFixed(1)}%`)
+            expect(day1).toContain(`(${pv.day1.users})`)
 
             const day3 = await insight.stickiness.details.row('Pageview').column('Day 3')
-            expect(day3).toContain(stickinessPageviews.expected.day3Percent)
-            expect(day3).toContain(stickinessPageviews.expected.day3Count)
+            expect(day3).toContain(`${pv.day3.percent.toFixed(1)}%`)
+            expect(day3).toContain(`(${pv.day3.users})`)
         })
 
         await test.step('enable comparison and verify no NaN in table', async () => {
@@ -161,8 +164,8 @@ test.describe('Stickiness insights', () => {
             await insight.stickiness.waitForDetailsTable()
 
             const day1 = await insight.stickiness.details.row('Pageview').column('Day 1')
-            expect(day1).toContain(stickinessPageviews.expected.day1Percent)
-            expect(day1).toContain(stickinessPageviews.expected.day1Count)
+            expect(day1).toContain(`${pv.day1.percent.toFixed(1)}%`)
+            expect(day1).toContain(`(${pv.day1.users})`)
         })
     })
 })
