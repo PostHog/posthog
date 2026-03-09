@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentProgressStatus, FeatureFlagType } from '~/types'
+import { Experiment, ExperimentProgressStatus, ExperimentStatus, FeatureFlagType } from '~/types'
 
 import { experimentsLogic, getExperimentStatus, getExperimentStatusColor, hasEnded } from './experimentsLogic'
 
@@ -17,6 +17,7 @@ const createMockExperiment = (overrides: any = {}): Experiment =>
         feature_flag_key: 'test-experiment',
         start_date: '2023-01-01T00:00:00Z',
         end_date: '2023-01-07T00:00:00Z',
+        status: ExperimentStatus.Stopped,
         archived: false,
         ...overrides,
     }) as Experiment
@@ -28,6 +29,7 @@ const mockRunningExperiment = createMockExperiment({
     name: 'Running Experiment',
     start_date: '2023-01-01T00:00:00Z',
     end_date: null,
+    status: ExperimentStatus.Running,
 })
 
 const mockDraftExperiment = createMockExperiment({
@@ -35,6 +37,7 @@ const mockDraftExperiment = createMockExperiment({
     name: 'Draft Experiment',
     start_date: null,
     end_date: null,
+    status: ExperimentStatus.Draft,
 })
 
 const mkFlag = (id: number, key: string): FeatureFlagType => ({ ...NEW_FLAG, id, key })
@@ -403,6 +406,7 @@ describe('utility functions', () => {
             const pausedExperiment = createMockExperiment({
                 start_date: '2024-01-01',
                 end_date: null,
+                status: ExperimentStatus.Running,
                 feature_flag: { active: false },
             })
             expect(getExperimentStatus(pausedExperiment)).toBe(ExperimentProgressStatus.Paused)
@@ -412,6 +416,7 @@ describe('utility functions', () => {
             const runningExperiment = createMockExperiment({
                 start_date: '2024-01-01',
                 end_date: null,
+                status: ExperimentStatus.Running,
                 feature_flag: { active: true },
             })
             expect(getExperimentStatus(runningExperiment)).toBe(ExperimentProgressStatus.Running)
@@ -429,23 +434,17 @@ describe('utility functions', () => {
 
     describe('hasEnded', () => {
         it.each([
-            { end_date: null, expected: false, desc: 'no end date' },
-            { end_date: undefined, expected: false, desc: 'undefined end date' },
-            { end_date: '2020-01-01T00:00:00Z', expected: true, desc: 'end date in the past' },
+            { status: ExperimentStatus.Running, expected: false, desc: 'running experiment' },
+            { status: ExperimentStatus.Draft, expected: false, desc: 'draft experiment' },
+            { status: ExperimentStatus.Stopped, expected: true, desc: 'stopped experiment' },
             {
                 end_date: '2099-01-01T00:00:00Z',
-                expected: false,
-                desc: 'end date in the future (not possible yet, but just to cover it already)',
-            },
-            {
-                end_date: '2020-01-01T00:00:00Z',
-                archived: true,
+                status: undefined,
                 expected: true,
-                desc: 'archived with end date in the past',
+                desc: 'legacy fallback still treats any saved end date as stopped',
             },
-            { end_date: null, archived: true, expected: false, desc: 'archived without end date' },
-        ])('returns $expected when $desc', ({ end_date, archived, expected }) => {
-            expect(hasEnded(createMockExperiment({ end_date, archived }))).toBe(expected)
+        ])('returns $expected when $desc', ({ end_date, status, expected }) => {
+            expect(hasEnded(createMockExperiment({ end_date, status }))).toBe(expected)
         })
     })
 })

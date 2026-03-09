@@ -60,8 +60,8 @@ export function IOSSourceMapsInstructions(): JSX.Element {
                                 <code>POSTHOG_CLI_API_KEY</code>
                             </td>
                             <td className="py-2 px-2">
-                                <strong>Personal API key</strong> with <code>error tracking write</code> and{' '}
-                                <code>organization read</code> scopes
+                                <strong>Personal API key</strong> with <code>error_tracking:write</code> and{' '}
+                                <code>organization:read</code> scopes
                             </td>
                         </tr>
                     </tbody>
@@ -155,8 +155,9 @@ export function IOSSourceMapsInstructions(): JSX.Element {
             </CodeSnippet>
 
             <p className="text-sm text-muted mt-2">
-                <strong>Note:</strong> This increases upload size and build times. Only enable if you need source code
-                context in PostHog's error tracking UI.
+                <strong>Note:</strong> Enabling this flag uploads your source code to PostHog's servers. This is
+                disabled by default. Only enable it if your organization's security and data-governance policies permit
+                source code to leave your build environment. It also increases upload size and build times.
             </p>
 
             <h3>5. Build and verify</h3>

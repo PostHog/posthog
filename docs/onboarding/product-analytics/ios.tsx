@@ -5,6 +5,7 @@ import { StepDefinition } from '../steps'
 export const getIOSSteps = (
     ctx: OnboardingComponentsContext,
     options?: {
+        includeExperimentalSpi?: boolean
         experimentalDescription?: string
         minVersionPod?: string
         minVersionSPM?: string
@@ -68,7 +69,7 @@ export const getIOSSteps = (
                                 file: 'AppDelegate.swift',
                                 code: dedent`
                                     import Foundation
-                                    ${options?.experimentalDescription ? '@_spi(Experimental) ' : ''}import PostHog
+                                    ${options?.includeExperimentalSpi ? '@_spi(Experimental) ' : ''}import PostHog
                                     import UIKit
 
                                     class AppDelegate: NSObject, UIApplicationDelegate {

@@ -18,6 +18,8 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 
+import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
+
 import type { globalModalsLogicType } from './GlobalModalsType'
 import { navigationLogic } from './navigation/navigationLogic'
 import { ConfigurePinnedTabsModal } from './scenes/ConfigurePinnedTabsModal'
@@ -65,6 +67,7 @@ export function GlobalModals(): JSX.Element {
             <UpgradeModal />
             <TimeSensitiveAuthenticationModal />
             <SessionPlayerModal />
+            <LogsViewerModal />
             <PreviewingCustomCssModal />
             <TwoFactorSetupModal />
             <HedgehogMode />

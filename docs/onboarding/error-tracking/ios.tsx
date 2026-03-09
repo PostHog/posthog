@@ -1,12 +1,13 @@
-import { OnboardingComponentsContext, useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { getIOSSteps as getIOSStepsPA } from '../product-analytics/ios'
-import { StepDefinition, StepModifier } from '../steps'
+import { StepDefinition } from '../steps'
 
 export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     const installSteps = getIOSStepsPA(ctx, {
+        includeExperimentalSpi: true,
         experimentalDescription: dedent`
             Error tracking is currently experimental. You need to import PostHog with Experimental SPI:
             
@@ -251,22 +252,4 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
     return [...installSteps, exceptionAutocaptureStep, manualCaptureStep, inAppConfigStep, verifyStep]
 }
 
-export function IOSInstallation({ modifySteps }: StepModifier = {}): JSX.Element {
-    const components = useMDXComponents()
-    const { Steps, Step } = components
-
-    let steps = getIOSSteps(components)
-    if (modifySteps) {
-        steps = modifySteps(steps)
-    }
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const IOSInstallation = createInstallation(getIOSSteps)
