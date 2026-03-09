@@ -150,6 +150,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             llmProviderKeysLogic,
             ['providerKeys'],
         ],
+        actions: [llmPlaygroundPromptsLogic, ['resetPlayground']],
     })),
 
     actions({
@@ -173,6 +174,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         comparisonItems: [
             [] as ComparisonItem[],
             {
+                resetPlayground: () => [],
                 submitPrompt: () => [],
                 addToComparison: (state: ComparisonItem[], { item }: { item: ComparisonItem }) => [...state, item],
                 updateComparisonItem: (

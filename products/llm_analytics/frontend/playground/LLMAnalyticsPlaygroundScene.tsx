@@ -7,6 +7,7 @@ import {
     IconPencil,
     IconPlay,
     IconPlus,
+    IconRevert,
     IconStack,
     IconTrash,
     IconWrench,
@@ -120,13 +121,22 @@ export function LLMAnalyticsPlaygroundScene(): JSX.Element {
 
 function PlaygroundHeaderActions(): JSX.Element {
     const { hasRunnablePrompts, promptConfigs } = useValues(llmPlaygroundPromptsLogic)
-    const { addPromptConfig } = useActions(llmPlaygroundPromptsLogic)
+    const { addPromptConfig, resetPlayground } = useActions(llmPlaygroundPromptsLogic)
     const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
     const { submitPrompt, abortRun } = useActions(llmPlaygroundRunLogic)
     const firstPromptId = promptConfigs[0]?.id
 
     return (
         <>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconRevert />}
+                onClick={resetPlayground}
+                disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                tooltip="Reset playground to default state"
+                data-attr="llma-playground-reset"
+            />
             <LemonButton
                 type="secondary"
                 size="small"

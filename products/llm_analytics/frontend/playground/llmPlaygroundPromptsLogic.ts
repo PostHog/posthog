@@ -237,12 +237,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
         ) => ({ name, modelConfig }),
         saveComplete: true,
+        resetPlayground: true,
     }),
 
     reducers({
         promptConfigs: [
             [INITIAL_PROMPT] as PromptConfig[],
             {
+                resetPlayground: () => [createPromptConfig()],
                 setPromptConfigs: (_: PromptConfig[], { promptConfigs }: { promptConfigs: PromptConfig[] }) =>
                     promptConfigs.length > 0 ? promptConfigs : [createPromptConfig({ id: INITIAL_PROMPT.id })],
                 addPromptConfig: (
@@ -368,6 +370,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         activePromptId: [
             INITIAL_PROMPT.id as string | null,
             {
+                resetPlayground: () => null,
                 addPromptConfig: (_: string | null, { newPromptId }: { newPromptId: string }) => newPromptId,
                 setActivePromptId: (_: string | null, { promptId }: { promptId: string | null }) => promptId,
                 removePromptConfig: (state: string | null, { promptId }: { promptId: string }) =>
@@ -378,6 +381,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         localToolsJsonByPromptId: [
             {} as Record<string, string | null>,
             {
+                resetPlayground: () => ({}),
                 setLocalToolsJson: (
                     state: Record<string, string | null>,
                     { json, promptId }: { json: string | null; promptId?: string }
@@ -402,6 +406,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         pendingTargetModel: [
             null as string | null,
             {
+                resetPlayground: () => null,
                 setupPlaygroundFromEvent: (_: string | null, { payload }: { payload: { model?: string } }) =>
                     payload.model ?? null,
                 clearPendingTargetModel: () => null,
@@ -410,6 +415,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         pendingTargetProvider: [
             null as string | null,
             {
+                resetPlayground: () => null,
                 setupPlaygroundFromEvent: (_: string | null, { payload }: { payload: { provider?: string } }) =>
                     normalizeLLMProvider(payload.provider),
                 clearPendingTargetModel: () => null,
@@ -418,6 +424,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         pendingTargetIsTrace: [
             false as boolean,
             {
+                resetPlayground: () => false,
                 setupPlaygroundFromEvent: (
                     _: boolean,
                     { payload }: { payload: { model?: string; provider?: string } }
@@ -428,6 +435,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         editModal: [
             null as { type: 'tools' | 'system' | 'message'; promptId: string; messageIndex?: number } | null,
             {
+                resetPlayground: () => null,
                 setEditModal: (
                     _: { type: string; promptId: string; messageIndex?: number } | null,
                     {
@@ -441,6 +449,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         collapsedSections: [
             {} as Record<string, boolean>,
             {
+                resetPlayground: () => ({}),
                 toggleCollapsed: (state: Record<string, boolean>, { key }: { key: string }) => ({
                     ...state,
                     [key]: !state[key],
@@ -450,6 +459,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         toolsJsonErrorByPromptId: [
             {} as Record<string, string | null>,
             {
+                resetPlayground: () => ({}),
                 setToolsJsonError: (
                     state: Record<string, string | null>,
                     { promptId, error }: { promptId: string; error: string | null }
@@ -556,6 +566,10 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        resetPlayground: () => {
+            const { source_prompt_name: _, source_evaluation_id: __, ...cleanParams } = router.values.searchParams
+            router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanParams).url)
+        },
         removePromptConfig: ({ promptId }) => {
             if (values.promptConfigs.length === 0) {
                 actions.setPromptConfigs([createPromptConfig({ id: INITIAL_PROMPT.id })])
