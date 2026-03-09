@@ -581,8 +581,8 @@ export const elementsLogic = kea<elementsLogicType>([
             }, 'keydownListener')
 
             cache.disposables.add(() => {
-                window.document.addEventListener('scroll', onScrollResize, true)
-                return () => window.document.removeEventListener('scroll', onScrollResize, true)
+                window.document.addEventListener('scroll', onScrollResize, { capture: true, passive: true })
+                return () => window.document.removeEventListener('scroll', onScrollResize, { capture: true })
             }, 'scrollListener')
             cache.updateRelativePosition()
         },
