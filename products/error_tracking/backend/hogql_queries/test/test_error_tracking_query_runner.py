@@ -42,7 +42,18 @@ from products.error_tracking.backend.models import (
 from ee.models.rbac.role import Role
 
 
-class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class ErrorTrackingQueryRunnerTestBase(ClickhouseTestMixin, APIBaseTest):
+    """Base class shared by V1 and V2 test suites.
+
+    Set use_v2 = True in a subclass to run the same tests against the V2 query path.
+    Override or skip tests that differ between the two paths.
+    """
+
+    # Prevent pytest from collecting this base class directly
+    __test__ = False
+
+    use_v2: bool = False
+
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
 
@@ -179,6 +190,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     personId=personId,
                     groupKey=groupKey,
                     groupTypeIndex=groupTypeIndex,
+                    useChPostgresJoin=self.use_v2,
                 ),
             )
             .calculate()
@@ -706,6 +718,99 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
         self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
+
+
+class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestBase):
+    """V1 path — pure CH aggregation, Postgres metadata fetched separately."""
+
+    __test__ = True
+    use_v2 = False
+
+
+class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestBase):
+    """V2 path — CH inner aggregation + Postgres metadata join.
+
+    Most result-based tests are skipped because the CH postgres connector doesn't work
+    in the test environment (it can't reach the test postgres instance). Instead, the
+    snapshot tests verify the generated SQL structure.
+
+    Overrides tests that differ in columns and skips ones not yet supported by V2.
+    """
+
+    __test__ = True
+    use_v2 = True
+
+    def _skip_if_no_ch_postgres(self):
+        """V2 joins against postgres via the CH postgres connector, which isn't available in tests."""
+        self.skipTest("V2 requires CH postgres connector which is not available in the test environment")
+
+    @freeze_time("2022-01-10T12:11:00")
+    @snapshot_clickhouse_queries
+    def test_column_names(self):
+        # Only verify generated SQL — results will be empty due to CH postgres connector unavailability
+        self._calculate()
+        self._calculate(withAggregations=True)
+        self._calculate(withFirstEvent=True)
+
+    def test_issue_grouping(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_search_query(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_empty_search_query(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_search_query_with_multiple_search_items(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_search_person_properties(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_only_returns_exception_events(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_correctly_counts_session_ids(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_correctly_counts_persons(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_hogql_filters(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_ordering(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_status(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_overrides_aggregation(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_user_assignee(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_role_assignee(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_issue_filters(self):
+        self.skipTest("Issue property filtering not yet implemented in V2")
+
+    def test_person_id_filter(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_group_key_filter(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_first_seen_filters(self):
+        self.skipTest("Issue property filtering not yet implemented in V2")
+
+    def test_volume_aggregation_simple(self):
+        self._skip_if_no_ch_postgres()
+
+    def test_volume_aggregation_advanced(self):
+        self._skip_if_no_ch_postgres()
 
 
 class TestSearchTokenizer(TestCase):

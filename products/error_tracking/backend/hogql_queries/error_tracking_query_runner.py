@@ -5,6 +5,7 @@ import structlog
 
 from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery, ErrorTrackingQueryResponse
 
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -63,6 +64,11 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         if date == "all":
             raise ValueError("Invalid date range")
         return relative_date_parse(date, ZoneInfo("UTC"), increase=True)
+
+    def to_query(self) -> ast.SelectQuery:
+        if self.query.useChPostgresJoin:
+            return ErrorTrackingQueryV2Builder(self.query, self.date_from, self.date_to).build_query()
+        return ErrorTrackingQueryV1Builder(self.query, self.team, self.date_from, self.date_to).build_query()
 
     def _calculate(self):
         if self.query.useChPostgresJoin:
