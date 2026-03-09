@@ -59,6 +59,7 @@ PRODUCTS_APPS = [
     "products.visual_review.backend.apps.VisualReviewConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
+    "products.notifications.backend.apps.NotificationsConfig",
 ]
 
 INSTALLED_APPS = [

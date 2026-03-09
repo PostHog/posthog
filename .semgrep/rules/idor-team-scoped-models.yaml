@@ -135,6 +135,7 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |Node
+                              |Notification
                               |Notebook
                               |ObjectMediaPreview
                               |PluginConfig
@@ -302,6 +303,7 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |Node
+                        |Notification
                         |Notebook
                         |ObjectMediaPreview
                         |PluginConfig
