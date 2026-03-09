@@ -27,7 +27,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             refreshToken,
             clientId,
         }),
-        setUiHostCheckStatus: (status: 'idle' | 'checking' | 'ok' | 'error') => ({ status }),
+        setAuthStatus: (status: 'idle' | 'checking' | 'authenticating' | 'error') => ({ status }),
         openUiHostConfigModal: true,
         closeUiHostConfigModal: true,
     }),
@@ -64,9 +64,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
-        uiHostCheckStatus: [
-            'idle' as 'idle' | 'checking' | 'ok' | 'error',
-            { setUiHostCheckStatus: (_, { status }) => status },
+        authStatus: [
+            'idle' as 'idle' | 'checking' | 'authenticating' | 'error',
+            { setAuthStatus: (_, { status }) => status },
         ],
         uiHostConfigModalVisible: [false, { openUiHostConfigModal: () => true, closeUiHostConfigModal: () => false }],
     })),
@@ -127,14 +127,14 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     listeners(({ values, actions }) => ({
         authenticate: async () => {
             // If the uiHost check found a problem, open the config modal instead of proceeding.
-            if (values.uiHostCheckStatus === 'error') {
+            if (values.authStatus === 'error') {
                 toolbarPosthogJS.capture('toolbar ui host config modal opened', { ui_host: values.uiHost })
                 actions.openUiHostConfigModal()
                 return
             }
 
             // Don't start OAuth while the reachability check is still in flight.
-            if (values.uiHostCheckStatus === 'checking') {
+            if (values.authStatus === 'checking' || values.authStatus === 'authenticating') {
                 return
             }
 
@@ -254,9 +254,11 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 // afterMount helpers — extracted to keep the mount handler readable
 // ---------------------------------------------------------------------------
 
-type TokenActions = { setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void }
+type TokenActions = {
+    setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void
+    setAuthStatus: (status: 'idle' | 'checking' | 'authenticating' | 'error') => void
+}
 type CheckActions = TokenActions & {
-    setUiHostCheckStatus: (status: 'idle' | 'checking' | 'ok' | 'error') => void
     openUiHostConfigModal: () => void
 }
 
@@ -342,7 +344,7 @@ function verifyUiHostReachability(
     actions: CheckActions,
     authParams: { code: string; clientId: string } | null
 ): void {
-    actions.setUiHostCheckStatus('checking')
+    actions.setAuthStatus('checking')
 
     const uiHostSource = (props.posthog as any)?.requestRouter?.uiHost
         ? 'request_router'
@@ -369,7 +371,7 @@ function verifyUiHostReachability(
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`)
             }
-            actions.setUiHostCheckStatus('ok')
+            actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'ok',
@@ -381,7 +383,7 @@ function verifyUiHostReachability(
             }
         })
         .catch((error: unknown) => {
-            actions.setUiHostCheckStatus('error')
+            actions.setAuthStatus('error')
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
@@ -423,6 +425,8 @@ async function exchangeCodeForTokens(
     clientId: string,
     actions: TokenActions
 ): Promise<void> {
+    actions.setAuthStatus('authenticating')
+
     let pkceData: { verifier?: string; ts?: number } = {}
     try {
         const raw = localStorage.getItem(PKCE_STORAGE_KEY)
@@ -467,6 +471,8 @@ async function exchangeCodeForTokens(
     } catch (err) {
         console.error('PostHog Toolbar: token exchange network error', err)
         lemonToast.error('Authentication failed due to a network error. Please try again.')
+    } finally {
+        actions.setAuthStatus('idle')
     }
 }
 
