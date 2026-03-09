@@ -26,9 +26,13 @@ from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import FunctionCallTable, TableNode
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.source_scoping import (
+    connection_source_identifiers,
+    filter_schema_tables_for_connection,
+    prune_database_for_connection,
+)
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -50,66 +54,6 @@ def _validated_source_for_connection(team: Team, connection_id: str | None) -> E
     if connection_id and source is None:
         raise ValidationError("Invalid connectionId for this team")
     return source
-
-
-def _connection_source_identifiers(source: ExternalDataSource | None) -> set[str] | None:
-    if source is None:
-        return None
-
-    return {str(source.id)}
-
-
-def _filter_schema_tables_for_connection(tables: dict, source_ids: set[str] | None) -> dict:
-    if not source_ids:
-        return {
-            name: table
-            for name, table in tables.items()
-            if not (
-                getattr(table, "type", None) == "data_warehouse"
-                and getattr(getattr(table, "source", None), "access_method", None)
-                == ExternalDataSource.AccessMethod.DIRECT
-            )
-        }
-
-    def _is_queriable(table: object) -> bool:
-        schema = getattr(table, "schema_", None) or getattr(table, "schema", None)
-        if schema is None:
-            return True
-        if isinstance(schema, dict):
-            return bool(schema.get("should_sync", False))
-        return bool(getattr(schema, "should_sync", False))
-
-    return {
-        name: table
-        for name, table in tables.items()
-        if getattr(table, "type", None) == "data_warehouse"
-        and str(getattr(getattr(table, "source", None), "id", "")) in source_ids
-        and _is_queriable(table)
-    }
-
-
-def _prune_database_for_direct_connection(database: Database, allowed_table_names: set[str]) -> None:
-    def prune_node(node: TableNode, chain: list[str]) -> bool:
-        full_name = ".".join(chain)
-
-        keep_table = node.table is not None and (
-            full_name in allowed_table_names or (len(chain) > 0 and isinstance(node.table, FunctionCallTable))
-        )
-
-        pruned_children: dict[str, TableNode] = {}
-        for child_name, child in node.children.items():
-            if prune_node(child, [*chain, child_name]):
-                pruned_children[child_name] = child
-        node.children = pruned_children
-
-        return node.name == "root" or keep_table or len(node.children) > 0
-
-    prune_node(database.tables, [])
-    database._warehouse_table_names = [name for name in database._warehouse_table_names if name in allowed_table_names]
-    database._warehouse_self_managed_table_names = [
-        name for name in database._warehouse_self_managed_table_names if name in allowed_table_names
-    ]
-    database._view_table_names = [name for name in database._view_table_names if name in allowed_table_names]
 
 
 def process_query_dict(
@@ -211,9 +155,9 @@ def process_query_model(
             serialized_tables = database.serialize(
                 HogQLContext(team_id=team.pk, team=team, database=database, user=user)
             )
-            source_ids = _connection_source_identifiers(source)
-            filtered_tables = _filter_schema_tables_for_connection(serialized_tables, source_ids)
-            _prune_database_for_direct_connection(database, set(filtered_tables.keys()))
+            source_ids = connection_source_identifiers(source)
+            filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
+            prune_database_for_connection(database, set(filtered_tables.keys()))
         return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
@@ -222,7 +166,7 @@ def process_query_model(
 
     if isinstance(query, DatabaseSchemaQuery):
         source = _validated_source_for_connection(team, query.connectionId)
-        source_ids = _connection_source_identifiers(source)
+        source_ids = connection_source_identifiers(source)
         database = Database.create_for(
             team=team,
             modifiers=create_default_modifiers_for_team(team),
@@ -232,7 +176,7 @@ def process_query_model(
             else None,
         )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
-        filtered_tables = _filter_schema_tables_for_connection(
+        filtered_tables = filter_schema_tables_for_connection(
             database.serialize(context, include_hidden_posthog_tables=True),
             source_ids,
         )

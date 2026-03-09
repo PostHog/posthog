@@ -220,7 +220,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner.calculate()
 
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
-    def test_non_direct_connection_does_not_set_selected_direct_source_id(self, mock_execute_hogql_query):
+    def test_non_direct_connection_passes_connection_id_without_direct_source_id(self, mock_execute_hogql_query):
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
@@ -253,5 +253,5 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner.calculate()
 
         self.assertEqual(mock_execute_hogql_query.call_count, 1)
-        self.assertIsNone(mock_execute_hogql_query.call_args.kwargs["connection_id"])
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["connection_id"], str(source.id))
         self.assertIsNone(mock_execute_hogql_query.call_args.kwargs["selected_direct_source_id"])

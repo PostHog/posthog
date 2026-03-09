@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +16,8 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
 )
 from posthog.hogql.query import HogQLQueryExecutor, postgres_error_to_message, postgres_oid_to_clickhouse_type
+
+from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
@@ -500,3 +504,57 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn("must appear in the GROUP BY clause", str(error.exception))
         self.assertEqual(mock_connect.call_args.kwargs["options"], "-c default_transaction_read_only=on")
+
+    @override_settings(DEBUG=False, TEST=False)
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_execute_direct_postgres_query_uses_required_sslmode_for_new_sources(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+        source.created_at = SSL_REQUIRED_AFTER_DATE + timedelta(days=1)
+        source.save(update_fields=["created_at"])
+
+        DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "id"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+            selected_direct_source_id=str(source.id),
+        )
+
+        executor.execute()
+
+        self.assertEqual(mock_connect.call_args.kwargs["sslmode"], "require")

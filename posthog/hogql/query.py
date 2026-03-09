@@ -28,6 +28,11 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.source_scoping import (
+    connection_source_identifiers,
+    filter_schema_tables_for_connection,
+    prune_database_for_connection,
+)
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
@@ -249,6 +254,23 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 direct_query_source_id=self.selected_direct_source_id,
             )
+        if self.connection_id is not None and self.selected_direct_source_id is None:
+            from products.data_warehouse.backend.models.external_data_source import (
+                get_external_data_source_for_connection,
+            )
+
+            source = get_external_data_source_for_connection(team_id=self.team.pk, connection_id=self.connection_id)
+            if source is None:
+                raise ExposedHogQLError("Invalid connectionId for this team")
+
+            serialized_tables = database.serialize(
+                HogQLContext(team_id=self.team.pk, team=self.team, database=database, user=self.user)
+            )
+            filtered_tables = filter_schema_tables_for_connection(
+                serialized_tables,
+                connection_source_identifiers(source),
+            )
+            prune_database_for_connection(database, set(filtered_tables.keys()))
 
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -432,6 +454,8 @@ class HogQLQueryExecutor:
         assert self.direct_postgres_sql is not None
         assert self.direct_postgres_source_id is not None
 
+        from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE, _get_sslmode
+
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
         source = (
@@ -440,6 +464,7 @@ class HogQLQueryExecutor:
             else ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
         )
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
+        require_ssl = source.created_at >= SSL_REQUIRED_AFTER_DATE
 
         try:
             with postgres_source.with_ssh_tunnel(source_config) as (host, port):
@@ -449,7 +474,7 @@ class HogQLQueryExecutor:
                     dbname=source_config.database,
                     user=source_config.user,
                     password=source_config.password,
-                    sslmode="prefer",
+                    sslmode=_get_sslmode(require_ssl),
                     options="-c default_transaction_read_only=on",
                 ) as connection:
                     with connection.cursor() as cursor:

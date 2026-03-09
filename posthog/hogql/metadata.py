@@ -8,14 +8,18 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, get_data_warehouse_table_name
-from posthog.hogql.database.models import FunctionCallTable, TableNode
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+from posthog.hogql.source_scoping import (
+    connection_source_identifiers,
+    filter_schema_tables_for_connection,
+    prune_database_for_connection,
+)
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -25,31 +29,6 @@ from posthog.models.user import User
 
 from products.data_warehouse.backend.models import ExternalDataSource
 from products.data_warehouse.backend.models.external_data_source import get_external_data_source_for_connection
-from products.data_warehouse.backend.models.table import DataWarehouseTable
-
-
-def _prune_database_for_direct_metadata(database: Database, allowed_table_names: set[str]) -> None:
-    def prune_node(node: TableNode, chain: list[str]) -> bool:
-        full_name = ".".join(chain)
-
-        keep_table = node.table is not None and (
-            full_name in allowed_table_names or (len(chain) > 0 and isinstance(node.table, FunctionCallTable))
-        )
-
-        pruned_children: dict[str, TableNode] = {}
-        for child_name, child in node.children.items():
-            if prune_node(child, [*chain, child_name]):
-                pruned_children[child_name] = child
-        node.children = pruned_children
-
-        return node.name == "root" or keep_table or len(node.children) > 0
-
-    prune_node(database.tables, [])
-    database._warehouse_table_names = [name for name in database._warehouse_table_names if name in allowed_table_names]
-    database._warehouse_self_managed_table_names = [
-        name for name in database._warehouse_self_managed_table_names if name in allowed_table_names
-    ]
-    database._view_table_names = [name for name in database._view_table_names if name in allowed_table_names]
 
 
 def get_hogql_metadata(
@@ -85,16 +64,12 @@ def get_hogql_metadata(
             if source.access_method == ExternalDataSource.AccessMethod.DIRECT
             else None,
         )
-        if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-            direct_tables = DataWarehouseTable.raw_objects.filter(
-                team_id=team.pk,
-                external_data_source_id=source.id,
-            ).exclude(deleted=True)
-            allowed_table_names = {
-                get_data_warehouse_table_name(source, table.name, use_direct_database_names=True)
-                for table in direct_tables
-            }
-            _prune_database_for_direct_metadata(database, allowed_table_names)
+        serialized_tables = database.serialize(HogQLContext(team_id=team.pk, team=team, database=database, user=user))
+        filtered_tables = filter_schema_tables_for_connection(
+            serialized_tables,
+            connection_source_identifiers(source),
+        )
+        prune_database_for_connection(database, set(filtered_tables.keys()))
 
     try:
         context = HogQLContext(

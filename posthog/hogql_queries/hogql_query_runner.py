@@ -122,7 +122,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             user=self.user,
             timings=self.timings,
             variables=self.query.variables,
-            connection_id=self.query.connectionId if selected_source_id is not None else None,
+            connection_id=self.query.connectionId,
             selected_direct_source_id=selected_source_id,
             limit_context=self.limit_context,
             workload=self.workload,
