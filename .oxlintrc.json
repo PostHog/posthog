@@ -282,6 +282,12 @@
             "rules": {
                 "react/forbid-elements": "off"
             }
+        },
+        {
+            "files": ["frontend/src/lib/hog-charts/**/*.{ts,tsx}"],
+            "rules": {
+                "no-restricted-imports": "off"
+            }
         }
     ]
 }
