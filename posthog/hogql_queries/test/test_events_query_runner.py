@@ -994,3 +994,44 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(response.nextCursor)
         # Timestamp format depends on team timezone; just verify it parses
         self.assertIn("2020-01-11", response.nextCursor or "")
+
+    @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_cursor_pagination_asc_order(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T12:00:01Z", {"idx": "1"}),
+                ("p1", "2020-01-11T12:00:02Z", {"idx": "2"}),
+                ("p1", "2020-01-11T12:00:03Z", {"idx": "3"}),
+                ("p1", "2020-01-11T12:00:04Z", {"idx": "4"}),
+                ("p1", "2020-01-11T12:00:05Z", {"idx": "5"}),
+            ]
+        )
+        flush_persons_and_events()
+
+        all_results = []
+        cursor = None
+        for _ in range(3):
+            with freeze_time("2020-01-12"):
+                query = EventsQuery(
+                    kind="EventsQuery",
+                    select=["properties.idx", "timestamp"],
+                    after="2020-01-10",
+                    orderBy=["timestamp ASC"],
+                    limit=2,
+                )
+                runner = EventsQueryRunner(query=query, team=self.team)
+                if cursor:
+                    runner.apply_pagination_cursor(cursor)
+                response = runner.run()
+
+            assert isinstance(response, CachedEventsQueryResponse)
+            all_results.extend(response.results)
+
+            if response.nextCursor:
+                cursor = response.nextCursor
+            else:
+                break
+
+        actual_indices = [row[0] for row in all_results]
+        self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])

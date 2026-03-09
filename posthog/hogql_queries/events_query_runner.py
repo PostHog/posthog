@@ -124,8 +124,18 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         # NB: This uses the last row's timestamp as the cursor, so events sharing
         # the exact same timestamp as the page boundary may be skipped. In practice
         # this is rare since the events table uses DateTime64(6) (microsecond precision).
-        self.query.before = cursor
+        if self._infer_order() == "ASC":
+            self.query.after = cursor
+        else:
+            self.query.before = cursor
         self.paginator.offset = 0
+
+    def _infer_order(self) -> str:
+        if self.query.orderBy:
+            first = self.query.orderBy[0]
+            if "ASC" in first.upper():
+                return "ASC"
+        return "DESC"
 
     def _is_cursor_eligible(self, order_by: list[ast.OrderExpr], has_any_aggregation: bool) -> bool:
         if self.query.source is not None or has_any_aggregation or not order_by:
