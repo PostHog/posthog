@@ -28,6 +28,12 @@ import { McpThemeDecorator } from './decorator'
 const meta: Meta = {
     title: 'Mosaic/Components',
     decorators: [McpThemeDecorator],
+    parameters: {
+        testOptions: {
+            // Mosaic doesn't have dark mode built-in by default as it's fully controlled by the CSS variables set by the wrappers.
+            skipDarkMode: true,
+        },
+    },
 }
 export default meta
 

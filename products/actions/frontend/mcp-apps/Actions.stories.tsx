@@ -6,6 +6,12 @@ import { ActionListView, type ActionData, type ActionListData, ActionView } from
 const meta: Meta = {
     title: 'MCP Apps/Actions',
     decorators: [McpThemeDecorator],
+    parameters: {
+        testOptions: {
+            // McpThemeDecorator doesn't have dark mode built-in by default so just disable this to avoid duplicated snapshots
+            skipDarkMode: true,
+        },
+    },
 }
 export default meta
 

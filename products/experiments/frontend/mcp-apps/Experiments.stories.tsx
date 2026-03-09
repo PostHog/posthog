@@ -13,6 +13,12 @@ import {
 const meta: Meta = {
     title: 'MCP Apps/Experiments',
     decorators: [McpThemeDecorator],
+    parameters: {
+        testOptions: {
+            // McpThemeDecorator doesn't have dark mode built-in by default so just disable this to avoid duplicated snapshots
+            skipDarkMode: true,
+        },
+    },
 }
 export default meta
 

@@ -6,6 +6,12 @@ import { type FeatureFlagData, type FeatureFlagListData, FeatureFlagListView, Fe
 const meta: Meta = {
     title: 'MCP Apps/Feature Flags',
     decorators: [McpThemeDecorator],
+    parameters: {
+        testOptions: {
+            // McpThemeDecorator doesn't have dark mode built-in by default so just disable this to avoid duplicated snapshots
+            skipDarkMode: true,
+        },
+    },
 }
 export default meta
 
