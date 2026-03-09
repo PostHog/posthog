@@ -26,6 +26,7 @@ import {
     LemonTextArea,
     Spinner,
     Link,
+    LemonDivider,
 } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
@@ -813,6 +814,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
             <div className="border rounded p-4 py-2 relative group border-l-4 border-l-[var(--color-purple-500)]">
                 <div className="absolute top-2 right-2 flex items-center gap-1">
                     <PlaygroundSaveMenu prompt={prompt} />
+                    <LemonDivider vertical className="h-5 mx-0.5" />
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}
