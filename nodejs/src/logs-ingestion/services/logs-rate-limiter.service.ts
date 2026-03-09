@@ -206,8 +206,11 @@ export class LogsRateLimiterService {
             const costKb = bytesToKb(message.bytesUncompressed)
             teamCosts.set(message.teamId, currentCost + costKb)
 
-            // Store the first message's timestamp for rate limiting
-            if (!teamTimestamps.has(message.teamId)) {
+            // Use the max timestamp for this team so the token bucket refills across the batch's time span.
+            // This prevents over-limiting during backfill when batches span large time windows.
+            const messageTimestamp = this.getTimestampFromMessage(message)
+            const existingTimestamp = teamTimestamps.get(message.teamId)
+            if (existingTimestamp === undefined || messageTimestamp > existingTimestamp) {
                 teamTimestamps.set(message.teamId, messageTimestamp)
             }
         }
