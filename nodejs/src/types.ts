@@ -60,6 +60,7 @@ export enum PluginServerMode {
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
+    cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
 }
 
@@ -190,14 +191,24 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
-    CYCLOTRON_SHADOW_DATABASE_URL: string
+    CYCLOTRON_SHADOW_DATABASE_URL?: string
     CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
+    CYCLOTRON_NODE_DATABASE_URL?: string
     CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, fetches consumed messages via HTTP to measure WarpStream read latency
     CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
     CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: number // Number of parallel individual single-record fetches (0 to disable)
     CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: number // Number of parallel batch fetch requests (0 to disable)
     CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: number // Records per batch fetch request
     CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: string // Base URL for WarpStream HTTP fetch endpoint (e.g. 'https://warpstream.example.com')
+
+    // Cyclotron Node (node postgres job queue)
+    CYCLOTRON_NODE_MAX_CONNECTIONS: number
+    CYCLOTRON_NODE_IDLE_TIMEOUT_MS: number
+    CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE: number
+    CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: number
+    CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
+    CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
+    CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -588,6 +599,7 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronShadowWorker?: boolean
+    cdpCyclotronV2Janitor?: boolean
     recordingApi?: boolean
 }
 
