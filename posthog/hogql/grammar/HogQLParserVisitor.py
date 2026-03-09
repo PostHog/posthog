@@ -374,8 +374,13 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnTypeExprEnum.
-    def visitColumnTypeExprEnum(self, ctx:HogQLParser.ColumnTypeExprEnumContext):
+    # Visit a parse tree produced by HogQLParser#ColumnTypeExprParam.
+    def visitColumnTypeExprParam(self, ctx:HogQLParser.ColumnTypeExprParamContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnTypeExprArray.
+    def visitColumnTypeExprArray(self, ctx:HogQLParser.ColumnTypeExprArrayContext):
         return self.visitChildren(ctx)
 
 
@@ -384,18 +389,18 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnTypeExprParam.
-    def visitColumnTypeExprParam(self, ctx:HogQLParser.ColumnTypeExprParamContext):
+    # Visit a parse tree produced by HogQLParser#ColumnTypeExprSimple.
+    def visitColumnTypeExprSimple(self, ctx:HogQLParser.ColumnTypeExprSimpleContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnTypeExprEnum.
+    def visitColumnTypeExprEnum(self, ctx:HogQLParser.ColumnTypeExprEnumContext):
         return self.visitChildren(ctx)
 
 
     # Visit a parse tree produced by HogQLParser#ColumnTypeExprCompound.
     def visitColumnTypeExprCompound(self, ctx:HogQLParser.ColumnTypeExprCompoundContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnTypeExprSimple.
-    def visitColumnTypeExprSimple(self, ctx:HogQLParser.ColumnTypeExprSimpleContext):
         return self.visitChildren(ctx)
 
 

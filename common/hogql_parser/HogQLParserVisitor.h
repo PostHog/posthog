@@ -165,15 +165,17 @@ public:
 
     virtual std::any visitColumnTypeExprNested(HogQLParser::ColumnTypeExprNestedContext *context) = 0;
 
-    virtual std::any visitColumnTypeExprEnum(HogQLParser::ColumnTypeExprEnumContext *context) = 0;
+    virtual std::any visitColumnTypeExprParam(HogQLParser::ColumnTypeExprParamContext *context) = 0;
+
+    virtual std::any visitColumnTypeExprArray(HogQLParser::ColumnTypeExprArrayContext *context) = 0;
 
     virtual std::any visitColumnTypeExprComplex(HogQLParser::ColumnTypeExprComplexContext *context) = 0;
 
-    virtual std::any visitColumnTypeExprParam(HogQLParser::ColumnTypeExprParamContext *context) = 0;
+    virtual std::any visitColumnTypeExprSimple(HogQLParser::ColumnTypeExprSimpleContext *context) = 0;
+
+    virtual std::any visitColumnTypeExprEnum(HogQLParser::ColumnTypeExprEnumContext *context) = 0;
 
     virtual std::any visitColumnTypeExprCompound(HogQLParser::ColumnTypeExprCompoundContext *context) = 0;
-
-    virtual std::any visitColumnTypeExprSimple(HogQLParser::ColumnTypeExprSimpleContext *context) = 0;
 
     virtual std::any visitColumnTypeCastExprCompound(HogQLParser::ColumnTypeCastExprCompoundContext *context) = 0;
 

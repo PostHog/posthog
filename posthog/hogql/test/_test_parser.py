@@ -3334,6 +3334,22 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._expr("CAST(x AS DECIMAL(10, 2))"),
                 ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="decimal(10, 2)"),
             )
+            self.assertEqual(
+                self._expr("CAST(x AS INTEGER[])"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="integer[]"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS VARCHAR[3])"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="varchar[3]"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS ARRAY(INTEGER))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="array(integer)"),
+            )
+            self.assertEqual(
+                self._expr("CAST(x AS TUPLE(INTEGER, VARCHAR))"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="tuple(integer, varchar)"),
+            )
 
         def test_with_clause_column_name_list(self):
             node = self._select("WITH cte (a, b) AS (SELECT 1, 2) SELECT * FROM cte")

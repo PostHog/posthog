@@ -770,6 +770,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitExpr(self, ctx: HogQLParser.ExprContext):
         return self.visit(ctx.columnExpr())
 
+    def visitColumnTypeExprArray(self, ctx: HogQLParser.ColumnTypeExprArrayContext):
+        base_type = self.visit(ctx.columnTypeExpr())
+        size = ctx.DECIMAL_LITERAL()
+        if size is not None:
+            return f"{base_type}[{size.getText()}]"
+        return f"{base_type}[]"
+
     def visitColumnTypeExprSimple(self, ctx: HogQLParser.ColumnTypeExprSimpleContext):
         return self.visit(ctx.identifier()).lower()
 
@@ -786,7 +793,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnTypeExprEnum")
 
     def visitColumnTypeExprComplex(self, ctx: HogQLParser.ColumnTypeExprComplexContext):
-        raise NotImplementedError(f"Unsupported node: ColumnTypeExprComplex")
+        name = self.visit(ctx.identifier())
+        type_exprs = ctx.columnTypeExpr()
+        inner = ", ".join(self.visit(t) for t in type_exprs)
+        return f"{name}({inner})".lower()
 
     def visitColumnTypeExprCompound(self, ctx: HogQLParser.ColumnTypeExprCompoundContext):
         return " ".join(self.visit(ident) for ident in ctx.identifier()).lower()

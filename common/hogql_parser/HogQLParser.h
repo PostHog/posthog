@@ -1495,6 +1495,18 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnTypeExprArrayContext : public ColumnTypeExprContext {
+  public:
+    ColumnTypeExprArrayContext(ColumnTypeExprContext *ctx);
+
+    ColumnTypeExprContext *columnTypeExpr();
+    antlr4::tree::TerminalNode *LBRACKET();
+    antlr4::tree::TerminalNode *RBRACKET();
+    antlr4::tree::TerminalNode *DECIMAL_LITERAL();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnTypeExprComplexContext : public ColumnTypeExprContext {
   public:
     ColumnTypeExprComplexContext(ColumnTypeExprContext *ctx);
@@ -1545,7 +1557,7 @@ public:
   };
 
   ColumnTypeExprContext* columnTypeExpr();
-
+  ColumnTypeExprContext* columnTypeExpr(int precedence);
   class  ColumnTypeCastExprContext : public antlr4::ParserRuleContext {
   public:
     ColumnTypeCastExprContext(antlr4::ParserRuleContext *parent, size_t invokingState);
@@ -3264,6 +3276,7 @@ public:
   bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;
 
   bool joinExprSempred(JoinExprContext *_localctx, size_t predicateIndex);
+  bool columnTypeExprSempred(ColumnTypeExprContext *_localctx, size_t predicateIndex);
   bool columnExprSempred(ColumnExprContext *_localctx, size_t predicateIndex);
   bool tableExprSempred(TableExprContext *_localctx, size_t predicateIndex);
 
