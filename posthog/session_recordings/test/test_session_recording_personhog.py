@@ -93,7 +93,7 @@ class TestLoadPersonRouting(SimpleTestCase):
         recording.__dict__["_team_cache"] = mock_team
         object.__setattr__(recording, "_team_cache", mock_team)
         # Patch the property access used in load_person
-        type(recording).team = property(lambda self: mock_team)
+        type(recording).team = property(lambda self: mock_team)  # type: ignore[assignment]
 
         recording.load_person()
 

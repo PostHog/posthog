@@ -150,7 +150,7 @@ class SessionRecording(UUIDTModel):
 
         from posthog.personhog_client.gate import use_personhog
 
-        if use_personhog():
+        if use_personhog() and self.distinct_id:
             try:
                 person = _fetch_person_by_distinct_id_via_personhog(self.team.pk, self.distinct_id)
                 if person is not None:

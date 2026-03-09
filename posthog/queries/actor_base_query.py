@@ -218,7 +218,7 @@ class ActorBaseQuery:
         Union[QuerySet[Person], QuerySet[Group]],
         Union[list[SerializedGroup], list[SerializedPerson]],
     ]:
-        actors: Union[QuerySet[Person], QuerySet[Group]]
+        actors: Union[QuerySet[Person], QuerySet[Group], list[Person]]
         serialized_actors: Union[list[SerializedGroup], list[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]
