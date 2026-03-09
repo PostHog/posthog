@@ -10,6 +10,7 @@ package events
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -172,6 +173,59 @@ func TestRedisShardedPubSub(t *testing.T) {
 		assert.Equal(t, "uuid-fan", evt2.Uuid)
 	})
 
+	t.Run("concurrent multi-team routing isolation", func(t *testing.T) {
+		broker, subChan, _, _ := startRouter(t)
+
+		const numTeams = 5
+		const eventsPerTeam = 10
+
+		tokens := make([]string, numTeams)
+		subs := make([]Subscription, numTeams)
+		for i := range numTeams {
+			tokens[i] = fmt.Sprintf("team_%d", i)
+			subs[i] = makeTestSub(uint64(i+1), tokens[i])
+			subChan <- subs[i]
+		}
+
+		time.Sleep(500 * time.Millisecond)
+
+		ctx := context.Background()
+		var wg sync.WaitGroup
+		for i, token := range tokens {
+			wg.Add(1)
+			go func(teamIdx int, tok string) {
+				defer wg.Done()
+				for j := range eventsPerTeam {
+					broker.Publish(ctx, PostHogEvent{
+						Token:      tok,
+						Event:      "$pageview",
+						Uuid:       fmt.Sprintf("uuid-%s-%d", tok, j),
+						DistinctId: fmt.Sprintf("user-%d", teamIdx),
+					})
+				}
+			}(i, token)
+		}
+		wg.Wait()
+
+		for i, token := range tokens {
+			var received []string
+			for range eventsPerTeam {
+				msg := waitForEvent(t, subs[i].EventChan, 5*time.Second)
+				evt, ok := msg.(ResponsePostHogEvent)
+				require.True(t, ok, "expected ResponsePostHogEvent for %s", token)
+				received = append(received, evt.Uuid)
+			}
+
+			assert.Len(t, received, eventsPerTeam, "team %s should receive exactly %d events", token, eventsPerTeam)
+			for _, uuid := range received {
+				assert.Contains(t, uuid, token,
+					"team %s received event with uuid %q from another team", token, uuid)
+			}
+
+			assertNoEvent(t, subs[i].EventChan, 500*time.Millisecond)
+		}
+	})
+
 	t.Run("full round-trip with filtering", func(t *testing.T) {
 		broker, subChan, _, _ := startRouter(t)
 
@@ -217,15 +271,13 @@ func TestRedisShardedPubSub(t *testing.T) {
 		assert.Equal(t, map[string]interface{}{"url": "https://example.com"}, filteredEvt.Properties)
 		assertNoEvent(t, subFiltered.EventChan, 500*time.Millisecond)
 
-		received := make(map[string]bool)
+		var received []string
 		for range 3 {
 			msg := waitForEvent(t, subWildcard.EventChan, 3*time.Second)
 			evt, ok := msg.(ResponsePostHogEvent)
 			require.True(t, ok)
-			received[evt.Uuid] = true
+			received = append(received, evt.Uuid)
 		}
-		assert.True(t, received["uuid-match"])
-		assert.True(t, received["uuid-wrong-user"])
-		assert.True(t, received["uuid-wrong-event"])
+		assert.ElementsMatch(t, []string{"uuid-match", "uuid-wrong-user", "uuid-wrong-event"}, received)
 	})
 }

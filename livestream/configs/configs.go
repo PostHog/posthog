@@ -28,7 +28,7 @@ type RedisConfig struct {
 	Address        string `mapstructure:"address"`
 	Port           string `mapstructure:"port"`
 	TLS            bool   `mapstructure:"tls"`
-	UsePubSub      bool   `mapstructure:"use_pubsub"`
+	UsePubSub      bool   `mapstructure:"use_pub_sub"`
 }
 
 type Config struct {
@@ -111,7 +111,7 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("redis.address")          // LIVESTREAM_REDIS_ADDRESS
 	_ = viper.BindEnv("redis.port")             // LIVESTREAM_REDIS_PORT
 	_ = viper.BindEnv("redis.tls")              // LIVESTREAM_REDIS_TLS
-	_ = viper.BindEnv("redis.use_pubsub")       // LIVESTREAM_REDIS_USE_PUBSUB
+	_ = viper.BindEnv("redis.use_pub_sub")       // LIVESTREAM_REDIS_USE_PUB_SUB
 }
 
 func LoadConfig() (*Config, error) {

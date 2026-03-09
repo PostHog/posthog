@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPubSubEventRoundTrip(t *testing.T) {
+func TestPostHogEventRoundTrip(t *testing.T) {
 	tests := []struct {
 		name  string
 		input PostHogEvent
@@ -96,15 +96,12 @@ func TestPubSubEventRoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pse := toPubSubEvent(tt.input)
-			data, err := pse.MarshalJSON()
+			data, err := tt.input.MarshalJSON()
 			require.NoError(t, err)
 
-			var decoded PubSubEvent
-			err = decoded.UnmarshalJSON(data)
+			var result PostHogEvent
+			err = result.UnmarshalJSON(data)
 			require.NoError(t, err)
-
-			result := decoded.toPostHogEvent()
 
 			assert.Equal(t, tt.input.Token, result.Token)
 			assert.Equal(t, tt.input.Event, result.Event)

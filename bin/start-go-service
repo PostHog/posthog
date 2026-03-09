@@ -41,7 +41,7 @@ case "$GO_SVC" in
     export LIVESTREAM_REDIS_ADDRESS=localhost
     export LIVESTREAM_REDIS_PORT=6399
     export LIVESTREAM_REDIS_TLS=false
-    export LIVESTREAM_REDIS_USE_PUBSUB=true
+    export LIVESTREAM_REDIS_USE_PUB_SUB=true
 
     # MMDB path, relative to livestream directory where air runs
     export LIVESTREAM_MMDB_PATH=../share/GeoLite2-City.mmdb

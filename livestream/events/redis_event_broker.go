@@ -12,27 +12,6 @@ import (
 	"github.com/redis/rueidis"
 )
 
-//easyjson:json
-type PubSubEvent struct {
-	Token       string                 `json:"token"`
-	Event       string                 `json:"event"`
-	Properties  map[string]interface{} `json:"properties"`
-	Timestamp   interface{}            `json:"timestamp,omitempty"`
-	Uuid        string                 `json:"uuid"`
-	DistinctId  string                 `json:"distinct_id"`
-	Lat         float64                `json:"lat"`
-	Lng         float64                `json:"lng"`
-	CountryCode string                 `json:"country_code"`
-}
-
-func toPubSubEvent(e PostHogEvent) PubSubEvent {
-	return PubSubEvent(e)
-}
-
-func (p PubSubEvent) toPostHogEvent() PostHogEvent {
-	return PostHogEvent(p)
-}
-
 func channelName(token string) string {
 	return fmt.Sprintf("livestream:events:%s", token)
 }
@@ -58,8 +37,7 @@ func (b *RedisEventBroker) Publish(ctx context.Context, event PostHogEvent) {
 		return
 	}
 
-	pse := toPubSubEvent(event)
-	data, err := pse.MarshalJSON()
+	data, err := event.MarshalJSON()
 	if err != nil {
 		log.Printf("redis publish: marshal error: %v", err)
 		metrics.RedisPublishErrorsTotal.Inc()
@@ -67,7 +45,7 @@ func (b *RedisEventBroker) Publish(ctx context.Context, event PostHogEvent) {
 	}
 
 	if err := b.client.Do(ctx, b.client.B().Spublish().Channel(channelName(event.Token)).Message(string(data)).Build()).Error(); err != nil {
-		log.Printf("redis publish: %v", err)
+		log.Printf("redis publish failed for distinct id %s", event.DistinctId)
 		metrics.RedisPublishErrorsTotal.Inc()
 		return
 	}
@@ -83,6 +61,7 @@ func NewRedisClient(cfg configs.RedisConfig) (rueidis.Client, error) {
 	return newRedisClient(cfg)
 }
 
+// TokenRouter manages per-token Redis sharded pub/sub subscriptions, fanning out received messages to SSE subscribers.
 type TokenRouter struct {
 	client         rueidis.Client
 	SubChan        chan Subscription
@@ -152,16 +131,13 @@ func (tr *TokenRouter) Run(ctx context.Context) {
 		case msg := <-tr.msgCh:
 			metrics.RedisMessagesReceivedTotal.Inc()
 
-			var pse PubSubEvent
-			if err := pse.UnmarshalJSON([]byte(msg.Message)); err != nil {
+			var event PostHogEvent
+			if err := event.UnmarshalJSON([]byte(msg.Message)); err != nil {
 				log.Printf("redis message unmarshal: %v", err)
 				continue
 			}
 
-			event := pse.toPostHogEvent()
-			token := pse.Token
-			subs := tr.tokenSubs[token]
-
+			subs := tr.tokenSubs[event.Token]
 			deliverEvent(event, subs)
 		}
 	}

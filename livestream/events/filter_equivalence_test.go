@@ -192,12 +192,10 @@ func TestFilterEquivalence(t *testing.T) {
 			directResult := drainChan(directSub.EventChan)
 
 			pubsubSub := tt.sub()
-			pse := toPubSubEvent(tt.event)
-			data, err := pse.MarshalJSON()
+			data, err := tt.event.MarshalJSON()
 			require.NoError(t, err)
-			var decoded PubSubEvent
-			require.NoError(t, decoded.UnmarshalJSON(data))
-			roundTripped := decoded.toPostHogEvent()
+			var roundTripped PostHogEvent
+			require.NoError(t, roundTripped.UnmarshalJSON(data))
 			deliverEvent(roundTripped, []Subscription{pubsubSub})
 			pubsubResult := drainChan(pubsubSub.EventChan)
 
@@ -214,15 +212,7 @@ func TestFilterEquivalence(t *testing.T) {
 				pubsubEvt, ok := pubsubResult.(ResponsePostHogEvent)
 				require.True(t, ok, "pubsub result should be ResponsePostHogEvent")
 
-				assert.Equal(t, directEvt.Uuid, pubsubEvt.Uuid)
-				assert.Equal(t, directEvt.DistinctId, pubsubEvt.DistinctId)
-				assert.Equal(t, directEvt.PersonId, pubsubEvt.PersonId)
-				assert.Equal(t, directEvt.Event, pubsubEvt.Event)
-
-				if tt.wantProps != nil {
-					assert.Equal(t, tt.wantProps, directEvt.Properties)
-					assert.Equal(t, tt.wantProps, pubsubEvt.Properties)
-				}
+				assert.Equal(t, directEvt, pubsubEvt)
 
 			case "geo":
 				require.NotNil(t, directResult, "direct path should deliver a geo event")
