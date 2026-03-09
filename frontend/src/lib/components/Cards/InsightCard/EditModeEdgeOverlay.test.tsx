@@ -19,13 +19,13 @@ describe('EditModeEdgeOverlay', () => {
         })
     })
 
-    it('calls onEnterEditMode when an edge is pressed', () => {
+    it.each([0, 1, 2, 3])('calls onEnterEditMode when edge %i is pressed', (edgeIndex) => {
         const onEnterEditMode = jest.fn()
 
         const { getAllByTitle } = render(<EditModeEdgeOverlay onEnterEditMode={onEnterEditMode} />)
-        const [firstEdge] = getAllByTitle('Click to edit layout')
+        const edges = getAllByTitle('Click to edit layout')
 
-        fireEvent.mouseDown(firstEdge)
-        expect(onEnterEditMode).toHaveBeenCalled()
+        fireEvent.mouseDown(edges[edgeIndex])
+        expect(onEnterEditMode).toHaveBeenCalledTimes(1)
     })
 })

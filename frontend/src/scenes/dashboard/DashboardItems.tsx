@@ -219,7 +219,7 @@ export function DashboardItems(): JSX.Element {
                             canResizeWidth: canResizeWidth,
                             canEnterEditModeFromEdge,
                             onEnterEditModeFromEdge: canEnterEditModeFromEdge
-                                ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                                ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
                                 : undefined,
                             showEditingControls: isEditablePlacement,
                             moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {

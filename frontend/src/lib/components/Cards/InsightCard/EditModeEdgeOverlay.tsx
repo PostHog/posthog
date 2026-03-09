@@ -4,16 +4,16 @@ interface EditModeEdgeOverlayProps {
     onEnterEditMode: () => void
 }
 
-export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnterEditMode }) => {
-    const edgeOverlayBaseStyle: React.CSSProperties = {
-        position: 'absolute',
-        zIndex: 5,
-        padding: 0,
-        margin: 0,
-        border: 'none',
-        background: 'none',
-    }
+const edgeOverlayBaseStyle: React.CSSProperties = {
+    position: 'absolute',
+    zIndex: 5,
+    padding: 0,
+    margin: 0,
+    border: 'none',
+    background: 'none',
+}
 
+export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnterEditMode }) => {
     const handlePress = (event: React.MouseEvent<HTMLDivElement>): void => {
         // Treat any press (click or drag attempt) as intent to edit
         event.preventDefault()
