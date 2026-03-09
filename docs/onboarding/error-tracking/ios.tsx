@@ -30,7 +30,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             Exception autocapture is available on **iOS, macOS, and tvOS** only. 
                             It is not available on watchOS or visionOS due to platform limitations.
                             
-                            Manual exception capture works on all platforms.
+                            You can still capture events manually on all platforms, including visionOS.
                         `}
                     </Markdown>
                 </CalloutBox>
