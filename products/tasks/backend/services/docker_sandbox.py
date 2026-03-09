@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import json
 import time
@@ -10,9 +12,12 @@ import logging
 import tempfile
 import subprocess
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
+
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import StreamableHttpMcpConfig
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
@@ -45,7 +50,7 @@ class DockerSandbox:
     config: SandboxConfig
     _container_id: str
     _host_port: int | None
-    _registry: dict[str, "DockerSandbox"] = {}
+    _registry: dict[str, DockerSandbox] = {}
 
     def __init__(self, container_id: str, config: SandboxConfig, host_port: int | None = None):
         self._container_id = container_id
@@ -226,7 +231,7 @@ class DockerSandbox:
         return url
 
     @staticmethod
-    def create(config: SandboxConfig) -> "DockerSandbox":
+    def create(config: SandboxConfig) -> DockerSandbox:
         try:
             image = DockerSandbox._get_image(config)
             container_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
@@ -286,7 +291,7 @@ class DockerSandbox:
             )
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "DockerSandbox":
+    def get_by_id(sandbox_id: str) -> DockerSandbox:
         if sandbox_id in DockerSandbox._registry:
             return DockerSandbox._registry[sandbox_id]
 
@@ -581,7 +586,7 @@ class DockerSandbox:
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
-        mcp_configs: list[dict[str, Any]] | None = None,
+        mcp_configs: list[StreamableHttpMcpConfig] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -635,8 +640,8 @@ class DockerSandbox:
             cause=RuntimeError("Health check failed after retries"),
         )
 
-    def _write_mcp_config(self, mcp_configs: list[dict[str, Any]]) -> None:
-        config_json = json.dumps(mcp_configs)
+    def _write_mcp_config(self, mcp_configs: list[StreamableHttpMcpConfig]) -> None:
+        config_json = json.dumps([c.to_dict() for c in mcp_configs])
         result = self.execute(
             f"cat > {MCP_CONFIG_PATH} << 'MCPEOF'\n{config_json}\nMCPEOF",
             timeout_seconds=5,

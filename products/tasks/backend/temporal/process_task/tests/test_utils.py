@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from products.tasks.backend.temporal.process_task.utils import get_sandbox_mcp_configs
+from products.tasks.backend.temporal.process_task.utils import StreamableHttpMcpConfig, get_sandbox_mcp_configs
 
 
 class TestGetSandboxMcpConfigs(TestCase):
@@ -20,14 +20,14 @@ class TestGetSandboxMcpConfigs(TestCase):
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = site_url
             configs = get_sandbox_mcp_configs()
-            assert configs == [{"type": "streamable-http", "url": expected_mcp_url}]
+            assert configs == [StreamableHttpMcpConfig(url=expected_mcp_url)]
 
     def test_explicit_sandbox_mcp_url_takes_precedence(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = "https://custom-mcp.example.com/mcp"
             mock_settings.SITE_URL = "https://app.posthog.com"
             configs = get_sandbox_mcp_configs()
-            assert configs == [{"type": "streamable-http", "url": "https://custom-mcp.example.com/mcp"}]
+            assert configs == [StreamableHttpMcpConfig(url="https://custom-mcp.example.com/mcp")]
 
     @parameterized.expand(
         [
@@ -46,3 +46,17 @@ class TestGetSandboxMcpConfigs(TestCase):
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = ""
             assert get_sandbox_mcp_configs() == []
+
+
+class TestStreamableHttpMcpConfigToDict(TestCase):
+    def test_minimal_config(self) -> None:
+        config = StreamableHttpMcpConfig(url="https://mcp.posthog.com/mcp")
+        assert config.to_dict() == {"type": "streamable-http", "url": "https://mcp.posthog.com/mcp"}
+
+    def test_config_with_headers(self) -> None:
+        config = StreamableHttpMcpConfig(url="https://mcp.example.com/mcp", headers={"Authorization": "Bearer token"})
+        assert config.to_dict() == {
+            "type": "streamable-http",
+            "url": "https://mcp.example.com/mcp",
+            "headers": {"Authorization": "Bearer token"},
+        }

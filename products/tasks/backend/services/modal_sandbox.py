@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import json
 import time
@@ -6,9 +8,12 @@ import shlex
 import logging
 from collections.abc import Iterable
 from functools import lru_cache
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
+
+if TYPE_CHECKING:
+    from products.tasks.backend.temporal.process_task.utils import StreamableHttpMcpConfig
 
 import modal
 
@@ -144,7 +149,7 @@ class ModalSandbox:
         return ModalSandbox._get_default_app()
 
     @staticmethod
-    def create(config: SandboxConfig) -> "ModalSandbox":
+    def create(config: SandboxConfig) -> ModalSandbox:
         try:
             app = ModalSandbox._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
@@ -208,7 +213,7 @@ class ModalSandbox:
             )
 
     @staticmethod
-    def get_by_id(sandbox_id: str) -> "ModalSandbox":
+    def get_by_id(sandbox_id: str) -> ModalSandbox:
         try:
             sb = modal.Sandbox.from_id(sandbox_id)
 
@@ -434,7 +439,7 @@ class ModalSandbox:
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
-        mcp_configs: list[dict[str, Any]] | None = None,
+        mcp_configs: list[StreamableHttpMcpConfig] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -483,8 +488,8 @@ class ModalSandbox:
 
         logger.info(f"Agent-server started in sandbox {self.id}")
 
-    def _write_mcp_config(self, mcp_configs: list[dict[str, Any]]) -> None:
-        config_json = json.dumps(mcp_configs)
+    def _write_mcp_config(self, mcp_configs: list[StreamableHttpMcpConfig]) -> None:
+        config_json = json.dumps([c.to_dict() for c in mcp_configs])
         result = self.execute(
             f"cat > {MCP_CONFIG_PATH} << 'MCPEOF'\n{config_json}\nMCPEOF",
             timeout_seconds=5,

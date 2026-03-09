@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -5,14 +6,26 @@ from django.conf import settings
 
 from posthog.models.integration import GitHubIntegration, Integration
 
-McpConfig = dict[str, Any]
+
+@dataclass(frozen=True)
+class StreamableHttpMcpConfig:
+    """Configuration for connecting to an MCP server over streamable HTTP."""
+
+    url: str
+    headers: dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"type": "streamable-http", "url": self.url}
+        if self.headers:
+            data["headers"] = self.headers
+        return data
 
 
 def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
-def get_sandbox_mcp_configs() -> list[McpConfig]:
+def get_sandbox_mcp_configs() -> list[StreamableHttpMcpConfig]:
     """Return MCP server configurations for sandbox agents.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
@@ -23,7 +36,7 @@ def get_sandbox_mcp_configs() -> list[McpConfig]:
     url = _resolve_mcp_url()
     if not url:
         return []
-    return [{"type": "streamable-http", "url": url}]
+    return [StreamableHttpMcpConfig(url=url)]
 
 
 def _resolve_mcp_url() -> str | None:
