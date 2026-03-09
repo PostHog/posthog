@@ -10,12 +10,14 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
+from django.http import Http404
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
@@ -2824,10 +2826,14 @@ class FeatureFlagViewSet(
 
     @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
     def status(self, request: request.Request, **kwargs):
-        feature_flag = self.get_object()
+        feature_flag_id = kwargs["pk"]
+        try:
+            self.get_object()  # enforce RBAC when flag exists
+        except (NotFound, Http404):
+            pass  # let the checker handle not-found / soft-deleted
 
         checker = FeatureFlagStatusChecker(
-            feature_flag_id=feature_flag.id,
+            feature_flag_id=feature_flag_id,
         )
         flag_status, reason = checker.get_status()
 
