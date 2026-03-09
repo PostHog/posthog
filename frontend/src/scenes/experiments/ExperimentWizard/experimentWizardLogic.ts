@@ -17,7 +17,7 @@ const SHOW_GUIDE_DEFAULT = true
 
 const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
 
-function stepStorageKey(tabId: string): string {
+export function stepStorageKey(tabId: string): string {
     return `tab-${tabId}-experiment-wizard-step`
 }
 
@@ -72,6 +72,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 'setExposureCriteria',
                 'setSharedMetrics',
                 'saveExperiment',
+                'saveExperimentSuccess',
             ],
             variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }),
             ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
@@ -115,6 +116,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             {
                 _applyStep: (_, { step }) => step,
                 resetWizard: () => 'about',
+                saveExperimentSuccess: () => 'about',
             },
         ],
         linkedFeatureFlag: [
@@ -122,6 +124,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             {
                 setLinkedFeatureFlag: (_, { flag }) => flag,
                 resetWizard: () => null,
+                saveExperimentSuccess: () => null,
             },
         ],
         departedSteps: [
@@ -129,6 +132,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             {
                 markStepDeparted: (state, { step }) => ({ ...state, [step]: true }),
                 resetWizard: () => ({}),
+                saveExperimentSuccess: () => ({}),
             },
         ],
     })),
@@ -224,6 +228,13 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 // ignore
             }
         },
+        saveExperimentSuccess: () => {
+            try {
+                sessionStorage.removeItem(stepStorageKey(props.tabId))
+            } catch {
+                // ignore
+            }
+        },
         toggleGuide: () => {
             actions.reportExperimentWizardGuideToggled(values.showGuide, values.currentStep)
             try {
@@ -282,7 +293,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
 
     events(({ actions, values }) => ({
         afterMount: () => {
-            actions.resetWizard()
             actions.reportExperimentWizardStarted(values.showGuide)
             actions.loadFeatureFlagsForAutocomplete()
         },
