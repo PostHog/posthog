@@ -85,8 +85,6 @@ from products.product_tours.backend.models import ProductTour
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
-MAX_PROPERTY_VALUES = 1000
-
 # Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
 # None means "no operator specified" which defaults to exact.
 FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
@@ -842,16 +840,6 @@ class FeatureFlagSerializer(
                         detail=f"Unsupported operator for feature flags: {prop.operator}",
                         code="unsupported_operator",
                     )
-
-                if isinstance(prop.value, list):
-                    upper_limit = MAX_PROPERTY_VALUES
-                    if settings.TEST:
-                        upper_limit = 10
-
-                    if len(prop.value) > upper_limit:
-                        raise serializers.ValidationError(
-                            f"Property group expressions of type {prop.key} cannot contain more than {upper_limit} values."
-                        )
 
                 if prop.type == "cohort":
                     try:
