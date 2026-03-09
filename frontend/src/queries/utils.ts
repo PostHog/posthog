@@ -338,11 +338,15 @@ export function isLifecycleQuery(node?: Record<string, any> | null): node is Lif
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isInsightQueryWithDisplay(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node)
+export function isInsightQueryWithDisplay(
+    node?: Record<string, any> | null
+): node is TrendsQuery | RetentionQuery | StickinessQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node) || isRetentionQuery(node)
 }
 
-export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): node is TrendsQuery | FunnelsQuery {
+export function isInsightQueryWithBreakdown(
+    node?: Record<string, any> | null
+): node is TrendsQuery | FunnelsQuery | RetentionQuery {
     return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
