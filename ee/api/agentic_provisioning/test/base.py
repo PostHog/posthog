@@ -92,7 +92,7 @@ class StripeProvisioningTestBase(APIBaseTest):
         )
         body = urlencode({"grant_type": "authorization_code", "code": code}).encode()
         ts = int(time.time())
-        sig = compute_signature(self.HMAC_SECRET, ts, body)
+        sig = compute_signature(HMAC_SECRET, ts, body)
         res = self.client.post(
             "/api/agentic/oauth/token",
             data=body,
