@@ -18,7 +18,6 @@ export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
     const { steps, funnelsFilter, hasDataWarehouseSeries } = useValues(funnelDataLogic(insightProps))
     useMountedLogic(funnelCorrelationUsageLogic(insightProps))
-    console.debug('hasDataWarehouseSeries', hasDataWarehouseSeries)
     const vizType = funnelsFilter?.funnelVizType
     if (
         (vizType !== FunnelVizType.Steps && vizType !== FunnelVizType.Flow) ||
