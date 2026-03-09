@@ -1036,5 +1036,5 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
-        cursor_dt = datetime.fromisoformat(response.nextCursor)
-        self.assertEqual(cursor_dt, datetime.fromisoformat("2020-01-11T12:00:02Z"))
+        assert response.nextCursor is not None
+        self.assertEqual(datetime.fromisoformat(response.nextCursor), datetime.fromisoformat("2020-01-11T12:00:02Z"))
