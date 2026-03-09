@@ -1998,6 +1998,180 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestErrorTrackingQueryRunnerV2.test_ordering
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE equals(issues.team_id, 99999)
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunnerV2.test_ordering.1
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE equals(issues.team_id, 99999)
+  ORDER BY first_seen ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunnerV2.test_overrides_aggregation
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.occurrences AS occurrences,
+         agg.sessions AS sessions,
+         agg.users AS users,
+         agg.volumeRange AS volumeRange,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            count(DISTINCT e.uuid) AS occurrences,
+            count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
+            count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
+            sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE equals(issues.team_id, 99999)
+  ORDER BY occurrences DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
 # name: TestErrorTrackingQueryRunnerV2.test_person_id_filter
   '''
   SELECT agg.id AS id,
@@ -2044,6 +2218,59 @@
      GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
   LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
   WHERE equals(issues.team_id, 99999)
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunnerV2.test_role_assignee
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE and(equals(issues.team_id, 99999), equals(assignment.role_id, '017e43e6-1820-0016-cf68-0e16bfe2406e'))
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2284,6 +2511,271 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestErrorTrackingQueryRunnerV2.test_status
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE and(equals(issues.team_id, 99999), equals(issues.status, 'active'))
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunnerV2.test_status.1
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE and(equals(issues.team_id, 99999), equals(issues.status, 'resolved'))
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunnerV2.test_status.2
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE equals(issues.team_id, 99999)
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunnerV2.test_status.3
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE equals(issues.team_id, 99999)
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunnerV2.test_user_assignee
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE and(equals(issues.team_id, 99999), equals(assignment.user_id, 42))
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
 # name: TestErrorTrackingQueryRunnerV2.test_volume_aggregation_advanced
   '''
   SELECT agg.id AS id,
@@ -2328,6 +2820,74 @@
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
      WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), 'e9ac529f-ac1c-4a96-bd3a-102334368d64'), 0))
+     GROUP BY id) AS agg
+  INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
+  LEFT JOIN
+    (SELECT system__error_tracking_issue_fingerprints.issue_id AS issue_id,
+            min(toTimeZone(system__error_tracking_issue_fingerprints.first_seen, 'UTC')) AS first_seen
+     FROM postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissuefingerprintv2', 'posthog', 'posthog') AS system__error_tracking_issue_fingerprints
+     WHERE equals(system__error_tracking_issue_fingerprints.team_id, 99999)
+     GROUP BY system__error_tracking_issue_fingerprints.issue_id) AS fp ON equals(fp.issue_id, issues.id)
+  LEFT JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissueassignment', 'posthog', 'posthog') AS assignment ON and(equals(assignment.team_id, 99999), equals(assignment.issue_id, issues.id))
+  WHERE equals(issues.team_id, 99999)
+  ORDER BY last_seen DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestErrorTrackingQueryRunnerV2.test_volume_aggregation_simple
+  '''
+  SELECT agg.id AS id,
+         issues.status AS status,
+         issues.name AS name,
+         issues.description AS description,
+         agg.last_seen AS last_seen,
+         fp.first_seen AS first_seen,
+         assignment.user_id AS assignee_user_id,
+         assignment.role_id AS assignee_role_id,
+         agg.function AS function,
+         agg.source AS source,
+         agg.occurrences AS occurrences,
+         agg.sessions AS sessions,
+         agg.users AS users,
+         agg.volumeRange AS volumeRange,
+         agg.library AS library
+  FROM
+    (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS id,
+            max(toTimeZone(e.timestamp, 'UTC')) AS last_seen,
+            min(toTimeZone(e.timestamp, 'UTC')) AS first_seen,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
+            count(DISTINCT e.uuid) AS occurrences,
+            count(DISTINCT nullIf(e.`$session_id`, '')) AS sessions,
+            count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
+            sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 3))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 3)))), range(0, 3)))) AS volumeRange,
+            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
+               error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
+        FROM error_tracking_issue_fingerprint_overrides
+        WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
+        GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
+        HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
      GROUP BY id) AS agg
   INNER JOIN postgresql('db:5432', 'test_posthog', 'posthog_errortrackingissue', 'posthog', 'posthog') AS issues ON equals(agg.id, issues.id)
   LEFT JOIN

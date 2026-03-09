@@ -13,7 +13,7 @@ from posthog.test.base import (
 )
 from unittest import TestCase
 
-from django.core.management import call_command
+from django.db import connections
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -744,7 +744,33 @@ class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, Clickho
     use_v2 = True
 
     def _fixture_teardown(self):
-        call_command("flush", verbosity=0, interactive=False, database="default", allow_cascade=True)
+        # Use DELETE (not TRUNCATE) to preserve postgres sequences — sequences must
+        # keep incrementing so each test gets a unique team_id for CH data isolation.
+        # Persons DB is only cleaned for the current test's team_id to avoid touching
+        # the sqlx migration state (which full truncation corrupts).
+        current_team_id = getattr(self.team, "id", None) if hasattr(self, "team") else None
+
+        with connections["default"].cursor() as cursor:
+            # TRUNCATE with CASCADE to handle cross-table FK dependencies automatically.
+            # Explicitly WITHOUT RESTART IDENTITY so postgres sequences keep incrementing
+            # — each test must get a unique team_id for CH data isolation.
+            cursor.execute("""
+                TRUNCATE
+                    posthog_errortrackingissueassignment,
+                    posthog_errortrackingissuefingerprintv2,
+                    posthog_errortrackingissue,
+                    posthog_organizationmembership,
+                    posthog_user,
+                    posthog_team,
+                    posthog_project,
+                    posthog_organization
+                CASCADE
+            """)
+
+        if current_team_id:
+            with connections["persons_db_writer"].cursor() as cursor:
+                cursor.execute(f"DELETE FROM posthog_persondistinctid WHERE team_id = {current_team_id}")
+                cursor.execute(f"DELETE FROM posthog_person WHERE team_id = {current_team_id}")
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
