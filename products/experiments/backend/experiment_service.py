@@ -96,12 +96,7 @@ class ExperimentService:
                         secondary_ordering.append(uuid)
             secondary_metrics_ordered_uuids = secondary_ordering
 
-        if start_date is not None and end_date is not None:
-            status = Experiment.Status.STOPPED
-        elif start_date is not None:
-            status = Experiment.Status.RUNNING
-        else:
-            status = Experiment.Status.DRAFT
+        status = Experiment.compute_status(start_date, end_date)
 
         create_kwargs: dict[str, Any] = {
             "team": self.team,

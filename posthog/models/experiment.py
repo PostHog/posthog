@@ -100,6 +100,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     def __str__(self):
         return self.name or "Untitled"
 
+    @staticmethod
+    def compute_status(start_date: Any, end_date: Any) -> "Experiment.Status":
+        if start_date is not None and end_date is not None:
+            return Experiment.Status.STOPPED
+        if start_date is not None:
+            return Experiment.Status.RUNNING
+        return Experiment.Status.DRAFT
+
     def get_feature_flag_key(self):
         return self.feature_flag.key
 

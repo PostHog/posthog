@@ -540,12 +540,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         final_start_date = validated_data.get("start_date", instance.start_date)
         final_end_date = validated_data.get("end_date", instance.end_date)
 
-        if final_start_date is not None and final_end_date is not None:
-            validated_data["status"] = Experiment.Status.STOPPED
-        elif final_start_date is not None:
-            validated_data["status"] = Experiment.Status.RUNNING
-        else:
-            validated_data["status"] = Experiment.Status.DRAFT
+        validated_data["status"] = Experiment.compute_status(final_start_date, final_end_date)
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
