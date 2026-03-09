@@ -606,7 +606,9 @@ class DockerSandbox:
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
-        command = self._build_agent_server_command(repo_path, task_id, run_id, mode, interaction_origin, branch, mcp_servers_arg)
+        command = self._build_agent_server_command(
+            repo_path, task_id, run_id, mode, interaction_origin, branch, mcp_servers_arg
+        )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
 
