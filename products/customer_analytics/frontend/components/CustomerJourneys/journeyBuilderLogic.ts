@@ -59,7 +59,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             insightDataLogic(JOURNEY_BUILDER_INSIGHT_PROPS),
             ['setQuery as setInsightQuery'],
             customerJourneysLogic,
-            ['addJourney'],
+            ['addJourney', 'addJourneySuccess', 'addJourneyFailure'],
         ],
         values: [featureFlagLogic, ['featureFlags']],
     })),
@@ -96,28 +96,29 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             false,
             {
                 openBuilder: () => true,
-                closeBuilder: () => false,
+                addJourneySuccess: () => false,
             },
         ],
         query: [
             createDefaultQuery(),
             {
                 setQuery: (_, { query }) => query,
-                closeBuilder: () => createDefaultQuery(),
+                addJourneySuccess: () => createDefaultQuery(),
             },
         ],
         journeyName: [
             '',
             {
                 setJourneyName: (_, { name }) => name,
-                closeBuilder: () => '',
+                addJourneySuccess: () => '',
             },
         ],
         isSaving: [
             false,
             {
                 saveJourney: () => true,
-                closeBuilder: () => false,
+                addJourneySuccess: () => false,
+                addJourneyFailure: () => false,
                 saveJourneyFailure: () => false,
             },
         ],
