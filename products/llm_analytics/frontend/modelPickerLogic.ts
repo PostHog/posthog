@@ -63,7 +63,10 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
 
     connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
-        actions: [llmProviderKeysLogic, ['loadProviderKeysSuccess']],
+        actions: [
+            llmProviderKeysLogic,
+            ['loadProviderKeysSuccess', 'createProviderKeySuccess', 'updateProviderKeySuccess'],
+        ],
     })),
 
     loaders(({ values }) => ({
@@ -126,6 +129,12 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
 
     listeners(({ actions }) => ({
         loadProviderKeysSuccess: () => {
+            actions.loadByokModels()
+        },
+        createProviderKeySuccess: () => {
+            actions.loadByokModels()
+        },
+        updateProviderKeySuccess: () => {
             actions.loadByokModels()
         },
     })),
