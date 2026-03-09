@@ -24,8 +24,13 @@ export function ActionListView({ data, onActionClick }: ActionListViewProps): Re
             if (!onActionClick) {
                 return
             }
+
             setViewState({ view: 'loading', name: action.name })
-            const detail = await onActionClick(action)
+            const detail = await onActionClick(action).catch((error) => {
+                console.error('Error loading action detail:', error)
+                return null
+            })
+
             if (detail) {
                 setViewState({ view: 'detail', action: detail })
             } else {
@@ -58,8 +63,6 @@ export function ActionListView({ data, onActionClick }: ActionListViewProps): Re
             </div>
         )
     }
-
-    const items = Array.isArray(data.results) ? data.results : Array.isArray(data) ? data : []
 
     const columns: DataTableColumn<ActionData>[] = [
         {
@@ -117,12 +120,12 @@ export function ActionListView({ data, onActionClick }: ActionListViewProps): Re
             <Stack gap="sm">
                 <div className="flex items-center justify-between">
                     <span className="text-sm text-text-secondary">
-                        {items.length} action{items.length === 1 ? '' : 's'}
+                        {data.results.length} action{data.results.length === 1 ? '' : 's'}
                     </span>
                 </div>
                 <DataTable<ActionData>
                     columns={columns}
-                    data={items}
+                    data={data.results}
                     pageSize={10}
                     defaultSort={{ key: 'name', direction: 'asc' }}
                     emptyMessage="No actions found"
