@@ -3,6 +3,8 @@ from collections.abc import Mapping, Sequence
 from typing import Literal, TypeVar, cast
 from uuid import uuid4
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 from langchain_core.messages import (
@@ -117,6 +119,27 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         )
         self._window_manager = AnthropicConversationCompactionManager()
 
+    def _should_use_llm_gateway(self) -> bool:
+        return False
+
+    def _get_llm_gateway_product(self) -> str:
+        return "django"
+
+    def _get_llm_gateway_kwargs(self) -> dict[str, str]:
+        if not self._should_use_llm_gateway():
+            return {}
+        if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+            logger.warning(
+                "llm_gateway_not_configured_for_agent",
+                product=self._get_llm_gateway_product(),
+                team_id=self._team.id,
+            )
+            return {}
+        return {
+            "anthropic_api_url": f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{self._get_llm_gateway_product()}",
+            "anthropic_api_key": settings.LLM_GATEWAY_API_KEY,
+        }
+
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit_manager = self._toolkit_manager_class(
             team=self._team, user=self._user, context_manager=self.context_manager
@@ -224,6 +247,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             model_name = "claude-sonnet-4-5"
 
         is_sonnet_4_5 = model_name == "claude-sonnet-4-5"
+        gateway_kwargs = self._get_llm_gateway_kwargs()
 
         base_model = MaxChatAnthropic(
             model=model_name,
@@ -243,6 +267,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             model_kwargs={"output_config": {"effort": "medium"}} if not is_sonnet_4_5 else {},
             conversation_start_dt=state.start_dt,
             billable=True,
+            **gateway_kwargs,
         )
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
