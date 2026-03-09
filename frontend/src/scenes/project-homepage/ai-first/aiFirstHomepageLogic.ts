@@ -99,16 +99,17 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             actions.setAnimationPhase('content')
         },
         enterAiMode: async ({ trigger }, breakpoint) => {
-            // Pass the trigger character (/ or @) to the AI input
-            if (trigger) {
-                actions.setQuestion(trigger)
-            }
-            // Just animate into AI mode without starting a conversation
+            // Animate into AI mode without starting a conversation
             await breakpoint(300)
             actions.setAnimationPhase('separator')
 
             await breakpoint(200)
             actions.setAnimationPhase('content')
+
+            // Set the trigger character after animation so the slash menu doesn't appear mid-transition
+            if (trigger) {
+                actions.setQuestion(trigger)
+            }
         },
     })),
 
@@ -144,8 +145,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             } else if (urlMode === 'ai' && values.mode !== 'ai') {
                 if (urlChat) {
                     actions.openConversation(urlChat)
+                    actions.submitQuery('ai')
+                } else {
+                    actions.enterAiMode('')
                 }
-                actions.submitQuery('ai')
             } else if (urlMode === 'search' && values.mode !== 'search') {
                 actions.setQuery(urlQuery)
                 actions.submitQuery('search')
@@ -164,8 +167,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         if (urlMode === 'ai') {
             if (urlChat) {
                 actions.openConversation(urlChat)
+                actions.submitQuery('ai')
+            } else {
+                actions.enterAiMode('')
             }
-            actions.submitQuery('ai')
         } else if (urlMode === 'search' && urlQuery) {
             actions.setQuery(urlQuery)
             actions.submitQuery('search')

@@ -1132,6 +1132,10 @@
                 "prompt_token": 2.7e-7,
                 "completion_token": 0.000001
             },
+            "together": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000017
+            },
             "wandb-fp8": {
                 "prompt_token": 5.5e-7,
                 "completion_token": 0.00000165
@@ -1227,10 +1231,6 @@
             "sambanova-bf16": {
                 "prompt_token": 7e-7,
                 "completion_token": 0.0000014
-            },
-            "together": {
-                "prompt_token": 0.000002,
-                "completion_token": 0.000002
             }
         }
     },
@@ -2047,14 +2047,14 @@
         "model": "google/gemma-3-27b-it",
         "cost": {
             "default": {
-                "prompt_token": 4e-8,
-                "completion_token": 1.5e-7,
-                "cache_read_token": 2e-8
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7,
+                "cache_read_token": 1.5e-8
             },
             "chutes-bf16": {
-                "prompt_token": 4e-8,
-                "completion_token": 1.5e-7,
-                "cache_read_token": 2e-8
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7,
+                "cache_read_token": 1.5e-8
             },
             "deepinfra-fp8": {
                 "prompt_token": 8e-8,
@@ -2461,10 +2461,6 @@
             "deepinfra-turbo": {
                 "prompt_token": 4e-7,
                 "completion_token": 4e-7
-            },
-            "together-fp8": {
-                "prompt_token": 8.8e-7,
-                "completion_token": 8.8e-7
             }
         }
     },
@@ -2568,10 +2564,6 @@
             "hyperbolic-fp8": {
                 "prompt_token": 1.0000000000000001e-7,
                 "completion_token": 1.0000000000000001e-7
-            },
-            "together-fp8": {
-                "prompt_token": 6e-8,
-                "completion_token": 6e-8
             }
         }
     },
@@ -2899,7 +2891,7 @@
             "default": {
                 "prompt_token": 2.7e-7,
                 "completion_token": 9.5e-7,
-                "cache_read_token": 2.99999997e-8
+                "cache_read_token": 2.90000007e-8
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 2.9e-7,
@@ -2909,7 +2901,7 @@
             "deepinfra-fp8": {
                 "prompt_token": 2.7e-7,
                 "completion_token": 9.5e-7,
-                "cache_read_token": 2.99999997e-8
+                "cache_read_token": 2.90000007e-8
             },
             "fireworks": {
                 "prompt_token": 3e-7,
@@ -2919,7 +2911,7 @@
             "friendli": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012,
-                "cache_read_token": 3e-7
+                "cache_read_token": 1.5e-7
             },
             "minimax-fp8": {
                 "prompt_token": 3e-7,
@@ -3464,10 +3456,6 @@
             "siliconflow-fp8": {
                 "prompt_token": 4e-7,
                 "completion_token": 0.000002
-            },
-            "together": {
-                "prompt_token": 0.000001,
-                "completion_token": 0.000003
             }
         }
     },
@@ -3546,10 +3534,6 @@
             "siliconflow-fp8": {
                 "prompt_token": 5.5e-7,
                 "completion_token": 0.0000025
-            },
-            "together": {
-                "prompt_token": 0.0000012,
-                "completion_token": 0.000004
             }
         }
     },
@@ -3868,10 +3852,6 @@
             "deepinfra-bf16": {
                 "prompt_token": 4e-8,
                 "completion_token": 1.6e-7
-            },
-            "together": {
-                "prompt_token": 6e-8,
-                "completion_token": 2.5e-7
             }
         }
     },
@@ -5989,10 +5969,6 @@
             "novita-bf16": {
                 "prompt_token": 1.5e-7,
                 "completion_token": 0.0000015
-            },
-            "together": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 0.0000015
             }
         }
     },
@@ -6113,10 +6089,6 @@
             "alibaba": {
                 "prompt_token": 1.04e-7,
                 "completion_token": 4.16e-7
-            },
-            "together": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.0000015
             }
         }
     },
@@ -7111,7 +7083,7 @@
             "friendli": {
                 "prompt_token": 0.000001,
                 "completion_token": 0.0000032,
-                "cache_read_token": 0.000001
+                "cache_read_token": 5e-7
             },
             "gmicloud-fp8": {
                 "prompt_token": 0.000001,

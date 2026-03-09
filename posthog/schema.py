@@ -5081,6 +5081,7 @@ class ChartSettings(BaseModel):
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
+    showNullsAsZero: bool | None = None
     showTotalRow: bool | None = None
     showXAxisBorder: bool | None = None
     showXAxisTicks: bool | None = None
