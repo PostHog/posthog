@@ -8,7 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, get_data_warehouse_table_name
 from posthog.hogql.database.models import FunctionCallTable, TableNode
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
@@ -45,6 +45,11 @@ def _prune_database_for_direct_metadata(database: Database, allowed_table_names:
         return node.name == "root" or keep_table or len(node.children) > 0
 
     prune_node(database.tables, [])
+    database._warehouse_table_names = [name for name in database._warehouse_table_names if name in allowed_table_names]
+    database._warehouse_self_managed_table_names = [
+        name for name in database._warehouse_self_managed_table_names if name in allowed_table_names
+    ]
+    database._view_table_names = [name for name in database._view_table_names if name in allowed_table_names]
 
 
 def get_hogql_metadata(
@@ -85,7 +90,10 @@ def get_hogql_metadata(
                 team_id=team.pk,
                 external_data_source_id=source.id,
             ).exclude(deleted=True)
-            allowed_table_names = {table.hogql_definition(query_modifiers).name for table in direct_tables}
+            allowed_table_names = {
+                get_data_warehouse_table_name(source, table.name, use_direct_database_names=True)
+                for table in direct_tables
+            }
             _prune_database_for_direct_metadata(database, allowed_table_names)
 
     try:
@@ -126,16 +134,23 @@ def get_hogql_metadata(
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
 
-            if not clickhouse_sql or not clickhouse_prepared_ast:
-                clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
+            if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
-                    dialect="clickhouse",
+                    dialect="postgres",
                 )
+            else:
+                if not clickhouse_sql or not clickhouse_prepared_ast:
+                    clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
+                        clone_expr(hogql_ast),
+                        context=context,
+                        dialect="clickhouse",
+                    )
 
-            if clickhouse_prepared_ast:
-                ch_table_names = get_table_names(clickhouse_prepared_ast)
-                response.ch_table_names = ch_table_names
+                if clickhouse_prepared_ast:
+                    ch_table_names = get_table_names(clickhouse_prepared_ast)
+                    response.ch_table_names = ch_table_names
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings
