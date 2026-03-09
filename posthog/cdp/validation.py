@@ -231,7 +231,15 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    if item_type in ["string", "boolean", "dictionary", "json", "email", "native_email"]:
+                    value_is_transpiled = item_type in [
+                        "string",
+                        "boolean",
+                        "dictionary",
+                        "json",
+                        "email",
+                        "native_email",
+                    ] or (item_type == "boolean" and isinstance(value, str))
+                    if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
                             value = {key: value[key] for key in value if key != "design"}
