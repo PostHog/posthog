@@ -46,6 +46,7 @@ jobs:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
+                        - .github/actions/pnpm-cache/**
                         - 'nodejs/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
@@ -78,17 +79,10 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
-            - name: Get pnpm store directory
-              shell: bash
-              run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-            - name: Restore pnpm store cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+            - name: Cache pnpm store
+              uses: ./.github/actions/pnpm-cache
               with:
-                  path: ${{ env.STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-store-
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -98,13 +92,6 @@ jobs:
               run: |
                   pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   bin/turbo --filter=@posthog/nodejs prepare
-
-            - name: Save pnpm store cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ${{ env.STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Check formatting with prettier
               run: pnpm --filter=@posthog/nodejs format:check
@@ -135,17 +122,10 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
-            - name: Get pnpm store directory
-              shell: bash
-              run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-            - name: Restore pnpm store cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+            - name: Cache pnpm store
+              uses: ./.github/actions/pnpm-cache
               with:
-                  path: ${{ env.STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-store-
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -155,13 +135,6 @@ jobs:
               run: |
                   pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   bin/turbo --filter=@posthog/nodejs prepare
-
-            - name: Save pnpm store cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ${{ env.STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Check builds correctly
               run: pnpm --filter=@posthog/nodejs build
@@ -269,17 +242,10 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
-            - name: Get pnpm store directory
-              shell: bash
-              run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-            - name: Restore pnpm store cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+            - name: Cache pnpm store
+              uses: ./.github/actions/pnpm-cache
               with:
-                  path: ${{ env.STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-store-
+                  save-cache: ${{ github.ref == 'refs/heads/master' && matrix.shard == 1 }}
 
             - name: Download MaxMind Database
               run: |
@@ -291,13 +257,6 @@ jobs:
                   npm_config_fetch_retry_mintimeout: 10000
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
-
-            - name: Save pnpm store cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ${{ env.STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
