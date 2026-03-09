@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -63,20 +64,30 @@ type Process struct {
 	Name string
 	Cfg  config.ProcConfig
 
-	mu     sync.Mutex
-	status Status
-	lines  []string
-	cmd    *exec.Cmd
-	ptmx   *os.File // pty master; nil when using pipes
+	mu           sync.Mutex
+	status       Status
+	lines        []string
+	cmd          *exec.Cmd
+	ptmx         *os.File // pty master; nil when using pipes
+	readyPattern *regexp.Regexp
+	ready        bool // whether we've seen the ready pattern (or no pattern is set)
 }
 
 // NewProcess creates a new Process (not yet started).
 func NewProcess(name string, cfg config.ProcConfig) *Process {
-	return &Process{
+	p := &Process{
 		Name:   name,
 		Cfg:    cfg,
-		status: StatusPending,
+		status: StatusStopped,
+		ready:  cfg.ReadyPattern == "", // ready if no pattern, otherwise wait for pattern
 	}
+	// Compile ready pattern if one exists
+	if cfg.ReadyPattern != "" {
+		if re, err := regexp.Compile(cfg.ReadyPattern); err == nil {
+			p.readyPattern = re
+		}
+	}
+	return p
 }
 
 // Status returns the current lifecycle status (thread-safe).
@@ -105,6 +116,8 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	}
 	p.status = StatusPending
 	p.lines = nil
+	// Reset ready flag when restarting
+	p.ready = p.readyPattern == nil
 	p.mu.Unlock()
 
 	env := os.Environ()
@@ -124,10 +137,17 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.mu.Lock()
 	p.cmd = cmd
 	p.ptmx = ptmx
-	p.status = StatusRunning
+	// Only set to running if no ready pattern; otherwise stay pending
+	if p.readyPattern == nil {
+		p.status = StatusRunning
+	}
 	p.mu.Unlock()
 
-	send(StatusMsg{Name: p.Name, Status: StatusRunning})
+	// Send initial status message
+	p.mu.Lock()
+	currentStatus := p.status
+	p.mu.Unlock()
+	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
 	readDone := make(chan struct{})
 	go func() {
@@ -154,16 +174,18 @@ func (p *Process) Start(send func(tea.Msg)) error {
 			st = StatusCrashed
 		}
 		p.mu.Lock()
-		// Don't overwrite an explicit Stop() call.
-		if p.status != StatusStopped {
+		// Don't update status if this cmd is no longer the active one (process was restarted)
+		// or if an explicit Stop() was called
+		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
 		}
 		finalStatus := p.status
+		shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed
 		p.mu.Unlock()
 
 		send(StatusMsg{Name: p.Name, Status: finalStatus})
 
-		if p.Cfg.Autorestart && st == StatusCrashed {
+		if shouldRestart {
 			_ = p.Start(send)
 		}
 	}()
@@ -192,9 +214,17 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	p.mu.Lock()
 	p.cmd = cmd
-	p.status = StatusRunning
+	// Only set to running if no ready pattern; otherwise stay pending
+	if p.readyPattern == nil {
+		p.status = StatusRunning
+	}
 	p.mu.Unlock()
-	send(StatusMsg{Name: p.Name, Status: StatusRunning})
+
+	// Send initial status message
+	p.mu.Lock()
+	currentStatus := p.status
+	p.mu.Unlock()
+	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
 	readDone := make(chan struct{})
 	go func() {
@@ -215,15 +245,18 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 			st = StatusCrashed
 		}
 		p.mu.Lock()
-		if p.status != StatusStopped {
+		// Don't update status if this cmd is no longer the active one (process was restarted)
+		// or if an explicit Stop() was called
+		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
 		}
 		finalStatus := p.status
+		shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed
 		p.mu.Unlock()
 
 		send(StatusMsg{Name: p.Name, Status: finalStatus})
 
-		if p.Cfg.Autorestart && st == StatusCrashed {
+		if shouldRestart {
 			_ = p.Start(send)
 		}
 	}()
@@ -249,8 +282,22 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 			p.lines = p.lines[1:]
 		}
 		p.lines = append(p.lines, line)
+
+		// Check if this line matches the ready pattern
+		shouldNotifyCh := false
+		if !p.ready && p.readyPattern != nil && p.readyPattern.MatchString(line) {
+			p.ready = true
+			p.status = StatusRunning
+			shouldNotifyCh = true
+		}
 		p.mu.Unlock()
+
 		send(OutputMsg{Name: p.Name, Line: line})
+
+		// Send status update if we just became ready
+		if shouldNotifyCh {
+			send(StatusMsg{Name: p.Name, Status: StatusRunning})
+		}
 	}
 }
 
@@ -271,6 +318,7 @@ func (p *Process) Stop() {
 // Restart stops the process, clears its output buffer, and starts it again.
 func (p *Process) Restart(send func(tea.Msg)) {
 	p.Stop()
+	send(StatusMsg{Name: p.Name, Status: StatusStopped})
 	_ = p.Start(send)
 }
 

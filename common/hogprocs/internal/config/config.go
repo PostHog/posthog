@@ -9,12 +9,13 @@ import (
 
 // ProcConfig mirrors a single entry under mprocs.yaml's "procs" key.
 type ProcConfig struct {
-	Shell       string            `yaml:"shell"`
-	Capability  string            `yaml:"capability"`
-	Autostart   *bool             `yaml:"autostart"`
-	Autorestart bool              `yaml:"autorestart"`
-	AskSkip     bool              `yaml:"ask_skip"`
-	Env         map[string]string `yaml:"env"`
+	Shell        string            `yaml:"shell"`
+	Capability   string            `yaml:"capability"`
+	Autostart    *bool             `yaml:"autostart"`
+	Autorestart  bool              `yaml:"autorestart"`
+	AskSkip      bool              `yaml:"ask_skip"`
+	Env          map[string]string `yaml:"env"`
+	ReadyPattern string            `yaml:"ready_pattern"`
 }
 
 // ShouldAutostart reports whether the process should start automatically.
