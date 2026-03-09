@@ -4,7 +4,14 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from posthog.schema import CachedHogQLQueryResponse, HogQLFilters, HogQLPropertyFilter, HogQLQuery, HogQLVariable
+from posthog.schema import (
+    CachedHogQLQueryResponse,
+    HogQLFilters,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    HogQLQueryResponse,
+    HogQLVariable,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
@@ -14,6 +21,10 @@ from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
+
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -187,3 +198,60 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
+
+    def test_soft_deleted_connection_id_raises_exposed_hogql_error(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            deleted=True,
+        )
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select 1",
+                connectionId=str(source.id),
+            )
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            runner.calculate()
+
+    @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
+    def test_non_direct_connection_passes_connection_id_without_direct_source_id(self, mock_execute_hogql_query):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(
+            columns=[],
+            results=[[]],
+            types=[],
+        )
+        DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="s3://test/stripe_customers",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select * from stripe.customers limit 1",
+                connectionId=str(source.id),
+            )
+        )
+        runner.calculate()
+
+        self.assertEqual(mock_execute_hogql_query.call_count, 1)
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["connection_id"], str(source.id))
+        self.assertIsNone(mock_execute_hogql_query.call_args.kwargs["selected_direct_source_id"])

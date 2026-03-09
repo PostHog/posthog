@@ -26,6 +26,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.data_warehouse.backend.models import ExternalDataSource
+from products.data_warehouse.backend.models.external_data_source import get_external_data_source_for_connection
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -104,10 +105,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         selected_source_id: str | None = None
         if self.query.connectionId:
-            source = ExternalDataSource.objects.filter(team_id=self.team.pk, id=self.query.connectionId).first()
+            source = get_external_data_source_for_connection(
+                team_id=self.team.pk, connection_id=self.query.connectionId
+            )
             if source is None:
                 raise ExposedHogQLError("Invalid connectionId for this team")
-            selected_source_id = str(source.id)
+            if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                selected_source_id = str(source.id)
 
         response = func(
             query_type="HogQLQuery",

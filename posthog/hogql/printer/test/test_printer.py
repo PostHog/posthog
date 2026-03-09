@@ -4350,15 +4350,56 @@ class TestPostgresPrinter(BaseTest):
             ("toStartOfMinute(timestamp)", "date_trunc('minute', events.timestamp)"),
             ("toStartOfHour(timestamp)", "date_trunc('hour', events.timestamp)"),
             ("toStartOfDay(timestamp)", "date_trunc('day', events.timestamp)"),
-            ("toStartOfWeek(timestamp)", "date_trunc('week', events.timestamp)"),
             ("toStartOfMonth(timestamp)", "date_trunc('month', events.timestamp)"),
             ("toStartOfQuarter(timestamp)", "date_trunc('quarter', events.timestamp)"),
             ("toStartOfYear(timestamp)", "date_trunc('year', events.timestamp)"),
-            ("toStartOfISOYear(timestamp)", "date_trunc('year', events.timestamp)"),
+            (
+                "toStartOfISOYear(timestamp)",
+                "date_trunc('week', make_date(extract(isoyear from events.timestamp)::int, 1, 4)::timestamp)",
+            ),
         ]
     )
     def test_to_start_of_functions_render_as_date_trunc(self, expr: str, expected: str):
         self.assertEqual(self._expr(expr), expected)
+
+    def test_to_start_of_week_defaults_to_sunday_in_postgres(self):
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)"),
+            "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
+        )
+
+    def test_to_start_of_week_uses_project_week_start_day_in_postgres(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database(week_start_day=WeekStartDay.MONDAY),
+        )
+
+        self.assertEqual(self._expr("toStartOfWeek(timestamp)", context), "date_trunc('week', events.timestamp)")
+
+    @parameterized.expand(
+        [
+            (
+                "toStartOfWeek(timestamp, 0)",
+                "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
+            ),
+            ("toStartOfWeek(timestamp, 3)", "date_trunc('week', events.timestamp)"),
+        ]
+    )
+    def test_to_start_of_week_preserves_supported_modes_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_to_start_of_week_rejects_unsupported_mode_in_postgres(self):
+        with self.assertRaises(QueryError) as error:
+            self._expr("toStartOfWeek(timestamp, 2)")
+
+        self.assertIn("Unsupported toStartOfWeek mode", str(error.exception))
+
+    def test_to_start_of_day_rejects_timezone_override_in_postgres(self):
+        with self.assertRaises(QueryError) as error:
+            self._expr("toStartOfDay(timestamp, 'UTC')")
+
+        self.assertIn("timezone override", str(error.exception))
 
     @parameterized.expand(
         [

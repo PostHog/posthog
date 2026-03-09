@@ -204,15 +204,43 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 language=HogLanguage.HOG_QL,
                 query="SELECT 1",
                 response=None,
-                connectionId="selected-connection",
+                connectionId=str(source.id),
             ),
             team=self.team,
+            user=self.user,
         )
 
         self.assertEqual(mock_create_for.call_count, 1)
         self.assertEqual(mock_create_for.call_args.kwargs["team"], self.team)
+        self.assertEqual(mock_create_for.call_args.kwargs["user"], self.user)
         self.assertEqual(mock_create_for.call_args.kwargs["direct_query_source_id"], str(source.id))
         self.assertIn("modifiers", mock_create_for.call_args.kwargs)
+
+    def test_metadata_rejects_soft_deleted_connection_id(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            deleted=True,
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT 1",
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual([error.message for error in metadata.errors], ["Invalid connectionId for this team"])
 
     def test_metadata_with_direct_connection_does_not_allow_posthog_tables(self):
         source = ExternalDataSource.objects.create(
@@ -240,13 +268,53 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 language=HogLanguage.HOG_QL,
                 query="SELECT * FROM persons LIMIT 1",
                 response=None,
-                connectionId="selected-connection",
+                connectionId=str(source.id),
             ),
             team=self.team,
         )
 
         self.assertFalse(metadata.isValid)
         self.assertTrue(any("persons" in (error.message or "") for error in metadata.errors))
+
+    def test_metadata_with_direct_connection_allows_canonical_direct_table_names(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_user",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            name="posthog_user",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT * FROM posthog_user LIMIT 1",
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.errors, [])
 
     def test_metadata_with_direct_connection_does_not_allow_disabled_tables(self):
         source = ExternalDataSource.objects.create(
@@ -281,13 +349,66 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 language=HogLanguage.HOG_QL,
                 query="SELECT * FROM posthog_user LIMIT 1",
                 response=None,
-                connectionId="selected-connection",
+                connectionId=str(source.id),
             ),
             team=self.team,
         )
 
         self.assertFalse(metadata.isValid)
         self.assertTrue(any("posthog_user" in (error.message or "") for error in metadata.errors))
+
+    def test_metadata_with_warehouse_connection_does_not_allow_other_source_tables(self):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="stripe",
+        )
+        other_source = ExternalDataSource.objects.create(
+            source_id="other-upstream-source",
+            connection_id="other-connection",
+            destination_id="destination-2",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.HUBSPOT,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="hubspot",
+        )
+
+        DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format="Parquet",
+            team=self.team,
+            external_data_source=selected_source,
+            url_pattern="s3://test/stripe_customers",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        DataWarehouseTable.objects.create(
+            name="hubspot_deals",
+            format="Parquet",
+            team=self.team,
+            external_data_source=other_source,
+            url_pattern="s3://test/hubspot_deals",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT * FROM hubspot.deals LIMIT 1",
+                response=None,
+                connectionId=str(selected_source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertFalse(metadata.isValid)
+        self.assertTrue(any("hubspot.deals" in (error.message or "") for error in metadata.errors))
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):

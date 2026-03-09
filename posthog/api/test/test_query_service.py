@@ -4,6 +4,9 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaPostHogTable,
@@ -19,47 +22,16 @@ from posthog.schema import (
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.numbers import NumbersTable
+from posthog.hogql.source_scoping import connection_source_identifiers, filter_schema_tables_for_connection
 
-from posthog.api.services.query import (
-    _connection_source_identifiers,
-    _filter_schema_tables_for_connection,
-    _source_id_for_connection,
-    process_query_model,
-)
+from posthog.api.services.query import process_query_model
 
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestQueryService(APIBaseTest):
-    def test_source_id_for_connection_uses_source_id(self):
-        source = ExternalDataSource.objects.create(
-            source_id="upstream-source",
-            connection_id="selected-connection",
-            destination_id="destination",
-            team=self.team,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-        )
-
-        result = _source_id_for_connection(self.team, "selected-connection")
-
-        self.assertEqual(result, source.source_id)
-
-    def test_source_id_for_connection_supports_external_data_source_uuid(self):
-        source = ExternalDataSource.objects.create(
-            source_id="upstream-source",
-            connection_id="selected-connection",
-            destination_id="destination",
-            team=self.team,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-        )
-
-        result = _source_id_for_connection(self.team, str(source.id))
-
-        self.assertEqual(result, source.source_id)
-
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
     def test_database_schema_query_filters_tables_to_selected_connection(
@@ -99,26 +71,6 @@ class TestQueryService(APIBaseTest):
                     incremental=False,
                 ),
                 source=DatabaseSchemaSource(
-                    id=selected_source.source_id,
-                    status=selected_source.status,
-                    source_type=selected_source.source_type,
-                    access_method=selected_source.access_method,
-                    prefix=selected_source.prefix or "",
-                ),
-            ),
-            "selected_table_legacy_uuid": DatabaseSchemaDataWarehouseTable(
-                fields={},
-                format="Parquet",
-                id="selected_table_legacy_uuid_id",
-                name="selected_table_legacy_uuid",
-                url_pattern="direct://postgres",
-                schema=DatabaseSchemaSchema(
-                    id="schema-selected-legacy",
-                    name="selected_table_legacy_uuid",
-                    should_sync=True,
-                    incremental=False,
-                ),
-                source=DatabaseSchemaSource(
                     id=str(selected_source.id),
                     status=selected_source.status,
                     source_type=selected_source.source_type,
@@ -139,7 +91,7 @@ class TestQueryService(APIBaseTest):
                     incremental=False,
                 ),
                 source=DatabaseSchemaSource(
-                    id=other_source.source_id,
+                    id=str(other_source.id),
                     status=other_source.status,
                     source_type=other_source.source_type,
                     access_method=other_source.access_method,
@@ -160,19 +112,11 @@ class TestQueryService(APIBaseTest):
             configuration={},
             created_at=selected_source.created_at,
         )
-        join_for_other_source = SimpleNamespace(
-            id="2",
-            source_table_name="selected_table",
-            source_table_key="selected_table.id",
-            joining_table_name="other_table",
-            joining_table_key="other_table.id",
-            field_name="cross_source_join",
-            configuration={},
-            created_at=other_source.created_at,
-        )
-        mock_joins = [join_for_selected_source, join_for_other_source]
         mock_join_queryset = MagicMock()
-        mock_join_queryset.exclude.return_value = mock_joins
+        mock_filtered_join_queryset = MagicMock()
+        mock_join_queryset.exclude.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.filter.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.iterator.return_value = iter([join_for_selected_source])
         mock_join_filter.return_value = mock_join_queryset
 
         mock_database.serialize.return_value["selected_table_2"] = DatabaseSchemaDataWarehouseTable(
@@ -188,7 +132,7 @@ class TestQueryService(APIBaseTest):
                 incremental=False,
             ),
             source=DatabaseSchemaSource(
-                id=selected_source.source_id,
+                id=str(selected_source.id),
                 status=selected_source.status,
                 source_type=selected_source.source_type,
                 access_method=selected_source.access_method,
@@ -200,16 +144,18 @@ class TestQueryService(APIBaseTest):
             DatabaseSchemaQueryResponse,
             process_query_model(
                 self.team,
-                DatabaseSchemaQuery(connectionId="selected-connection"),
+                DatabaseSchemaQuery(connectionId=str(selected_source.id)),
             ),
         )
 
         self.assertIsInstance(response, DatabaseSchemaQueryResponse)
-        self.assertEqual(
-            set(response.tables.keys()), {"selected_table", "selected_table_legacy_uuid", "selected_table_2"}
-        )
+        self.assertEqual(set(response.tables.keys()), {"selected_table", "selected_table_2"})
         self.assertEqual(len(response.joins), 1)
         self.assertEqual(response.joins[0].field_name, "selected_join")
+        mock_filtered_join_queryset.filter.assert_called_once_with(
+            source_table_name__in={"selected_table", "selected_table_2"},
+            joining_table_name__in={"selected_table", "selected_table_2"},
+        )
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
@@ -243,7 +189,7 @@ class TestQueryService(APIBaseTest):
                     incremental=False,
                 ),
                 source=DatabaseSchemaSource(
-                    id=selected_source.source_id,
+                    id=str(selected_source.id),
                     status=selected_source.status,
                     source_type=selected_source.source_type,
                     access_method=selected_source.access_method,
@@ -263,7 +209,7 @@ class TestQueryService(APIBaseTest):
                     incremental=False,
                 ),
                 source=DatabaseSchemaSource(
-                    id=selected_source.source_id,
+                    id=str(selected_source.id),
                     status=selected_source.status,
                     source_type=selected_source.source_type,
                     access_method=selected_source.access_method,
@@ -273,18 +219,96 @@ class TestQueryService(APIBaseTest):
         }
         mock_create_for.return_value = mock_database
         mock_join_queryset = MagicMock()
-        mock_join_queryset.exclude.return_value = []
+        mock_filtered_join_queryset = MagicMock()
+        mock_join_queryset.exclude.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.filter.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.iterator.return_value = iter([])
         mock_join_filter.return_value = mock_join_queryset
 
         response = cast(
             DatabaseSchemaQueryResponse,
             process_query_model(
                 self.team,
-                DatabaseSchemaQuery(connectionId="selected-connection"),
+                DatabaseSchemaQuery(connectionId=str(selected_source.id)),
             ),
         )
 
         self.assertEqual(set(response.tables.keys()), {"queriable_table"})
+        mock_filtered_join_queryset.filter.assert_called_once_with(
+            source_table_name__in={"queriable_table"},
+            joining_table_name__in={"queriable_table"},
+        )
+
+    @patch("posthog.api.services.query.get_hogql_autocomplete")
+    @patch("posthog.api.services.query.Database.create_for")
+    def test_hogql_autocomplete_without_connection_hides_direct_tables(
+        self,
+        mock_create_for: MagicMock,
+        mock_get_hogql_autocomplete: MagicMock,
+    ):
+        database = Database()
+        database.tables.add_child(
+            TableNode(
+                name="events",
+                table=PostgresTable(name="events", fields={}, postgres_table_name="events"),
+            ),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
+        )
+        database.tables.add_child(
+            TableNode(
+                name="direct_table",
+                table=PostgresTable(
+                    name="direct_table",
+                    fields={},
+                    postgres_table_name="posthog_dashboard",
+                ),
+            ),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
+        )
+        mock_create_for.return_value = database
+
+        serialized_database = {
+            "events": DatabaseSchemaPostHogTable(fields={}, id="events", name="events"),
+            "direct_table": DatabaseSchemaDataWarehouseTable(
+                fields={},
+                format="Parquet",
+                id="posthog_dashboard_id",
+                name="direct_table",
+                url_pattern="direct://postgres",
+                source=DatabaseSchemaSource(
+                    id="direct-source",
+                    status="Completed",
+                    source_type="Postgres",
+                    access_method="direct",
+                    prefix="ph3",
+                ),
+            ),
+        }
+
+        def _mock_autocomplete(*args, **kwargs):
+            database_arg = kwargs["database_arg"]
+            self.assertIsNotNone(database_arg)
+            self.assertTrue(database_arg.has_table("events"))
+            self.assertFalse(database_arg.has_table("direct_table"))
+            return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+
+        mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
+
+        with patch("posthog.api.services.query.Database.serialize", return_value=serialized_database):
+            response = process_query_model(
+                self.team,
+                HogQLAutocomplete(
+                    kind="HogQLAutocomplete",
+                    query="SELECT * FROM ",
+                    language=HogLanguage.HOG_QL,
+                    startPosition=14,
+                    endPosition=14,
+                ),
+            )
+
+        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.Database.create_for")
@@ -293,7 +317,7 @@ class TestQueryService(APIBaseTest):
         mock_create_for: MagicMock,
         mock_get_hogql_autocomplete: MagicMock,
     ):
-        ExternalDataSource.objects.create(
+        source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
             destination_id="destination-1",
@@ -313,6 +337,29 @@ class TestQueryService(APIBaseTest):
         database._warehouse_table_names = ["posthog_dashboard"]
         mock_create_for.return_value = database
 
+        serialized_database = {
+            "posthog_dashboard": DatabaseSchemaDataWarehouseTable(
+                fields={},
+                format="Parquet",
+                id="posthog_dashboard_id",
+                name="posthog_dashboard",
+                url_pattern="direct://postgres",
+                schema=DatabaseSchemaSchema(
+                    id="schema-selected",
+                    name="posthog_dashboard",
+                    should_sync=True,
+                    incremental=False,
+                ),
+                source=DatabaseSchemaSource(
+                    id=str(source.id),
+                    status=source.status,
+                    source_type=source.source_type,
+                    access_method=source.access_method,
+                    prefix=source.prefix or "",
+                ),
+            )
+        }
+
         def _mock_autocomplete(*args, **kwargs):
             database_arg = kwargs["database_arg"]
             self.assertIsNotNone(database_arg)
@@ -322,19 +369,22 @@ class TestQueryService(APIBaseTest):
 
         mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
 
-        response = process_query_model(
-            self.team,
-            HogQLAutocomplete(
-                kind="HogQLAutocomplete",
-                query="SELECT * FROM ",
-                language=HogLanguage.HOG_QL,
-                startPosition=14,
-                endPosition=14,
-                connectionId="selected-connection",
-            ),
-        )
+        with patch("posthog.api.services.query.Database.serialize", return_value=serialized_database):
+            response = process_query_model(
+                self.team,
+                HogQLAutocomplete(
+                    kind="HogQLAutocomplete",
+                    query="SELECT * FROM ",
+                    language=HogLanguage.HOG_QL,
+                    startPosition=14,
+                    endPosition=14,
+                    connectionId=str(source.id),
+                ),
+            )
 
         self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+        self.assertEqual(mock_create_for.call_args.kwargs["user"], None)
+        self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], None)
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.Database.create_for")
@@ -421,16 +471,16 @@ class TestQueryService(APIBaseTest):
         }
         self.assertEqual(
             set(
-                _filter_schema_tables_for_connection(
+                filter_schema_tables_for_connection(
                     serialized_database,
-                    _connection_source_identifiers(selected_source),
+                    connection_source_identifiers(selected_source),
                 ).keys()
             ),
             {"selected_table"},
         )
         with (
             patch("posthog.api.services.query.Database.serialize", return_value=serialized_database),
-            patch("posthog.api.services.query._prune_database_for_direct_connection") as mock_prune_database,
+            patch("posthog.api.services.query.prune_database_for_connection") as mock_prune_database,
         ):
             mock_create_for.return_value = database
 
@@ -450,12 +500,179 @@ class TestQueryService(APIBaseTest):
                     language=HogLanguage.HOG_QL,
                     startPosition=14,
                     endPosition=14,
-                    connectionId="selected-connection",
+                    connectionId=str(selected_source.id),
                 ),
             )
 
             self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
             mock_prune_database.assert_called_once_with(database, {"selected_table"})
+            self.assertEqual(mock_create_for.call_args.kwargs["user"], None)
+            self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], None)
+
+    @patch("posthog.api.services.query.get_hogql_autocomplete")
+    @patch("posthog.api.services.query.Database.create_for")
+    def test_hogql_autocomplete_with_direct_connection_keeps_helper_tables_only(
+        self,
+        mock_create_for: MagicMock,
+        mock_get_hogql_autocomplete: MagicMock,
+    ):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+
+        database = Database()
+        database.tables.add_child(
+            TableNode(
+                name="selected_table",
+                table=PostgresTable(name="selected_table", fields={}, postgres_table_name="selected_table"),
+            ),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
+        )
+        database.tables.add_child(
+            TableNode(
+                name="events",
+                table=PostgresTable(name="events", fields={}, postgres_table_name="events"),
+            ),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
+        )
+        database.tables.add_child(
+            TableNode(name="numbers", table=NumbersTable()),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
+        )
+        mock_create_for.return_value = database
+
+        serialized_database = {
+            "selected_table": DatabaseSchemaDataWarehouseTable(
+                fields={},
+                format="Parquet",
+                id="selected_table_id",
+                name="selected_table",
+                url_pattern="direct://postgres",
+                schema=DatabaseSchemaSchema(
+                    id="schema-selected",
+                    name="selected_table",
+                    should_sync=True,
+                    incremental=False,
+                ),
+                source=DatabaseSchemaSource(
+                    id=str(source.id),
+                    status=source.status,
+                    source_type=source.source_type,
+                    access_method=source.access_method,
+                    prefix=source.prefix or "",
+                ),
+            )
+        }
+
+        with patch("posthog.api.services.query.Database.serialize", return_value=serialized_database):
+
+            def _mock_autocomplete(*args, **kwargs):
+                database_arg = kwargs["database_arg"]
+                self.assertIsNotNone(database_arg)
+                self.assertTrue(database_arg.has_table("selected_table"))
+                self.assertTrue(database_arg.has_table("numbers"))
+                self.assertFalse(database_arg.has_table("events"))
+                return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+
+            mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
+
+            response = process_query_model(
+                self.team,
+                HogQLAutocomplete(
+                    kind="HogQLAutocomplete",
+                    query="SELECT * FROM ",
+                    language=HogLanguage.HOG_QL,
+                    startPosition=14,
+                    endPosition=14,
+                    connectionId=str(source.id),
+                ),
+            )
+
+        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+
+    @patch("posthog.api.services.query.get_hogql_autocomplete")
+    @patch("posthog.api.services.query.Database.create_for")
+    def test_hogql_autocomplete_passes_user_context(
+        self,
+        mock_create_for: MagicMock,
+        mock_get_hogql_autocomplete: MagicMock,
+    ):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        database = Database()
+        mock_create_for.return_value = database
+        mock_get_hogql_autocomplete.return_value = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+
+        with (
+            patch("posthog.api.services.query.Database.serialize", return_value={}),
+            patch("posthog.api.services.query.prune_database_for_connection"),
+        ):
+            process_query_model(
+                self.team,
+                HogQLAutocomplete(
+                    kind="HogQLAutocomplete",
+                    query="SELECT * FROM ",
+                    language=HogLanguage.HOG_QL,
+                    startPosition=14,
+                    endPosition=14,
+                    connectionId=str(source.id),
+                ),
+                user=self.user,
+            )
+
+        self.assertEqual(mock_create_for.call_args.kwargs["user"], self.user)
+        self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], self.user)
+
+    @parameterized.expand(
+        [
+            ("autocomplete", HogQLAutocomplete),
+            ("schema", DatabaseSchemaQuery),
+        ]
+    )
+    def test_query_service_rejects_soft_deleted_connection_ids(self, _label: str, query_cls):
+        query: HogQLAutocomplete | DatabaseSchemaQuery
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            deleted=True,
+        )
+
+        if query_cls is HogQLAutocomplete:
+            query = HogQLAutocomplete(
+                kind="HogQLAutocomplete",
+                query="SELECT * FROM ",
+                language=HogLanguage.HOG_QL,
+                startPosition=14,
+                endPosition=14,
+                connectionId=str(source.id),
+            )
+        else:
+            query = DatabaseSchemaQuery(connectionId=str(source.id))
+
+        with self.assertRaises(ValidationError) as error:
+            process_query_model(self.team, query)
+
+        self.assertEqual(cast(list[str], error.exception.detail)[0], "Invalid connectionId for this team")
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
@@ -498,9 +715,28 @@ class TestQueryService(APIBaseTest):
         }
         mock_create_for.return_value = mock_database
         mock_join_queryset = MagicMock()
-        mock_join_queryset.exclude.return_value = []
+        mock_filtered_join_queryset = MagicMock()
+        dangling_direct_join = SimpleNamespace(
+            id="1",
+            source_table_name="direct_table",
+            source_table_key="direct_table.id",
+            joining_table_name="warehouse_table",
+            joining_table_key="warehouse_table.id",
+            field_name="direct_join",
+            configuration={},
+            created_at=self.team.created_at,
+        )
+        mock_join_queryset.exclude.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.iterator.return_value = iter([dangling_direct_join])
+        mock_filtered_join_queryset.filter.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.filter.return_value.iterator.return_value = iter([])
         mock_join_filter.return_value = mock_join_queryset
 
         response = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
 
         self.assertEqual(set(response.tables.keys()), {"warehouse_table", "events"})
+        self.assertEqual(response.joins, [])
+        mock_filtered_join_queryset.filter.assert_called_once_with(
+            source_table_name__in={"warehouse_table", "events"},
+            joining_table_name__in={"warehouse_table", "events"},
+        )

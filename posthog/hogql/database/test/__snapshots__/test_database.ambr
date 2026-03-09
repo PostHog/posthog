@@ -564,17 +564,19 @@
          "posthog_externaldataschema"."sync_frequency_interval",
          "posthog_externaldataschema"."sync_time_of_day"
   FROM "posthog_externaldataschema"
-  WHERE "posthog_externaldataschema"."table_id" IN ('00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid)
+  WHERE ((NOT "posthog_externaldataschema"."deleted"
+          OR "posthog_externaldataschema"."deleted" IS NULL)
+         AND "posthog_externaldataschema"."table_id" IN ('00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.21
@@ -890,12 +892,14 @@
          "posthog_externaldataschema"."sync_frequency_interval",
          "posthog_externaldataschema"."sync_time_of_day"
   FROM "posthog_externaldataschema"
-  WHERE "posthog_externaldataschema"."table_id" IN ('00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid,
-                                                    '00000000000000000000000000000000'::uuid)
+  WHERE ((NOT "posthog_externaldataschema"."deleted"
+          OR "posthog_externaldataschema"."deleted" IS NULL)
+         AND "posthog_externaldataschema"."table_id" IN ('00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid,
+                                                         '00000000000000000000000000000000'::uuid))
   '''
 # ---
 # name: TestDatabase.test_serialize_database_no_person_on_events

@@ -1,5 +1,4 @@
 from typing import Optional, Union, cast
-from uuid import UUID
 
 from django.conf import settings
 
@@ -10,13 +9,17 @@ from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import FunctionCallTable, TableNode
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+from posthog.hogql.source_scoping import (
+    connection_source_identifiers,
+    filter_schema_tables_for_connection,
+    prune_database_for_connection,
+)
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -25,48 +28,7 @@ from posthog.models import Team
 from posthog.models.user import User
 
 from products.data_warehouse.backend.models import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
-
-
-def _source_for_connection(team: Team, connection_id: str | None) -> ExternalDataSource | None:
-    if not connection_id:
-        return None
-
-    sources = ExternalDataSource.objects.filter(team_id=team.pk)
-
-    source = sources.filter(connection_id=connection_id).first()
-    if source:
-        return source
-
-    source = sources.filter(source_id=connection_id).first()
-    if source:
-        return source
-
-    try:
-        source_uuid = UUID(connection_id)
-    except ValueError:
-        return None
-
-    return sources.filter(id=source_uuid).first()
-
-
-def _prune_database_for_direct_metadata(database: Database, allowed_table_names: set[str]) -> None:
-    def prune_node(node: TableNode, chain: list[str]) -> bool:
-        full_name = ".".join(chain)
-
-        keep_table = node.table is not None and (
-            full_name in allowed_table_names or (len(chain) > 0 and isinstance(node.table, FunctionCallTable))
-        )
-
-        pruned_children: dict[str, TableNode] = {}
-        for child_name, child in node.children.items():
-            if prune_node(child, [*chain, child_name]):
-                pruned_children[child_name] = child
-        node.children = pruned_children
-
-        return node.name == "root" or keep_table or len(node.children) > 0
-
-    prune_node(database.tables, [])
+from products.data_warehouse.backend.models.external_data_source import get_external_data_source_for_connection
 
 
 def get_hogql_metadata(
@@ -87,23 +49,28 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
-    source = _source_for_connection(team, query.connectionId)
+    source = get_external_data_source_for_connection(team_id=team.pk, connection_id=query.connectionId)
+    if query.connectionId and source is None:
+        response.isValid = False
+        response.errors = [HogQLNotice(message="Invalid connectionId for this team")]
+        return response
+
     database = None
     if source and source.source_id:
         database = Database.create_for(
             team=team,
+            user=user,
             modifiers=query_modifiers,
             direct_query_source_id=str(source.id)
             if source.access_method == ExternalDataSource.AccessMethod.DIRECT
             else None,
         )
-        if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-            direct_tables = DataWarehouseTable.raw_objects.filter(
-                team_id=team.pk,
-                external_data_source_id=source.id,
-            ).exclude(deleted=True)
-            allowed_table_names = {table.hogql_definition(query_modifiers).name for table in direct_tables}
-            _prune_database_for_direct_metadata(database, allowed_table_names)
+        serialized_tables = database.serialize(HogQLContext(team_id=team.pk, team=team, database=database, user=user))
+        filtered_tables = filter_schema_tables_for_connection(
+            serialized_tables,
+            connection_source_identifiers(source),
+        )
+        prune_database_for_connection(database, set(filtered_tables.keys()))
 
     try:
         context = HogQLContext(
@@ -143,16 +110,23 @@ def get_hogql_metadata(
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
 
-            if not clickhouse_sql or not clickhouse_prepared_ast:
-                clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
+            if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
-                    dialect="clickhouse",
+                    dialect="postgres",
                 )
+            else:
+                if not clickhouse_sql or not clickhouse_prepared_ast:
+                    clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
+                        clone_expr(hogql_ast),
+                        context=context,
+                        dialect="clickhouse",
+                    )
 
-            if clickhouse_prepared_ast:
-                ch_table_names = get_table_names(clickhouse_prepared_ast)
-                response.ch_table_names = ch_table_names
+                if clickhouse_prepared_ast:
+                    ch_table_names = get_table_names(clickhouse_prepared_ast)
+                    response.ch_table_names = ch_table_names
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings

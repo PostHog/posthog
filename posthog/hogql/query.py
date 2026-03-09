@@ -28,6 +28,11 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.source_scoping import (
+    connection_source_identifiers,
+    filter_schema_tables_for_connection,
+    prune_database_for_connection,
+)
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
@@ -40,8 +45,11 @@ from posthog.errors import ExposedCHQueryError
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 tracer = trace.get_tracer(__name__)
+DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
+DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 
 POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     16: "Bool",  # bool
@@ -103,6 +111,30 @@ def postgres_error_to_message(error: Exception) -> str:
     if not message:
         return "Postgres query failed."
     return message.splitlines()[0]
+
+
+def validate_direct_postgres_source_config(source, team: Team):
+    from posthog.temporal.data_imports.sources import SourceRegistry
+
+    from products.data_warehouse.backend.types import ExternalDataSourceType
+
+    if not source.is_direct_postgres:
+        raise ExposedHogQLError("Invalid direct Postgres connection.")
+
+    postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
+    config = postgres_source.parse_config(source.job_inputs or {})
+
+    is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)
+    if not is_ssh_valid:
+        raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
+
+    valid_host, host_errors = postgres_source.is_database_host_valid(
+        config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+    )
+    if not valid_host:
+        raise ExposedHogQLError(host_errors or "Invalid Postgres host.")
+
+    return postgres_source, config
 
 
 @dataclasses.dataclass
@@ -225,6 +257,23 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 direct_query_source_id=self.selected_direct_source_id,
             )
+        if self.connection_id is not None and self.selected_direct_source_id is None:
+            from products.data_warehouse.backend.models.external_data_source import (
+                get_external_data_source_for_connection,
+            )
+
+            source = get_external_data_source_for_connection(team_id=self.team.pk, connection_id=self.connection_id)
+            if source is None:
+                raise ExposedHogQLError("Invalid connectionId for this team")
+
+            serialized_tables = database.serialize(
+                HogQLContext(team_id=self.team.pk, team=self.team, database=database, user=self.user)
+            )
+            filtered_tables = filter_schema_tables_for_connection(
+                serialized_tables,
+                connection_source_identifiers(source),
+            )
+            prune_database_for_connection(database, set(filtered_tables.keys()))
 
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -278,32 +327,60 @@ class HogQLQueryExecutor:
     def _extract_direct_postgres_sources_from_type(
         self, query_type: ast.SelectQueryType | ast.SelectSetQueryType
     ) -> set[str]:
-        source_ids: set[str] = set()
+        return {
+            table_type.table.external_data_source_id
+            for table_type in self._extract_base_table_types_from_type(query_type)
+            if isinstance(table_type.table, DirectPostgresTable)
+        }
 
-        def visit_one(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
+    def _extract_base_table_types_from_type(
+        self, query_type: ast.SelectQueryType | ast.SelectSetQueryType
+    ) -> list[ast.TableType]:
+        table_types: list[ast.TableType] = []
+
+        def visit_query(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
             if isinstance(select_type, ast.SelectSetQueryType):
                 for sub_type in select_type.types:
-                    visit_one(sub_type)
+                    visit_query(sub_type)
                 return
 
             for table_type in select_type.tables.values():
-                if isinstance(table_type, ast.TableType) and isinstance(table_type.table, DirectPostgresTable):
-                    source_ids.add(table_type.table.external_data_source_id)
-                elif isinstance(table_type, ast.TableAliasType):
-                    if isinstance(table_type.table_type, ast.TableType) and isinstance(
-                        table_type.table_type.table, DirectPostgresTable
-                    ):
-                        source_ids.add(table_type.table_type.table.external_data_source_id)
-                elif isinstance(table_type, ast.SelectQueryAliasType):
-                    visit_one(table_type.select_query_type)
-                elif isinstance(table_type, ast.SelectViewType):
-                    visit_one(table_type.select_query_type)
+                visit_table_type(table_type)
 
             for anonymous_table in select_type.anonymous_tables:
-                visit_one(anonymous_table)
+                visit_query(anonymous_table)
 
-        visit_one(query_type)
-        return source_ids
+        def visit_table_type(table_type: ast.TableOrSelectType) -> None:
+            if isinstance(table_type, ast.TableType):
+                table_types.append(table_type)
+            elif isinstance(table_type, ast.TableAliasType):
+                visit_table_type(table_type.table_type)
+            elif isinstance(table_type, ast.CTETableType):
+                visit_query(table_type.select_query_type)
+            elif isinstance(table_type, ast.CTETableAliasType):
+                visit_table_type(table_type.cte_table_type)
+            elif isinstance(table_type, ast.SelectQueryAliasType):
+                visit_query(table_type.select_query_type)
+            elif isinstance(table_type, ast.SelectViewType):
+                visit_query(table_type.select_query_type)
+
+        visit_query(query_type)
+        return table_types
+
+    def _effective_direct_postgres_settings(self) -> HogQLGlobalSettings:
+        settings = self.settings.model_copy(deep=True) if self.settings is not None else HogQLGlobalSettings()
+
+        if self.limit_context in (
+            LimitContext.EXPORT,
+            LimitContext.COHORT_CALCULATION,
+            LimitContext.QUERY_ASYNC,
+            LimitContext.SAVED_QUERY,
+            LimitContext.RETENTION,
+            LimitContext.POSTHOG_AI,
+        ):
+            settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
+
+        return settings
 
     def _maybe_prepare_direct_postgres_query(self) -> None:
         query_type = self._get_select_query_type()
@@ -313,7 +390,7 @@ class HogQLQueryExecutor:
         direct_source_ids = self._extract_direct_postgres_sources_from_type(query_type)
 
         if len(direct_source_ids) == 0:
-            if self.connection_id is not None:
+            if self.selected_direct_source_id is not None:
                 raise ExposedHogQLError("Table not found in the selected connection.")
             return
 
@@ -326,12 +403,9 @@ class HogQLQueryExecutor:
         if self.selected_direct_source_id is not None and self.selected_direct_source_id not in direct_source_ids:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
-        all_table_types = Resolver(context=self.hogql_context or self.context)._extract_tables_from_query_type(
-            query_type
-        )
         has_non_direct_tables = any(
-            isinstance(table_type, ast.TableType) and not isinstance(table_type.table, DirectPostgresTable)
-            for table_type in all_table_types
+            not isinstance(table_type.table, DirectPostgresTable)
+            for table_type in self._extract_base_table_types_from_type(query_type)
         )
 
         if has_non_direct_tables:
@@ -378,12 +452,9 @@ class HogQLQueryExecutor:
         if len(direct_source_ids) > 1:
             raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
 
-        all_table_types = Resolver(context=self.hogql_context or self.context)._extract_tables_from_query_type(
-            query_type
-        )
         has_non_direct_tables = any(
-            isinstance(table_type, ast.TableType) and not isinstance(table_type.table, DirectPostgresTable)
-            for table_type in all_table_types
+            not isinstance(table_type.table, DirectPostgresTable)
+            for table_type in self._extract_base_table_types_from_type(query_type)
         )
 
         if has_non_direct_tables:
@@ -404,34 +475,55 @@ class HogQLQueryExecutor:
 
         return None
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_postgres_query")
     def _execute_direct_postgres_query(self) -> None:
         assert self.direct_postgres_sql is not None
         assert self.direct_postgres_source_id is not None
 
+        from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE, _get_sslmode
+
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
-        source = (
-            ExternalDataSource.objects.get(team=self.team, id=self.connection_id)
-            if self.connection_id is not None
-            else ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
+        try:
+            source = (
+                ExternalDataSource.objects.get(team=self.team, id=self.connection_id)
+                if self.connection_id is not None
+                else ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
+            )
+        except ExternalDataSource.DoesNotExist as e:
+            raise ExposedHogQLError("Connection not found or has been deleted") from e
+
+        postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
+        require_ssl = source.created_at >= SSL_REQUIRED_AFTER_DATE
+        settings = self._effective_direct_postgres_settings()
+        statement_timeout_ms = (
+            max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
         )
-        source_config = source.job_inputs or {}
+
+        span = trace.get_current_span()
+        span.set_attribute("team_id", self.team.pk)
+        span.set_attribute("query_type", self.query_type)
+        span.set_attribute("source_id", self.direct_postgres_source_id)
 
         try:
-            with psycopg.connect(
-                host=source_config.get("host"),
-                port=source_config.get("port", 5432),
-                dbname=source_config.get("database"),
-                user=source_config.get("user"),
-                password=source_config.get("password"),
-                sslmode="prefer",
-                options="-c default_transaction_read_only=on",
-            ) as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
-                    results = cursor.fetchall()
-                    description = cursor.description or []
-        except Exception as error:
+            with self.timings.measure("postgres_execute"):
+                with postgres_source.with_ssh_tunnel(source_config) as (host, port):
+                    with psycopg.connect(
+                        host=host,
+                        port=port,
+                        dbname=source_config.database,
+                        user=source_config.user,
+                        password=source_config.password,
+                        connect_timeout=DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
+                        sslmode=_get_sslmode(require_ssl),
+                        options=(f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}"),
+                    ) as connection:
+                        with connection.cursor() as cursor:
+                            cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
+                            results = cursor.fetchall()
+                            description = cursor.description or []
+        except (psycopg.Error, ExposedHogQLError) as error:
+            span.set_attribute("error_type", error.__class__.__name__)
             if self.debug:
                 self.results = []
                 self.error = postgres_error_to_message(error)
@@ -439,6 +531,7 @@ class HogQLQueryExecutor:
                 return
             raise ExposedHogQLError(postgres_error_to_message(error)) from error
 
+        span.set_attribute("row_count", len(results))
         self.results = results
         self.types = [
             (column.name, postgres_oid_to_clickhouse_type(getattr(column, "type_code", None))) for column in description
@@ -605,7 +698,7 @@ class HogQLQueryExecutor:
 
         if self.connection_id is not None or self._should_use_direct_postgres():
             self._maybe_prepare_direct_postgres_query()
-        else:
+        if self.direct_postgres_sql is None:
             with self.timings.measure("_generate_clickhouse_sql"):
                 self._generate_clickhouse_sql()
 

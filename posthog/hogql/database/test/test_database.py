@@ -11,6 +11,8 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaField,
+    DatabaseSchemaPostHogTable,
     DataWarehouseEventsModifier,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
@@ -33,6 +35,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.source_scoping import filter_schema_tables_for_connection
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.organization import Organization
@@ -108,6 +111,45 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         posthog_table_names = database.get_posthog_table_names()
         for table_name in posthog_table_names:
             assert serialized_database.get(table_name) is not None
+
+    def test_filter_schema_tables_for_connection_removes_lazy_joins_to_hidden_direct_tables(self):
+        class DirectTableStub:
+            type = "data_warehouse"
+
+            def __init__(self):
+                self.source = type(
+                    "SourceStub",
+                    (),
+                    {"access_method": ExternalDataSource.AccessMethod.DIRECT},
+                )()
+
+        tables: dict[str, DatabaseSchemaPostHogTable | DirectTableStub] = {
+            "events": DatabaseSchemaPostHogTable(
+                id="events",
+                name="events",
+                fields={
+                    "dashboard": DatabaseSchemaField(
+                        name="dashboard",
+                        hogql_value="dashboard",
+                        type="lazy_table",
+                        schema_valid=True,
+                        table="postgres.ph3.posthog_dashboard",
+                        fields=["id"],
+                        id="dashboard",
+                    )
+                },
+            ),
+            "postgres.ph3.posthog_dashboard": DirectTableStub(),
+        }
+        filtered_tables = filter_schema_tables_for_connection(
+            tables,
+            None,
+        )
+
+        assert "postgres.ph3.posthog_dashboard" not in filtered_tables
+        events_table = filtered_tables["events"]
+        assert isinstance(events_table, DatabaseSchemaPostHogTable)
+        assert "dashboard" not in events_table.fields
 
     def test_serialize_database_deleted_saved_query(self):
         saved_query_name = "deleted_saved_query"
@@ -283,7 +325,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert len(table.fields.keys()) == 1
 
         assert table.source is not None
-        assert table.source.id == source.source_id
+        assert table.source.id == str(source.id)
         assert table.source.status == "Completed"
         assert table.source.source_type == "Stripe"
 
@@ -1027,6 +1069,195 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(activitylog.fields.get("team"), LazyJoin)
         assert isinstance(team.fields.get("posthog_activitylogs"), LazyJoin)
 
+    def test_direct_postgres_foreign_key_joins_ignore_deleted_schemas(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "actor_key": {"hogql": "string", "clickhouse": "String", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            deleted=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {
+                            "column": "actor_key",
+                            "target_table": "posthog_team",
+                            "target_column": "name",
+                        }
+                    ]
+                }
+            },
+        )
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={"schema_metadata": {"foreign_keys": []}},
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        activitylog = database.get_table("posthog_activitylog")
+
+        assert activitylog.fields.get("team") is None
+
+    def test_direct_postgres_foreign_key_joins_do_not_leak_to_posthog_tables(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "person_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+        )
+
+        database = Database.create_for(team=self.team)
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+        persons = database.get_table("persons")
+
+        assert activitylog.fields.get("person") is None
+        assert persons.fields.get("posthog_activitylogs") is None
+
+    def test_direct_postgres_foreign_key_joins_do_not_resolve_global_targets_in_direct_mode(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "person_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        activitylog = database.get_table("posthog_activitylog")
+
+        assert activitylog.fields.get("person") is None
+
+    def test_direct_postgres_foreign_key_fallback_uses_generic_table_names_only(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="public",
+        )
+        customer_table = DataWarehouseTable.objects.create(
+            name="public_postgres_customers",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "email": {"hogql": "string", "clickhouse": "String", "schema_valid": True},
+            },
+        )
+        order_table = DataWarehouseTable.objects.create(
+            name="public_postgres_orders",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "customer_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(name="customers", team=self.team, source=source, table=customer_table)
+        ExternalDataSchema.objects.create(name="orders", team=self.team, source=source, table=order_table)
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        orders = database.get_table("orders")
+        customers = database.get_table("customers")
+
+        assert isinstance(orders.fields.get("customer"), LazyJoin)
+        assert isinstance(customers.fields.get("orders"), LazyJoin)
+
     def test_direct_postgres_foreign_key_join_allows_user_traversal(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
@@ -1198,6 +1429,53 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert "postgres.ph3.activitylog" in serialized
 
+    def test_direct_postgres_foreign_keys_ignore_invalid_metadata(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        broken_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "person_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=broken_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        1,
+                        {"column": 2, "target_table": "posthog_user", "target_column": "id"},
+                        {"column": "person(", "target_table": "posthog_user", "target_column": "id"},
+                    ]
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert "posthog_activitylog" in serialized
+        assert database.get_table("posthog_activitylog").fields.get("person") is None
+
     def test_serialize_direct_postgres_table_uses_prefixed_name_in_default_mode(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
@@ -1256,6 +1534,97 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "analytics_platform_preaggregationjob" in serialized
         assert "postgres.ph3.analytics_platform_preaggregationjob" not in serialized
         assert "ph3_postgres_analytics_platform_preaggregationjob" not in serialized
+
+    def test_serialize_direct_postgres_direct_mode_skips_disabled_tables_without_errors(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        enabled_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_enabled_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        disabled_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_disabled_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            name="enabled_table", team=self.team, source=source, table=enabled_table, should_sync=True
+        )
+        ExternalDataSchema.objects.create(
+            name="disabled_table",
+            team=self.team,
+            source=source,
+            table=disabled_table,
+            should_sync=False,
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert "enabled_table" in serialized
+        assert "disabled_table" not in serialized
+        assert database.get_serialization_errors() == {}
+
+    def test_deleted_direct_postgres_schema_does_not_reenable_table(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            name="posthog_dashboard",
+            team=self.team,
+            source=source,
+            table=table,
+            deleted=True,
+            should_sync=True,
+        )
+        ExternalDataSchema.objects.create(
+            name="posthog_dashboard",
+            team=self.team,
+            source=source,
+            table=table,
+            should_sync=False,
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+
+        assert not database.has_table("posthog_dashboard")
 
     def test_serialize_direct_postgres_table_uses_raw_name_in_direct_mode_with_source_scoped_prefix(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
@@ -1344,6 +1713,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "analytics_platform_preaggregationjob" in all_table_names
         assert "postgres.ph3.analytics_platform_preaggregationjob" not in all_table_names
         assert "ph3_postgres_analytics_platform_preaggregationjob" not in all_table_names
+
+    def test_get_all_table_names_ignores_missing_warehouse_tables(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="customers",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team)
+        database._warehouse_table_names.append("missing_table")
+
+        all_table_names = database.get_all_table_names()
+
+        assert "customers" in all_table_names
+        assert "missing_table" not in all_table_names
 
     def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -1751,6 +2141,20 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "ph3",
                 "postgres_{source_hex}_analytics_platform_preaggregationjob",
                 "analytics_platform_preaggregationjob",
+            ),
+            (
+                "direct_source_with_legacy_prefix_without_separator",
+                "Postgres",
+                "ph3",
+                "ph3postgres_accounts",
+                "accounts",
+            ),
+            (
+                "direct_source_with_raw_table_name",
+                "Postgres",
+                "ph3",
+                "posthog_dashboard",
+                "posthog_dashboard",
             ),
         ]
     )

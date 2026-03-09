@@ -310,6 +310,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             raise ValidationError("Access method cannot be changed. Create a new source instead.")
 
         validated_data.pop("access_method", None)
+        should_validate_credentials = "job_inputs" in validated_data
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
         if instance.is_direct_postgres:
@@ -369,6 +370,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
+
+        if should_validate_credentials:
+            credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
+            if not credentials_valid:
+                raise ValidationError(credentials_error or "Invalid credentials")
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
