@@ -361,6 +361,9 @@ function parseSegmentRow(row: any[]): SessionReplaySegmentDetail | null {
         const metadata: Record<string, string> = JSON.parse(metadataStr)
         const sessionStartDayjs = dayjs(metadata.session_start_time)
         if (!sessionStartDayjs.isValid()) {
+            console.warn(
+                `Segment ${JSON.stringify(documentId)} has invalid session_start_time: ${JSON.stringify(metadata.session_start_time)}`
+            )
             return null
         }
         const detail: SessionReplaySegmentDetail = {
@@ -372,10 +375,14 @@ function parseSegmentRow(row: any[]): SessionReplaySegmentDetail | null {
             end_time: sessionStartDayjs.add(relativeTimeToSeconds(metadata.end_time), 'second').toISOString(),
         }
         if (!detail.document_id || !detail.session_id) {
+            console.warn(
+                `Segment row missing required fields — document_id: ${JSON.stringify(documentId)}, session_id: ${JSON.stringify(metadata.session_id)}`
+            )
             return null
         }
         return detail
-    } catch {
+    } catch (e) {
+        console.warn('Failed to parse segment row:', e, row)
         return null
     }
 }

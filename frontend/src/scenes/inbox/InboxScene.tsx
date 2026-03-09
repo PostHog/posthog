@@ -28,7 +28,6 @@ import {
     LemonTabs,
     LemonTag,
     Link,
-    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -611,9 +610,18 @@ function ReportDetailPane(): JSX.Element {
 
                                     {/* Signal cards as primary content */}
                                     {reportSignalsLoading && !selectedReportSignals ? (
-                                        <div className="items-center gap-2 text-sm text-tertiary py-4">
-                                            <Spinner className="size-4" />
-                                            Loading signals...
+                                        <div className="space-y-3">
+                                            {Array.from({ length: 3 }).map((_, i) => (
+                                                <div key={i} className="border rounded p-4">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <LemonSkeleton className="w-16 h-5 rounded-sm" />
+                                                        <LemonSkeleton className="w-24 h-4" />
+                                                    </div>
+                                                    <LemonSkeleton className="w-4/5 h-4 mb-1.5" />
+                                                    <LemonSkeleton className="w-full h-3 mb-1" />
+                                                    <LemonSkeleton className="w-3/5 h-3" />
+                                                </div>
+                                            ))}
                                         </div>
                                     ) : selectedReportSignals && selectedReportSignals.length > 0 ? (
                                         <div className="space-y-3">
@@ -633,9 +641,18 @@ function ReportDetailPane(): JSX.Element {
                             content: (
                                 <div className="flex-1 overflow-hidden">
                                     {reportSignalsLoading && !selectedReportSignals ? (
-                                        <div className="items-center justify-center h-full gap-2 text-sm text-tertiary">
-                                            <Spinner className="size-4" />
-                                            Loading signals...
+                                        <div className="p-6 space-y-3">
+                                            {Array.from({ length: 3 }).map((_, i) => (
+                                                <div key={i} className="border rounded p-4">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <LemonSkeleton className="w-16 h-5 rounded-sm" />
+                                                        <LemonSkeleton className="w-24 h-4" />
+                                                    </div>
+                                                    <LemonSkeleton className="w-4/5 h-4 mb-1.5" />
+                                                    <LemonSkeleton className="w-full h-3 mb-1" />
+                                                    <LemonSkeleton className="w-3/5 h-3" />
+                                                </div>
+                                            ))}
                                         </div>
                                     ) : selectedReportSignals && selectedReportSignals.length > 0 ? (
                                         <SignalGraphTab signals={selectedReportSignals} />
