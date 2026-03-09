@@ -93,7 +93,6 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
                                         <>
                                             <LemonButton
                                                 data-attr={`reload-data-warehouse-${row.source.source_type}`}
-                                                key={`reload-data-warehouse-${row.source.source_type}`}
                                                 onClick={() => reloadSource(row.source)}
                                             >
                                                 Reload
@@ -101,7 +100,6 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
                                             <LemonButton
                                                 status="danger"
                                                 data-attr={`delete-data-warehouse-${row.source.source_type}`}
-                                                key={`delete-data-warehouse-${row.source.source_type}`}
                                                 onClick={() => {
                                                     LemonDialog.open({
                                                         title: 'Delete data source?',
@@ -126,7 +124,6 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
                                     <>
                                         <LemonButton
                                             data-attr={`refresh-data-warehouse-${row.table.name}`}
-                                            key={`refresh-data-warehouse-${row.table.name}`}
                                             onClick={() => refreshSelfManagedTableSchema(row.table.id)}
                                         >
                                             Update schema from source
@@ -134,7 +131,6 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
                                         <LemonButton
                                             status="danger"
                                             data-attr={`delete-data-warehouse-${row.table.name}`}
-                                            key={`delete-data-warehouse-${row.table.name}`}
                                             onClick={() => {
                                                 LemonDialog.open({
                                                     title: 'Delete table?',
