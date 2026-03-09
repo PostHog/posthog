@@ -545,8 +545,6 @@ export function DashboardHeader(): JSX.Element | null {
                                             onClick={() => push(urls.dashboardSharing(dashboard.id))}
                                             size="small"
                                             icon={<IconShare fontSize="16" />}
-                                            tooltip="Share"
-                                            tooltipPlacement="top"
                                         >
                                             Share
                                         </LemonButton>
