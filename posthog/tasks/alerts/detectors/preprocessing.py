@@ -10,9 +10,9 @@ def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarr
     Args:
         data: Input time series as numpy array
         config: Preprocessing configuration with optional keys:
-            - diffs: bool - Apply first difference
-            - lags: int - Number of lag features (0-10) for multivariate models
-            - smoothing: int - Moving average window size (0 or None = no smoothing)
+            - diffs_n: int - Number of differencing passes (0 = raw, 1 = first-order)
+            - lags_n: int - Number of lag features (0-10) for multivariate models
+            - smooth_n: int - Moving average window size (0 or None = no smoothing)
 
     Returns:
         Preprocessed data as numpy array
@@ -23,16 +23,16 @@ def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarr
     result = data.copy().astype(float)
 
     # 1. Apply moving average smoothing first (before diffs to smooth noise)
-    smoothing_window = config.get("smoothing", 0) or 0
+    smoothing_window = config.get("smooth_n", 0) or 0
     if smoothing_window > 0:
         result = moving_average(result, smoothing_window)
 
     # 2. Apply first difference (velocity)
-    if config.get("diffs", False):
+    if config.get("diffs_n", 0):
         result = first_difference(result)
 
     # 3. Create lag features for multivariate detectors
-    n_lags = config.get("lags", 0) or 0
+    n_lags = config.get("lags_n", 0) or 0
     if n_lags > 0:
         result = create_lag_features(result, n_lags)
 
