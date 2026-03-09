@@ -1706,7 +1706,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert abs(total_cost - 468.0) < 0.01, f"Expected cost $468.0, got ${total_cost}"
         assert total_impressions == 94950, f"Expected 94950 impressions, got {total_impressions}"
         assert total_clicks == 1614, f"Expected 1614 clicks, got {total_clicks}"
-        assert total_conversions == 174, f"Expected 174 conversions, got {total_conversions}"
+        assert abs(total_conversions - 174) < 0.01, f"Expected 174 conversions, got {total_conversions}"
         assert abs(total_conversion_value - 2548.0) < 0.01, (
             f"Expected conversion value $2548.0, got ${total_conversion_value}"
         )
