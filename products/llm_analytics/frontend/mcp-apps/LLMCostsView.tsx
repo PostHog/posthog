@@ -22,7 +22,7 @@ export interface LLMCostsViewProps {
 }
 
 function formatCurrency(value: number): string {
-    return `$${value.toFixed(4)}`
+    return `$${value.toFixed(2)}`
 }
 
 interface ModelRow {
@@ -32,7 +32,7 @@ interface ModelRow {
 }
 
 export function LLMCostsView({ data }: LLMCostsViewProps): ReactElement {
-    const series = Array.isArray(data) ? data : (data.results ?? [])
+    const series = data.results
 
     if (series.length === 0) {
         return (
