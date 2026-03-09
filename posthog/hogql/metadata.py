@@ -59,6 +59,7 @@ def get_hogql_metadata(
     if source and source.source_id:
         database = Database.create_for(
             team=team,
+            user=user,
             modifiers=query_modifiers,
             direct_query_source_id=str(source.id)
             if source.access_method == ExternalDataSource.AccessMethod.DIRECT

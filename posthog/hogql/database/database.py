@@ -313,7 +313,11 @@ class Database(BaseModel):
     def get_all_table_names(self) -> list[str]:
         warehouse_table_names: list[str] = []
         for table_name in self._warehouse_table_names:
-            table = self.get_table(table_name)
+            try:
+                table = self.get_table(table_name)
+            except QueryError:
+                continue
+
             if table.name == table_name:
                 warehouse_table_names.append(table_name)
 
@@ -484,7 +488,17 @@ class Database(BaseModel):
         else:
             warehouse_tables_query = warehouse_tables_query.none()
 
-        warehouse_tables_with_data = warehouse_tables_query.all()
+        warehouse_tables_with_data = list(warehouse_tables_query.all())
+        if self._direct_query_source_id is not None:
+            warehouse_tables_with_data = [
+                warehouse_table
+                for warehouse_table in warehouse_tables_with_data
+                if _should_include_direct_query_table(
+                    warehouse_table,
+                    direct_query_source_id=self._direct_query_source_id,
+                    view_names=set(views),
+                )
+            ]
         allowed_warehouse_table_names = set(warehouse_table_names) if self._direct_query_source_id is not None else None
 
         # Process warehouse tables
@@ -895,6 +909,8 @@ class Database(BaseModel):
                 def to_printed_clickhouse(self, context):
                     return self.parent_table.to_printed_clickhouse(context)
 
+            view_names = set(views.resolve_all_table_names())
+
             with timings.measure("select"):
                 tables: list[DataWarehouseTable] = list(
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
@@ -906,16 +922,12 @@ class Database(BaseModel):
                     tables = [
                         table
                         for table in tables
-                        if table.external_data_source is not None
-                        and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                        and str(table.external_data_source_id) == direct_query_source_id
-                        and (
-                            not (schemas := _get_active_external_data_schemas(table))
-                            or any(schema.should_sync for schema in schemas)
+                        if _should_include_direct_query_table(
+                            table,
+                            direct_query_source_id=direct_query_source_id,
+                            view_names=view_names,
                         )
                     ]
-
-            view_names = views.resolve_all_table_names()
             for table in tables:
                 # Skip adding data warehouse tables that are materialized from views
                 # We can detect that because they have the exact same name as the view
@@ -1382,6 +1394,26 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
     return [schema for schema in warehouse_table.externaldataschema_set.all() if schema.deleted is not True]
 
 
+def _should_include_direct_query_table(
+    warehouse_table: DataWarehouseTable,
+    *,
+    direct_query_source_id: str,
+    view_names: set[str],
+) -> bool:
+    source = warehouse_table.external_data_source
+    if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+        return False
+
+    if str(warehouse_table.external_data_source_id) != direct_query_source_id:
+        return False
+
+    if warehouse_table.name in view_names:
+        return False
+
+    schemas = _get_active_external_data_schemas(warehouse_table)
+    return not schemas or any(schema.should_sync for schema in schemas)
+
+
 def _foreign_key_join_function(
     from_field: list[str | int], to_field: list[str | int]
 ) -> Callable[[LazyJoinToAdd, HogQLContext, ast.SelectQuery], ast.JoinExpr]:
@@ -1585,7 +1617,11 @@ def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehou
             continue
 
         target_table_name = next(
-            (candidate for candidate in _candidate_target_tables(field_name) if database.has_table(candidate)),
+            (
+                candidate
+                for candidate in _candidate_target_tables(field_name)
+                if database.has_table(candidate) and _is_same_external_scope(database.get_table(candidate))
+            ),
             None,
         )
         if target_table_name is None:

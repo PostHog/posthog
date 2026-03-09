@@ -207,10 +207,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 connectionId=str(source.id),
             ),
             team=self.team,
+            user=self.user,
         )
 
         self.assertEqual(mock_create_for.call_count, 1)
         self.assertEqual(mock_create_for.call_args.kwargs["team"], self.team)
+        self.assertEqual(mock_create_for.call_args.kwargs["user"], self.user)
         self.assertEqual(mock_create_for.call_args.kwargs["direct_query_source_id"], str(source.id))
         self.assertIn("modifiers", mock_create_for.call_args.kwargs)
 

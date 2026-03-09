@@ -1171,6 +1171,43 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert activitylog.fields.get("person") is None
         assert persons.fields.get("posthog_activitylogs") is None
 
+    def test_direct_postgres_foreign_key_joins_do_not_resolve_global_targets_in_direct_mode(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="ph3_postgres_posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "person_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+        )
+
+        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        activitylog = database.get_table("posthog_activitylog")
+
+        assert activitylog.fields.get("person") is None
+
     def test_direct_postgres_foreign_key_join_allows_user_traversal(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
@@ -1626,6 +1663,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "analytics_platform_preaggregationjob" in all_table_names
         assert "postgres.ph3.analytics_platform_preaggregationjob" not in all_table_names
         assert "ph3_postgres_analytics_platform_preaggregationjob" not in all_table_names
+
+    def test_get_all_table_names_ignores_missing_warehouse_tables(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="customers",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team)
+        database._warehouse_table_names.append("missing_table")
+
+        all_table_names = database.get_all_table_names()
+
+        assert "customers" in all_table_names
+        assert "missing_table" not in all_table_names
 
     def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
         credentials = DataWarehouseCredential.objects.create(

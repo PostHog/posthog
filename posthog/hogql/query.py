@@ -475,6 +475,7 @@ class HogQLQueryExecutor:
 
         return None
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_postgres_query")
     def _execute_direct_postgres_query(self) -> None:
         assert self.direct_postgres_sql is not None
         assert self.direct_postgres_source_id is not None
@@ -483,11 +484,15 @@ class HogQLQueryExecutor:
 
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
-        source = (
-            ExternalDataSource.objects.get(team=self.team, id=self.connection_id)
-            if self.connection_id is not None
-            else ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
-        )
+        try:
+            source = (
+                ExternalDataSource.objects.get(team=self.team, id=self.connection_id)
+                if self.connection_id is not None
+                else ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
+            )
+        except ExternalDataSource.DoesNotExist as e:
+            raise ExposedHogQLError("Connection not found or has been deleted") from e
+
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
         require_ssl = source.created_at >= SSL_REQUIRED_AFTER_DATE
         settings = self._effective_direct_postgres_settings()
@@ -495,23 +500,30 @@ class HogQLQueryExecutor:
             max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
         )
 
+        span = trace.get_current_span()
+        span.set_attribute("team_id", self.team.pk)
+        span.set_attribute("query_type", self.query_type)
+        span.set_attribute("source_id", self.direct_postgres_source_id)
+
         try:
-            with postgres_source.with_ssh_tunnel(source_config) as (host, port):
-                with psycopg.connect(
-                    host=host,
-                    port=port,
-                    dbname=source_config.database,
-                    user=source_config.user,
-                    password=source_config.password,
-                    connect_timeout=DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
-                    sslmode=_get_sslmode(require_ssl),
-                    options=(f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}"),
-                ) as connection:
-                    with connection.cursor() as cursor:
-                        cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
-                        results = cursor.fetchall()
-                        description = cursor.description or []
-        except Exception as error:
+            with self.timings.measure("postgres_execute"):
+                with postgres_source.with_ssh_tunnel(source_config) as (host, port):
+                    with psycopg.connect(
+                        host=host,
+                        port=port,
+                        dbname=source_config.database,
+                        user=source_config.user,
+                        password=source_config.password,
+                        connect_timeout=DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
+                        sslmode=_get_sslmode(require_ssl),
+                        options=(f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}"),
+                    ) as connection:
+                        with connection.cursor() as cursor:
+                            cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
+                            results = cursor.fetchall()
+                            description = cursor.description or []
+        except (psycopg.Error, ExposedHogQLError) as error:
+            span.set_attribute("error_type", error.__class__.__name__)
             if self.debug:
                 self.results = []
                 self.error = postgres_error_to_message(error)
@@ -519,6 +531,7 @@ class HogQLQueryExecutor:
                 return
             raise ExposedHogQLError(postgres_error_to_message(error)) from error
 
+        span.set_attribute("row_count", len(results))
         self.results = results
         self.types = [
             (column.name, postgres_oid_to_clickhouse_type(getattr(column, "type_code", None))) for column in description
