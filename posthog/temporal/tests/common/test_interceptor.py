@@ -23,3 +23,11 @@ def test_is_task_queue_supported(task_queue, interceptor_task_queue, supported):
     result = is_task_queue_supported(task_queue, MockInterceptor)
 
     assert result is supported
+
+
+def test_is_task_queue_supported_raises_without_task_queue():
+    class NoQueueInterceptor(Interceptor):
+        pass
+
+    with pytest.raises(ValueError):
+        is_task_queue_supported("any-queue", NoQueueInterceptor)
