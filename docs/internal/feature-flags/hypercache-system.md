@@ -431,6 +431,8 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.example.com"]
 
 - `posthog/tasks/hypercache_verification.py` - Cache verification tasks
 
+## See also
+
 - [Server-side local evaluation](https://posthog.com/docs/feature-flags/local-evaluation) - Public docs on local evaluation
 - [Local evaluation in distributed environments](https://posthog.com/docs/feature-flags/local-evaluation/distributed-environments) - Using external cache providers
 - [Remote config](https://posthog.com/docs/feature-flags/remote-config) - Client-side configuration delivery
