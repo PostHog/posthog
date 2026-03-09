@@ -360,7 +360,7 @@ func (m Model) View() tea.View {
 	if !m.ready {
 		v := tea.NewView("\n  Initialising...\n")
 		v.AltScreen = true
-		v.MouseMode = tea.MouseModeNone
+		v.MouseMode = tea.MouseModeCellMotion
 		return v
 	}
 	var middle string
@@ -376,7 +376,13 @@ func (m Model) View() tea.View {
 		m.renderFooter(),
 	))
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeNone
+	// Disable mouse capture in copy mode so the terminal handles native text
+	// selection within the expanded output pane.
+	if m.copyMode {
+		v.MouseMode = tea.MouseModeNone
+	} else {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	return v
 }
 
