@@ -157,8 +157,8 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                     groupType={TaxonomicFilterGroupType.Events}
                     groupTypes={taxonomicGroupTypes}
                     value={hasEvent ? (step.action_id as string) : undefined}
-                    onChange={(value, _groupType, item) => {
-                        updateStepEvent(stepIndex, value as string, item?.name || (value as string))
+                    onChange={(value, groupType, item) => {
+                        updateStepEvent(stepIndex, value as string, groupType, item)
                     }}
                     renderValue={
                         hasEvent
@@ -167,7 +167,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                     }
                     type={hasEvent ? 'tertiary' : 'secondary'}
                     size="small"
-                    placeholder="Select an event"
+                    placeholder="Select event or action"
                 />
             }
             headerAction={
@@ -185,7 +185,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
             }
             emptyState={
                 <span className="text-xs text-muted italic">
-                    {hasEvent ? 'Waiting for data...' : 'Pick an event to see data'}
+                    {hasEvent ? 'Waiting for data...' : 'Pick an event or action to see data'}
                 </span>
             }
         />

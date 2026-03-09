@@ -9,7 +9,15 @@ import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventNameToEventsNode'
-import { EventsNode, FunnelsQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ActionsNode,
+    AnyEntityNode,
+    DataWarehouseNode,
+    EventsNode,
+    FunnelsQuery,
+    InsightVizNode,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { FunnelPathType, FunnelVizType, InsightLogicProps } from '~/types'
 
@@ -62,10 +70,16 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
         setQuery: (query: InsightVizNode<FunnelsQuery>) => ({ query }),
         addStep: (insertAtIndex: number) => ({ insertAtIndex }),
         removeStep: (stepIndex: number) => ({ stepIndex }),
-        updateStepEvent: (stepIndex: number, event: string | null, name: string) => ({
+        updateStepEvent: (
+            stepIndex: number,
+            value: string | null,
+            groupType: TaxonomicFilterGroupType,
+            item: Record<string, any>
+        ) => ({
             stepIndex,
-            event,
-            name,
+            value,
+            groupType,
+            item,
         }),
         addStepFromPath: (eventName: string, expansion: PathExpansion, funnelStepCount: number) => ({
             eventName,
@@ -111,7 +125,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
 
     selectors({
         stepCount: [(s) => [s.query], (query): number => query.source.series.length],
-        series: [(s) => [s.query], (query): EventsNode[] => query.source.series as EventsNode[]],
+        series: [(s) => [s.query], (query): AnyEntityNode[] => query.source.series as AnyEntityNode[]],
         taxonomicGroupTypes: [
             (s) => [s.featureFlags],
             (featureFlags): TaxonomicFilterGroupType[] => {
@@ -164,14 +178,36 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             })
         },
 
-        updateStepEvent: ({ stepIndex, event, name }) => {
+        updateStepEvent: ({ stepIndex, value, groupType, item }) => {
             const series = [...values.query.source.series]
-            series[stepIndex] = {
-                ...series[stepIndex],
-                kind: NodeKind.EventsNode,
-                event,
-                name,
-            } as EventsNode
+            const name = item?.name || value || ''
+
+            let node: AnyEntityNode
+            if (groupType === TaxonomicFilterGroupType.Actions) {
+                node = {
+                    kind: NodeKind.ActionsNode,
+                    id: parseInt(String(value), 10),
+                    name,
+                } as ActionsNode
+            } else if (groupType === TaxonomicFilterGroupType.DataWarehouse) {
+                node = {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: String(value),
+                    table_name: item?.name || String(value),
+                    id_field: item?.id_field || 'id',
+                    timestamp_field: item?.timestamp_field || 'timestamp',
+                    distinct_id_field: item?.distinct_id_field || 'distinct_id',
+                    name,
+                } as DataWarehouseNode
+            } else {
+                node = {
+                    kind: NodeKind.EventsNode,
+                    event: value,
+                    name,
+                } as EventsNode
+            }
+
+            series[stepIndex] = node
             actions.setQuery({
                 ...values.query,
                 source: { ...values.query.source, series },
@@ -203,7 +239,18 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             const { series, journeyName, query } = values
             const name = journeyName.trim() || 'Untitled journey'
 
-            const hasEmptySteps = series.some((s: EventsNode) => s.event === null)
+            const hasEmptySteps = series.some((s) => {
+                if (s.kind === NodeKind.EventsNode) {
+                    return s.event === null
+                }
+                if (s.kind === NodeKind.ActionsNode) {
+                    return !s.id
+                }
+                if (s.kind === NodeKind.DataWarehouseNode) {
+                    return !s.table_name
+                }
+                return false
+            })
             if (hasEmptySteps) {
                 lemonToast.warning('Select an event for all steps before saving')
                 actions.saveJourneyFailure('Empty steps')
