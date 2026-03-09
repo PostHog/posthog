@@ -27,6 +27,7 @@ import {
     HogTransformerServiceDeps,
     createHogTransformerService,
 } from './cdp/hog-transformations/hog-transformer.service'
+import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import {
@@ -46,7 +47,7 @@ import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisPoolFromConfig } from './utils/db/redis'
-import { isTestEnv } from './utils/env-utils'
+import { isDevEnv, isTestEnv } from './utils/env-utils'
 import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
@@ -73,6 +74,7 @@ export class PluginServer {
     expressApp: express.Application
     nodeInstrumentation: NodeInstrumentation
     private podTerminationTimer?: NodeJS.Timeout
+    private processListeners: Map<string, (...args: any[]) => void> = new Map()
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
@@ -367,21 +369,48 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronShadowWorker) {
-                // Only start the shadow worker if CYCLOTRON_SHADOW_DATABASE_URL is explicitly configured
-                // (not just using the default value). This prevents crashes in hobby/dev deployments
-                // that don't have the shadow database set up.
-                if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
-                    serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronShadowWorker(this.config, cdpDeps!)
-                        await worker.start()
-                        return worker.service
-                    })
-                } else {
-                    logger.info(
-                        '⏭️',
-                        'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
+                // Shadow worker is purely for testing so we only enable if in dev or test mode with an explicit env
+                // if not dev mode then we fully trust env vars instead
+
+                const config = { ...this.config }
+                if (isDevEnv()) {
+                    // On cloud we use the standard values but locally we likely want to test both the shadow and main in parallel
+                    // so we map it here manually
+                    config.CYCLOTRON_DATABASE_URL = config.CYCLOTRON_SHADOW_DATABASE_URL!
+                    // We also need to forcefully ensure the job queue consumes and writes to itself
+                    config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:postgres-v2'
+                    config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'postgres-v2'
+                }
+
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronShadowWorker(config, cdpDeps!)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronV2Janitor) {
+                if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
+                    throw new Error(
+                        'CYCLOTRON_NODE_DATABASE_URL not configured but required for CyclotronV2JanitorService'
                     )
                 }
+                serviceLoaders.push(async () => {
+                    const janitor = new CyclotronV2JanitorService({
+                        pool: {
+                            dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
+                            maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
+                            idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
+                        },
+                        cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
+                        cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
+                        stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
+                        maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
+                        cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
+                    })
+                    await janitor.start()
+                    return janitor.service
+                })
             }
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {
@@ -602,14 +631,16 @@ export class PluginServer {
 
     private setupListeners(): void {
         for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-            process.on(signal, async () => {
+            const handler = async () => {
                 // This makes async exit possible with the process waiting until jobs are closed
                 logger.info('👋', `process handling ${signal} event. Stopping...`)
                 await this.stop()
-            })
+            }
+            this.processListeners.set(signal, handler)
+            process.on(signal, handler)
         }
 
-        process.on('unhandledRejection', (error: Error | any) => {
+        const rejectionHandler = (error: Error | any) => {
             logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
             captureException(error, {
@@ -617,14 +648,24 @@ export class PluginServer {
             })
 
             void this.stop(error)
-        })
+        }
+        this.processListeners.set('unhandledRejection', rejectionHandler)
+        process.on('unhandledRejection', rejectionHandler)
 
-        process.on('uncaughtException', async (error: Error) => {
+        const exceptionHandler = async (error: Error) => {
             await this.stop(error)
-        })
+        }
+        this.processListeners.set('uncaughtException', exceptionHandler)
+        process.on('uncaughtException', exceptionHandler)
     }
 
     async stop(error?: Error): Promise<void> {
+        // Remove process listeners to prevent accumulation across test runs
+        for (const [event, handler] of this.processListeners) {
+            process.removeListener(event, handler)
+        }
+        this.processListeners.clear()
+
         if (error) {
             logger.error('🤮', `Shutting down due to error`, { error: error.stack })
         }

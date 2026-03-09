@@ -1067,6 +1067,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
 
@@ -1342,10 +1343,25 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hideWeekends',
 ])
 
+export interface BoxPlotDatum {
+    day: string
+    label: string
+    min: number
+    p25: number
+    median: number
+    p75: number
+    max: number
+    mean: number
+    series_index?: integer
+    series_label?: string
+}
+
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
+    /** Box plot data when display type is BoxPlot */
+    boxplot_data?: BoxPlotDatum[]
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
@@ -2445,10 +2461,8 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
+    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     orderDirection?: 'ASC' | 'DESC'
-    revenuePeriod?: 'all_time' | 'mrr'
-    revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
     status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
@@ -2585,7 +2599,6 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
         timestamp: string
         properties: string
     }
-    revenue?: number
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
@@ -2929,6 +2942,7 @@ export type FileSystemIconType =
     | 'folder_open'
     | 'conversations'
     | 'toolbar'
+    | 'visual_review'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -5433,6 +5447,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     USER_INTERVIEWS = 'user_interviews',
+    VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',
 }

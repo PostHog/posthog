@@ -113,6 +113,7 @@ class SandboxProtocol(Protocol):
         run_id: str,
         mode: str = "background",
         interaction_origin: str | None = None,
+        branch: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 

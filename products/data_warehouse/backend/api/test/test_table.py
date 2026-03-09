@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.settings import settings
 
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
@@ -435,6 +436,56 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert table.deleted is False
+
+    def test_refresh_schema_direct_postgres_table_not_exposed_via_warehouse_tables_api(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        table = DataWarehouseTable.objects.create(
+            name="accounts",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern="https://example.com/should-not-matter.parquet",
+            external_data_source_id=source.pk,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}/refresh_schema")
+
+        assert response.status_code == 404
+
+    def test_list_tables_includes_warehouse_postgres_source_tables(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+        table = DataWarehouseTable.objects.create(
+            name="accounts",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source_id=source.pk,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/")
+
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["id"] == str(table.id)
 
     def test_create_table_with_internal_bucket_url(self):
         with override_settings(DATAWAREHOUSE_BUCKET_DOMAIN="somedomain.com"):

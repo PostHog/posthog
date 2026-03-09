@@ -20,6 +20,7 @@ LOGGER = get_write_only_logger(__name__)
 EVAL_ACTIVITY_TYPES = {
     "fetch_evaluation_activity",
     "execute_llm_judge_activity",
+    "execute_hog_eval_activity",
     "emit_evaluation_event_activity",
     "emit_internal_telemetry_activity",
     "increment_trial_eval_count_activity",
@@ -56,16 +57,16 @@ def increment_workflow_started() -> None:
     counter.add(1)
 
 
-def increment_workflow_finished(status: str) -> None:
+def increment_workflow_finished(status: str, evaluation_type: str = "llm_judge") -> None:
     """Track workflow completions by outcome (completed/failed/skipped)."""
-    meter = get_metric_meter({"status": status})
+    meter = get_metric_meter({"status": status, "evaluation_type": evaluation_type})
     counter = meter.create_counter("llma_eval_workflow_finished", "Number of eval workflows finished")
     counter.add(1)
 
 
-def increment_verdict(verdict: str) -> None:
+def increment_verdict(verdict: str, evaluation_type: str = "llm_judge") -> None:
     """Track verdict distribution (true/false/na/error)."""
-    meter = get_metric_meter({"verdict": verdict})
+    meter = get_metric_meter({"verdict": verdict, "evaluation_type": evaluation_type})
     counter = meter.create_counter("llma_eval_verdict", "Verdict distribution")
     counter.add(1)
 
@@ -237,25 +238,30 @@ class _EvalsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
             try:
                 result = await super().execute_workflow(input)
 
+                # Extract evaluation_type for metric labeling
+                evaluation_type = "llm_judge"
+                if isinstance(result, dict):
+                    evaluation_type = result.get("evaluation_type", "llm_judge")
+
                 # Check if workflow was skipped
                 if isinstance(result, dict) and result.get("skipped"):
                     status = "SKIPPED"
                     recorder.set_status(status)
-                    increment_workflow_finished(status)
+                    increment_workflow_finished(status, evaluation_type)
                     return result
 
                 # Record verdict
                 if isinstance(result, dict):
                     verdict = result.get("verdict")
                     if verdict is True:
-                        increment_verdict("true")
+                        increment_verdict("true", evaluation_type)
                     elif verdict is False:
-                        increment_verdict("false")
+                        increment_verdict("false", evaluation_type)
                     elif verdict is None:
                         # N/A case (applicable=false)
-                        increment_verdict("na")
+                        increment_verdict("na", evaluation_type)
 
-                increment_workflow_finished(status)
+                increment_workflow_finished(status, evaluation_type)
                 return result
 
             except Exception:

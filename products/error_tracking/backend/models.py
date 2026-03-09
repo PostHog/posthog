@@ -351,32 +351,6 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
         ]
 
 
-def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
-    """Get the autocapture controls for a team and library, formatted for API responses."""
-    result = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id, library=library).values().first()
-    if result:
-        if result.get("sample_rate") is not None:
-            result["sample_rate"] = float(result["sample_rate"])
-        if result.get("id") is not None:
-            result["id"] = str(result["id"])
-    return result
-
-
-def get_autocapture_triggers(team_id: int) -> dict | None:
-    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values().first()
-    if not controls:
-        return None
-    return {
-        "library": controls.get("library"),
-        "matchType": controls.get("match_type"),
-        "sampleRate": float(controls["sample_rate"]) if controls.get("sample_rate") is not None else None,
-        "linkedFeatureFlag": controls.get("linked_feature_flag"),
-        "eventTriggers": controls.get("event_triggers"),
-        "urlTriggers": controls.get("url_triggers"),
-        "urlBlocklist": controls.get("url_blocklist"),
-    }
-
-
 class ErrorTrackingStackFrame(UUIDTModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)

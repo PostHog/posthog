@@ -110,6 +110,38 @@ var (
 		Buckets: []float64{1, 2, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600},
 	})
 
+	RedisFlushBatchSize = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "livestream_redis_flush_batch_size",
+			Help:    "Number of Redis keys per flush",
+			Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000},
+		},
+		[]string{"operation"},
+	)
+	RedisFlushTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_redis_flush_total",
+			Help: "Total number of Redis batch flushes",
+		},
+		[]string{"operation"},
+	)
+
+	RedisErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_redis_errors_total",
+			Help: "Total number of Redis operation errors",
+		},
+		[]string{"operation"},
+	)
+	RedisLatency = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "livestream_redis_latency_seconds",
+			Help:    "Redis operation latency in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"operation"},
+	)
+
 	// Redis pub/sub metrics
 	RedisPublishTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "livestream_redis_publish_total",
@@ -131,20 +163,4 @@ var (
 		Name: "livestream_redis_receive_drops_total",
 		Help: "Messages dropped at the Redis receive layer due to full message channel",
 	})
-
-	RedisErrors = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "livestream_redis_errors_total",
-			Help: "Total number of Redis operation errors",
-		},
-		[]string{"operation"},
-	)
-	RedisLatency = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "livestream_redis_latency_seconds",
-			Help:    "Redis operation latency in seconds",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"operation"},
-	)
 )

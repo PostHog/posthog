@@ -18,6 +18,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         WEB = "web", "web"
         PRODUCT = "product", "product"
 
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        RUNNING = "running", "Running"
+        STOPPED = "stopped", "Stopped"
+
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -67,6 +72,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     exposure_preaggregation_enabled = models.BooleanField(default=False)
 
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=None,
+        null=True,
+        blank=True,
+    )
+
     conclusion = models.CharField(
         max_length=30,
         choices=[
@@ -87,6 +100,20 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     def __str__(self):
         return self.name or "Untitled"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.status = Experiment.compute_status(self.start_date, self.end_date)
+        if "update_fields" in kwargs:
+            kwargs["update_fields"] = [*list(kwargs["update_fields"]), "status"]
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def compute_status(start_date: Any, end_date: Any) -> "Experiment.Status":
+        if start_date is not None and end_date is not None:
+            return Experiment.Status.STOPPED
+        if start_date is not None:
+            return Experiment.Status.RUNNING
+        return Experiment.Status.DRAFT
+
     def get_feature_flag_key(self):
         return self.feature_flag.key
 
@@ -95,7 +122,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     @property
     def is_draft(self):
-        return not self.start_date
+        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.DRAFT
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:

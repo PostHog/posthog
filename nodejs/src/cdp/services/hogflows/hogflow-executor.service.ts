@@ -304,7 +304,7 @@ export class HogFlowExecutorService {
             })
             earlyExitResult.metrics.push({
                 team_id: hogFlow.team_id,
-                app_source_id: hogFlow.id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
                 instance_id: invocation.state?.currentAction?.id || 'exit_condition',
                 metric_kind: 'other',
                 metric_name: 'early_exit',
@@ -508,7 +508,7 @@ export class HogFlowExecutorService {
     ): void {
         result.metrics.push({
             team_id: result.invocation.hogFlow.team_id,
-            app_source_id: result.invocation.hogFlow.id,
+            app_source_id: result.invocation.parentRunId ?? result.invocation.hogFlow.id,
             instance_id: action.id,
             metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
             metric_name: metricName,
