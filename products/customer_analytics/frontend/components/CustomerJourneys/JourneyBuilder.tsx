@@ -8,7 +8,11 @@ import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { JOURNEY_BUILDER_INSIGHT_PROPS, journeyBuilderLogic } from './journeyBuilderLogic'
+import {
+    JOURNEY_BUILDER_INSIGHT_PROPS,
+    JOURNEY_NAME_INPUT_MAX_LENGTH,
+    journeyBuilderLogic,
+} from './journeyBuilderLogic'
 
 const JOURNEY_BUILDER_CONTEXT: QueryContext<InsightVizNode> = {
     insightProps: JOURNEY_BUILDER_INSIGHT_PROPS as InsightLogicProps<InsightVizNode>,
@@ -35,6 +39,7 @@ export function JourneyBuilder(): JSX.Element {
                         placeholder="Journey name"
                         size="small"
                         className="w-64"
+                        maxLength={JOURNEY_NAME_INPUT_MAX_LENGTH}
                     />
                 </div>
                 <div className="flex items-center gap-2">

@@ -24,6 +24,10 @@ import { FunnelPathType, FunnelVizType, InsightLogicProps } from '~/types'
 import { customerJourneysLogic } from './customerJourneysLogic'
 import type { journeyBuilderLogicType } from './journeyBuilderLogicType'
 
+const JOURNEY_NAME_MAX_LENGTH = 64
+const INSIGHT_NAME_PREFIX = 'Journey: '
+export const JOURNEY_NAME_INPUT_MAX_LENGTH = JOURNEY_NAME_MAX_LENGTH - INSIGHT_NAME_PREFIX.length
+
 export const JOURNEY_BUILDER_INSIGHT_PROPS: InsightLogicProps = {
     dashboardItemId: 'new-AdHoc.InsightViz.journey-builder',
     dataNodeCollectionId: 'InsightViz.journey-builder',
@@ -238,7 +242,8 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
 
         saveJourney: async () => {
             const { series, journeyName, query } = values
-            const name = journeyName.trim() || 'Untitled journey'
+            const name = (journeyName.trim() || 'Untitled journey').slice(0, JOURNEY_NAME_MAX_LENGTH)
+            const insightName = `${INSIGHT_NAME_PREFIX}${name}`.slice(0, JOURNEY_NAME_MAX_LENGTH)
 
             const hasEmptySteps = series.some((s) => {
                 if (s.kind === NodeKind.EventsNode) {
@@ -261,7 +266,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             try {
                 const insight = await insightsApi.create({
                     query,
-                    name: `Journey: ${name}`,
+                    name: insightName,
                     saved: true,
                 })
 
