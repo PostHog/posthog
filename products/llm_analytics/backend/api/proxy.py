@@ -269,7 +269,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             def on_complete(duration_s: float) -> None:
                 report_user_action(
-                    cast(User, request.user),
+                    request.user,
                     "llma playground completion completed",
                     {**tracking_properties, "duration_seconds": duration_s},
                     team=getattr(request.user, "current_team", None),
@@ -278,7 +278,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             def on_error(error: Exception, duration_s: float) -> None:
                 report_user_action(
-                    cast(User, request.user),
+                    request.user,
                     "llma playground completion stream failed",
                     {
                         **tracking_properties,
