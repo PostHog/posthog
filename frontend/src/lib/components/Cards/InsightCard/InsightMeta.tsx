@@ -285,7 +285,9 @@ export function InsightMeta({
                     : undefined
             }
             metaDetails={
-                <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+                showDetailsControls ? (
+                    <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+                ) : null
             }
             samplingFactor={samplingFactor}
             moreButtons={

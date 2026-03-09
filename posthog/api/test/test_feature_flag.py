@@ -707,7 +707,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # The queryset should be empty (fail safe to prevent IDOR)
         analytics_field = fields["analytics_dashboards"]
-        self.assertEqual(analytics_field.child_relation.queryset.count(), 0)
+        self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_report_user_action):
@@ -7063,6 +7063,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 f"Request {i + 1} should return 304",
             )
             self.assertEqual(response.headers["ETag"], etag)
+
+    def test_local_evaluation_secret_key_in_body_counter_not_incremented_for_header_auth(self):
+        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
+
+        self.team.secret_api_token = "phs_testtokenforheaderauth"
+        self.team.save()
+
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        self.client.logout()
+        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
+
+    def test_local_evaluation_secret_key_in_body_counter_incremented_for_body_auth(self):
+        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
+
+        self.team.secret_api_token = "phs_testtokenforbodyauth"
+        self.team.save()
+
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        self.client.logout()
+        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
+
+        response = self.client.generic(
+            "GET",
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            data=json.dumps({"secret_api_key": self.team.secret_api_token}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before + 1)
+
+    def test_local_evaluation_secret_key_in_body_counter_not_incremented_when_header_wins(self):
+        from posthog.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
+
+        self.team.secret_api_token = "phs_testtokenforheaderwins"
+        self.team.save()
+
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        self.client.logout()
+        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
+
+        # Both header AND body have the secret token — header wins, body is ignored
+        response = self.client.generic(
+            "GET",
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            data=json.dumps({"secret_api_key": self.team.secret_api_token}),
+            content_type="application/json",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):

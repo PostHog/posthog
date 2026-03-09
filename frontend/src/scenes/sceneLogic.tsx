@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -1409,6 +1409,14 @@ export const sceneLogic = kea<sceneLogicType>([
                     targetPathname = urls.projectHomepage()
                 }
                 router.actions.replace(targetPathname, homepage.search || '', homepage.hash || '')
+                return
+            }
+
+            const isAIFirst = posthog.isFeatureEnabled(FEATURE_FLAGS.AI_FIRST)
+            if (isAIFirst) {
+                router.actions.replace(
+                    withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
+                )
                 return
             }
 

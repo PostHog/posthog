@@ -193,7 +193,7 @@ class TestPostHogCallback:
 
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="twig"),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
         ):
             await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
 
@@ -207,7 +207,7 @@ class TestPostHogCallback:
             assert props["$ai_model"] == "claude-3-opus"
             assert props["$ai_is_error"] is True
             assert props["$ai_error"] == "Rate limit exceeded"
-            assert props["ai_product"] == "twig"
+            assert props["ai_product"] == "posthog_code"
             mock_client.shutdown.assert_called_once()
 
     @pytest.mark.asyncio
@@ -239,7 +239,7 @@ class TestPostHogCallback:
         assert callback.callback_name == "posthog"
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["wizard", "twig", "llm_gateway"])
+    @pytest.mark.parametrize("product", ["wizard", "posthog_code", "llm_gateway"])
     async def test_on_success_includes_ai_product(
         self,
         callback: PostHogCallback,
@@ -264,7 +264,7 @@ class TestPostHogCallback:
             assert props["ai_product"] == product
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["wizard", "twig", "llm_gateway"])
+    @pytest.mark.parametrize("product", ["wizard", "posthog_code", "llm_gateway"])
     async def test_on_failure_includes_ai_product(
         self, callback: PostHogCallback, auth_user: AuthenticatedUser, product: str, mock_posthog_client: tuple
     ) -> None:
