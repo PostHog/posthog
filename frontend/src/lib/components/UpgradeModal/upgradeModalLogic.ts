@@ -1,7 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -28,8 +26,6 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
         values: [
             preflightLogic,
             ['preflight'],
-            featureFlagLogic,
-            ['featureFlags'],
             billingLogic,
             ['billing'],
             userLogic,
@@ -73,8 +69,8 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
             (availableFeature) => availableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS)?.limit ?? 6,
         ],
         shouldShowPlatformAddonMessage: [
-            (s) => [s.upgradeModalFeatureKey, s.billing, s.featureFlags],
-            (upgradeModalFeatureKey, billing, featureFlags) => {
+            (s) => [s.upgradeModalFeatureKey, s.billing],
+            (upgradeModalFeatureKey, billing) => {
                 if (upgradeModalFeatureKey !== AvailableFeature.ORGANIZATIONS_PROJECTS) {
                     return false
                 }
@@ -84,11 +80,7 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
                 )
                 const hasPlatformAddon = platformAndSupportProduct?.addons?.some((addon) => addon.subscribed) ?? false
 
-                return (
-                    billing?.subscription_level === 'paid' &&
-                    !hasPlatformAddon &&
-                    featureFlags[FEATURE_FLAGS.PROJECT_UPGRADE_MODAL_REDESIGN] === 'test-simplified-modal'
-                )
+                return billing?.subscription_level === 'paid' && !hasPlatformAddon
             },
         ],
         guardAvailableFeature: [
