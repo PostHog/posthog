@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -1217,6 +1218,8 @@ describe('llmPlaygroundLogic', () => {
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
             expect(createCalled).toBe(true)
+            expect(router.values.searchParams).toHaveProperty('source_prompt_name', 'saved-prompt')
+            expect(router.values.searchParams).not.toHaveProperty('source_evaluation_id')
         })
 
         it('saveAsNewEvaluation should call create API', async () => {
@@ -1240,6 +1243,8 @@ describe('llmPlaygroundLogic', () => {
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
             expect(createCalled).toBe(true)
+            expect(router.values.searchParams).toHaveProperty('source_evaluation_id', 'eval-new')
+            expect(router.values.searchParams).not.toHaveProperty('source_prompt_name')
         })
 
         it('saveToLinkedPrompt should call update API with current system prompt', async () => {

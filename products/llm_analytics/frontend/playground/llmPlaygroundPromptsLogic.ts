@@ -829,12 +829,18 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         const sourceEvaluationId =
             typeof searchParams.source_evaluation_id === 'string' ? searchParams.source_evaluation_id : null
 
-        if (sourcePromptName || sourceEvaluationId) {
+        if (sourcePromptName) {
             actions.setupPlaygroundFromEvent({
-                sourceType: sourcePromptName ? 'prompt' : 'evaluation',
-                sourcePromptName: sourcePromptName ?? undefined,
-                sourceEvaluationId: sourceEvaluationId ?? undefined,
+                sourceType: 'prompt',
+                sourcePromptName,
             })
+        } else if (sourceEvaluationId) {
+            actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId,
+            })
+        } else {
+            actions.clearLinkedSource()
         }
     }),
 ])

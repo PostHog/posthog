@@ -893,7 +893,7 @@ const EventContent = React.memo(
             : undefined
         const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
 
-        const handleTryInPlayground = (): void => {
+        const handleOpenInPlayground = (): void => {
             if (!event || !isLLMEvent(event)) {
                 return
             }
@@ -999,7 +999,7 @@ const EventContent = React.memo(
                                             type="secondary"
                                             size="xsmall"
                                             icon={<IconPlay />}
-                                            onClick={handleTryInPlayground}
+                                            onClick={handleOpenInPlayground}
                                             tooltip="Open in Playground"
                                             data-attr="llma-playground-open-from-trace"
                                         >
