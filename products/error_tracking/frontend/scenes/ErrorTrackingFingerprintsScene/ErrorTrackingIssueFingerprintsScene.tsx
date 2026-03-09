@@ -133,6 +133,13 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
     )
 }
 
+function getOneHourWindow(timestamp: string): { after: string; before: string } {
+    const date = new Date(timestamp)
+    const after = new Date(date.getTime() - 30 * 60 * 1000).toISOString()
+    const before = new Date(date.getTime() + 30 * 60 * 1000).toISOString()
+    return { after, before }
+}
+
 function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string; createdAt?: string }): JSX.Element {
     const [properties, setProperties] = useState<ErrorEventProperties | null>(null)
     const [eventId, setEventId] = useState<string | null>(null)
@@ -141,13 +148,14 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
     const fetchEvent = useCallback(async () => {
         setLoading(true)
         try {
+            const timeWindow = createdAt ? getOneHourWindow(createdAt) : {}
             const query: EventsQuery = {
                 kind: NodeKind.EventsQuery,
                 event: '$exception',
                 select: ['uuid', 'properties'],
-                ...(createdAt ? { after: createdAt } : {}),
+                ...timeWindow,
                 where: [`properties.$exception_fingerprint = '${fingerprint.replace(/'/g, "\\'")}'`],
-                orderBy: ['timestamp DESC'],
+                orderBy: ['timestamp ASC'],
                 limit: 1,
             }
             const response = await api.query(query)
