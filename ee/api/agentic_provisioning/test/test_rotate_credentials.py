@@ -8,8 +8,9 @@ from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisionin
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
 class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
-    def test_rotate_returns_access_configuration(self):
+    def test_rotate_returns_new_access_configuration(self):
         token = self._get_bearer_token()
+        original_api_token = self.team.api_token
         res = self._post_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
             token=token,
@@ -18,7 +19,10 @@ class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
         data = res.json()
         assert data["status"] == "complete"
         assert data["id"] == str(self.team.id)
-        assert data["complete"]["access_configuration"]["api_key"] == self.team.api_token
+        rotated_key = data["complete"]["access_configuration"]["api_key"]
+        assert rotated_key != original_api_token
+        self.team.refresh_from_db()
+        assert rotated_key == self.team.api_token
         assert "host" in data["complete"]["access_configuration"]
 
     def test_rotate_wrong_team_returns_403(self):

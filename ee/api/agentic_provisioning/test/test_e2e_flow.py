@@ -86,7 +86,8 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert res.json()["status"] == "complete"
         assert res.json()["id"] == resource_id
 
-        # 7. Rotate credentials (returns current secrets without regenerating)
+        # 7. Rotate credentials (generates a new api_token)
+        original_api_key = resource_data["complete"]["access_configuration"]["api_key"]
         res = self._post_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{resource_id}/rotate_credentials",
             token=access_token,
@@ -94,10 +95,8 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
         assert res.json()["id"] == resource_id
-        assert (
-            res.json()["complete"]["access_configuration"]["api_key"]
-            == resource_data["complete"]["access_configuration"]["api_key"]
-        )
+        rotated_api_key = res.json()["complete"]["access_configuration"]["api_key"]
+        assert rotated_api_key != original_api_key
 
         # 8. Deep link
         res = self._post_signed_with_bearer(

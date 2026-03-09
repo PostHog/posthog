@@ -576,7 +576,68 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
 @authentication_classes([])
 @permission_classes([])
 def provisioning_rotate_credentials(request: Request, resource_id: str) -> Response:
-    return _resolve_resource_response(request, resource_id)
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+    if access_token is None:
+        return Response(
+            {"status": "error", "error": {"code": "unauthorized", "message": "Missing bearer token"}}, status=401
+        )
+
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+
+    scoped_teams = access_token.scoped_teams or []
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "invalid_resource_id", "message": "Invalid resource ID"},
+            },
+            status=400,
+        )
+
+    if team_id not in scoped_teams:
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "forbidden", "message": "Resource not accessible with this token"},
+            },
+            status=403,
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return Response(
+            {"status": "error", "id": resource_id, "error": {"code": "not_found", "message": "Resource not found"}},
+            status=404,
+        )
+
+    team.reset_token_and_save(user=user, is_impersonated_session=False)
+
+    region = get_instance_region() or "US"
+    host = _region_to_host(region)
+
+    return Response(
+        {
+            "status": "complete",
+            "id": resource_id,
+            "service_id": POSTHOG_SERVICE_ID,
+            "complete": {
+                "access_configuration": {
+                    "api_key": team.api_token,
+                    "host": host,
+                },
+            },
+        }
+    )
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
