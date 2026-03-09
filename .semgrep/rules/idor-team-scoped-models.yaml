@@ -95,7 +95,6 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |ErrorTrackingAssignmentRule
-                              |ErrorTrackingAutoCaptureControls
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -127,6 +126,8 @@ rules:
                               |Integration
                               |Link
                               |LiveDebuggerBreakpoint
+                              |LogsAlertCheck
+                              |LogsAlertConfiguration
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -263,7 +264,6 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |ErrorTrackingAssignmentRule
-                        |ErrorTrackingAutoCaptureControls
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2

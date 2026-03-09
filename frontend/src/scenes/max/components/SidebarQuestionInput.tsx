@@ -77,7 +77,7 @@ export function SidebarQuestionInput({
         <QuestionInput
             isSticky={isSticky}
             textAreaRef={textAreaRef}
-            containerClassName={cn('px-3 mx-auto self-center pb-1 backdrop-blur-sm z-50', sidePanel && 'px-0')}
+            containerClassName={cn('w-full px-3 mx-auto self-center pb-1 backdrop-blur-sm z-50', sidePanel && 'px-0')}
             isThreadVisible={threadVisible}
         >
             <SuggestionsList />

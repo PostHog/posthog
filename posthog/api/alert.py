@@ -15,6 +15,7 @@ from posthog.schema import AlertCondition, AlertState, InsightThreshold, TrendsA
 from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
 from posthog.models import Insight, User
@@ -82,6 +83,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
+    # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate() checks team membership
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(is_active=True), required=True)
 
     class Meta:
@@ -110,10 +112,11 @@ class AlertSerializer(serializers.ModelSerializer):
     threshold = ThresholdSerializer()
     condition = AlertConditionField(required=False, allow_null=True)
     config = TrendsAlertConfigField(required=False, allow_null=True)
-    insight = serializers.PrimaryKeyRelatedField(
+    insight = TeamScopedPrimaryKeyRelatedField(
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
     )
+    # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate_subscribed_users() checks team membership
     subscribed_users = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(is_active=True),
         many=True,

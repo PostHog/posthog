@@ -200,6 +200,66 @@ def get_schemas(
     return schema_list
 
 
+def get_foreign_keys(
+    host: str, database: str, user: str, password: str, schema: str, port: int, require_ssl: bool = False
+) -> dict[str, list[tuple[str, str, str]]]:
+    """Get foreign keys for tables in the selected PostgreSQL schema."""
+
+    sslmode = _get_sslmode(require_ssl)
+    try:
+        connection = psycopg.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+            connect_timeout=15,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+        )
+    except psycopg.OperationalError as e:
+        if require_ssl and "SSL" in str(e):
+            raise SSLRequiredError(
+                "SSL/TLS connection is required but your database does not support it. "
+                "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+            ) from e
+        raise
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                tc.table_name AS table_name,
+                kcu.column_name AS column_name,
+                ccu.table_name AS target_table_name,
+                ccu.column_name AS target_column_name
+            FROM information_schema.table_constraints AS tc
+            JOIN information_schema.key_column_usage AS kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage AS ccu
+                ON ccu.constraint_name = tc.constraint_name
+                AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema = %(schema)s
+              AND ccu.table_schema = %(schema)s
+            ORDER BY tc.table_name, kcu.ordinal_position
+            """,
+            {"schema": schema},
+        )
+        result = cursor.fetchall()
+
+        foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
+        for table_name, column_name, target_table_name, target_column_name in result:
+            foreign_keys_by_table[table_name].append((column_name, target_table_name, target_column_name))
+
+    connection.close()
+
+    return foreign_keys_by_table
+
+
 class JsonAsStringLoader(Loader):
     def load(self, data):
         if data is None:

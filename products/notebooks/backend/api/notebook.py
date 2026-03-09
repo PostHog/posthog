@@ -103,6 +103,8 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    short_id = serializers.CharField(required=False)
+
     class Meta:
         model = Notebook
         fields = [
@@ -122,13 +124,22 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ]
         read_only_fields = [
             "id",
-            "short_id",
             "created_at",
             "created_by",
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
         ]
+
+    def validate_short_id(self, value: str) -> str:
+        # Only validate on create; on update short_id is ignored
+        if self.instance is not None:
+            return value
+        if not value.isalnum():
+            raise serializers.ValidationError("short_id must be alphanumeric.")
+        if len(value) < 1 or len(value) > 12:
+            raise serializers.ValidationError("short_id must be between 1 and 12 characters.")
+        return value
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
@@ -157,6 +168,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
         return notebook
 
     def update(self, instance: Notebook, validated_data: dict, **kwargs) -> Notebook:
+        # short_id is only settable on create, ignore on update
+        validated_data.pop("short_id", None)
+
         try:
             before_update = Notebook.objects.get(pk=instance.id)
         except Notebook.DoesNotExist:
@@ -380,7 +394,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
             elif key == "date_to" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(value, self.team.timezone_info))
-            elif key == "search":
+            elif key == "search" and value:
                 queryset = queryset.filter(
                     # some notebooks have no text_content until next saved, so we need to check the title too
                     # TODO this can be removed once all/most notebooks have text_content
