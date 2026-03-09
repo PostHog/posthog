@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import FeatureFlag
@@ -478,37 +479,24 @@ class TestExperimentService(APIBaseTest):
     # Status field
     # ------------------------------------------------------------------
 
-    def test_create_draft_experiment_sets_status_draft(self):
-        self._create_flag(key="status-draft")
-        service = self._service()
-
-        experiment = service.create_experiment(name="Draft Status", feature_flag_key="status-draft")
-
-        assert experiment.status == "draft"
-
-    def test_create_running_experiment_sets_status_running(self):
+    @parameterized.expand(
+        [
+            ("draft", None, None),
+            ("running", timezone.now(), None),
+            ("stopped", timezone.now(), timezone.now() + timedelta(days=7)),
+        ]
+    )
+    def test_create_experiment_sets_correct_status(self, expected_status, start_date, end_date):
         service = self._service()
 
         experiment = service.create_experiment(
-            name="Running Status",
-            feature_flag_key="status-running",
-            start_date=timezone.now(),
+            name=f"Status {expected_status}",
+            feature_flag_key=f"status-{expected_status}",
+            start_date=start_date,
+            end_date=end_date,
         )
 
-        assert experiment.status == "running"
-
-    def test_create_stopped_experiment_sets_status_stopped(self):
-        service = self._service()
-        now = timezone.now()
-
-        experiment = service.create_experiment(
-            name="Stopped Status",
-            feature_flag_key="status-stopped",
-            start_date=now,
-            end_date=now + timedelta(days=7),
-        )
-
-        assert experiment.status == "stopped"
+        assert experiment.status == expected_status
 
     def test_create_experiment_with_unknown_field_raises_type_error(self):
         self._create_flag(key="unknown-key-flag")
