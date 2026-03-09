@@ -3,7 +3,7 @@ import type { ReactElement } from 'react'
 import { Badge, Card, DescriptionList, formatDate, Stack } from '@posthog/mosaic'
 
 import { SurveyQuestion, type SurveyQuestionData } from './SurveyQuestion'
-import { STATUS_VARIANTS, TYPE_LABELS } from './utils'
+import { STATUS_VARIANTS, SURVEY_TYPE_LABELS } from './utils'
 
 export interface SurveyData {
     id: string
@@ -39,7 +39,7 @@ export function SurveyView({ survey }: SurveyViewProps): ReactElement {
                         </Badge>
                         {survey.type && (
                             <Badge variant="neutral" size="sm">
-                                {TYPE_LABELS[survey.type] ?? survey.type}
+                                {SURVEY_TYPE_LABELS[survey.type] ?? survey.type}
                             </Badge>
                         )}
                     </div>

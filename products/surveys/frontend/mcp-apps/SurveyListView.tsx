@@ -3,7 +3,7 @@ import { type ReactElement, type ReactNode, useCallback, useState } from 'react'
 import { BackButton, Badge, DataTable, type DataTableColumn, formatDate, LoadingState, Stack } from '@posthog/mosaic'
 
 import { SurveyView, type SurveyData } from './SurveyView'
-import { STATUS_VARIANTS } from './utils'
+import { STATUS_VARIANTS, SURVEY_TYPE_LABELS } from './utils'
 
 export interface SurveyListData {
     results: SurveyData[]
@@ -88,7 +88,7 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
             render: (row): ReactNode =>
                 row.type ? (
                     <Badge variant="neutral" size="sm">
-                        {row.type}
+                        {SURVEY_TYPE_LABELS[row.type] ?? row.type}
                     </Badge>
                 ) : (
                     <span className="text-text-secondary">&mdash;</span>
