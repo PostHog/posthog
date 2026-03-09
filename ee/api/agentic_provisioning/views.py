@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from django.core.cache import cache
@@ -25,7 +26,8 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 SERVICES_CACHE_KEY = "agentic_provisioning:services"
-SERVICES_CACHE_TTL = 300  # 5 minutes
+SERVICES_CACHE_TTL = 3600  # 1 hour
+SERVICES_CACHE_RETRY_TTL = 300  # 5 min retry window when billing is down
 
 # Products that shouldn't be listed as provisionable services
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
@@ -55,7 +57,8 @@ POSTHOG_PARENT_SERVICE: dict[str, Any] = {
 }
 
 
-def _fetch_services_from_billing() -> list[dict[str, Any]]:
+def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
+    """Fetch product catalog from billing. Returns None on failure."""
     try:
         res = external_requests.get(
             f"{BILLING_SERVICE_URL}/api/products-v2",
@@ -65,7 +68,7 @@ def _fetch_services_from_billing() -> list[dict[str, Any]]:
         products = res.json().get("products", [])
     except Exception:
         logger.exception("agentic_provisioning.services.billing_fetch_failed")
-        return [POSTHOG_PARENT_SERVICE]
+        return None
 
     services: list[dict[str, Any]] = [POSTHOG_PARENT_SERVICE]
     for product in products:
@@ -105,15 +108,35 @@ def _fetch_services_from_billing() -> list[dict[str, Any]]:
     return services
 
 
+SERVICES_CACHE_EXPIRES_KEY = "agentic_provisioning:services:expires_at"
+SERVICES_CACHE_STORE_TTL = 86400  # store data for 24h so stale reads work
+
+
 def _get_services() -> list[dict[str, Any]]:
     cached = cache.get(SERVICES_CACHE_KEY)
-    if cached is not None:
+    expires_at = cache.get(SERVICES_CACHE_EXPIRES_KEY)
+
+    now = time.time()
+    if cached is not None and expires_at is not None and now < expires_at:
         return cached
 
     services = _fetch_services_from_billing()
-    if services:
-        cache.set(SERVICES_CACHE_KEY, services, SERVICES_CACHE_TTL)
-    return services
+    if services is not None:
+        cache.set(SERVICES_CACHE_KEY, services, SERVICES_CACHE_STORE_TTL)
+        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_TTL, SERVICES_CACHE_STORE_TTL)
+        return services
+
+    # Billing failed — serve stale data, retry after SERVICES_CACHE_RETRY_TTL
+    if cached is not None:
+        logger.warning("agentic_provisioning.services.serving_stale_cache")
+        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_STORE_TTL)
+        return cached
+
+    logger.warning("agentic_provisioning.services.no_cache_fallback")
+    fallback = [POSTHOG_PARENT_SERVICE]
+    cache.set(SERVICES_CACHE_KEY, fallback, SERVICES_CACHE_RETRY_TTL)
+    cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_RETRY_TTL)
+    return fallback
 
 
 VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID} | set(_CATEGORY_MAP.keys())
