@@ -803,6 +803,7 @@ export interface ToolbarParams {
     dataAttributes?: string[]
     toolbarFlagsKey?: string
     productTourId?: string
+    uiHost?: string /** PostHog app URL, used for OAuth and UI links */
 }
 
 export interface ToolbarProps extends ToolbarParams {
@@ -900,6 +901,12 @@ export enum ExperimentProgressStatus {
     Running = 'running',
     Paused = 'paused',
     Complete = 'complete',
+}
+
+export enum ExperimentStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Stopped = 'stopped',
 }
 
 export enum PropertyFilterType {
@@ -3309,6 +3316,7 @@ export interface ChoiceQuestionProcessedResponses {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
     data: ChoiceQuestionResponseData[]
     totalResponses: number
+    noResponseCount: number
 }
 
 export interface OpenQuestionProcessedResponses {
@@ -4343,6 +4351,7 @@ export interface Experiment {
     }
     start_date?: string | null
     end_date?: string | null
+    status?: ExperimentStatus | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -4790,6 +4799,7 @@ export interface SubscriptionType {
     id: number
     insight?: number
     dashboard?: number
+    dashboard_export_insights?: number[]
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5262,6 +5272,7 @@ export enum ActivityScope {
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
+    LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
 }
@@ -5415,6 +5426,7 @@ export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
     prefix?: string
     description?: string
+    access_method?: 'warehouse' | 'direct'
     payload: Record<string, any>
 }
 export interface ExternalDataSource {
@@ -5425,6 +5437,7 @@ export interface ExternalDataSource {
     source_type: ExternalDataSourceType
     prefix: string | null
     description: string | null
+    access_method?: 'warehouse' | 'direct'
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]

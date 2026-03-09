@@ -670,7 +670,7 @@ export function ActionFilterRow({
                                             />
                                         )}
                                         {mathAvailability === MathAvailability.BoxPlotOnly && (
-                                            <div className="flex-auto overflow-hidden">
+                                            <div className="flex-auto min-w-0">
                                                 <TaxonomicStringPopover
                                                     groupType={
                                                         mathPropertyType ||
@@ -702,7 +702,7 @@ export function ActionFilterRow({
                                         {mathAvailability !== MathAvailability.BoxPlotOnly &&
                                             mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                                 MathCategory.PropertyValue && (
-                                                <div className="flex-auto overflow-hidden">
+                                                <div className="flex-auto min-w-0">
                                                     <TaxonomicStringPopover
                                                         groupType={
                                                             mathPropertyType ||
@@ -773,7 +773,7 @@ export function ActionFilterRow({
                                             )}
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.HogQLExpression && (
-                                            <div className="flex-auto overflow-hidden">
+                                            <div className="flex-auto min-w-0">
                                                 <LemonDropdown
                                                     visible={isHogQLDropdownVisible}
                                                     closeOnClickInside={false}

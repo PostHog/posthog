@@ -53,9 +53,8 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
         time_filter,
         deleted=False,
         scheduling_config__timeseries=True,
-        start_date__isnull=False,
+        status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
-        end_date__isnull=True,
     ).exclude(
         Q(metrics__isnull=True) | Q(metrics=[]),
         Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
@@ -302,9 +301,8 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
         time_filter,
         deleted=False,
         scheduling_config__timeseries=True,
-        start_date__isnull=False,
+        status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
-        end_date__isnull=True,
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")
 
     for experiment in experiments:

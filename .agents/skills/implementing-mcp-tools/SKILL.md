@@ -50,6 +50,7 @@ Before scaffolding YAML, verify:
 
 If a generated tool has an empty or wrong schema, the fix is almost always on the Django side,
 not in the YAML config.
+For a full audit checklist and before/after examples, use the `improving-drf-endpoints` skill.
 
 ## When to add MCP tools
 

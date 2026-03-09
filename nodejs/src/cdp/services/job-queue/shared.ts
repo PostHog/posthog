@@ -9,6 +9,13 @@ export const cdpJobSizeKb = new Histogram({
     labelNames: ['queue_kind'],
 })
 
+export const cdpJobSizeCompressedKb = new Histogram({
+    name: 'cdp_cyclotron_job_size_compressed_kb',
+    help: 'The size in kb of the compressed jobs we are processing',
+    buckets: [0, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, Infinity],
+    labelNames: ['queue_kind'],
+})
+
 /**
  * Strip transient data (e.g. groups) from invocation state before persisting.
  * Groups are large and easily reloaded by the worker, so we avoid storing them.

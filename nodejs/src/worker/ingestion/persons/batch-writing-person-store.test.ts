@@ -87,6 +87,13 @@ describe('BatchWritingPersonStore', () => {
         jest.clearAllMocks()
     })
 
+    afterAll(() => {
+        // resetAllMocks resets mock implementations (not just call history),
+        // preventing throwing mocks from leaking into subsequent test files
+        // when running in the same Jest worker process (--runInBand).
+        jest.resetAllMocks()
+    })
+
     const getPersonsStore = () => personStore
 
     const createMockRepository = () => {
