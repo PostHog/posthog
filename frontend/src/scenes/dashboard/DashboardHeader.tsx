@@ -577,10 +577,10 @@ export function DashboardHeader(): JSX.Element | null {
                                         </AccessControlAction>
                                         {canEditDashboard && hasTileRedesign && (
                                             <AppShortcut
-                                                name="ToggleEditMode"
+                                                name="EnterEditMode"
                                                 scope={Scene.Dashboard}
                                                 keybind={[keyBinds.edit]}
-                                                intent="Toggle edit mode"
+                                                intent="Enter edit mode"
                                                 interaction="click"
                                             >
                                                 <LemonButton
