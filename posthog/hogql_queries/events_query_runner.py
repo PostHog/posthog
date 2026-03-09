@@ -124,23 +124,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         # NB: This uses the last row's timestamp as the cursor, so events sharing
         # the exact same timestamp as the page boundary may be skipped. In practice
         # this is rare since the events table uses DateTime64(6) (microsecond precision).
-        if self._infer_order() == "ASC":
+        order = "DESC"
+        if self.query.orderBy:
+            parsed = parse_order_expr(self.query.orderBy[0])
+            order = parsed.order or "DESC"
+        if order == "ASC":
             self.query.after = cursor
         else:
             self.query.before = cursor
-
-    def _infer_order(self) -> str:
-        if self.query.orderBy:
-            first = self.query.orderBy[0]
-            if "ASC" in first.upper():
-                return "ASC"
-        return "DESC"
-
-    def _is_cursor_eligible(self, order_by: list[ast.OrderExpr], has_any_aggregation: bool) -> bool:
-        if self.query.source is not None or has_any_aggregation or not order_by:
-            return False
-        first = order_by[0]
-        return isinstance(first.expr, ast.Field) and first.expr.chain == ["timestamp"]
 
     def _extract_last_timestamp(self, row: list) -> str | None:
         select_input = self.select_input_raw()
@@ -298,7 +289,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 else:
                     order_by = []
 
-                self._cursor_eligible = self._is_cursor_eligible(order_by, has_any_aggregation)
+                first_order = order_by[0].expr if order_by else None
+                self._cursor_eligible = (
+                    self.query.source is None
+                    and not has_any_aggregation
+                    and isinstance(first_order, ast.Field)
+                    and first_order.chain == ["timestamp"]
+                )
 
             with self.timings.measure("select"):
                 if self.query.source is not None:
