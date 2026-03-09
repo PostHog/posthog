@@ -73,7 +73,7 @@ def _check_significance_transition(
         produce_internal_event(
             team_id=experiment.team_id,
             event=InternalEventEvent(
-                event="$experiment_significant",
+                event="$experiment_metric_significant",
                 distinct_id=f"team_{experiment.team_id}",
                 properties={
                     "experiment_id": experiment.id,

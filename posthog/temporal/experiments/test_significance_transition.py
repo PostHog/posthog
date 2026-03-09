@@ -85,7 +85,7 @@ class TestCheckSignificanceTransition(BaseTest):
             mock_produce.assert_called_once()
             call_kwargs = mock_produce.call_args
             event = call_kwargs.kwargs.get("event") or call_kwargs[1].get("event") or call_kwargs[0][1]
-            assert event.event == "$experiment_significant"
+            assert event.event == "$experiment_metric_significant"
             assert event.properties["experiment_id"] == experiment.id
             assert event.properties["experiment_name"] == "Test Experiment"
             assert event.properties["metric_uuid"] == metric_uuid
