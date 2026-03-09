@@ -547,7 +547,9 @@ export function DashboardHeader(): JSX.Element | null {
                                             icon={<IconShare fontSize="16" />}
                                             tooltip="Share"
                                             tooltipPlacement="top"
-                                        />
+                                        >
+                                            Share
+                                        </LemonButton>
                                         <AccessControlAction
                                             resourceType={AccessControlResourceType.Dashboard}
                                             minAccessLevel={AccessControlLevel.Editor}
