@@ -475,3 +475,25 @@ class TestWidgetCacheInvalidation(BaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_invalidate.assert_called_once_with(self.team.id)
+
+    def test_create_message_invalidates_messages_cache(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+
+        with patch("products.conversations.backend.api.widget.invalidate_messages_cache") as mock_invalidate:
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Follow up message",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                    "ticket_id": str(ticket.id),
+                },
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_invalidate.assert_called_once_with(self.team.id, str(ticket.id))
