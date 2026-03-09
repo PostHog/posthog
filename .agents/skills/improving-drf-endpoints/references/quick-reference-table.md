@@ -8,6 +8,7 @@
 | Any field without `help_text`                            | Add `help_text="..."` describing purpose, format, constraints                                           | [serializer-fields.md](serializer-fields.md)     |
 | `CharField` for a fixed set of values                    | Change to `ChoiceField(choices=[...])`                                                                  | [serializer-fields.md](serializer-fields.md)     |
 | `SerializerMethodField` without annotation               | Add `@extend_schema_field(...)` on its `get_*` method                                                   | [serializer-fields.md](serializer-fields.md)     |
+| `request: ValidatedRequest` with typed DTO               | Use `TypedRequest[MyDTO]` for type-safe `validated_data`                                                | [viewset-annotations.md](viewset-annotations.md) |
 | Plain `ViewSet` with `serializer.is_valid()`             | Replace with `@validated_request` decorator                                                             | [viewset-annotations.md](viewset-annotations.md) |
 | `@action` without `@extend_schema`                       | Add `@extend_schema(request=..., responses=...)` above `@action`                                        | [viewset-annotations.md](viewset-annotations.md) |
 | `@extend_schema` on class (not method)                   | Move to the actual handler method (`get`, `post`, `create`, etc.)                                       | [viewset-annotations.md](viewset-annotations.md) |

@@ -30,6 +30,30 @@ Use `@validated_request` when:
 - The endpoint accepts query parameters (`query_serializer=`)
 - You want automatic validation before the method body runs
 
+### TypedRequest — typed validated_data
+
+By default `request.validated_data` is `dict[str, Any]`.
+Use `TypedRequest[T]` from `posthog/api/mixins.py` to tell the type checker
+the actual shape, especially with `DataclassSerializer` where `validated_data`
+returns a dataclass instance:
+
+```python
+from posthog.api.mixins import TypedRequest, validated_request
+
+class RepoViewSet(viewsets.GenericViewSet):
+    @validated_request(
+        request_serializer=CreateRepoInputSerializer,
+        responses={201: OpenApiResponse(response=RepoSerializer, description="Created repo")},
+    )
+    def create(self, request: TypedRequest[CreateRepoInput], **kwargs) -> Response:
+        data = request.validated_data  # type checker knows this is CreateRepoInput
+        repo = api.create_repo(data, team_id=self.team_id)
+        return Response(RepoSerializer(repo).data, status=status.HTTP_201_CREATED)
+```
+
+Use `TypedRequest[T]` when the validated data is a typed object (dataclass, Pydantic model).
+For plain dict payloads, `ValidatedRequest` is fine.
+
 ## @extend_schema — for endpoints where @validated_request doesn't fit
 
 Use `@extend_schema` directly when you only need schema metadata without validation,
