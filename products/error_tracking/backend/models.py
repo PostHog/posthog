@@ -81,8 +81,7 @@ class ErrorTrackingIssue(UUIDTModel):
                         team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
                     )
                 )
-
-        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
         return new_issues
 
 
