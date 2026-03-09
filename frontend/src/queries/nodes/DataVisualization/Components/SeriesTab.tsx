@@ -128,7 +128,7 @@ const FORMATTING_STYLE_LABELS: Record<string, string> = {
     percent: 'Percentage',
 }
 
-const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number }): JSX.Element => {
+const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: number }): JSX.Element => {
     const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
         useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
