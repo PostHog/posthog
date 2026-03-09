@@ -421,7 +421,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             "token_type": "bearer",
             "access_token": access_token_value,
             "refresh_token": refresh_token_value,
-            "expires_in": 365 * 24 * 3600,
+            "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
             "account": {
                 "id": account_id,
                 "payment_credentials": "provider",
@@ -476,7 +476,7 @@ def _exchange_refresh_token(request: Request) -> Response:
             "token_type": "bearer",
             "access_token": new_access_value,
             "refresh_token": new_refresh_value,
-            "expires_in": 365 * 24 * 3600,
+            "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
         }
     )
 
