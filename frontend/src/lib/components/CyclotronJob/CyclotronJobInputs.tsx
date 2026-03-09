@@ -383,48 +383,21 @@ function BooleanField({
 
     if (isTemplateMode) {
         return (
-            <div className="min-w-full flex gap-2 justify-between">
-                <CyclotronJobTemplateInput
-                    className="grow"
-                    input={input}
-                    onChange={onChange}
-                    templating={templating}
-                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                />
-                <LemonButton
-                    className="self-start"
-                    size="xsmall"
-                    type="tertiary"
-                    icon={<IconToggleOff />}
-                    onClick={() => onChange?.({ ...input, value: false })}
-                >
-                    Use toggle
-                </LemonButton>
-            </div>
+            <CyclotronJobTemplateInput
+                input={input}
+                onChange={onChange}
+                templating={templating}
+                sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+            />
         )
     }
 
     return (
-        <div className="min-w-full flex gap-2 justify-between">
-            <LemonSwitch
-                checked={!!input.value}
-                onChange={(checked) => onChange?.({ ...input, value: checked })}
-                disabled={disabled}
-            />
-            {templating && (
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    status="alt"
-                    icon={<IconBrackets />}
-                    onClick={() =>
-                        onChange?.({ ...input, value: input.value ? '{true}' : '{false}', templating: 'hog' })
-                    }
-                >
-                    Use conditional
-                </LemonButton>
-            )}
-        </div>
+        <LemonSwitch
+            checked={!!input.value}
+            onChange={(checked) => onChange?.({ ...input, value: checked })}
+            disabled={disabled}
+        />
     )
 }
 
@@ -787,6 +760,28 @@ function CyclotronJobInputWithSchema({
                                     </Tooltip>
                                 ) : undefined}
                             </LemonLabel>
+                            {schema.type === 'boolean' && (schema.templating ?? true) && (
+                                <LemonSelect
+                                    size="xsmall"
+                                    type="tertiary"
+                                    value={typeof value?.value === 'string' ? 'conditional' : 'toggle'}
+                                    options={[
+                                        { value: 'toggle', label: 'Toggle', icon: <IconToggleOff /> },
+                                        { value: 'conditional', label: 'Conditional', icon: <IconBrackets /> },
+                                    ]}
+                                    onChange={(mode) => {
+                                        if (mode === 'toggle') {
+                                            onChange({ ...value, value: false })
+                                        } else {
+                                            onChange({
+                                                ...value,
+                                                value: `{event.property.foo = 'bar'}`,
+                                                templating: 'hog',
+                                            })
+                                        }
+                                    }}
+                                />
+                            )}
                             {showSource && (
                                 <LemonTag type="muted" className="font-mono">
                                     inputs.{schema.key}
