@@ -85,6 +85,7 @@ function MultiSelectField({
     submitLabel: string
 }): JSX.Element {
     const [selected, setSelected] = useState<string[]>(value ?? [])
+    const [showError, setShowError] = useState(false)
 
     const handleToggle = (optionValue: string): void => {
         setSelected((prev) => {
@@ -93,6 +94,15 @@ function MultiSelectField({
             }
             return [...prev, optionValue]
         })
+        setShowError(false)
+    }
+
+    const handleSubmit = (): void => {
+        if (selected.length === 0) {
+            setShowError(true)
+            return
+        }
+        onAnswer(selected)
     }
 
     return (
@@ -110,13 +120,8 @@ function MultiSelectField({
                     }
                 />
             ))}
-            <LemonButton
-                type="primary"
-                size="small"
-                disabledReason={selected.length === 0 ? 'Select at least one option' : undefined}
-                onClick={() => onAnswer(selected)}
-                className="self-start"
-            >
+            {showError && <p className="text-danger text-xs m-0">Select at least one option</p>}
+            <LemonButton type="primary" size="small" onClick={handleSubmit} className="self-start">
                 {submitLabel}
             </LemonButton>
         </div>
@@ -152,25 +157,37 @@ export function MultiFieldQuestion({
 }: MultiFieldQuestionProps): JSX.Element {
     const fields = question.fields ?? []
     const allFieldsValid = fields.every((field) => isFieldValid(field, answers[field.id]))
+    const [showErrors, setShowErrors] = useState(false)
+
+    const handleSubmit = (): void => {
+        if (!allFieldsValid) {
+            setShowErrors(true)
+            return
+        }
+        onSubmit()
+    }
 
     return (
         <div className="flex flex-col gap-3">
-            {fields.map((field) => (
-                <div key={field.id} className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-secondary">
-                        {field.label}
-                        {field.optional && <span className="text-muted font-normal ml-1">(optional)</span>}
-                    </label>
-                    <MultiFieldInput field={field} value={answers[field.id]} onChange={onFieldChange} />
-                </div>
-            ))}
-            <LemonButton
-                type="primary"
-                size="small"
-                disabledReason={!allFieldsValid ? 'Please fill in all fields' : undefined}
-                onClick={onSubmit}
-                className="self-end"
-            >
+            {fields.map((field) => {
+                const fieldInvalid = showErrors && !isFieldValid(field, answers[field.id])
+                return (
+                    <div key={field.id} className="flex flex-col gap-1">
+                        <label className="text-xs font-medium text-secondary">
+                            {field.label}
+                            {field.optional && <span className="text-muted font-normal ml-1">(optional)</span>}
+                        </label>
+                        <MultiFieldInput
+                            field={field}
+                            value={answers[field.id]}
+                            onChange={onFieldChange}
+                            showError={fieldInvalid}
+                        />
+                        {fieldInvalid && <p className="text-danger text-xs m-0">This field is required</p>}
+                    </div>
+                )
+            })}
+            <LemonButton type="primary" size="small" onClick={handleSubmit} className="self-end">
                 {submitLabel}
             </LemonButton>
         </div>
@@ -181,10 +198,12 @@ function MultiFieldInput({
     field,
     value,
     onChange,
+    showError,
 }: {
     field: MultiQuestionFormField
     value: string | string[] | undefined
     onChange: (fieldId: string, value: string | string[]) => void
+    showError?: boolean
 }): JSX.Element {
     switch (field.type) {
         case 'dropdown': {
@@ -193,14 +212,16 @@ function MultiFieldInput({
                 label: opt.value,
             }))
             return (
-                <LemonSelect
-                    options={options}
-                    value={value as string | undefined}
-                    onChange={(v) => v && onChange(field.id, v)}
-                    placeholder="Select an option..."
-                    fullWidth
-                    size="small"
-                />
+                <div className={showError ? '[&_.LemonButton]:border-danger' : undefined}>
+                    <LemonSelect
+                        options={options}
+                        value={value as string | undefined}
+                        onChange={(v) => v && onChange(field.id, v)}
+                        placeholder="Select an option..."
+                        fullWidth
+                        size="small"
+                    />
+                </div>
             )
         }
         case 'text':
@@ -211,6 +232,7 @@ function MultiFieldInput({
                     size="small"
                     value={(value as string) ?? ''}
                     onChange={(v) => onChange(field.id, v)}
+                    status={showError ? 'danger' : 'default'}
                 />
             )
         case 'number':
@@ -229,6 +251,7 @@ function MultiFieldInput({
                     min={field.min}
                     max={field.max}
                     step={field.step}
+                    status={showError ? 'danger' : 'default'}
                 />
             )
         case 'slider': {
