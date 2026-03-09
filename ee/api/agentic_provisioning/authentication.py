@@ -36,4 +36,8 @@ class StripeProvisioningBearerAuthentication(BaseAuthentication):
 def _is_stripe_oauth_app(app) -> bool:
     if app is None:
         return False
-    return app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+    if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+        return app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+    from .views import STRIPE_APP_NAME
+
+    return app.name == STRIPE_APP_NAME
