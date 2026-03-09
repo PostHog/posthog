@@ -803,6 +803,7 @@ export interface ToolbarParams {
     dataAttributes?: string[]
     toolbarFlagsKey?: string
     productTourId?: string
+    uiHost?: string /** PostHog app URL, used for OAuth and UI links */
 }
 
 export interface ToolbarProps extends ToolbarParams {
