@@ -122,7 +122,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     @property
     def is_draft(self):
-        return not self.start_date
+        return (self.status or Experiment.compute_status(self.start_date, self.end_date)) == Experiment.Status.DRAFT
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
