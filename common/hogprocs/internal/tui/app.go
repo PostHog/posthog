@@ -163,7 +163,30 @@ func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
 			m.atBottom = m.viewport.AtBottom()
 		}
 
+	case bubbletea.MouseClickMsg:
+		// Handle left clicks in the sidebar to select a process
+		if msg.Button == bubbletea.MouseLeft {
+			// Sidebar is from x=0 to x=sidebarWidth-1, content starts at y=headerHeight
+			if msg.X < sidebarWidth && msg.Y >= headerHeight {
+				row := msg.Y - headerHeight
+				if row >= 0 && row < len(m.procs) {
+					prev := m.cursor
+					m.cursor = row
+					if prev != m.cursor {
+						m.dbg("proc selected (mouse): %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
+						m = m.loadActiveProc()
+					}
+					return m, nil
+				}
+			}
+		}
+		// Forward clicks outside sidebar to viewport
+		var vpCmd bubbletea.Cmd
+		m.viewport, vpCmd = m.viewport.Update(msg)
+		cmds = append(cmds, vpCmd)
+
 	case bubbletea.MouseMsg:
+		// Forward other mouse events (wheel, motion, etc.) to viewport
 		var vpCmd bubbletea.Cmd
 		m.viewport, vpCmd = m.viewport.Update(msg)
 		cmds = append(cmds, vpCmd)

@@ -26,17 +26,17 @@ import (
 )
 
 func main() {
-	// Parse args: optional --debug flag followed by the config path.
 	var configPath string
 	var logger *log.Logger
-	args := os.Args[1:]
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch arg {
+
+	// Parse flags: --config <path>, --debug
+	for i := 1; i < len(os.Args); i++ {
+		switch os.Args[i] {
 		case "--config":
-			if i+1 < len(args) {
-				configPath = args[i+1]
-				i++ // skip the next arg since we consumed it
+			// Next arg is the config file path
+			if i+1 < len(os.Args) {
+				configPath = os.Args[i+1]
+				i++
 			}
 		case "--debug":
 			f, err := os.OpenFile("/tmp/hogprocs-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -44,13 +44,8 @@ func main() {
 				fmt.Fprintf(os.Stderr, "hogprocs: open debug log: %v\n", err)
 				os.Exit(1)
 			}
-			// f is intentionally not closed — it lives for the duration of the process.
 			logger = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
 			logger.Println("debug logging started")
-		default:
-			if configPath == "" {
-				configPath = arg
-			}
 		}
 	}
 
@@ -67,7 +62,6 @@ func main() {
 
 	mgr := process.NewManager(cfg)
 	m := tui.New(mgr, logger)
-
 	p := bubbletea.NewProgram(m)
 
 	// Wire the send function before starting processes.
