@@ -58,8 +58,6 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
         self._cursor_eligible = False
-        self._cursor_ts: str | None = None
-        self._cursor_uuid: str | None = None
 
     @cached_property
     def source_runner(self) -> InsightActorsQueryRunner:
