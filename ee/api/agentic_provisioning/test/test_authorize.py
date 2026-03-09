@@ -31,31 +31,31 @@ class TestAgenticAuthorize(APIBaseTest):
         self.client.logout()
         res = self.client.get("/api/agentic/authorize?state=test_state")
         assert res.status_code == 302
-        assert "/login" in res.url
+        assert "/login" in res["Location"]
 
     def test_expired_state_redirects_with_error(self):
         res = self.client.get("/api/agentic/authorize?state=nonexistent")
         assert res.status_code == 302
-        assert "error=expired_or_invalid_state" in res.url
+        assert "error=expired_or_invalid_state" in res["Location"]
 
     def test_missing_state_redirects_with_error(self):
         res = self.client.get("/api/agentic/authorize")
         assert res.status_code == 302
-        assert "error=missing_state" in res.url
+        assert "error=missing_state" in res["Location"]
 
     def test_email_mismatch_redirects_with_error(self):
         self._set_pending_auth("state_mismatch", "other@example.com")
         res = self.client.get("/api/agentic/authorize?state=state_mismatch")
         assert res.status_code == 302
-        assert "error=email_mismatch" in res.url
+        assert "error=email_mismatch" in res["Location"]
 
     def test_redirects_to_callback_with_code(self):
         self._set_pending_auth("state_ok", self.user.email)
         res = self.client.get("/api/agentic/authorize?state=state_ok")
         assert res.status_code == 302
-        assert res.url.startswith(DUMMY_CALLBACK)
-        assert "code=" in res.url
-        assert "state=state_ok" in res.url
+        assert res["Location"].startswith(DUMMY_CALLBACK)
+        assert "code=" in res["Location"]
+        assert "state=state_ok" in res["Location"]
 
     def test_pending_auth_deleted_after_use(self):
         self._set_pending_auth("state_once", self.user.email)
@@ -65,7 +65,7 @@ class TestAgenticAuthorize(APIBaseTest):
     def test_auth_code_created_in_cache(self):
         self._set_pending_auth("state_code", self.user.email)
         res = self.client.get("/api/agentic/authorize?state=state_code")
-        code = res.url.split("code=")[1].split("&")[0]
+        code = res["Location"].split("code=")[1].split("&")[0]
         code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
         assert code_data is not None
         assert code_data["user_id"] == self.user.id
@@ -79,7 +79,7 @@ class TestAgenticAuthorize(APIBaseTest):
 
         res = self.client.get("/api/agentic/authorize?state=state_e2e")
         assert res.status_code == 302
-        code = res.url.split("code=")[1].split("&")[0]
+        code = res["Location"].split("code=")[1].split("&")[0]
 
         body = json.dumps({"grant_type": "authorization_code", "code": code}).encode()
         ts = int(time.time())
@@ -110,4 +110,4 @@ class TestAgenticAuthorizeNoOrg(APIBaseTest):
         )
         res = self.client.get("/api/agentic/authorize?state=state_no_org")
         assert res.status_code == 302
-        assert "error=no_organization" in res.url
+        assert "error=no_organization" in res["Location"]
