@@ -26,7 +26,7 @@ async function resolveGroupNames(
         groupKeys.map(async (groupKey) => {
             try {
                 const response = await api.get(
-                    `api/environments/${teamId}/groups/find?${new URLSearchParams({
+                    `api/environments/${teamId}/groups/find/?${new URLSearchParams({
                         group_type_index: String(groupTypeIndex),
                         group_key: groupKey,
                     }).toString()}`
@@ -69,7 +69,7 @@ export const groupKeySelectLogic = kea<groupKeySelectLogicType>([
         groups: [
             [] as Group[],
             {
-                loadGroups: async (_, breakpoint) => {
+                loadGroups: async ({ search }: { search?: string }, breakpoint) => {
                     await breakpoint(300)
                     if (!values.currentTeamId) {
                         return []
@@ -77,8 +77,8 @@ export const groupKeySelectLogic = kea<groupKeySelectLogicType>([
                     const params: Record<string, string | number> = {
                         group_type_index: props.groupTypeIndex,
                     }
-                    if (values.searchQuery) {
-                        params.search = values.searchQuery
+                    if (search) {
+                        params.search = search
                     }
                     const response = await api.get(
                         `api/environments/${values.currentTeamId}/groups/?${new URLSearchParams(
@@ -93,25 +93,18 @@ export const groupKeySelectLogic = kea<groupKeySelectLogicType>([
     })),
     selectors({
         groupOptions: [
-            (s) => [s.groups, s.resolvedNames],
-            (groups: Group[], resolvedNames: Record<string, string>): { key: string; label: string }[] => {
-                const optionMap = new Map<string, { key: string; label: string }>()
-                for (const g of groups) {
-                    const label = groupDisplayId(g.group_key, g.group_properties)
-                    optionMap.set(g.group_key, { key: g.group_key, label })
-                }
-                for (const [groupKey, name] of Object.entries(resolvedNames)) {
-                    if (!optionMap.has(groupKey)) {
-                        optionMap.set(groupKey, { key: groupKey, label: String(name) })
-                    }
-                }
-                return Array.from(optionMap.values())
+            (s) => [s.groups],
+            (groups: Group[]): { key: string; label: string }[] => {
+                return groups.map((g) => ({
+                    key: g.group_key,
+                    label: groupDisplayId(g.group_key, g.group_properties),
+                }))
             },
         ],
     }),
     listeners(({ actions }) => ({
-        setSearchQuery: () => {
-            actions.loadGroups({})
+        setSearchQuery: ({ query }: { query: string }) => {
+            actions.loadGroups({ search: query })
         },
         loadGroupsSuccess: ({ groups }) => {
             const names: Record<string, string> = {}

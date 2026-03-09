@@ -37,7 +37,6 @@ export function GroupKeySelect({
     const logic = groupKeySelectLogic({ groupTypeIndex, value: currentValues })
     const { groupOptions, groupsLoading, resolvedNames } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
-
     const isMultiSelect = forceSingleSelect ? false : operator && isOperatorMulti(operator)
 
     const options = useMemo(() => {
