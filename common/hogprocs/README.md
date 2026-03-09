@@ -29,26 +29,18 @@ You typically run hogprocs via `hogli dev` rather than directly.
 
 ## Keybindings
 
-| Key                 | Action                                          |
-| ------------------- | ----------------------------------------------- |
-| `tab`               | Swap focus sidebar/output window                |
-| `j` / `↓`           | Next process (sidebar) / Scroll down (output)   |
-| `k` / `↑`           | Previous process (sidebar) / Scroll up (output) |
-| `J` / `pgdn`        | Scroll output down                              |
-| `K` / `pgup`        | Scroll output up                                |
-| `ctrl+u` / `ctrl+d` | Scroll half page                                |
-| `g` / `home`        | Jump to top of output                           |
-| `G` / `end`         | Jump to bottom of output                        |
-| `r`                 | Restart selected process                        |
-| `?`                 | Toggle full help                                |
-| `q` / `ctrl+c`      | Quit                                            |
-
-The behavior of `j`/`k` (and arrow keys) changes based on which pane is focused:
-
-- **Sidebar focused**: Navigate between processes
-- **Output focused**: Scroll the output
-
-When there are more processes than visible rows, the sidebar auto-scrolls to keep the selected process in view.
+| Key    | Action                                          |
+| ------ | ----------------------------------------------- |
+| `tab`  | Swap focus sidebar/output window                |
+| `↓`    | Next process (sidebar) / Scroll down (output)   |
+| `↑`    | Previous process (sidebar) / Scroll up (output) |
+| `pgdn` | Scroll output down                              |
+| `pgup` | Scroll output up                                |
+| `home` | Jump to top of output                           |
+| `end`  | Jump to bottom of output                        |
+| `r`    | Restart selected process                        |
+| `?`    | Toggle full help                                |
+| `q`    | Quit                                            |
 
 Mouse scroll is also supported in the output pane. Clicking in a pane switches focus to it.
 The header also shows the current focus as `focus: sidebar` or `focus: output`.

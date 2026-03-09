@@ -256,7 +256,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// View renders the full TUI as a single string.
+// Renders the full TUI as a single string
 func (m Model) View() tea.View {
 	if !m.ready {
 		v := tea.NewView("\n  Initialising...\n")
@@ -350,7 +350,7 @@ func (m Model) buildContent() string {
 // ── renderers ─────────────────────────────────────────────────────────────────
 
 func (m Model) renderHeader() string {
-	brand := headerBrandStyle.Render("  PostHog Dev")
+	brand := headerBrandStyle.Render("  HogProcs")
 
 	running := 0
 	for _, p := range m.procs {
@@ -360,18 +360,12 @@ func (m Model) renderHeader() string {
 	}
 	meta := headerMetaStyle.Render(fmt.Sprintf("%d running  ", running))
 
-	focusName := "sidebar"
-	if m.focusedPane == focusOutput {
-		focusName = "output"
-	}
-	focus := headerMetaStyle.Copy().Foreground(colorWhite).Render(fmt.Sprintf("focus: %s  ", focusName))
-
-	gap := m.width - lipgloss.Width(brand) - lipgloss.Width(meta) - lipgloss.Width(focus)
+	gap := m.width - lipgloss.Width(brand) - lipgloss.Width(meta)
 	if gap < 0 {
 		gap = 0
 	}
 	spacer := headerMetaStyle.Width(gap).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Top, brand, spacer, meta, focus)
+	return lipgloss.JoinHorizontal(lipgloss.Top, brand, spacer, meta)
 }
 
 func (m Model) renderSidebar() string {

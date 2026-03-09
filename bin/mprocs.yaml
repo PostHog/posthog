@@ -87,7 +87,6 @@ procs:
     docker-compose:
         shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'
         capability: core_infra
-        ready_pattern: 'Running (\d+)\/\1$'
 
     cyclotron-janitor:
         shell: |-
