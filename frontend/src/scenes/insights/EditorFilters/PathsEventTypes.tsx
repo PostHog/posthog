@@ -66,6 +66,7 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
                 overlay: options.map((option) => (
                     <LemonButton
                         key={option.type}
+                        data-attr={`path-type-${option.type}`}
                         onClick={() => onClickPathtype(option.type)}
                         disabledReason={
                             option.selected && includeEventTypes?.length === 1
