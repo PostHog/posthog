@@ -97,7 +97,7 @@ class ActorBaseQuery:
     def get_actors(
         self,
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person]],
         Union[list[SerializedGroup], list[SerializedPerson]],
         int,
     ]:
@@ -215,7 +215,7 @@ class ActorBaseQuery:
     def get_actors_from_result(
         self, raw_result
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person]],
         Union[list[SerializedGroup], list[SerializedPerson]],
     ]:
         actors: Union[QuerySet[Person], QuerySet[Group], list[Person]]

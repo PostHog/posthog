@@ -67,7 +67,7 @@ def proto_person_to_model(
         team_id=person.team_id,
         properties=json.loads(person.properties) if person.properties else {},
         is_identified=person.is_identified,
-        created_at=datetime.fromtimestamp(person.created_at, tz=UTC) if person.created_at else datetime.now(tz=UTC),
+        created_at=datetime.fromtimestamp(person.created_at, tz=UTC) if person.created_at else None,
     )
     if distinct_ids is not None:
         obj._distinct_ids = distinct_ids

@@ -272,14 +272,24 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[P
 def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.converters import proto_person_to_model
-    from posthog.personhog_client.proto import GetPersonsByUuidsRequest
+    from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
 
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")
 
     resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
-    return [proto_person_to_model(p) for p in resp.persons]
+
+    person_ids = [p.id for p in resp.persons]
+    distinct_ids_resp = client.get_distinct_ids_for_persons(
+        GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
+    )
+
+    distinct_ids_by_person: dict[int, list[str]] = {}
+    for pd in distinct_ids_resp.person_distinct_ids:
+        distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+
+    return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in resp.persons]
 
 
 def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person]:
