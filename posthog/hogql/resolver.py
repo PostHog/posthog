@@ -1275,6 +1275,13 @@ class Resolver(CloningVisitor):
         node.expr = self.visit(node.expr)
         return node
 
+    def visit_positional_ref(self, node: ast.PositionalRef):
+        if self.dialect != "postgres":
+            raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
+        node = cast(ast.PositionalRef, clone_expr(node))
+        node.type = ast.UnknownType()
+        return node
+
     def visit_array_slice(self, node: ast.ArraySlice):
         if self.dialect != "postgres":
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")

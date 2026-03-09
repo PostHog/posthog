@@ -2031,6 +2031,16 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprPositionalContext : public ColumnExprContext {
+  public:
+    ColumnExprPositionalContext(ColumnExprContext *ctx);
+
+    antlr4::tree::TerminalNode *HASH();
+    antlr4::tree::TerminalNode *DECIMAL_LITERAL();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprColumnsRegexContext : public ColumnExprContext {
   public:
     ColumnExprColumnsRegexContext(ColumnExprContext *ctx);

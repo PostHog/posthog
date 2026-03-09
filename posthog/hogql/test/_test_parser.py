@@ -3499,4 +3499,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_positional_refs(self):
+            self.assertEqual(
+                self._select("SELECT #1, #2 FROM events"),
+                ast.SelectQuery(
+                    select=[ast.PositionalRef(index=1), ast.PositionalRef(index=2)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                ),
+            )
+
     return TestParser

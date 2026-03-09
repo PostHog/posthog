@@ -1218,6 +1218,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             value=self.visit(ctx.columnExpr()),
         )
 
+    def visitColumnExprPositional(self, ctx: HogQLParser.ColumnExprPositionalContext):
+        return ast.PositionalRef(index=int(ctx.DECIMAL_LITERAL().getText()))
+
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
         return self.visit(ctx.hogqlxTagElement())
 

@@ -520,6 +520,9 @@ class HogQLPrinter(Visitor[str]):
     def visit_named_argument(self, node: ast.NamedArgument):
         return f"{node.name} := {self.visit(node.value)}"
 
+    def visit_positional_ref(self, node: ast.PositionalRef):
+        return f"#{node.index}"
+
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
         table_expr = self.visit(node.table)
         table = table_expr.printed_sql if isinstance(table_expr, JoinExprResponse) else table_expr

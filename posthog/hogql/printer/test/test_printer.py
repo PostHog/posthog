@@ -4365,6 +4365,10 @@ class TestPostgresPrinter(BaseTest):
                 "SELECT events.event FROM events ORDER BY events.timestamp DESC LIMIT 50000",
             ),
             (
+                "SELECT #1, #2 FROM events",
+                "SELECT #1, #2 FROM events LIMIT 50000",
+            ),
+            (
                 "SELECT count() FROM events GROUP BY event",
                 "SELECT count() FROM events GROUP BY events.event LIMIT 50000",
             ),

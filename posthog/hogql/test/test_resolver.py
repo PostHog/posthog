@@ -1437,6 +1437,17 @@ class TestResolver(BaseTest):
             expr = self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES")
             resolve_types(expr, self.context, dialect="postgres")
 
+    def test_positional_refs_postgres(self):
+        expr = self._select("SELECT #1, #2 FROM events")
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select[0], ast.PositionalRef)
+        assert isinstance(expr.select[1], ast.PositionalRef)
+
+    def test_positional_refs_non_postgres_error(self):
+        with self.assertRaisesMessage(QueryError, "Positional references are not allowed in clickhouse dialect"):
+            expr = self._select("SELECT #1 FROM events")
+            resolve_types(expr, self.context, dialect="clickhouse")
+
     def test_subquery_alias_columns_remap(self):
         # Subquery with alias column list: SELECT * FROM (SELECT 1, 'a') AS v(id, name)
         # The resolver should remap columns so that v.id and v.name resolve correctly,

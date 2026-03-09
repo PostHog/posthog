@@ -253,6 +253,7 @@ columnExpr
     | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict
     | columnLambdaExpr                                                                    # ColumnExprLambda
     | identifier COLONEQUALS columnExpr                                                   # ColumnExprNamedArg
+    | HASH DECIMAL_LITERAL                                                                # ColumnExprPositional
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 

@@ -70,6 +70,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_named_argument(self, node: ast.NamedArgument):
         self.visit(node.value)
 
+    def visit_positional_ref(self, node: ast.PositionalRef):
+        pass
+
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
         self.visit(node.table)
         for col in node.columns:
@@ -529,6 +532,14 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             name=node.name,
             value=self.visit(node.value),
+        )
+
+    def visit_positional_ref(self, node: ast.PositionalRef):
+        return ast.PositionalRef(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            index=node.index,
         )
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):

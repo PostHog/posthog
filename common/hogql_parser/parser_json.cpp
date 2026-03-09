@@ -2053,6 +2053,14 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
 
+  VISIT(ColumnExprPositional) {
+    Json json = Json::object();
+    json["node"] = "PositionalRef";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["index"] = static_cast<int64_t>(stoll(ctx->DECIMAL_LITERAL()->getText()));
+    return json;
+  }
+
   VISIT(ColumnExprNamedArg) {
     Json json = Json::object();
     json["node"] = Json("NamedArgument");
