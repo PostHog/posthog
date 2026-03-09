@@ -32,6 +32,9 @@ posthog/hogql/** @PostHog/hogql
 # This does not affect CODEOWNERS-soft which is used for assigning non-required reviewers and it's much safer to change.
 CODEOWNERS @PostHog/team-security
 
+# Ingestion team owns persons migrations
+rust/persons_migrations/** @PostHog/team-ingestion
+
 # Critical authentication logic
 posthog/api/authentication.py @PostHog/team-security
 posthog/auth.py @PostHog/team-security

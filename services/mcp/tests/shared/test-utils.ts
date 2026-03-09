@@ -493,3 +493,79 @@ export const SAMPLE_FUNNEL_QUERIES = {
         },
     },
 } as const satisfies Record<SampleFunnelQuery, InsightQuery>
+
+type SamplePathsQuery = 'basicPageviewPaths' | 'customEventPaths' | 'pathsWithStartPoint' | 'pathsWithHogQL'
+
+export const SAMPLE_PATHS_QUERIES = {
+    basicPageviewPaths: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['$pageview'],
+                stepLimit: 5,
+                edgeLimit: 50,
+            },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+    customEventPaths: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['custom_event'],
+                stepLimit: 3,
+                edgeLimit: 30,
+                excludeEvents: ['$feature_flag_called'],
+            },
+            dateRange: {
+                date_from: '-14d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+    pathsWithStartPoint: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['$pageview'],
+                startPoint: '/',
+                stepLimit: 5,
+                edgeLimit: 50,
+            },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+    pathsWithHogQL: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['hogql'],
+                pathsHogQLExpression: 'event',
+                stepLimit: 5,
+                edgeLimit: 50,
+            },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+} as const satisfies Record<SamplePathsQuery, InsightQuery>

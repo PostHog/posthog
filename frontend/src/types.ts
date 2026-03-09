@@ -803,6 +803,7 @@ export interface ToolbarParams {
     dataAttributes?: string[]
     toolbarFlagsKey?: string
     productTourId?: string
+    uiHost?: string /** PostHog app URL, used for OAuth and UI links */
 }
 
 export interface ToolbarProps extends ToolbarParams {
@@ -4790,6 +4791,7 @@ export interface SubscriptionType {
     id: number
     insight?: number
     dashboard?: number
+    dashboard_export_insights?: number[]
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5415,6 +5417,7 @@ export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
     prefix?: string
     description?: string
+    access_method?: 'warehouse' | 'direct'
     payload: Record<string, any>
 }
 export interface ExternalDataSource {
@@ -5425,6 +5428,7 @@ export interface ExternalDataSource {
     source_type: ExternalDataSourceType
     prefix: string | null
     description: string | null
+    access_method?: 'warehouse' | 'direct'
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]

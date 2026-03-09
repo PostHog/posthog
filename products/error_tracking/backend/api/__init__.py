@@ -1,5 +1,4 @@
 from .assignment_rules import ErrorTrackingAssignmentRuleViewSet
-from .auto_capture_controls import ErrorTrackingAutoCaptureControlsViewSet
 from .external_references import ErrorTrackingExternalReferenceViewSet
 from .fingerprints import ErrorTrackingFingerprintViewSet
 from .git_provider_file_link_resolver import GitProviderFileLinksViewSet
@@ -18,7 +17,6 @@ __all__ = [
     "ErrorTrackingSymbolSetViewSet",
     "ErrorTrackingFingerprintViewSet",
     "ErrorTrackingGroupingRuleViewSet",
-    "ErrorTrackingAutoCaptureControlsViewSet",
     "ErrorTrackingReleaseViewSet",
     "ErrorTrackingSpikeDetectionConfigViewSet",
     "ErrorTrackingSuppressionRuleViewSet",

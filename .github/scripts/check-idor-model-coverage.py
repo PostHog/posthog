@@ -134,6 +134,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "RunSnapshot",
         "TicketAssignment",
         # --- Internal config / OneToOne settings ---
+        # Model kept to avoid a deletion migration but has no API endpoint
+        "ErrorTrackingAutoCaptureControls",
         "DuckLakeCatalog",
         "DuckgresServer",
         "EvaluationConfig",

@@ -3251,6 +3251,113 @@ class TestExperimentCRUD(APILicensedTest):
             metric_type = metric["metric_type"]
             self.assertEqual(metric["fingerprint"], expected_updated_fingerprints[metric_type])
 
+    def test_creating_draft_experiment_sets_status_draft(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Status Draft Test",
+                "feature_flag_key": "status-draft-flag",
+                "parameters": None,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["status"], "draft")
+
+    def test_launching_experiment_sets_status_running(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Status Running Test",
+                "feature_flag_key": "status-running-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["status"], "running")
+
+    def test_ending_experiment_sets_status_stopped(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Status Stopped Test",
+                "feature_flag_key": "status-stopped-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        experiment_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"end_date": "2021-12-10T00:00"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "stopped")
+
+    def test_update_draft_to_running_sets_status(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Draft to Running",
+                "feature_flag_key": "draft-to-running-flag",
+                "parameters": None,
+            },
+        )
+        experiment_id = response.json()["id"]
+        self.assertEqual(response.json()["status"], "draft")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"start_date": "2021-12-01T10:23"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "running")
+
+    def test_duplicating_running_experiment_sets_status_draft(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Running Experiment",
+                "feature_flag_key": "running-dup-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        self.assertEqual(response.json()["status"], "running")
+        experiment_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/duplicate/",
+            {"feature_flag_key": "running-dup-flag-copy"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["status"], "draft")
+
+    def test_duplicating_stopped_experiment_sets_status_draft(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Stopped Experiment",
+                "feature_flag_key": "stopped-dup-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        experiment_id = response.json()["id"]
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"end_date": "2021-12-10T00:00"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/duplicate/",
+            {"feature_flag_key": "stopped-dup-flag-copy"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["status"], "draft")
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
