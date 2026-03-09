@@ -21,7 +21,7 @@ import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
     const { query, placeholder } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery } = useActions(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, enterAiMode } = useActions(aiFirstHomepageLogic)
     const inputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
@@ -45,7 +45,15 @@ function IdleInput(): JSX.Element {
                     ref={inputRef}
                     id="homepage-input"
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={(e) => {
+                        const value = e.target.value
+                        // Typing / or @ as the first character enters AI mode without sending
+                        if (value === '/' || value === '@') {
+                            enterAiMode(value)
+                            return
+                        }
+                        setQuery(value)
+                    }}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' && query.trim()) {
                             e.preventDefault()
@@ -65,11 +73,8 @@ function IdleInput(): JSX.Element {
                 <div className="px-4 w-full">
                     <div className="w-full bg-surface-tertiary justify-between rounded-b-lg px-1 pt-0.5 pb-1 font-medium select-none flex items-center gap-1 border-l border-r border-b">
                         <div className="flex items-center gap-0.5">
-                            <ButtonPrimitive size="xs" className="text-tertiary" tooltip="Not implemented yet">
+                            <ButtonPrimitive size="xs" className="text-tertiary" onClick={() => enterAiMode('/')}>
                                 <KeyboardShortcut forwardslash /> <span className="text-xxs">For commands</span>
-                            </ButtonPrimitive>
-                            <ButtonPrimitive size="xs" className="text-tertiary" tooltip="Not implemented yet">
-                                <KeyboardShortcut atsign /> <span className="text-xxs">Add context</span>
                             </ButtonPrimitive>
                         </div>
 
@@ -206,7 +211,7 @@ export function HomepageInput(): JSX.Element {
     const { user } = useValues(userLogic)
 
     return (
-        <div className="w-full max-w-180 mx-auto py-2">
+        <div className="w-full max-w-[614px] mx-auto py-2">
             {mode === 'idle' && (
                 <div className="flex flex-col items-center gap-3">
                     <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline="POSTHOG ONLY" />

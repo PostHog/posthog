@@ -4,7 +4,7 @@ import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
-import { colonDelimitedDuration, toString } from 'lib/utils'
+import { colonDelimitedDuration, toString, isKeyOf } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -324,10 +324,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     type = `${type}/${rest[0]}`
                     rest = rest.slice(1)
                 }
-                if (!(type in pendingByType)) {
+
+                if (isKeyOf(type, pendingByType)) {
+                    pendingByType[type].push(rest.join('/'))
+                } else {
                     throw new Error(`Unknown property definition type: ${type}`)
                 }
-                pendingByType[type].push(rest.join('/'))
             }
             try {
                 // since this is a unique query, there is no breakpoint here to prevent out of order replies
@@ -546,7 +548,11 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             (s) => [s.propertyDefinitionStorage],
             (
                 propertyDefinitionStorage
-            ): ((s: TaxonomicFilterValue, type: PropertyDefinitionType, groupTypeIndex?: number) => string | null) =>
+            ): ((
+                s: TaxonomicFilterValue,
+                type: PropertyDefinitionType,
+                groupTypeIndex?: number
+            ) => PropertyType | null) =>
                 (propertyName: TaxonomicFilterValue, type: PropertyDefinitionType, groupTypeIndex?: number) => {
                     if (
                         !propertyName ||

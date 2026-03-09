@@ -14,6 +14,7 @@ from typing import Literal
 
 from django.conf import settings
 from django.core.cache import cache as django_cache
+from django.db import close_old_connections
 
 import structlog
 from celery import shared_task
@@ -112,6 +113,10 @@ def _run_flag_definitions_verification() -> None:
                 )
                 capture_exception(e)
                 errors.append(e)
+                # Reset DB connections after a failure (e.g. SoftTimeLimitExceeded
+                # during an active query) so the next variant gets a clean connection
+                # instead of hitting "another command is already in progress".
+                close_old_connections()
 
         duration = time.time() - start_time
         if errors:

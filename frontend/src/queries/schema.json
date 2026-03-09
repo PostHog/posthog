@@ -2544,6 +2544,12 @@
                 },
                 "p75": {
                     "type": "number"
+                },
+                "series_index": {
+                    "$ref": "#/definitions/integer"
+                },
+                "series_label": {
+                    "type": "string"
                 }
             },
             "required": ["day", "label", "min", "p25", "median", "p75", "max", "mean"],
@@ -12825,9 +12831,6 @@
                 "name": {
                     "type": ["string", "null"]
                 },
-                "revenue": {
-                    "type": "number"
-                },
                 "source": {
                     "type": "string"
                 },
@@ -13038,7 +13041,7 @@
                     "type": "array"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
@@ -13125,7 +13128,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "revenue"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "orderDirection": {
@@ -13137,14 +13140,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
-                },
-                "revenueEntity": {
-                    "enum": ["person", "group_0", "group_1", "group_2", "group_3", "group_4"],
-                    "type": "string"
-                },
-                "revenuePeriod": {
-                    "enum": ["all_time", "mrr"],
-                    "type": "string"
                 },
                 "searchQuery": {
                     "type": "string"
@@ -15907,6 +15902,7 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
+                "visual_review",
                 "settings",
                 "health",
                 "inbox",
@@ -23293,6 +23289,7 @@
                 "teams",
                 "toolbar",
                 "user_interviews",
+                "visual_review",
                 "web_analytics",
                 "workflows"
             ],
