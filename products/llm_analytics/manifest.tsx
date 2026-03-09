@@ -267,7 +267,7 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsClusters(),
             flag: FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB,
-            tags: ['alpha'],
+            tags: ['beta'],
             sceneKey: 'LLMAnalyticsClusters',
         },
         {

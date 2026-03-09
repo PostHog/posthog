@@ -44,6 +44,7 @@ from posthog.api.insight_suggestions import generate_insight_name, get_insight_a
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -55,7 +56,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import get_request_analytics_properties, groups
+from posthog.event_usage import report_user_action
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -140,8 +141,8 @@ def log_and_report_insight_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
+    request: Request | None = None,
     changes: list[Change] | None = None,
-    properties: dict[str, Any] | None = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -160,16 +161,16 @@ def log_and_report_insight_activity(
             activity=activity,
             detail=Detail(name=insight_name, changes=changes, short_id=insight_short_id),
         )
-        if properties is None:
-            properties = {}
         organization = Organization.objects.get(id=organization_id)
         team = Team.objects.get(id=team_id)
-        if not was_impersonated and user.distinct_id:
-            posthoganalytics.capture(
+        if not was_impersonated:
+            report_user_action(
+                user,
                 f"insight {activity}",
-                distinct_id=user.distinct_id,
-                properties={"insight_id": insight_short_id, **properties},
-                groups=(groups(organization, team) if team_id else groups(organization)),
+                {"insight_id": insight_short_id},
+                team=team,
+                organization=organization,
+                request=request,
             )
 
 
@@ -198,19 +199,21 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         raise PermissionDenied("Legacy insight endpoints are not available for this user.")
 
     try:
-        event = "legacy insight endpoint called"
-        distinct_id: str = request.user.distinct_id  # type: ignore
         properties = {
             "path": request._request.path,
             "method": request._request.method,
             "query_method": get_query_method(request=request, team=team),
             "filter": get_filter(request=request, team=team),
-            "was_impersonated": is_impersonated_session(request),
             "user_agent": request.headers.get("user-agent"),
         }
 
-        posthoganalytics.capture(
-            event, distinct_id=distinct_id, properties=properties, groups=(groups(team.organization, team))
+        report_user_action(
+            request.user,
+            "legacy insight endpoint called",
+            properties,
+            team=team,
+            organization=team.organization,
+            request=request,
         )
     except Exception as e:
         logging.exception(f"Error in capture_legacy_api_call: {e}")
@@ -369,7 +372,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = serializers.PrimaryKeyRelatedField(
+    dashboards = TeamScopedPrimaryKeyRelatedField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -489,7 +492,7 @@ class InsightSerializer(InsightBasicSerializer):
             team_id=team_id,
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
-            properties=get_request_analytics_properties(request),
+            request=self.context["request"],
         )
 
         return insight
@@ -573,8 +576,8 @@ class InsightSerializer(InsightBasicSerializer):
             team_id=self.context["team_id"],
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
+            request=self.context["request"],
             changes=changes,
-            properties=get_request_analytics_properties(self.context["request"]),
         )
 
     def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
@@ -1082,10 +1085,14 @@ class InsightViewSet(
             InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
             .select_related("insight")
             .exclude(insight__deleted=True)
-            .only("insight")
+            .only("insight", "last_viewed_at")
         )
 
-        recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
+        recently_viewed = []
+        for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
+            insight = rv.insight
+            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
+            recently_viewed.append(insight)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
@@ -1093,7 +1100,7 @@ class InsightViewSet(
     @action(methods=["GET"], detail=False)
     def trending(self, request: request.Request, *args, **kwargs) -> Response:
         """
-        Returns trending insights based on view count in the last 24 hours.
+        Returns trending insights based on view count in the last N days (default 7).
         Defaults to returning top 10 insights.
         """
         try:
@@ -1144,8 +1151,11 @@ class InsightViewSet(
             if len(viewers_by_insight[iid]) < 3:
                 viewers_by_insight[iid].append(viewer.user)
 
+        instance_map = {instance.pk: instance for instance in queryset}
         for item in data:
             item["viewers"] = UserBasicSerializer(viewers_by_insight.get(item["id"], []), many=True).data
+            instance = instance_map.get(item["id"])
+            item["view_count"] = getattr(instance, "view_count", 0) if instance else 0
 
         return Response(data=data, status=status.HTTP_200_OK)
 
@@ -1361,6 +1371,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 query,
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 user=request.user if request.user.is_authenticated else None,
+                request=request,
             )
             if isinstance(result_ctx, BaseModel):
                 result = result_ctx.model_dump()
@@ -1404,6 +1415,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 query,
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 user=request.user if request.user.is_authenticated else None,
+                request=request,
             )
             if isinstance(result_ctx, BaseModel):
                 result = result_ctx.model_dump()

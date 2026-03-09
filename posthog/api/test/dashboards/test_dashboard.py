@@ -885,13 +885,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert dashboard_json["tiles"][0]["show_description"] is False
 
     @patch("posthog.api.dashboards.dashboard.report_user_action")
-    def test_dashboard_from_template(self, mock_capture):
+    def test_dashboard_from_template(self, mock_report_user_action):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
         self.assertGreater(Insight.objects.count(), 1)
         self.assertEqual(response["creation_mode"], "template")
 
         # Assert analytics are sent
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "dashboard created",
             {
@@ -1550,7 +1550,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     @patch("posthog.api.dashboards.dashboard.report_user_action")
-    def test_create_from_template_json(self, mock_capture) -> None:
+    def test_create_from_template_json(self, mock_report_user_action) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
             {"template": valid_template, "creation_context": "onboarding"},
@@ -1570,7 +1570,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(dashboard["tiles"]), 1)
 
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "dashboard created",
             {

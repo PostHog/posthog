@@ -84,7 +84,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
     const effectiveSyncFrequency = syncFrequency ?? freshMaterialization?.sync_frequency
 
     const canMaterialize = freshMaterialization?.can_materialize ?? endpoint.materialization?.can_materialize ?? false
-    const isMaterialized = effectiveIsMaterialized
+    const isMaterialized = effectiveIsMaterialized || effectiveMaterializationStatus?.toLowerCase() === 'running'
     const materializationStatus = effectiveMaterializationStatus
     const lastMaterializedAt = effectiveLastMaterializedAt
 

@@ -3,7 +3,7 @@ import typing as t
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -34,6 +34,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
@@ -589,6 +590,7 @@ class TestExternalDataSource(APIBaseTest):
                 "latest_error",
                 "prefix",
                 "description",
+                "access_method",
                 "last_run_at",
                 "schemas",
                 "job_inputs",
@@ -800,6 +802,505 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
 
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
+    def test_reload_direct_external_data_source_refreshes_schemas(self, mock_trigger, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="table_a",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("user_id", "integer", False)],
+                foreign_keys=[("user_id", "posthog_user", "id")],
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/reload/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_trigger.call_count, 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 1
+        )
+        self.assertEqual(
+            DataWarehouseTable.objects.filter(
+                team_id=self.team.pk,
+                external_data_source=source,
+                deleted=False,
+                name="table_a",
+            ).count(),
+            0,
+        )
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="table_a")
+        self.assertFalse(schema.should_sync)
+        self.assertIsNone(schema.table)
+        self.assertEqual(
+            schema.sync_type_config.get("schema_metadata", {}).get("foreign_keys"),
+            [{"column": "user_id", "target_table": "posthog_user", "target_column": "id"}],
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_direct_postgres_soft_deletes_live_tables_for_deleted_schemas(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = []
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+
+        table = DataWarehouseTable.objects.create(
+            name="legacy_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns=[],
+        )
+        stale_schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="legacy_table",
+            table=table,
+            deleted=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists())
+        self.assertTrue(ExternalDataSchema.objects.filter(pk=stale_schema.pk, deleted=True).exists())
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_direct_postgres_keeps_disabled_schema_table_deleted(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="Accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            )
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+
+        table = DataWarehouseTable.objects.create(
+            name="Accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="Accounts",
+            should_sync=False,
+            table=table,
+            sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        schema.refresh_from_db()
+        self.assertFalse(schema.should_sync)
+        self.assertTrue(DataWarehouseTable.raw_objects.get(pk=table.pk).deleted)
+        self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["name"], "id")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_direct_postgres_new_schema_is_opt_in(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="Accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            )
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="Accounts")
+        self.assertFalse(schema.should_sync)
+        self.assertIsNone(schema.table)
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_direct_postgres_preserves_disabled_schema_when_it_reappears(self, mock_get_source):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="Accounts",
+            should_sync=False,
+            sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
+        )
+
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = []
+        first_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        schema.refresh_from_db()
+        self.assertTrue(schema.deleted)
+
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="Accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            )
+        ]
+        second_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        schema.refresh_from_db()
+        self.assertFalse(schema.deleted)
+        self.assertFalse(schema.should_sync)
+        self.assertIsNone(schema.table)
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_direct_postgres_preserves_enabled_schema_when_it_reappears(self, mock_get_source):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="Accounts",
+            should_sync=True,
+            deleted=True,
+            sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
+        )
+
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="Accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            )
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        schema.refresh_from_db()
+        self.assertFalse(schema.deleted)
+        self.assertTrue(schema.should_sync)
+        table = schema.table
+        assert table is not None
+        self.assertEqual(table.name, "Accounts")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("amount", "numeric", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "Primary database",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [{"name": "accounts", "should_sync": True, "sync_type": None}],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source__id=response.json()["id"], name="accounts")
+        table = schema.table
+        assert table is not None
+        assert schema.sync_type_config is not None
+        assert table.columns is not None
+        self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["data_type"], "numeric")
+        self.assertEqual(table.columns["amount"]["clickhouse"], "Decimal")
+        self.assertEqual(table.columns["amount"]["hogql"], "numeric")
+
+    def test_create_direct_postgres_requires_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "   ",
+                "payload": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"message": "Name is required for direct query sources"})
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_does_not_require_prefix_namespace(self, mock_get_source):
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix=None,
+        )
+
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "Read replica",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [{"name": "accounts", "should_sync": True, "sync_type": None}],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_creates_only_selected_tables(self, mock_get_source):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            ),
+            SourceSchema(
+                name="payments",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "access_method": "direct",
+                "prefix": "Primary database",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {"name": "accounts", "should_sync": True, "sync_type": None},
+                        {"name": "payments", "should_sync": False, "sync_type": None},
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+
+        self.assertEqual(source.prefix, "Primary database")
+
+        accounts_schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="accounts")
+        payments_schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="payments")
+
+        self.assertTrue(accounts_schema.should_sync)
+        self.assertFalse(payments_schema.should_sync)
+        self.assertIsNotNone(accounts_schema.table)
+        self.assertIsNone(payments_schema.table)
+
+        self.assertEqual(
+            DataWarehouseTable.objects.filter(
+                team_id=self.team.pk,
+                external_data_source=source,
+                deleted=False,
+                name="accounts",
+            ).count(),
+            1,
+        )
+
+    def test_create_direct_non_postgres_is_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "access_method": "direct",
+                "prefix": "Read replica",
+                "payload": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"message": "Direct query mode is currently supported only for Postgres sources."},
+        )
+
+    def test_source_prefix_rejects_direct_non_postgres(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
+            data={
+                "source_type": "Stripe",
+                "access_method": "direct",
+                "prefix": "Read replica",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"message": "Direct query mode is currently supported only for Postgres sources."},
+        )
+
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
             host=settings.PG_HOST,
@@ -969,7 +1470,16 @@ class TestExternalDataSource(APIBaseTest):
         "posthog.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
         return_value={"table_1": 42},
     )
-    def test_internal_postgres(self, patch_get_sql_schemas_for_source_type, patch_get_postgres_row_count):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+        return_value={},
+    )
+    def test_internal_postgres(
+        self,
+        patch_get_sql_schemas_for_source_type,
+        patch_get_postgres_row_count,
+        _patch_get_postgres_foreign_keys,
+    ):
         # This test checks handling of project ID 2 in Cloud US and project ID 1 in Cloud EU,
         # so let's make sure there are no projects with these IDs in the test DB
         Project.objects.filter(id__in=[1, 2]).delete()
@@ -1566,6 +2076,71 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "original_password"
+
+    def test_update_direct_postgres_prefix(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+            prefix="Original name",
+            job_inputs={
+                "host": "172.16.0.0",
+                "port": "123",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+            data={"prefix": " Updated name "},
+        )
+
+        assert response.status_code == 200, response.content
+        source.refresh_from_db()
+        assert source.prefix == "Updated name"
+
+    def test_update_source_cannot_change_access_method(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+            prefix="Original name",
+            job_inputs={
+                "host": "172.16.0.0",
+                "port": "123",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+            data={"prefix": " Updated name ", "access_method": ExternalDataSource.AccessMethod.WAREHOUSE},
+        )
+
+        assert response.status_code == 400, response.content
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Access method cannot be changed. Create a new source instead.",
+            "type": "validation_error",
+        }
+        source.refresh_from_db()
+        assert source.access_method == ExternalDataSource.AccessMethod.DIRECT
+        assert source.prefix == "Original name"
 
     def test_update_source_with_ssh_tunnel_missing_auth(self):
         """Regression test: PATCH with ssh_tunnel but no auth key should not fail validation."""

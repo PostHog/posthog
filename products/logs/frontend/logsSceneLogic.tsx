@@ -25,6 +25,7 @@ import {
     DEFAULT_INITIAL_LOGS_LIMIT,
     logsViewerDataLogic,
 } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import {
     DEFAULT_DATE_RANGE,
     DEFAULT_SERVICE_NAMES,
@@ -34,7 +35,6 @@ import {
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { logsSceneLogicType } from './logsSceneLogicType'
-import { LogsFiltersHistoryEntry } from './types'
 
 export interface LogsLogicProps {
     tabId: string
@@ -54,6 +54,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['setOrderBy'],
             logsViewerDataLogic({ id: props.tabId }),
             ['setInitialLogsLimit', 'runQuery', 'clearLogs', 'fetchLogsSuccess'],
+            logsFilterHistoryLogic({ id: props.tabId }),
+            ['pushToFilterHistory'],
         ],
         values: [
             logsViewerFiltersLogic({ id: props.tabId }),
@@ -186,28 +188,11 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
 
     actions({
         syncUrlAndRunQuery: true,
-        pushToFilterHistory: (filters: LogsViewerFilters) => ({ filters }),
-        restoreFiltersFromHistory: (index: number) => ({ index }),
-        clearFilterHistory: true,
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
     }),
 
     reducers({
-        filterHistory: [
-            [] as LogsFiltersHistoryEntry[],
-            { persist: true },
-            {
-                pushToFilterHistory: (state, { filters }) => {
-                    if (state.length > 0 && equal(state[0].filters, filters)) {
-                        return state
-                    }
-                    const entry: LogsFiltersHistoryEntry = { filters, timestamp: Date.now() }
-                    return [entry, ...state].slice(0, 10)
-                },
-                clearFilterHistory: () => [],
-            },
-        ],
         expandedAttributeBreaksdowns: [
             [] as string[],
             {
@@ -218,10 +203,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
 
     selectors({
         tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
-        hasFilterHistory: [
-            (s) => [s.filterHistory],
-            (filterHistory: LogsFiltersHistoryEntry[]) => filterHistory.length > 0,
-        ],
     }),
 
     listeners(({ values, actions }) => ({
@@ -340,22 +321,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy, source })
             actions.syncUrlAndRunQuery()
         },
-        restoreFiltersFromHistory: ({ index }) => {
-            const entry = values.filterHistory[index]
-            if (entry) {
-                posthog.capture('logs filter history restored', {
-                    history_index: index,
-                    history_size: values.filterHistory.length,
-                })
-                actions.setFilters(entry.filters, false)
-            }
-        },
-        clearFilterHistory: () => {
-            posthog.capture('logs filter history cleared', {
-                history_size: values.filterHistory.length,
-            })
-        },
-
         toggleAttributeBreakdown: ({ key }) => {
             const breakdowns = [...values.expandedAttributeBreaksdowns]
             const index = breakdowns.indexOf(key)

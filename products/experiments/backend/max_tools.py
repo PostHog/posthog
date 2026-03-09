@@ -122,7 +122,7 @@ class CreateExperimentTool(MaxTool):
                 raise ValueError(f"An experiment with name '{name}' already exists")
 
             try:
-                feature_flag = FeatureFlag.objects.get(team=self._team, key=feature_flag_key, deleted=False)
+                feature_flag = FeatureFlag.objects.get(team=self._team, key=feature_flag_key)
             except FeatureFlag.DoesNotExist:
                 raise ValueError(f"Feature flag '{feature_flag_key}' does not exist")
 
@@ -442,13 +442,15 @@ class SessionReplaySummaryTool(MaxTool):
 
             experiment = await get_experiment()
 
-            if not experiment.start_date:
+            if experiment.is_draft:
                 output = SessionReplaySummaryOutput(
                     experiment_id=experiment_id,
                     experiment_name=experiment.name,
                     error="not_started",
                 )
                 return "❌ Experiment has not started yet. No session replays available.", output.model_dump()
+            if not experiment.start_date:
+                raise ValueError(f"Experiment {experiment_id} has no start date")
 
             # Get variants from feature flag
             feature_flag = experiment.feature_flag

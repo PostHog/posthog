@@ -15,6 +15,7 @@ import {
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
+import { isString } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -126,7 +127,11 @@ export function PieChart({
                             color: 'white',
                             anchor: 'end',
                             backgroundColor: (context) => {
-                                return context.dataset.backgroundColor?.[context.dataIndex] || 'black'
+                                const { backgroundColor } = context.dataset
+                                if (Array.isArray(backgroundColor)) {
+                                    return backgroundColor[context.dataIndex] || 'black'
+                                }
+                                return isString(backgroundColor) ? backgroundColor : 'black'
                             },
                             display: (context) => {
                                 const percentage = getPercentageForDataPoint(context)

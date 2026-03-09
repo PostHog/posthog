@@ -45,6 +45,7 @@ class Task(DeletedMetaFields, models.Model):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
+    title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
 
@@ -125,6 +126,7 @@ class Task(DeletedMetaFields, models.Model):
         environment: Optional["TaskRun.Environment"] = None,
         mode: str = "background",
         extra_state: dict | None = None,
+        branch: str | None = None,
     ) -> "TaskRun":
         state: dict = {"mode": mode}
         if extra_state:
@@ -135,6 +137,7 @@ class Task(DeletedMetaFields, models.Model):
             status=TaskRun.Status.QUEUED,
             environment=environment or TaskRun.Environment.CLOUD,
             state=state,
+            branch=branch,
         )
 
     def soft_delete(self):

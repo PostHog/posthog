@@ -25,13 +25,13 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T")
 
 
-def _person_has_min_timestamp(person: "Person | None", min_timestamp: float | None) -> "Person | None":
-    """Return the person only if it exists and meets the minimum timestamp requirement."""
+def _person_has_min_version(person: "Person | None", min_version: int | None) -> "Person | None":
+    """Return the person only if it exists and meets the minimum version requirement."""
     if person is None:
         return None
-    if min_timestamp is not None:
-        person_timestamp = person.properties.get("$test_timestamp")
-        if person_timestamp is None or person_timestamp < min_timestamp:
+    if min_version is not None:
+        person_version = person.properties.get("$test_version")
+        if person_version is None or person_version < min_version:
             return None
     return person
 
@@ -147,11 +147,13 @@ class PostHogClient:
             sdk_host=self.config.api_host,
         )
 
+        all_properties = {**(properties or {}), "$ignore_sent_at": True}
+
         self._retry_on_error(
             lambda: self._posthog.capture(
                 distinct_id=distinct_id,
                 event=event_name,
-                properties=properties or {},
+                properties=all_properties,
                 uuid=event_uuid,
             ),
             description=f"capture event {event_uuid}",
@@ -208,7 +210,7 @@ class PostHogClient:
             lambda: self._posthog.capture(
                 distinct_id=merge_into_distinct_id,
                 event="$merge_dangerously",
-                properties={"alias": merge_from_distinct_id},
+                properties={"alias": merge_from_distinct_id, "$ignore_sent_at": True},
                 uuid=event_uuid,
             ),
             description=f"merge dangerously {merge_from_distinct_id} -> {merge_into_distinct_id}",
@@ -220,22 +222,24 @@ class PostHogClient:
 
     def query_event_by_uuid(self, event_uuid: str) -> CapturedEvent | None:
         """Query for an event by UUID, polling until found or timeout."""
+        logger.info("Querying for event", event_uuid=event_uuid)
         return self._poll_until_found(
             fetch_fn=lambda: self._fetch_event_by_uuid(event_uuid),
             description=f"event UUID '{event_uuid}'",
         )
 
-    def query_person_by_distinct_id(self, distinct_id: str, min_timestamp: float | None = None) -> Person | None:
+    def query_person_by_distinct_id(self, distinct_id: str, min_version: int | None = None) -> Person | None:
         """Query for a person by distinct_id, polling until found or timeout.
 
         Args:
             distinct_id: The distinct_id to search for.
-            min_timestamp: If provided, only return the person if their $test_timestamp
+            min_version: If provided, only return the person if their $test_version
                 property is >= this value. This helps ensure eventual consistency by
                 waiting for person updates to propagate.
         """
+        logger.info("Querying for person", distinct_id=distinct_id, min_version=min_version)
         return self._poll_until_found(
-            fetch_fn=lambda: _person_has_min_timestamp(self._fetch_person_by_distinct_id(distinct_id), min_timestamp),
+            fetch_fn=lambda: _person_has_min_version(self._fetch_person_by_distinct_id(distinct_id), min_version),
             description=f"person with distinct_id '{distinct_id}'",
         )
 
@@ -249,6 +253,11 @@ class PostHogClient:
         Returns:
             List of events if all expected UUIDs are found, None if timeout.
         """
+        logger.info(
+            "Querying for events by person",
+            person_id=person_id,
+            expected_event_uuids=expected_event_uuids,
+        )
         return self._poll_until_found(
             fetch_fn=lambda: self._fetch_events_by_person_id(person_id, expected_event_uuids),
             description=f"events for person '{person_id}'",
@@ -261,7 +270,7 @@ class PostHogClient:
 
     # Polling configuration
     POLL_BACKOFF_FACTOR = 1.5
-    POLL_MAX_INTERVAL_SECONDS = 300.0
+    POLL_MAX_INTERVAL_SECONDS = 60.0
 
     def _poll_until_found(
         self,
@@ -276,12 +285,30 @@ class PostHogClient:
         """
         start_time = time.time()
         current_interval = self.config.poll_interval_seconds
+        attempt = 0
 
         while time.time() - start_time < self.config.event_timeout_seconds:
+            attempt += 1
             time.sleep(current_interval)
+            if attempt > 1:
+                elapsed = time.time() - start_time
+                logger.info(
+                    "Polling attempt",
+                    attempt=attempt,
+                    description=description,
+                    elapsed_seconds=round(elapsed, 1),
+                    next_interval_seconds=round(current_interval, 1),
+                )
             try:
                 result = fetch_fn()
                 if result is not None:
+                    elapsed = time.time() - start_time
+                    logger.info(
+                        "Polling succeeded",
+                        description=description,
+                        attempt=attempt,
+                        elapsed_seconds=round(elapsed, 1),
+                    )
                     return result
             except requests.exceptions.RequestException as e:
                 logger.warning(
@@ -289,6 +316,7 @@ class PostHogClient:
                     error=str(e),
                     error_type=type(e).__name__,
                     description=description,
+                    attempt=attempt,
                 )
             current_interval = min(
                 current_interval * self.POLL_BACKOFF_FACTOR,
@@ -296,7 +324,12 @@ class PostHogClient:
                 self.config.event_timeout_seconds - (time.time() - start_time),
             )
 
-        logger.warning("Polling timed out", description=description, timeout_seconds=self.config.event_timeout_seconds)
+        logger.warning(
+            "Polling timed out",
+            description=description,
+            timeout_seconds=self.config.event_timeout_seconds,
+            attempts=attempt,
+        )
         return None
 
     def _execute_hogql_query(self, query: str, values: dict[str, Any]) -> dict[str, Any] | None:
