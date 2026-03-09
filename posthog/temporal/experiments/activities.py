@@ -85,8 +85,9 @@ def _check_significance_transition(
             ),
         )
     except Exception:
-        logger.exception(
-            "Failed to check significance transition",
+        # produce_internal_event already logs on failure; use warning to avoid duplicate tracebacks
+        logger.warning(
+            "Significance transition check failed, skipping notification",
             experiment_id=experiment.id,
             metric_uuid=metric_uuid,
         )
