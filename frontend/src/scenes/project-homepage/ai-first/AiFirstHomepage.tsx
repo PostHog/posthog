@@ -17,7 +17,7 @@ function phaseAtLeast(current: string, target: string): boolean {
 }
 
 export function AiFirstHomepage(): JSX.Element {
-    const { mode, animationPhase, query } = useValues(aiFirstHomepageLogic)
+    const { mode, animationPhase, query, threadStarted } = useValues(aiFirstHomepageLogic)
 
     const isIdle = mode === 'idle'
     const isAi = mode === 'ai'
@@ -49,7 +49,7 @@ export function AiFirstHomepage(): JSX.Element {
                             isAi && isContent ? 'grow opacity-100' : 'grow-0 opacity-0'
                         )}
                     >
-                        {isAi && <HomepageThread />}
+                        {isAi && threadStarted && <HomepageThread />}
                     </div>
 
                     {/* Top separator — hidden in search (flush to top edge) */}

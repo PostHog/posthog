@@ -64,6 +64,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 returnToIdle: () => '',
             },
         ],
+        threadStarted: [
+            false,
+            {
+                submitQuery: (_, { mode }) => mode === 'ai',
+                returnToIdle: () => false,
+            },
+        ],
         hoveredSuggestion: [
             null as string | null,
             {
