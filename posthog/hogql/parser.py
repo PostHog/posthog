@@ -411,6 +411,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 select_query.offset = self.visit(offset)
             if limit_and_offset_clause.WITH() and limit_and_offset_clause.TIES():
                 select_query.limit_with_ties = True
+            if limit_and_offset_clause.PERCENT():
+                select_query.limit_percent = True
         elif offset_only_clause := ctx.offsetOnlyClause():
             select_query.offset = self.visit(offset_only_clause.columnExpr())
 

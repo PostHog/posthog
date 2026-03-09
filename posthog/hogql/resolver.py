@@ -397,6 +397,7 @@ class Resolver(CloningVisitor):
         new_node.limit_by = self.visit(node.limit_by)
         new_node.limit = self.visit(node.limit)
         new_node.limit_with_ties = node.limit_with_ties
+        new_node.limit_percent = node.limit_percent
         new_node.offset = self.visit(node.offset)
         new_node.distinct = node.distinct
         new_node.window_exprs = (

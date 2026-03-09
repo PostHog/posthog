@@ -97,8 +97,8 @@ orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
 limitByClause: LIMIT limitExpr BY columnExprList;
 limitAndOffsetClause
-    : LIMIT columnExpr (COMMA columnExpr)? (WITH TIES)? // compact OFFSET-optional form
-    | LIMIT columnExpr (WITH TIES)? OFFSET columnExpr // verbose OFFSET-included form with WITH TIES
+    : LIMIT columnExpr PERCENT? (COMMA columnExpr)? (WITH TIES)? // compact OFFSET-optional form
+    | LIMIT columnExpr PERCENT? (WITH TIES)? OFFSET columnExpr // verbose OFFSET-included form with WITH TIES
     ;
 offsetOnlyClause: OFFSET columnExpr;
 settingsClause: SETTINGS settingExprList;

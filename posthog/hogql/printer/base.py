@@ -283,7 +283,10 @@ class HogQLPrinter(Visitor[str]):
             )
 
         if limit is not None:
-            clauses.append(f"LIMIT {self.visit(limit)}")
+            limit_str = f"LIMIT {self.visit(limit)}"
+            if node.limit_percent:
+                limit_str += " %"
+            clauses.append(limit_str)
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
 

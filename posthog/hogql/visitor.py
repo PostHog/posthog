@@ -683,6 +683,7 @@ class CloningVisitor(Visitor[Any]):
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
+            limit_percent=node.limit_percent,
             offset=self.visit(node.offset),
             distinct=node.distinct,
             window_exprs=(

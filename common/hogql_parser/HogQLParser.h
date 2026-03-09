@@ -927,6 +927,7 @@ public:
     antlr4::tree::TerminalNode *LIMIT();
     std::vector<ColumnExprContext *> columnExpr();
     ColumnExprContext* columnExpr(size_t i);
+    antlr4::tree::TerminalNode *PERCENT();
     antlr4::tree::TerminalNode *COMMA();
     antlr4::tree::TerminalNode *WITH();
     antlr4::tree::TerminalNode *TIES();

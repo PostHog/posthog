@@ -666,6 +666,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       if (limit_and_offset_clause_ctx->WITH() && limit_and_offset_clause_ctx->TIES()) {
         json["limit_with_ties"] = true;
       }
+      if (limit_and_offset_clause_ctx->PERCENT()) {
+        json["limit_percent"] = true;
+      }
     }
 
     // Handle limit_by clause
