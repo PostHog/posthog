@@ -39,6 +39,12 @@ class PinterestAdsAdapter(MarketingSourceAdapter[PinterestAdsConfig]):
             if self.config.stats_table.name and "campaign_analytics" not in self.config.stats_table.name.lower():
                 errors.append(f"Stats table name '{self.config.stats_table.name}' doesn't contain 'campaign_analytics'")
 
+            if not self._has_stats_column("currency"):
+                self.logger.warning(
+                    "Pinterest Ads stats table missing currency column, monetary values may be inaccurate",
+                    stats_table=self.config.stats_table.name,
+                )
+
             is_valid = len(errors) == 0
             self._log_validation_errors(errors)
 
@@ -99,7 +105,13 @@ class PinterestAdsAdapter(MarketingSourceAdapter[PinterestAdsConfig]):
 
     def _has_stats_column(self, column_name: str) -> bool:
         columns = getattr(self.config.stats_table, "columns", None)
-        return bool(columns and hasattr(columns, "__contains__") and column_name in columns)
+        if not columns or not hasattr(columns, "__contains__") or column_name not in columns:
+            return False
+        # Column metadata can be a dict with valid: false for non-queryable columns
+        col_meta = columns[column_name]
+        if isinstance(col_meta, dict) and not col_meta.get("valid", True):
+            return False
+        return True
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         """Get conversion count (total_conversions) — optional, not all accounts have conversion tracking"""

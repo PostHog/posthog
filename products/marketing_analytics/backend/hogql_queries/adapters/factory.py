@@ -47,6 +47,21 @@ from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleC
 logger = structlog.get_logger(__name__)
 
 
+def _extract_schema_name(table_suffix: str, source_type: str) -> str:
+    """Extract schema name from table suffix by stripping the source type prefix.
+
+    Table names follow the format: {user_prefix}{source_type}_{schema_name}
+    Exclusions should only match against the schema part, not user prefixes.
+    For example: 'analytics_pinterestads_campaigns' -> 'campaigns'
+    """
+    source_type_lower = source_type.lower()
+    marker = f"{source_type_lower}_"
+    idx = table_suffix.find(marker)
+    if idx != -1:
+        return table_suffix[idx + len(marker) :]
+    return table_suffix
+
+
 class MarketingSourceFactory:
     """Factory for creating and managing marketing source adapters."""
 
@@ -178,6 +193,8 @@ class MarketingSourceFactory:
             if not config_method:
                 continue
             config = config_method(source, tables)
+            if config is None:
+                continue
             adapters.append(adapter_class(config=config, context=self.context))
 
         return adapters
@@ -193,9 +210,11 @@ class MarketingSourceFactory:
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
 
-            # Check for campaign table
+            schema_name = _extract_schema_name(table_suffix, source.source_type)
+
+            # Check for campaign table (exclusions apply to schema name only, not user prefix)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+                ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
             # Check for stats table
@@ -233,9 +252,11 @@ class MarketingSourceFactory:
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
 
-            # Check for campaign table
+            schema_name = _extract_schema_name(table_suffix, source.source_type)
+
+            # Check for campaign table (exclusions apply to schema name only, not user prefix)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+                ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
             # Check for stats table
@@ -265,9 +286,11 @@ class MarketingSourceFactory:
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
 
-            # Check for campaign table
+            schema_name = _extract_schema_name(table_suffix, source.source_type)
+
+            # Check for campaign table (exclusions apply to schema name only, not user prefix)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+                ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
             # Check for stats table
@@ -297,9 +320,11 @@ class MarketingSourceFactory:
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
 
-            # Check for campaign table
+            schema_name = _extract_schema_name(table_suffix, source.source_type)
+
+            # Check for campaign table (exclusions apply to schema name only, not user prefix)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+                ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
             # Check for stats table
@@ -329,9 +354,11 @@ class MarketingSourceFactory:
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
 
-            # Check for campaign table
+            schema_name = _extract_schema_name(table_suffix, source.source_type)
+
+            # Check for campaign table (exclusions apply to schema name only, not user prefix)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+                ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
             # Check for stats table
@@ -361,9 +388,11 @@ class MarketingSourceFactory:
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
 
-            # Check for campaign table
+            schema_name = _extract_schema_name(table_suffix, source.source_type)
+
+            # Check for campaign table (exclusions apply to schema name only, not user prefix)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+                ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
             # Check for stats table
@@ -393,9 +422,11 @@ class MarketingSourceFactory:
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
 
-            # Check for campaign table
+            schema_name = _extract_schema_name(table_suffix, source.source_type)
+
+            # Check for campaign table (exclusions apply to schema name only, not user prefix)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+                ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
             # Check for stats table
@@ -425,9 +456,11 @@ class MarketingSourceFactory:
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
 
-            # Check for campaign table
+            schema_name = _extract_schema_name(table_suffix, source.source_type)
+
+            # Check for campaign table (exclusions apply to schema name only, not user prefix)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+                ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
             # Check for stats table
