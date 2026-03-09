@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFlag, IconHeart, IconStar, IconCircleDashed } from '@posthog/icons'
+import { IconCircleDashed, IconFlag, IconHeart, IconStar } from '@posthog/icons'
 import { LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TagSelect } from 'lib/components/TagSelect'

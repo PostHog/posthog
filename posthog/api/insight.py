@@ -1246,7 +1246,9 @@ class InsightViewSet(
             elif key == "not_on_dashboard":
                 if str_to_bool(request.GET["not_on_dashboard"]):
                     queryset = queryset.exclude(
-                        id__in=DashboardTile.objects.filter(insight__isnull=False).values_list("insight__id", flat=True)
+                        id__in=DashboardTile.objects.filter(
+                            insight__isnull=False, insight__team__project_id=self.team.project_id
+                        ).values_list("insight__id", flat=True)
                     )
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
