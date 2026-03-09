@@ -493,7 +493,10 @@ def provisioning_resources_create(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
-    assert access_token is not None
+    if access_token is None:
+        return Response(
+            {"status": "error", "error": {"code": "unauthorized", "message": "Missing bearer token"}}, status=401
+        )
 
     error = verify_stripe_signature(request)
     if error:
@@ -580,7 +583,10 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
-    assert access_token is not None
+    if access_token is None:
+        return Response(
+            {"status": "error", "error": {"code": "unauthorized", "message": "Missing bearer token"}}, status=401
+        )
 
     error = verify_stripe_signature(request)
     if error:
@@ -649,7 +655,10 @@ def deep_links(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
-    assert access_token is not None
+    if access_token is None:
+        return Response(
+            {"status": "error", "error": {"code": "unauthorized", "message": "Missing bearer token"}}, status=401
+        )
 
     error = verify_stripe_signature(request)
     if error:
