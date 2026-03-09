@@ -2,6 +2,7 @@ import time
 import base64
 import hashlib
 import secrets
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 import requests
@@ -10,7 +11,7 @@ import structlog
 from posthog.models.integration import OauthIntegration
 from posthog.security.url_validation import is_url_allowed
 
-from .models import MCPServerInstallation
+from .models import MCPServer, MCPServerInstallation
 
 logger = structlog.get_logger(__name__)
 
@@ -18,6 +19,14 @@ TIMEOUT = 10
 
 
 class SSRFBlockedError(Exception):
+    pass
+
+
+class OAuthTokenExchangeError(Exception):
+    pass
+
+
+class OAuthAuthorizeURLError(Exception):
     pass
 
 
@@ -232,3 +241,68 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
     installation.save(update_fields=["sensitive_configuration", "updated_at"])
 
     return updated
+
+
+def exchange_known_provider_token(*, kind: str, code: str, redirect_uri: str) -> dict:
+    oauth_config = OauthIntegration.oauth_config_for_kind(kind)
+
+    token_response = requests.post(
+        oauth_config.token_url,
+        data={
+            "client_id": oauth_config.client_id,
+            "client_secret": oauth_config.client_secret,
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        },
+        timeout=TIMEOUT,
+    )
+
+    if token_response.status_code != 200:
+        logger.error("OAuth token exchange failed", status_code=token_response.status_code, error=token_response.text)
+        raise OAuthTokenExchangeError("Failed to exchange authorization code")
+
+    return token_response.json()
+
+
+def exchange_dcr_token(
+    *,
+    server: MCPServer,
+    code: str,
+    pkce_verifier: str,
+    redirect_uri: str,
+    is_https: Callable[[str], bool],
+) -> dict:
+    if not pkce_verifier:
+        raise OAuthTokenExchangeError("Missing PKCE verifier")
+
+    if not server.oauth_metadata or not server.oauth_client_id:
+        raise OAuthTokenExchangeError("Server missing OAuth configuration")
+
+    token_endpoint = server.oauth_metadata["token_endpoint"]
+
+    allowed, reason = is_url_allowed(token_endpoint)
+    if not allowed:
+        logger.warning("SSRF blocked token endpoint", url=token_endpoint, reason=reason)
+        raise OAuthTokenExchangeError("Token endpoint blocked by security policy")
+
+    if not is_https(token_endpoint):
+        raise OAuthTokenExchangeError("Token endpoint must use HTTPS")
+
+    token_response = requests.post(
+        token_endpoint,
+        data={
+            "client_id": server.oauth_client_id,
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+            "code_verifier": pkce_verifier,
+        },
+        timeout=TIMEOUT,
+    )
+
+    if token_response.status_code != 200:
+        logger.error("DCR token exchange failed", status_code=token_response.status_code, error=token_response.text)
+        raise OAuthTokenExchangeError("Failed to exchange authorization code")
+
+    return token_response.json()

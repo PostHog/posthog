@@ -753,7 +753,7 @@ export class HogExecutorService {
 
         result.metrics.push({
             team_id: invocation.teamId,
-            app_source_id: invocation.functionId,
+            app_source_id: invocation.parentRunId ?? invocation.functionId,
             metric_kind: 'other',
             metric_name: 'fetch',
             count: 1,

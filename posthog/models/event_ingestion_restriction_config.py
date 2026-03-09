@@ -27,6 +27,7 @@ class RestrictionType(models.TextChoices):
     DROP_EVENT_FROM_INGESTION = "drop_event_from_ingestion"
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
     REDIRECT_TO_DLQ = "redirect_to_dlq"
+    REDIRECT_TO_TOPIC = "redirect_to_topic"
 
 
 class IngestionPipeline(models.TextChoices):
@@ -46,6 +47,11 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     session_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     event_names = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     event_uuids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    args = models.JSONField(
+        blank=True,
+        null=True,
+        help_text='Extra arguments for the restriction type (e.g., {"topic": "my_topic"} for redirect_to_topic)',
+    )
     note = models.TextField(
         blank=True, null=True, help_text="Optional note explaining why this restriction was put in place"
     )
@@ -75,6 +81,14 @@ class EventIngestionRestrictionConfig(UUIDTModel):
                     "pipelines": f"Invalid pipeline(s): {', '.join(invalid_pipelines)}. Valid options are: {', '.join(valid_pipelines)}"
                 }
             )
+
+        # Validate args for redirect_to_topic
+        if self.restriction_type == RestrictionType.REDIRECT_TO_TOPIC:
+            if not isinstance(self.args, dict):
+                raise ValidationError({"args": "args must be a JSON object for redirect_to_topic"})
+            topic = self.args.get("topic")
+            if not isinstance(topic, str) or not topic.strip():
+                raise ValidationError({"args": 'args must contain a non-empty "topic" string for redirect_to_topic'})
 
     def save(self, *args, **kwargs):
         self.clean()
@@ -125,8 +139,10 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
     redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
     redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{restriction_type}"
 
-    # Fetch all restrictions of this type from the database
-    configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type))
+    # Fetch all restrictions of this type, ordered by id (UUIDT, time-sortable) ascending.
+    # The index field in the output reflects this order so consumers can determine
+    # which config was created most recently (highest index wins for redirect_to_topic).
+    configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type).order_by("id"))
 
     if not configs:
         # No configs exist, delete the Redis key
@@ -135,15 +151,17 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
 
     # Build the new data array from all configs in the database (v2 format)
     data = []
-    for config in configs:
+    for index, config in enumerate(configs):
         entry = {
             "version": 2,
+            "index": index,
             "token": config.token,
             "pipelines": config.pipelines or [],
             "distinct_ids": config.distinct_ids or [],
             "session_ids": config.session_ids or [],
             "event_names": config.event_names or [],
             "event_uuids": config.event_uuids or [],
+            "args": config.args,
         }
         data.append(entry)
 

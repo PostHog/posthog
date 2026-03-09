@@ -97,7 +97,7 @@
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s2']))
   GROUP BY session_replay_events.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(session_replay_events.is_deleted), 0), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -209,7 +209,7 @@
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s2']))
   GROUP BY session_replay_events.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(session_replay_events.is_deleted), 0), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -319,7 +319,7 @@
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s2']))
   GROUP BY session_replay_events.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(session_replay_events.is_deleted), 0), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

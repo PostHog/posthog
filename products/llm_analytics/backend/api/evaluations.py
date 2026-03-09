@@ -425,6 +425,23 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         response = execute_hogql_query(query=query, team=team, limit_context=None)
 
         if not response.results:
+            report_user_action(
+                request.user,
+                "llma evaluation hog code tested",
+                {
+                    "sample_count": sample_count,
+                    "allows_na": allows_na,
+                    "condition_count": len(conditions),
+                    "result_count": 0,
+                    "pass_count": 0,
+                    "fail_count": 0,
+                    "error_count": 0,
+                    "na_count": 0,
+                    "no_events": True,
+                },
+                team=self.team,
+                request=self.request,
+            )
             return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
 
         results = []
@@ -461,6 +478,23 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     "error": result["error"],
                 }
             )
+
+        report_user_action(
+            request.user,
+            "llma evaluation hog code tested",
+            {
+                "sample_count": sample_count,
+                "allows_na": allows_na,
+                "condition_count": len(conditions),
+                "result_count": len(results),
+                "pass_count": sum(1 for r in results if r["result"] is True),
+                "fail_count": sum(1 for r in results if r["result"] is False),
+                "error_count": sum(1 for r in results if r["error"]),
+                "na_count": sum(1 for r in results if r["result"] is None and not r["error"]),
+            },
+            team=self.team,
+            request=self.request,
+        )
 
         return Response({"results": results})
 
