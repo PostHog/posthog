@@ -1,5 +1,5 @@
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import cached_property
 from typing import cast
 
@@ -57,6 +57,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
+        self._cursor_eligible = False
+        self._cursor_ts: str | None = None
+        self._cursor_uuid: str | None = None
 
     @cached_property
     def source_runner(self) -> InsightActorsQueryRunner:
@@ -118,6 +121,37 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     return False
 
         return True
+
+    def apply_pagination_cursor(self, cursor: str) -> None:
+        # NB: This uses the last row's timestamp as the cursor, so events sharing
+        # the exact same timestamp as the page boundary may be skipped. In practice
+        # this is rare since the events table uses DateTime64(6) (microsecond precision).
+        self.query.before = cursor
+        self.paginator.offset = 0
+
+    def _is_cursor_eligible(self, order_by: list[ast.OrderExpr], has_any_aggregation: bool) -> bool:
+        if self.query.source is not None or has_any_aggregation or not order_by:
+            return False
+        first = order_by[0]
+        return isinstance(first.expr, ast.Field) and first.expr.chain == ["timestamp"]
+
+    def _extract_last_timestamp(self, row: list) -> str | None:
+        select_input = self.select_input_raw()
+        val = None
+        if "*" in select_input:
+            star_idx = select_input.index("*")
+            if isinstance(row[star_idx], dict):
+                val = row[star_idx].get("timestamp")
+        if val is None:
+            for i, col in enumerate(select_input):
+                if col.split("--")[0].strip() == "timestamp":
+                    val = row[i]
+                    break
+        if val is None:
+            return None
+        if isinstance(val, datetime):
+            return val.isoformat()
+        return str(val)
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -256,6 +290,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     order_by = [ast.OrderExpr(expr=select[0], order="ASC")]
                 else:
                     order_by = []
+
+                self._cursor_eligible = self._is_cursor_eligible(order_by, has_any_aggregation)
 
             with self.timings.measure("select"):
                 if self.query.source is not None:
@@ -404,6 +440,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                                 "distinct_id": distinct_id,
                             }
 
+        next_cursor = None
+        if self._cursor_eligible and self.paginator.has_more() and self.paginator.results:
+            last_row = self.paginator.results[-1]
+            next_cursor = self._extract_last_timestamp(last_row)
+
         return EventsQueryResponse(
             results=self.paginator.results,
             columns=self.columns(query_result.columns),
@@ -411,6 +452,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
             modifiers=self.modifiers,
+            nextCursor=next_cursor,
             **self.paginator.response_params(),
         )
 

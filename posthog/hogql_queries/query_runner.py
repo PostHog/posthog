@@ -1680,6 +1680,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if self.query.variables.get(variable.variableId):
                 self.query.variables[variable.variableId] = variable
 
+    def apply_pagination_cursor(self, cursor: str) -> None:
+        """Apply an opaque cursor for paginating through results. Override in subclasses."""
+        pass
+
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversibly update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):

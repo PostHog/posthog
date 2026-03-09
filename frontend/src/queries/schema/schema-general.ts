@@ -789,6 +789,8 @@ export interface EventsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** Cursor for fetching the next page of results */
+    nextCursor?: string
 }
 
 export type CachedEventsQueryResponse = CachedQueryResponse<EventsQueryResponse>

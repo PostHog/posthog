@@ -6567,6 +6567,7 @@ class SessionBatchEventsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -8359,6 +8360,7 @@ class CachedEventsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -9178,6 +9180,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -10198,6 +10201,7 @@ class Response(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -11411,6 +11415,7 @@ class EventsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -12394,6 +12399,38 @@ class QueryResponseAlternative1(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list[str]
+
+
+class QueryResponseAlternative2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str = Field(..., description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13083,6 +13120,7 @@ class QueryResponseAlternative38(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -18215,6 +18253,7 @@ class QueryResponseAlternative(
     RootModel[
         dict[str, Any]
         | QueryResponseAlternative1
+        | QueryResponseAlternative2
         | QueryResponseAlternative3
         | QueryResponseAlternative4
         | QueryResponseAlternative5
@@ -18299,6 +18338,7 @@ class QueryResponseAlternative(
     root: (
         dict[str, Any]
         | QueryResponseAlternative1
+        | QueryResponseAlternative2
         | QueryResponseAlternative3
         | QueryResponseAlternative4
         | QueryResponseAlternative5
