@@ -3961,6 +3961,7 @@ const api = {
             success: boolean
             deleted_count: number
             total_requested: number
+            failed_ids: SessionRecordingType['id'][]
         }> {
             return await new ApiRequest()
                 .recordings()

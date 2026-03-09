@@ -29,6 +29,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -860,7 +861,7 @@ class Database(BaseModel):
 
             class WarehousePropertiesVirtualTable(VirtualTable):
                 fields: dict[str, FieldOrTable]
-                parent_table: HogQLDataWarehouseTable
+                parent_table: HogQLDataWarehouseTable | DirectPostgresTable
 
                 def to_printed_hogql(self):
                     return self.parent_table.to_printed_hogql()

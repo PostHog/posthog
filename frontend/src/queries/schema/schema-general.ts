@@ -1067,6 +1067,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
 
@@ -1351,6 +1352,8 @@ export interface BoxPlotDatum {
     p75: number
     max: number
     mean: number
+    series_index?: integer
+    series_label?: string
 }
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
