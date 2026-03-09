@@ -83,7 +83,12 @@ export const ActionsListResponse = zod.object({
                                                 "Key of the property you're filtering on. For example `email` or `$current_url`"
                                             ),
                                         value: zod
-                                            .string()
+                                            .union([
+                                                zod.string(),
+                                                zod.number(),
+                                                zod.boolean(),
+                                                zod.array(zod.union([zod.string(), zod.number()])),
+                                            ])
                                             .describe(
                                                 'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                                             ),
@@ -318,7 +323,12 @@ export const ActionsCreateBody = zod
                                         "Key of the property you're filtering on. For example `email` or `$current_url`"
                                     ),
                                 value: zod
-                                    .string()
+                                    .union([
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.array(zod.union([zod.string(), zod.number()])),
+                                    ])
                                     .describe(
                                         'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                                     ),
@@ -517,7 +527,12 @@ export const ActionsRetrieveResponse = zod
                                         "Key of the property you're filtering on. For example `email` or `$current_url`"
                                     ),
                                 value: zod
-                                    .string()
+                                    .union([
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.array(zod.union([zod.string(), zod.number()])),
+                                    ])
                                     .describe(
                                         'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                                     ),
@@ -743,7 +758,12 @@ export const ActionsUpdateBody = zod
                                         "Key of the property you're filtering on. For example `email` or `$current_url`"
                                     ),
                                 value: zod
-                                    .string()
+                                    .union([
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.array(zod.union([zod.string(), zod.number()])),
+                                    ])
                                     .describe(
                                         'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                                     ),
@@ -929,7 +949,12 @@ export const ActionsUpdateResponse = zod
                                         "Key of the property you're filtering on. For example `email` or `$current_url`"
                                     ),
                                 value: zod
-                                    .string()
+                                    .union([
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.array(zod.union([zod.string(), zod.number()])),
+                                    ])
                                     .describe(
                                         'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                                     ),
@@ -1155,7 +1180,12 @@ export const ActionsPartialUpdateBody = zod
                                         "Key of the property you're filtering on. For example `email` or `$current_url`"
                                     ),
                                 value: zod
-                                    .string()
+                                    .union([
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.array(zod.union([zod.string(), zod.number()])),
+                                    ])
                                     .describe(
                                         'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                                     ),
@@ -1341,7 +1371,12 @@ export const ActionsPartialUpdateResponse = zod
                                         "Key of the property you're filtering on. For example `email` or `$current_url`"
                                     ),
                                 value: zod
-                                    .string()
+                                    .union([
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.array(zod.union([zod.string(), zod.number()])),
+                                    ])
                                     .describe(
                                         'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                                     ),

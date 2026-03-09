@@ -117,7 +117,7 @@ export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
-    value: string
+    value: string | number | boolean | (string | number)[]
     operator?: OperatorEnumApi | BlankEnumApi | NullEnumApi | null
     type?: PropertyItemTypeEnumApi | BlankEnumApi
 }

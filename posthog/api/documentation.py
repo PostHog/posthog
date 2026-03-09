@@ -6,7 +6,6 @@ from django.core.exceptions import ImproperlyConfigured
 
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.plumbing import build_mock_request
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     extend_schema,  # noqa: F401
     extend_schema_field,
@@ -31,7 +30,16 @@ def build_openapi_mock_request(method, path, view, original_request, **kwargs):
     return request
 
 
-@extend_schema_field(OpenApiTypes.STR)
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
+        ]
+    }
+)
 class ValueField(serializers.Field):
     def to_representation(self, value):
         return value
