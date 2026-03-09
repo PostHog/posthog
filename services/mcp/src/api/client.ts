@@ -976,7 +976,9 @@ export class ApiClient {
                     return { success: true, data: insight }
                 }
 
-                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`)
+                return this.fetchJson<Schemas.Insight>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
+                )
             },
 
             update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<Schemas.Insight>> => {
@@ -1061,9 +1063,7 @@ export class ApiClient {
 
     dashboards({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListDashboardsData } = {}): Promise<
-                Result<Schemas.Dashboard[]>
-            > => {
+            list: async ({ params }: { params?: ListDashboardsData } = {}): Promise<Result<Schemas.Dashboard[]>> => {
                 const validatedParams = params ? ListDashboardsSchema.parse(params) : undefined
                 const searchParams = new URLSearchParams()
 
@@ -1099,13 +1099,10 @@ export class ApiClient {
             create: async ({ data }: { data: CreateDashboardInput }): Promise<Result<Schemas.Dashboard>> => {
                 const validatedInput = CreateDashboardInputSchema.parse(data)
 
-                return this.fetchJson<Schemas.Dashboard>(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/`,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
+                return this.fetchJson<Schemas.Dashboard>(`${this.baseUrl}/api/projects/${projectId}/dashboards/`, {
+                    method: 'POST',
+                    body: JSON.stringify(validatedInput),
+                })
             },
 
             update: async ({
@@ -1258,9 +1255,7 @@ export class ApiClient {
 
     surveys({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<
-                Result<Array<Schemas.Survey>>
-            > => {
+            list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<Result<Array<Schemas.Survey>>> => {
                 const validatedParams = params ? ListSurveysInputSchema.parse(params) : undefined
                 const searchParams = new URLSearchParams()
 
@@ -1307,10 +1302,13 @@ export class ApiClient {
             }): Promise<Result<Schemas.Survey>> => {
                 const validatedInput = UpdateSurveyInputSchema.parse(data)
 
-                return this.fetchJson<Schemas.Survey>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`, {
-                    method: 'PATCH',
-                    body: JSON.stringify(validatedInput),
-                })
+                return this.fetchJson<Schemas.Survey>(
+                    `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify(validatedInput),
+                    }
+                )
             },
 
             delete: async ({
@@ -1391,7 +1389,7 @@ export class ApiClient {
                         filterGroup: params.filters?.length
                             ? {
                                   type: 'AND' as const,
-                                  values: [{ type: params.filtersType ?? ('AND' as const), values: params.filters }],
+                                  values: [{ type: 'AND' as const, values: params.filters }],
                               }
                             : { type: 'AND' as const, values: [] },
                     },
