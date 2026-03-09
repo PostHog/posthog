@@ -324,6 +324,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["DELETE"], detail=True)
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
+
+        if instance.source.is_direct_postgres:
+            hide_direct_postgres_table(instance.table)
+            instance.should_sync = False
+            instance.save(update_fields=["should_sync", "updated_at"])
+            return Response(status=status.HTTP_200_OK)
+
         instance.delete_table()
 
         return Response(status=status.HTTP_200_OK)

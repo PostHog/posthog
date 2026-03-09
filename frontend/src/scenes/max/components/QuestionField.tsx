@@ -1,0 +1,264 @@
+import { useState } from 'react'
+
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
+
+import type { MultiQuestionFormField, MultiQuestionFormQuestion } from '~/queries/schema/schema-assistant-messages'
+
+import { OptionSelector, type Option } from './OptionSelector'
+
+interface QuestionFieldProps {
+    question: MultiQuestionFormQuestion
+    value: string | string[] | undefined
+    onAnswer: (value: string | string[]) => void
+    submitLabel?: string
+}
+
+export function QuestionField({ question, value, onAnswer, submitLabel = 'Next' }: QuestionFieldProps): JSX.Element {
+    const fieldType = question.type ?? 'select'
+
+    switch (fieldType) {
+        case 'multi_select':
+            return (
+                <MultiSelectField
+                    question={question}
+                    value={value as string[] | undefined}
+                    onAnswer={onAnswer}
+                    submitLabel={submitLabel}
+                />
+            )
+        case 'select':
+        default:
+            return (
+                <SelectField
+                    question={question}
+                    value={value as string | undefined}
+                    onAnswer={onAnswer}
+                    submitLabel={submitLabel}
+                />
+            )
+    }
+}
+
+function SelectField({
+    question,
+    value,
+    onAnswer,
+    submitLabel,
+}: {
+    question: MultiQuestionFormQuestion
+    value: string | undefined
+    onAnswer: (value: string) => void
+    submitLabel: string
+}): JSX.Element {
+    const options: Option[] = (question.options ?? []).map((option) => ({
+        label: option.value,
+        value: option.value,
+        description: option.description,
+    }))
+
+    const allowCustomAnswer = question.allow_custom_answer !== false
+
+    return (
+        <OptionSelector
+            options={options}
+            onSelect={onAnswer}
+            allowCustom={allowCustomAnswer}
+            customPlaceholder="Type your answer..."
+            onCustomSubmit={onAnswer}
+            selectedValue={value}
+            submitLabel={submitLabel}
+        />
+    )
+}
+
+function MultiSelectField({
+    question,
+    value,
+    onAnswer,
+    submitLabel,
+}: {
+    question: MultiQuestionFormQuestion
+    value: string[] | undefined
+    onAnswer: (value: string[]) => void
+    submitLabel: string
+}): JSX.Element {
+    const [selected, setSelected] = useState<string[]>(value ?? [])
+
+    const handleToggle = (optionValue: string): void => {
+        setSelected((prev) => {
+            if (prev.includes(optionValue)) {
+                return prev.filter((v) => v !== optionValue)
+            }
+            return [...prev, optionValue]
+        })
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            {(question.options ?? []).map((option) => (
+                <LemonCheckbox
+                    key={option.value}
+                    checked={selected.includes(option.value)}
+                    onChange={() => handleToggle(option.value)}
+                    label={
+                        <div>
+                            <span className="font-medium">{option.value}</span>
+                            {option.description && <span className="text-muted ml-1">— {option.description}</span>}
+                        </div>
+                    }
+                />
+            ))}
+            <LemonButton
+                type="primary"
+                size="small"
+                disabledReason={selected.length === 0 ? 'Select at least one option' : undefined}
+                onClick={() => onAnswer(selected)}
+                className="self-start"
+            >
+                {submitLabel}
+            </LemonButton>
+        </div>
+    )
+}
+
+export function isFieldValid(field: MultiQuestionFormField, value: string | string[] | undefined): boolean {
+    if (value === undefined || value === '') {
+        return !!field.optional
+    }
+    if (field.type === 'text') {
+        return typeof value === 'string' && value.trim().length > 0
+    }
+    return true
+}
+
+// Multi-field question: renders multiple fields with a shared submit button
+
+interface MultiFieldQuestionProps {
+    question: MultiQuestionFormQuestion
+    answers: Record<string, string | string[]>
+    onFieldChange: (fieldId: string, value: string | string[]) => void
+    onSubmit: () => void
+    submitLabel?: string
+}
+
+export function MultiFieldQuestion({
+    question,
+    answers,
+    onFieldChange,
+    onSubmit,
+    submitLabel = 'Next',
+}: MultiFieldQuestionProps): JSX.Element {
+    const fields = question.fields ?? []
+    const allFieldsValid = fields.every((field) => isFieldValid(field, answers[field.id]))
+
+    return (
+        <div className="flex flex-col gap-3">
+            {fields.map((field) => (
+                <div key={field.id} className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-secondary">
+                        {field.label}
+                        {field.optional && <span className="text-muted font-normal ml-1">(optional)</span>}
+                    </label>
+                    <MultiFieldInput field={field} value={answers[field.id]} onChange={onFieldChange} />
+                </div>
+            ))}
+            <LemonButton
+                type="primary"
+                size="small"
+                disabledReason={!allFieldsValid ? 'Please fill in all fields' : undefined}
+                onClick={onSubmit}
+                className="self-end"
+            >
+                {submitLabel}
+            </LemonButton>
+        </div>
+    )
+}
+
+function MultiFieldInput({
+    field,
+    value,
+    onChange,
+}: {
+    field: MultiQuestionFormField
+    value: string | string[] | undefined
+    onChange: (fieldId: string, value: string | string[]) => void
+}): JSX.Element {
+    switch (field.type) {
+        case 'dropdown': {
+            const options = (field.options ?? []).map((opt) => ({
+                value: opt.value,
+                label: opt.value,
+            }))
+            return (
+                <LemonSelect
+                    options={options}
+                    value={value as string | undefined}
+                    onChange={(v) => v && onChange(field.id, v)}
+                    placeholder="Select an option..."
+                    fullWidth
+                    size="small"
+                />
+            )
+        }
+        case 'text':
+            return (
+                <LemonInput
+                    placeholder={field.placeholder ?? 'Type your answer...'}
+                    fullWidth
+                    size="small"
+                    value={(value as string) ?? ''}
+                    onChange={(v) => onChange(field.id, v)}
+                />
+            )
+        case 'number':
+            return (
+                <LemonInput
+                    type="number"
+                    placeholder={field.placeholder ?? 'Enter a number...'}
+                    fullWidth
+                    size="small"
+                    value={value !== undefined ? Number(value) : undefined}
+                    onChange={(v) => {
+                        if (v !== undefined && !isNaN(v)) {
+                            onChange(field.id, String(v))
+                        }
+                    }}
+                    min={field.min}
+                    max={field.max}
+                    step={field.step}
+                />
+            )
+        case 'slider': {
+            const min = field.min ?? 0
+            const max = field.max ?? 100
+            const step = field.step ?? 1
+            const sliderVal = value ? Number(value) : min
+            return (
+                <div className="flex items-center gap-3">
+                    <LemonSlider
+                        value={sliderVal}
+                        onChange={(v) => onChange(field.id, String(v))}
+                        min={min}
+                        max={max}
+                        step={step}
+                        className="flex-grow"
+                    />
+                    <span className="text-sm font-medium min-w-8 text-right">{sliderVal}</span>
+                </div>
+            )
+        }
+        case 'toggle':
+            return (
+                <LemonSwitch
+                    checked={(value as string) === 'true'}
+                    onChange={(v) => onChange(field.id, String(v))}
+                    bordered
+                />
+            )
+        default:
+            return <span className="text-muted text-xs">Unsupported field type</span>
+    }
+}
