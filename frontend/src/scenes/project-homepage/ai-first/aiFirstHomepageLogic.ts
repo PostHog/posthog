@@ -99,16 +99,17 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             actions.setAnimationPhase('content')
         },
         enterAiMode: async ({ trigger }, breakpoint) => {
-            // Pass the trigger character (/ or @) to the AI input
-            if (trigger) {
-                actions.setQuestion(trigger)
-            }
-            // Just animate into AI mode without starting a conversation
+            // Animate into AI mode without starting a conversation
             await breakpoint(300)
             actions.setAnimationPhase('separator')
 
             await breakpoint(200)
             actions.setAnimationPhase('content')
+
+            // Set the trigger character after animation so the slash menu doesn't appear mid-transition
+            if (trigger) {
+                actions.setQuestion(trigger)
+            }
         },
     })),
 
