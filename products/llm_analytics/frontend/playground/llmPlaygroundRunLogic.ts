@@ -133,10 +133,10 @@ export interface ComparisonItem {
     latencyMs?: number | null
 }
 
-// Module-level ref, intentionally shared: only one playground run can be active at a time
-// (enforced by the `submitting` reducer). This lets `abortRun` signal the in-flight fetch
-// without storing a non-serializable controller in Kea state.
-let activeAbortController: AbortController | null = null
+// Per-key abort controllers so each tab can independently cancel its own in-flight run
+// without affecting other tabs. Using a Map instead of Kea state avoids storing
+// non-serializable objects in reducers.
+const abortControllersByKey = new Map<string, AbortController>()
 
 export interface LLMPlaygroundRunLogicProps {
     tabId?: string
@@ -204,9 +204,10 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         abortRun: () => {
-            activeAbortController?.abort()
+            const key = props.tabId ?? 'default'
+            abortControllersByKey.get(key)?.abort()
         },
 
         submitPrompt: async (_: unknown, breakpoint: () => void) => {
@@ -224,8 +225,9 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 return
             }
 
+            const key = props.tabId ?? 'default'
             const abortController = new AbortController()
-            activeAbortController = abortController
+            abortControllersByKey.set(key, abortController)
             try {
                 const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
                     const liveItemId = uuid()
@@ -421,7 +423,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
                 await Promise.allSettled(runs)
             } finally {
-                activeAbortController = null
+                abortControllersByKey.delete(key)
                 abortController.abort()
                 actions.finishSubmitPrompt()
             }
