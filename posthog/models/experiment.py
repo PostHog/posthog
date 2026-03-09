@@ -100,6 +100,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     def __str__(self):
         return self.name or "Untitled"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.status = Experiment.compute_status(self.start_date, self.end_date)
+        super().save(*args, **kwargs)
+
     @staticmethod
     def compute_status(start_date: Any, end_date: Any) -> "Experiment.Status":
         if start_date is not None and end_date is not None:

@@ -414,7 +414,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
-            "status",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -536,11 +535,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             saved_metrics_data if update_saved_metrics else None,
         )
         self._validate_metric_ordering(instance, validated_data)
-
-        final_start_date = validated_data.get("start_date", instance.start_date)
-        final_end_date = validated_data.get("end_date", instance.end_date)
-
-        validated_data["status"] = Experiment.compute_status(final_start_date, final_end_date)
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
