@@ -146,6 +146,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {
                     "evaluation_id": evaluation_id,
                     "evaluation_name": evaluation.name,
+                    "evaluation_type": evaluation.evaluation_type,
                     "target_event_id": target_event_id,
                     "workflow_id": workflow_id,
                     "trigger_type": "manual",

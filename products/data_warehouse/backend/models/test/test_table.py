@@ -467,6 +467,32 @@ class TestTable(BaseTest):
         definition = table.hogql_definition()
         assert definition.top_level_settings is None
 
+    def test_remove_named_tuples_backtick_quoted(self):
+        from products.data_warehouse.backend.models.util import remove_named_tuples
+
+        result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
+        assert result == "Array(Tuple( String,  String,  Nullable(String)))"
+
+    def test_hogql_definition_tuple_with_backtick_positional_names(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            url_pattern="https://example.com",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "id": "String",
+                "deal_details": {
+                    "clickhouse": "Array(Tuple(`1` String, `2` String, `3` Nullable(String)))",
+                    "hogql": "StringArrayDatabaseField",
+                    "valid": True,
+                },
+            },
+            credential=credential,
+        )
+        definition = table.hogql_definition()
+        assert definition.structure == "`id` String, `deal_details` Array(Tuple( String,  String,  Nullable(String)))"
+
     def assert_raises_with_invalid_hog_column_type(self, column_type):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
