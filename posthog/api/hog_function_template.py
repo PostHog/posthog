@@ -120,7 +120,7 @@ class PublicHogFunctionTemplateViewSet(
             OpenApiParameter(
                 "template_id",
                 OpenApiTypes.STR,
-                description="Filter to a specific template by its template_id.",
+                description="Filter to a specific template by its template_id. Deprecated templates are excluded from list results; use the retrieve endpoint to look up a template by ID regardless of status.",
             ),
         ]
     )

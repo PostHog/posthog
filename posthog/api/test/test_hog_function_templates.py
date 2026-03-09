@@ -149,6 +149,13 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) == 0
 
+    def test_list_with_template_id_filter_excludes_deprecated(self):
+        response = self.client.get(
+            f"/api/projects/@current/hog_function_templates/?template_id={self.deprecated_template.template_id}"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) == 0
+
     def test_retrieve_function_template(self):
         response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
         assert response.status_code == status.HTTP_200_OK, response.json()
