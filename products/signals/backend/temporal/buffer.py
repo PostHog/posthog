@@ -9,6 +9,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
+from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -44,7 +45,7 @@ async def flush_signals_to_s3_activity(input: FlushBufferInput) -> FlushBufferOu
     object_key = f"{OBJECT_STORAGE_SIGNALS_PREFIX}/{batch_id}"
 
     payload = json.dumps([asdict(s) for s in input.signals])
-    object_storage.write(object_key, payload)
+    await sync_to_async(object_storage.write, thread_sensitive=False)(object_key, payload)
 
     logger.info(
         "signals_buffer.flushed_to_s3",

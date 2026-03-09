@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import temporalio
+from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -23,7 +24,7 @@ from products.signals.backend.temporal.types import (
 
 @activity.defn
 async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSignalsFromS3Output:
-    raw = object_storage.read(input.object_key)
+    raw = await sync_to_async(object_storage.read, thread_sensitive=False)(input.object_key)
     if raw is None:
         raise ValueError(f"Signal batch not found in S3: {input.object_key}")
 
@@ -37,8 +38,8 @@ async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSi
 class TeamSignalGroupingV2Workflow:
     """
     V2 grouping workflow that receives S3 object keys (from BufferSignalsWorkflow)
-    instead of raw signals. Downloads each batch from S3, processes it via
-    _process_signal_batch, then deletes the S3 object.
+    instead of raw signals. Downloads each batch from S3 and processes it via
+    _process_signal_batch. S3 objects are cleaned up by lifecycle policies.
 
     Buffers pending object keys in memory. Calls continue_as_new after processing
     each batch, carrying over any remaining keys.
