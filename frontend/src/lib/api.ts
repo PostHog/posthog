@@ -4962,7 +4962,9 @@ const api = {
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
-        async githubRepositories(id: IntegrationType['id']): Promise<{ repositories: string[] }> {
+        async githubRepositories(
+            id: IntegrationType['id']
+        ): Promise<{ repositories: { id: number; name: string; full_name: string }[] }> {
             return await new ApiRequest().integrationGitHubRepositories(id).get()
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {

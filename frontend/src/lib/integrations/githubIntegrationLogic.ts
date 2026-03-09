@@ -15,7 +15,7 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
 
     loaders(({ props }) => ({
         repositories: [
-            [] as string[],
+            [] as { id: number; name: string; full_name: string }[],
             {
                 loadRepositories: async () => {
                     const response = await api.integrations.githubRepositories(props.id)
