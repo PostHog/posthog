@@ -1,13 +1,15 @@
 import type { z } from 'zod'
 
 import { SurveyGetAllSchema } from '@/schema/tool-inputs'
-import { formatSurveys } from '@/tools/surveys/utils/survey-utils'
+import { formatSurveys, type FormattedSurvey } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = SurveyGetAllSchema
 type Params = z.infer<typeof schema>
 
-export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+type Result = { results: FormattedSurvey[] }
+
+export const getAllHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const projectId = await context.stateManager.getProjectId()
 
     const surveysResult = await context.api.surveys({ projectId }).list(params ? { params } : {})
@@ -25,7 +27,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
     return response
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'surveys-get-all',
     schema,
     handler: getAllHandler,

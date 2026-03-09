@@ -190,18 +190,20 @@ export function DashboardHeader(): JSX.Element | null {
                         dashboardId={dashboard.id}
                         userAccessLevel={dashboard.user_access_level}
                     />
-                    {canEditDashboard && (
-                        <TextCardModal
-                            isOpen={showTextTileModal}
-                            onClose={() => push(urls.dashboard(dashboard.id))}
-                            dashboard={dashboard}
-                            textTileId={textTileId}
-                        />
-                    )}
-                    {canEditDashboard && <DeleteDashboardModal />}
-                    {canEditDashboard && <DuplicateDashboardModal />}
+                    {canEditDashboard ? (
+                        <>
+                            <TextCardModal
+                                isOpen={showTextTileModal}
+                                onClose={() => push(urls.dashboard(dashboard.id))}
+                                dashboard={dashboard}
+                                textTileId={textTileId}
+                            />
+                            <DeleteDashboardModal />
+                            <DuplicateDashboardModal />
+                            <DashboardInsightColorsModal />
+                        </>
+                    ) : null}
 
-                    {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
                     <TerraformExportModal
                         isOpen={terraformModalOpen}
@@ -535,7 +537,7 @@ export function DashboardHeader(): JSX.Element | null {
                             </LemonButton>
                         ) : (
                             <>
-                                {dashboard && (
+                                {dashboard ? (
                                     <>
                                         <LemonButton
                                             type="secondary"
@@ -546,26 +548,6 @@ export function DashboardHeader(): JSX.Element | null {
                                             tooltip="Share"
                                             tooltipPlacement="top"
                                         />
-                                        {canEditDashboard && hasTileRedesign && (
-                                            <LemonButton
-                                                type="secondary"
-                                                data-attr="dashboard-edit-mode-button"
-                                                onClick={() =>
-                                                    setDashboardMode(
-                                                        DashboardMode.Edit,
-                                                        DashboardEventSource.SceneCommonButtons
-                                                    )
-                                                }
-                                                size="small"
-                                                icon={<IconPencil fontSize="16" />}
-                                                tooltip="Edit layout"
-                                                tooltipPlacement="top"
-                                            />
-                                        )}
-                                    </>
-                                )}
-                                {dashboard ? (
-                                    <>
                                         <AccessControlAction
                                             resourceType={AccessControlResourceType.Dashboard}
                                             minAccessLevel={AccessControlLevel.Editor}
@@ -593,6 +575,22 @@ export function DashboardHeader(): JSX.Element | null {
                                                 </LemonButton>
                                             </AppShortcut>
                                         </AccessControlAction>
+                                        {canEditDashboard && hasTileRedesign && (
+                                            <LemonButton
+                                                type="secondary"
+                                                data-attr="dashboard-edit-mode-button"
+                                                onClick={() =>
+                                                    setDashboardMode(
+                                                        DashboardMode.Edit,
+                                                        DashboardEventSource.SceneCommonButtons
+                                                    )
+                                                }
+                                                size="small"
+                                                icon={<IconPencil fontSize="16" />}
+                                            >
+                                                Edit layout
+                                            </LemonButton>
+                                        )}
                                         <MaxTool
                                             identifier="upsert_dashboard"
                                             context={{

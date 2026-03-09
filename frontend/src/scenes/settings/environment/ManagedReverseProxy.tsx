@@ -24,6 +24,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { isKeyOf } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { ProxyRecord, proxyLogic } from './proxyLogic'
@@ -36,7 +37,7 @@ const statusText = {
 export function ManagedReverseProxy(): JSX.Element {
     const { cloudflareOptInAcknowledged, formState, proxyRecords, proxyRecordsLoading, maxProxyRecords } =
         useValues(proxyLogic)
-    const { acknowledgeCloudflareOptIn, deleteRecord, showForm } = useActions(proxyLogic)
+    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, showForm } = useActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
     const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
@@ -75,7 +76,7 @@ export function ManagedReverseProxy(): JSX.Element {
                         )}
                     >
                         {status === 'issuing' && <Spinner />}
-                        <span className="capitalize">{statusText[status] || status}</span>
+                        <span className="capitalize">{isKeyOf(status, statusText) ? statusText[status] : status}</span>
                         {status === 'waiting' && (
                             <Tooltip title="Waiting for DNS records to be created">
                                 <IconInfo className="cursor-pointer" />
@@ -100,9 +101,17 @@ export function ManagedReverseProxy(): JSX.Element {
                     !restrictionReason && (
                         <LemonMenu
                             items={[
+                                ...(status === 'erroring' || status === 'timed_out'
+                                    ? [
+                                          {
+                                              label: 'Retry',
+                                              onClick: () => retryRecord(id),
+                                          },
+                                      ]
+                                    : []),
                                 {
                                     label: 'Delete',
-                                    status: 'danger',
+                                    status: 'danger' as const,
                                     onClick: () => {
                                         LemonDialog.open({
                                             title: 'Delete managed proxy',

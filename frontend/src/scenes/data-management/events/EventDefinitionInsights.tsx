@@ -50,6 +50,7 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
         {
             title: 'Last modified',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (

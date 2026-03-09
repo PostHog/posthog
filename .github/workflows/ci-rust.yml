@@ -44,6 +44,7 @@ jobs:
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/actions/setup-protoc/**'
+                        - '.github/actions/setup-sccache/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
@@ -144,6 +145,7 @@ jobs:
                       rust/
                       proto/
                       .github/actions/setup-protoc/
+                      .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -161,12 +163,7 @@ jobs:
                   toolchain: 1.91.1
 
             - name: Install sccache
-              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-            - name: Configure sccache
-              run: |
-                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
+              uses: ./.github/actions/setup-sccache
 
             - name: Run cargo build
               env:
@@ -241,12 +238,7 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Install sccache
-              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-            - name: Configure sccache
-              run: |
-                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
+              uses: ./.github/actions/setup-sccache
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -326,6 +318,7 @@ jobs:
                       rust/
                       proto/
                       .github/actions/setup-protoc/
+                      .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -344,12 +337,7 @@ jobs:
                   components: clippy,rustfmt
 
             - name: Install sccache
-              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-            - name: Configure sccache
-              run: |
-                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
+              uses: ./.github/actions/setup-sccache
 
             - name: Check format
               run: cargo fmt -- --check

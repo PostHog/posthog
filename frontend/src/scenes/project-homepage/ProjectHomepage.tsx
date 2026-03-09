@@ -2,12 +2,12 @@ import './ProjectHomepage.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
 import { IconHome } from '@posthog/icons'
 
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -18,10 +18,12 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 import { DashboardPlacement } from '~/types'
+
+import { AiFirstHomepage } from './ai-first/AiFirstHomepage'
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
@@ -32,7 +34,7 @@ function HomePageContent(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps as DashboardLogicProps))
-    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
+    const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
 
     // TODO: Remove this after AA test is over
     const { featureFlags } = useValues(featureFlagLogic)
@@ -68,7 +70,7 @@ function HomePageContent(): JSX.Element {
                             type="secondary"
                             size="small"
                             data-attr="project-home-customize-homepage"
-                            onClick={() => setIsConfigurePinnedTabsOpen(true)}
+                            onClick={() => showConfigurePinnedTabsModal()}
                         >
                             Customize homepage
                         </LemonButton>
@@ -90,21 +92,27 @@ function HomePageContent(): JSX.Element {
             ) : (
                 <SceneDashboardChoiceRequired
                     open={() => {
-                        setIsConfigurePinnedTabsOpen(true)
+                        showConfigurePinnedTabsModal()
                     }}
                     scene={Scene.ProjectHomepage}
                 />
             )}
-            <ConfigurePinnedTabsModal
-                isOpen={isConfigurePinnedTabsOpen}
-                onClose={() => setIsConfigurePinnedTabsOpen(false)}
-            />
         </SceneContent>
     )
 }
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
+    const isAIFirst = useFeatureFlag('AI_FIRST')
+
+    if (isAIFirst) {
+        return (
+            <div className="grow h-full">
+                <AiFirstHomepage />
+            </div>
+        )
+    }
+
     // if there is no numeric dashboard id, the dashboard logic will throw...
     // so we check it here first
     if (dashboardLogicProps?.id) {

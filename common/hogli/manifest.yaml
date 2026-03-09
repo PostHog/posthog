@@ -316,6 +316,12 @@ build:
     init:skill:
         cmd: python products/posthog_ai/scripts/build_skills.py --init
         description: Scaffold a new agent skill directory with SKILL.md boilerplate
+    sync:skill:
+        cmd: python products/posthog_ai/scripts/build_skills.py --sync
+        description: Build a product skill and sync to .agents/skills/ for local testing
+    unsync:skill:
+        cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
+        description: Remove a previously synced skill from .agents/skills/
 docker:
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down

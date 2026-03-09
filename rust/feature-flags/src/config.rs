@@ -109,7 +109,7 @@ impl FromStr for TeamIdCollection {
 }
 
 /// Flag definitions rate limits configuration
-/// Parses JSON from FLAG_DEFINITIONS_RATE_LIMITS environment variable
+/// Parses JSON from LOCAL_EVAL_RATE_LIMITS environment variable
 /// Format: {"team_id": "rate_string", ...}
 /// Example: {"123": "1200/minute", "456": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -128,7 +128,7 @@ impl FromStr for FlagDefinitionsRateLimits {
 
         // Parse JSON into HashMap<String, String>
         let parsed: HashMap<String, String> = serde_json::from_str(s)
-            .map_err(|e| format!("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS as JSON: {e}"))?;
+            .map_err(|e| format!("Failed to parse rate limits as JSON: {e}"))?;
 
         // Convert string keys to TeamId
         let mut rate_limits = HashMap::new();
@@ -383,14 +383,14 @@ pub struct Config {
 
     // Flag definitions rate limiting
     // Default rate limit for all teams (requests per minute)
-    // Can be overridden per-team using FLAG_DEFINITIONS_RATE_LIMITS
+    // Can be overridden per-team using LOCAL_EVAL_RATE_LIMITS
     #[envconfig(from = "FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE", default = "600")]
     pub flag_definitions_default_rate_per_minute: u32,
 
-    // Per-team rate limit overrides for flag definitions endpoint
+    // Per-team rate limit overrides for flag definitions endpoint (shared with Django)
     // JSON format: {"team_id": "rate_string", ...}
     // Example: {"123": "1200/minute", "456": "2400/hour"}
-    #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
+    #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
     // OpenTelemetry configuration
@@ -980,9 +980,7 @@ mod tests {
     fn test_flag_definitions_rate_limits_invalid_json() {
         let result: Result<FlagDefinitionsRateLimits, _> = "not json".parse();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS"));
+        assert!(result.unwrap_err().contains("Failed to parse rate limits"));
     }
 
     #[test]

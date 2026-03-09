@@ -78,6 +78,7 @@ ActivityScope = Literal[
     "CustomerProfileConfig",
     "Log",
     "ProductTour",
+    "Ticket",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
