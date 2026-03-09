@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
+import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -16,7 +18,8 @@ import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
 import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 
 export function PromptViewDetails(): JSX.Element {
-    const { prompt } = useValues(llmPromptLogic)
+    const { prompt, isRenderingMarkdown } = useValues(llmPromptLogic)
+    const { toggleMarkdownRendering } = useActions(llmPromptLogic)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -54,8 +57,21 @@ export function PromptViewDetails(): JSX.Element {
             </div>
 
             <div>
-                <label className="text-xs font-semibold uppercase text-secondary">Prompt</label>
-                <pre className="mt-1 rounded border bg-bg-light p-3 whitespace-pre-wrap">{prompt.prompt}</pre>
+                <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold uppercase text-secondary">Prompt</label>
+                    <LemonButton
+                        size="small"
+                        noPadding
+                        icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                        tooltip="Toggle markdown rendering"
+                        onClick={toggleMarkdownRendering}
+                    />
+                </div>
+                {isRenderingMarkdown ? (
+                    <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3">{prompt.prompt}</LemonMarkdown>
+                ) : (
+                    <pre className="mt-1 rounded border bg-bg-light p-3 whitespace-pre-wrap">{prompt.prompt}</pre>
+                )}
             </div>
 
             <div className="grid gap-3 text-sm text-secondary sm:grid-cols-2">
@@ -184,7 +200,8 @@ export function PromptEditForm({
     isHistoricalVersion: boolean
     selectedVersion: number | null
 }): JSX.Element {
-    const { promptVariables, isNewPrompt } = useValues(llmPromptLogic)
+    const { promptVariables, isNewPrompt, isRenderingMarkdown, promptForm } = useValues(llmPromptLogic)
+    const { toggleMarkdownRendering } = useActions(llmPromptLogic)
 
     return (
         <div className="mt-4 max-w-3xl space-y-4">
@@ -214,14 +231,34 @@ export function PromptEditForm({
 
             <LemonField
                 name="prompt"
-                label="Prompt"
+                label={
+                    <div className="flex items-center gap-2">
+                        <span>Prompt</span>
+                        <LemonButton
+                            size="small"
+                            noPadding
+                            icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                            tooltip="Toggle markdown preview"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                toggleMarkdownRendering()
+                            }}
+                        />
+                    </div>
+                }
                 help="Use {{variable_name}} to define variables that will be replaced when fetching the prompt from your backend."
             >
-                <LemonTextArea
-                    placeholder="You are a helpful assistant for {{company_name}}. Help the user with their question about {{topic}}."
-                    minRows={10}
-                    className="font-mono"
-                />
+                {isRenderingMarkdown ? (
+                    <LemonMarkdown className="rounded border bg-bg-light p-3 whitespace-pre-wrap">
+                        {promptForm.prompt || '*No prompt content yet*'}
+                    </LemonMarkdown>
+                ) : (
+                    <LemonTextArea
+                        placeholder="You are a helpful assistant for {{company_name}}. Help the user with their question about {{topic}}."
+                        minRows={10}
+                        className="font-mono"
+                    />
+                )}
             </LemonField>
 
             {promptVariables.length > 0 && (
