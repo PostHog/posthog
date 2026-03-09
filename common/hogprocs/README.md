@@ -29,18 +29,27 @@ You typically run hogprocs via `hogli dev` rather than directly.
 
 ## Keybindings
 
-| Key                 | Action                   |
-| ------------------- | ------------------------ |
-| `j` / `tab`         | Next process             |
-| `k` / `shift+tab`   | Previous process         |
-| `↑` / `↓`           | Scroll output            |
-| `ctrl+u` / `ctrl+d` | Scroll half page         |
-| `g` / `G`           | Jump to top / bottom     |
-| `r`                 | Restart selected process |
-| `?`                 | Toggle full help         |
-| `q` / `ctrl+c`      | Quit                     |
+| Key                 | Action                                          |
+| ------------------- | ----------------------------------------------- |
+| `tab`               | Swap focus sidebar/output window                |
+| `j` / `↓`           | Next process (sidebar) / Scroll down (output)   |
+| `k` / `↑`           | Previous process (sidebar) / Scroll up (output) |
+| `J` / `pgdn`        | Scroll output down                              |
+| `K` / `pgup`        | Scroll output up                                |
+| `ctrl+u` / `ctrl+d` | Scroll half page                                |
+| `g` / `home`        | Jump to top of output                           |
+| `G` / `end`         | Jump to bottom of output                        |
+| `r`                 | Restart selected process                        |
+| `?`                 | Toggle full help                                |
+| `q` / `ctrl+c`      | Quit                                            |
 
-Mouse scroll is also supported in the output pane.
+The behavior of `j`/`k` (and arrow keys) changes based on which pane is focused:
+
+- **Sidebar focused**: Navigate between processes
+- **Output focused**: Scroll the output
+
+Mouse scroll is also supported in the output pane. Clicking in a pane switches focus to it.
+The header also shows the current focus as `focus: sidebar` or `focus: output`.
 
 ## Debug logging
 

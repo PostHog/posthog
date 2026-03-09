@@ -33,6 +33,13 @@ const headerHeight = 1
 // Minimum number of lines for the collapsed help footer.
 const footerHeight = 2 // top border + content line
 
+type focusPane int
+
+const (
+	focusSidebar focusPane = iota
+	focusOutput
+)
+
 // oot Bubble Tea model for hogprocs.
 type Model struct {
 	mgr   *process.Manager
@@ -40,6 +47,9 @@ type Model struct {
 
 	// cursor is the index of the currently selected process in the sidebar.
 	cursor int
+
+	// focusedPane tracks which pane has focus (sidebar or output).
+	focusedPane focusPane
 
 	viewport viewport.Model
 	// atBottom tracks whether the viewport is auto-scrolling to the tail of output.
@@ -61,13 +71,14 @@ type Model struct {
 // Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.).
 func New(mgr *process.Manager, logger *log.Logger) Model {
 	return Model{
-		mgr:      mgr,
-		procs:    mgr.Procs(),
-		cursor:   0,
-		atBottom: true,
-		keys:     defaultKeyMap(),
-		help:     help.New(),
-		log:      logger,
+		mgr:         mgr,
+		procs:       mgr.Procs(),
+		cursor:      0,
+		focusedPane: focusSidebar,
+		atBottom:    true,
+		keys:        defaultKeyMap(),
+		help:        help.New(),
+		log:         logger,
 	}
 }
 
@@ -126,20 +137,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Recompute sizes since footer height may change.
 			m = m.applySize()
 
+		case key.Matches(msg, m.keys.SwapFocus):
+			if m.focusedPane == focusSidebar {
+				m.focusedPane = focusOutput
+				m.dbg("focus: sidebar → output")
+			} else {
+				m.focusedPane = focusSidebar
+				m.dbg("focus: output → sidebar")
+			}
+
 		case key.Matches(msg, m.keys.NextProc):
-			if m.cursor < len(m.procs)-1 {
-				prev := m.cursor
-				m.cursor++
-				m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
-				m = m.loadActiveProc()
+			// When sidebar focused: navigate to next process
+			// When output focused: scroll down
+			if m.focusedPane == focusSidebar {
+				if m.cursor < len(m.procs)-1 {
+					prev := m.cursor
+					m.cursor++
+					m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
+					m = m.loadActiveProc()
+				}
+			} else {
+				// Forward to viewport for scrolling
+				var vpCmd tea.Cmd
+				m.viewport, vpCmd = m.viewport.Update(msg)
+				cmds = append(cmds, vpCmd)
+				m.atBottom = m.viewport.AtBottom()
 			}
 
 		case key.Matches(msg, m.keys.PrevProc):
-			if m.cursor > 0 {
-				prev := m.cursor
-				m.cursor--
-				m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
-				m = m.loadActiveProc()
+			// When sidebar focused: navigate to previous process
+			// When output focused: scroll up
+			if m.focusedPane == focusSidebar {
+				if m.cursor > 0 {
+					prev := m.cursor
+					m.cursor--
+					m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
+					m = m.loadActiveProc()
+				}
+			} else {
+				// Forward to viewport for scrolling
+				var vpCmd tea.Cmd
+				m.viewport, vpCmd = m.viewport.Update(msg)
+				cmds = append(cmds, vpCmd)
+				m.atBottom = m.viewport.AtBottom()
 			}
 
 		case key.Matches(msg, m.keys.GotoTop):
@@ -172,6 +212,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Button == tea.MouseLeft {
 			// Sidebar is from x=0 to x=sidebarWidth-1, content starts at y=headerHeight
 			if msg.X < sidebarWidth && msg.Y >= headerHeight {
+				m.focusedPane = focusSidebar
+				m.dbg("focus: mouse click → sidebar")
 				row := msg.Y - headerHeight
 				if row >= 0 && row < len(m.procs) {
 					prev := m.cursor
@@ -182,6 +224,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, nil
 				}
+			} else if msg.X >= sidebarWidth {
+				// Clicked in output pane
+				m.focusedPane = focusOutput
+				m.dbg("focus: mouse click → output")
 			}
 		}
 		// Forward clicks outside sidebar to viewport
@@ -302,12 +348,18 @@ func (m Model) renderHeader() string {
 	}
 	meta := headerMetaStyle.Render(fmt.Sprintf("%d running  ", running))
 
-	gap := m.width - lipgloss.Width(brand) - lipgloss.Width(meta)
+	focusName := "sidebar"
+	if m.focusedPane == focusOutput {
+		focusName = "output"
+	}
+	focus := headerMetaStyle.Copy().Foreground(colorWhite).Render(fmt.Sprintf("focus: %s  ", focusName))
+
+	gap := m.width - lipgloss.Width(brand) - lipgloss.Width(meta) - lipgloss.Width(focus)
 	if gap < 0 {
 		gap = 0
 	}
 	spacer := headerMetaStyle.Width(gap).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Top, brand, spacer, meta)
+	return lipgloss.JoinHorizontal(lipgloss.Top, brand, spacer, meta, focus)
 }
 
 func (m Model) renderSidebar() string {
@@ -337,7 +389,11 @@ func (m Model) renderSidebar() string {
 		// which would silently terminate the background highlight after the icon
 		// and make the active-row cursor invisible.
 		if i == m.cursor {
-			base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
+			selectedBg := colorDarkGrey
+			if m.focusedPane == focusSidebar {
+				selectedBg = colorBlue
+			}
+			base := lipgloss.NewStyle().Background(selectedBg).Bold(true)
 			iconSeg := base.Copy().PaddingLeft(1).Foreground(iconColor).Render(iconChar)
 			// Width covers the remaining columns: innerW minus the 2 chars
 			// already consumed by PaddingLeft + icon.
