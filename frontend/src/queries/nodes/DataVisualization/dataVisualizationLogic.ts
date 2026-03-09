@@ -788,12 +788,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
         yData: [
-            (s) => [s.selectedYAxis, s.response, s.columns],
-            (ySeries, response, columns): AxisSeries<number>[] => {
+            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings],
+            (ySeries, response, columns, chartSettings): AxisSeries<number | null>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
                 }
 
+                const showNullsAsZero = chartSettings.showNullsAsZero ?? false
                 const data =
                     'results' in response && Array.isArray(response.results)
                         ? response.results
@@ -802,7 +803,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                           : []
 
                 return ySeries
-                    .map((series): AxisSeries<number> | null => {
+                    .map((series): AxisSeries<number | null> | null => {
                         if (!series) {
                             return EmptyYAxisSeries
                         }
@@ -831,7 +832,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         n[column.dataIndex] === undefined ||
                                         n[column.dataIndex] === null
                                     if (isNotANumber) {
-                                        return 0
+                                        return showNullsAsZero ? 0 : null
                                     }
 
                                     const isInt = Number.isInteger(n[column.dataIndex])
@@ -839,13 +840,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         ? parseInt(n[column.dataIndex], 10) * multiplier
                                         : parseFloat(n[column.dataIndex]) * multiplier
                                 } catch {
-                                    return 0
+                                    return showNullsAsZero ? 0 : null
                                 }
                             }),
                             settings: series.settings,
                         }
                     })
-                    .filter((series): series is AxisSeries<number> => Boolean(series))
+                    .filter((series): series is AxisSeries<number | null> => Boolean(series))
             },
         ],
         xData: [
@@ -895,12 +896,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         tabularData: [
-            (s) => [s.tabularColumns, s.response],
-            (tabularColumns, response): TableDataCell<any>[][] => {
+            (s) => [s.tabularColumns, s.response, s.chartSettings],
+            (tabularColumns, response, chartSettings): TableDataCell<any>[][] => {
                 if (!response || tabularColumns === null) {
                     return []
                 }
 
+                const showNullsAsZero = chartSettings.showNullsAsZero ?? false
                 const data =
                     'results' in response && Array.isArray(response.results)
                         ? response.results
@@ -923,9 +925,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         if (column.column.type.isNumerical) {
                             try {
                                 if (value === null) {
+                                    const nullReplacement = showNullsAsZero ? 0 : null
+
                                     return {
-                                        value: null,
-                                        formattedValue: null,
+                                        value: nullReplacement,
+                                        formattedValue: formatDataWithSettings(nullReplacement, column.settings),
                                         type: column.column.type.name,
                                     }
                                 }

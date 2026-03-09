@@ -1,11 +1,5 @@
 import { hasScopes } from '@/lib/api'
 
-// Actions
-import createAction from './actions/create'
-import deleteAction from './actions/delete'
-import getAction from './actions/get'
-import getAllActions from './actions/getAll'
-import updateAction from './actions/update'
 // Dashboards
 import addInsightToDashboard from './dashboards/addInsight'
 import createDashboard from './dashboards/create'
@@ -162,13 +156,6 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'survey-delete': deleteSurvey,
     'surveys-global-stats': surveysGlobalStats,
     'survey-stats': surveyStats,
-
-    // Actions
-    'actions-get-all': getAllActions,
-    'action-get': getAction,
-    'action-create': createAction,
-    'action-update': updateAction,
-    'action-delete': deleteAction,
 
     // Search
     'entity-search': entitySearch,

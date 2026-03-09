@@ -220,6 +220,7 @@ posthog/api/survey.py:0: error: Item "list[_ErrorFullDetails]" of "_FullDetailDi
 posthog/api/survey.py:0: error: Item "object" of "object | Any" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Value of type variable "_S" of "assertAlmostEqual" of "TestCase" cannot be "datetime | None"  [type-var]
 posthog/api/test/dashboards/test_dashboard_duplication.py:0: error: List comprehension has incompatible type List[Any | None]; expected List[int]  [misc]
+posthog/api/test/test_authentication.py:0: error: Item "None" of "str | None" has no attribute "upper"  [union-attr]
 posthog/api/test/test_feature_flag.py:0: error: "Field[Any, Any, Any, Any]" has no attribute "child_relation"  [attr-defined]
 posthog/api/test/test_feature_flag.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/api/test/test_feature_flag.py:0: error: Value of type "Any | None" is not indexable  [index]
