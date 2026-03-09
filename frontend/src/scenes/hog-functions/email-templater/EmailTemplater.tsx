@@ -500,19 +500,18 @@ function NativeEmailTemplaterForm({
                             )}
                         </LemonField>
                     ))}
+
+                    {mode === 'full' && templates.length > 0 && (
+                        <TemplateSlider
+                            templates={templates}
+                            onSelect={applyTemplate}
+                            onSaveAsTemplate={onSaveAsTemplate}
+                        />
+                    )}
                 </div>
 
                 {mode === 'full' ? (
                     <>
-                        <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
-                            {templates.length > 0 && (
-                                <TemplateSlider
-                                    templates={templates}
-                                    onSelect={applyTemplate}
-                                    onSaveAsTemplate={onSaveAsTemplate}
-                                />
-                            )}
-                        </div>
                         <LemonTabs
                             activeKey={activeContentTab}
                             onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
