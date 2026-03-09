@@ -21,7 +21,7 @@ import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
     const { query, placeholder } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery } = useActions(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, enterAiMode } = useActions(aiFirstHomepageLogic)
     const inputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
@@ -45,7 +45,15 @@ function IdleInput(): JSX.Element {
                     ref={inputRef}
                     id="homepage-input"
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={(e) => {
+                        const value = e.target.value
+                        // Typing / or @ as the first character enters AI mode without sending
+                        if (value === '/' || value === '@') {
+                            enterAiMode(value)
+                            return
+                        }
+                        setQuery(value)
+                    }}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' && query.trim()) {
                             e.preventDefault()
@@ -67,9 +75,6 @@ function IdleInput(): JSX.Element {
                         <div className="flex items-center gap-0.5">
                             <ButtonPrimitive size="xs" className="text-tertiary" tooltip="Not implemented yet">
                                 <KeyboardShortcut forwardslash /> <span className="text-xxs">For commands</span>
-                            </ButtonPrimitive>
-                            <ButtonPrimitive size="xs" className="text-tertiary" tooltip="Not implemented yet">
-                                <KeyboardShortcut atsign /> <span className="text-xxs">Add context</span>
                             </ButtonPrimitive>
                         </div>
 

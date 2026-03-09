@@ -20,11 +20,12 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     connect(() => ({
         values: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['threadLogicKey']],
-        actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation', 'startNewConversation']],
+        actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation', 'startNewConversation', 'setQuestion']],
     })),
 
     actions({
         submitQuery: (mode: 'search' | 'ai') => ({ mode }),
+        enterAiMode: (trigger: string) => ({ trigger }),
         setQuery: (query: string) => ({ query }),
         setAnimationPhase: (phase: AnimationPhase) => ({ phase }),
         setHoveredSuggestion: (suggestion: string | null) => ({ suggestion }),
@@ -42,6 +43,12 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                         return state
                     }
                     return { mode, animationPhase: 'moving' }
+                },
+                enterAiMode: (state): LayoutState => {
+                    if (state.mode === 'ai') {
+                        return state
+                    }
+                    return { mode: 'ai', animationPhase: 'moving' }
                 },
                 setAnimationPhase: (state, { phase }): LayoutState => ({
                     ...state,
@@ -91,6 +98,18 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             await breakpoint(200)
             actions.setAnimationPhase('content')
         },
+        enterAiMode: async ({ trigger }, breakpoint) => {
+            // Pass the trigger character (/ or @) to the AI input
+            if (trigger) {
+                actions.setQuestion(trigger)
+            }
+            // Just animate into AI mode without starting a conversation
+            await breakpoint(300)
+            actions.setAnimationPhase('separator')
+
+            await breakpoint(200)
+            actions.setAnimationPhase('content')
+        },
     })),
 
     actionToUrl(({ values }) => ({
@@ -105,6 +124,9 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 ]
             }
             return [urls.projectHomepage(), { mode, q: query || undefined }, undefined, { replace: false }]
+        },
+        enterAiMode: () => {
+            return [urls.projectHomepage(), { mode: 'ai' }, undefined, { replace: true }]
         },
         returnToIdle: () => {
             return [urls.projectHomepage(), {}, undefined, { replace: true }]
