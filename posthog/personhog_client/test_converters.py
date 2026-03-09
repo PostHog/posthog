@@ -201,7 +201,8 @@ class TestProtoPersonToModel:
         if proto_kwargs.get("created_at"):
             assert person.created_at == datetime.fromtimestamp(proto_kwargs["created_at"], tz=UTC)
         else:
-            assert person.created_at is None
+            # When proto has no created_at, we fall back to now() since the Django field is non-nullable
+            assert isinstance(person.created_at, datetime)
 
         if distinct_ids is not None:
             assert person.distinct_ids == distinct_ids
