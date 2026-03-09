@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"os/exec"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -24,6 +25,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/posthog/posthog/hogprocs/internal/process"
 )
 
@@ -55,6 +57,13 @@ type Model struct {
 	viewport viewport.Model
 	// Tracks whether the viewport is auto-scrolling to the tail of output
 	atBottom bool
+
+	// Copy mode: keyboard-driven line selection within the output pane.
+	// copyAnchor is the line where the user pressed 'c'; copyCursor moves
+	// with arrow keys. The selected range is [min(anchor,cursor), max(anchor,cursor)].
+	copyMode   bool
+	copyAnchor int
+	copyCursor int
 
 	keys     keyMap
 	help     help.Model
@@ -116,7 +125,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Rebuild viewport content only for the active process to keep rendering cheap.
 		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
 			m.viewport.SetContent(m.buildContent())
-			if m.atBottom {
+			// Don't auto-scroll while the user is selecting text in copy mode.
+			if m.atBottom && !m.copyMode {
 				m.viewport.GotoBottom()
 			}
 		}
@@ -132,6 +142,70 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		m.dbg("key: %q", msg.String())
+
+		// Copy mode consumes all keys except quit. First press 'c' to enter,
+		// navigate with ↑/↓, press 'c' again to set the selection anchor, then
+		// navigate to extend the selection, then 'c' to yank.
+		if m.copyMode {
+			switch {
+			case key.Matches(msg, m.keys.Quit):
+				m.mgr.StopAll()
+				return m, tea.Quit
+
+			case key.Matches(msg, m.keys.CopyEsc):
+				m.dbg("copy mode: exit")
+				m.copyMode = false
+				m.applyCopyStyleFunc()
+				m = m.applySize()
+
+			case key.Matches(msg, m.keys.CopyMode):
+				if m.copyAnchor < 0 {
+					m.copyAnchor = m.copyCursor
+					m.dbg("copy mode: anchor set at line %d", m.copyAnchor)
+				} else if m.copyCursor != m.copyAnchor {
+					text := m.copySelectedText()
+					m.dbg("copy mode: copied %d lines", strings.Count(text, "\n")+1)
+					m.copyMode = false
+					m.applyCopyStyleFunc()
+					m = m.applySize()
+					return m, tea.SetClipboard(text)
+				} else {
+					m.copyAnchor = -1
+					m.dbg("copy mode: anchor cleared")
+				}
+				m.applyCopyStyleFunc()
+
+			case key.Matches(msg, m.keys.NextProc):
+				total := m.viewport.TotalLineCount()
+				if m.copyCursor < total-1 {
+					m.copyCursor++
+					m.ensureCopyCursorVisible()
+					m.applyCopyStyleFunc()
+				}
+
+			case key.Matches(msg, m.keys.PrevProc):
+				if m.copyCursor > 0 {
+					m.copyCursor--
+					m.ensureCopyCursorVisible()
+					m.applyCopyStyleFunc()
+				}
+
+			case key.Matches(msg, m.keys.GotoTop):
+				m.copyCursor = 0
+				m.ensureCopyCursorVisible()
+				m.applyCopyStyleFunc()
+
+			case key.Matches(msg, m.keys.GotoBottom):
+				total := m.viewport.TotalLineCount()
+				if total > 0 {
+					m.copyCursor = total - 1
+				}
+				m.ensureCopyCursorVisible()
+				m.applyCopyStyleFunc()
+			}
+			return m, tea.Batch(cmds...)
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			m.mgr.StopAll()
@@ -207,6 +281,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				go p.Restart(send)
 			}
 
+		case key.Matches(msg, m.keys.Docker):
+			m.dbg("docker: launching lazydocker")
+			return m, tea.ExecProcess(exec.Command("lazydocker"), nil)
+
+		case key.Matches(msg, m.keys.CopyMode):
+			// Enter copy mode only when the output pane is focused.
+			m.copyMode = true
+			// Expand the viewport to full width before recording the cursor
+			// position so YOffset stays meaningful after the resize.
+			m = m.applySize()
+			// Place cursor at top of visible area; anchor is unset until
+			// the user presses 'c' again to mark the selection start.
+			m.copyCursor = m.viewport.YOffset()
+			m.copyAnchor = -1
+			m.applyCopyStyleFunc()
+			m.dbg("copy mode: enter at line %d", m.copyCursor)
+
 		default:
 			// Forward remaining key events to the viewport for scrolling.
 			var vpCmd tea.Cmd
@@ -261,21 +352,23 @@ func (m Model) View() tea.View {
 	if !m.ready {
 		v := tea.NewView("\n  Initialising...\n")
 		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
+		v.MouseMode = tea.MouseModeNone
 		return v
+	}
+	var middle string
+	if m.copyMode {
+		middle = m.renderOutput()
+	} else {
+		middle = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderOutput())
 	}
 	v := tea.NewView(lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.renderHeader(),
-		lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			m.renderSidebar(),
-			m.renderOutput(),
-		),
+		middle,
 		m.renderFooter(),
 	))
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeNone
 	return v
 }
 
@@ -299,11 +392,16 @@ func (m Model) applySize() Model {
 	if contentH < 1 {
 		contentH = 1
 	}
-	// sidebarWidth includes the right border character, so subtract 1 for the
-	// border and 1 for the padding inside the viewport.
-	vpW := m.width - sidebarWidth
-	if vpW < 1 {
-		vpW = 1
+	// In copy mode the sidebar is hidden, so the viewport fills the full width.
+	// The PTY width is always the sidebar-adjusted value so processes don't
+	// receive a spurious resize when the user enters or exits copy mode.
+	ptyW := m.width - sidebarWidth
+	if ptyW < 1 {
+		ptyW = 1
+	}
+	vpW := ptyW
+	if m.copyMode {
+		vpW = m.width
 	}
 
 	if !m.ready {
@@ -317,20 +415,24 @@ func (m Model) applySize() Model {
 
 	m.ensureSidebarCursorVisible()
 
-	// Keep every pty window size in sync with the output pane so programs
-	// that detect terminal width (webpack, Django dev-server) reflow correctly.
+	// Keep every pty window size in sync with the sidebar-adjusted width so
+	// programs that detect terminal width (webpack, Django dev-server) reflow
+	// correctly, and are not affected by copy mode toggling.
 	for _, p := range m.procs {
-		p.Resize(uint16(vpW), uint16(contentH))
+		p.Resize(uint16(ptyW), uint16(contentH))
 	}
 
 	return m
 }
 
 // loadActiveProc reloads the viewport with the selected process's output.
+// Switching processes always exits copy mode.
 func (m Model) loadActiveProc() Model {
 	if !m.ready {
 		return m
 	}
+	m.copyMode = false
+	m.viewport.StyleLineFunc = nil
 	m.viewport.SetContent(m.buildContent())
 	if m.atBottom {
 		m.viewport.GotoBottom()
@@ -345,6 +447,73 @@ func (m Model) buildContent() string {
 		return ""
 	}
 	return strings.Join(p.Lines(), "\n")
+}
+
+// applyCopyStyleFunc updates the viewport's StyleLineFunc to highlight the
+// current copy selection. Must be called after any change to copyMode,
+// copyAnchor, or copyCursor.
+func (m *Model) applyCopyStyleFunc() {
+	if !m.copyMode {
+		m.viewport.StyleLineFunc = nil
+		return
+	}
+	cursor := m.copyCursor
+	// When no anchor is set, only the cursor line is highlighted so the user
+	// can navigate to the desired start position before committing.
+	if m.copyAnchor < 0 {
+		m.viewport.StyleLineFunc = func(idx int) lipgloss.Style {
+			if idx == cursor {
+				return lipgloss.NewStyle().Background(colorBlue).Foreground(colorWhite)
+			}
+			return lipgloss.NewStyle()
+		}
+		return
+	}
+	lo := min(m.copyAnchor, cursor)
+	hi := max(m.copyAnchor, cursor)
+	m.viewport.StyleLineFunc = func(idx int) lipgloss.Style {
+		if idx == cursor {
+			return lipgloss.NewStyle().Background(colorBlue).Foreground(colorWhite)
+		}
+		if idx >= lo && idx <= hi {
+			return lipgloss.NewStyle().Background(colorDarkGrey)
+		}
+		return lipgloss.NewStyle()
+	}
+}
+
+// ensureCopyCursorVisible scrolls the viewport so copyCursor is visible.
+func (m *Model) ensureCopyCursorVisible() {
+	h := m.viewport.Height()
+	if m.copyCursor < m.viewport.YOffset() {
+		m.viewport.SetYOffset(m.copyCursor)
+	} else if m.copyCursor >= m.viewport.YOffset()+h {
+		m.viewport.SetYOffset(m.copyCursor - h + 1)
+	}
+}
+
+// copySelectedText returns the plain text of the selected line range, with
+// ANSI escape codes stripped so the clipboard gets clean text.
+func (m Model) copySelectedText() string {
+	p := m.activeProc()
+	if p == nil {
+		return ""
+	}
+	lines := p.Lines()
+	anchor := m.copyAnchor
+	if anchor < 0 {
+		anchor = m.copyCursor
+	}
+	lo := max(0, min(anchor, m.copyCursor))
+	hi := min(len(lines)-1, max(anchor, m.copyCursor))
+	var sb strings.Builder
+	for i := lo; i <= hi; i++ {
+		sb.WriteString(ansi.Strip(lines[i]))
+		if i < hi {
+			sb.WriteByte('\n')
+		}
+	}
+	return sb.String()
 }
 
 // ── renderers ─────────────────────────────────────────────────────────────────
@@ -477,6 +646,19 @@ func (m Model) renderOutput() string {
 }
 
 func (m Model) renderFooter() string {
+	if m.copyMode {
+		var hint string
+		if m.copyAnchor < 0 {
+			hint = fmt.Sprintf("-- COPY MODE --  line %d  ↑/↓ navigate  v mark start  esc cancel", m.copyCursor+1)
+		} else {
+			lo := min(m.copyAnchor, m.copyCursor) + 1
+			hi := max(m.copyAnchor, m.copyCursor) + 1
+			hint = fmt.Sprintf("-- COPY MODE --  lines %d–%d  ↑/↓ extend  v reselect  y copy  esc cancel", lo, hi)
+		}
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorBlue).Render(hint),
+		)
+	}
 	var content string
 	if m.showHelp {
 		content = m.help.FullHelpView(m.keys.FullHelp())

@@ -12,6 +12,9 @@ type keyMap struct {
 	GotoBottom key.Binding
 	SwapFocus  key.Binding
 	Restart    key.Binding
+	Docker     key.Binding
+	CopyMode   key.Binding
+	CopyEsc    key.Binding
 	Quit       key.Binding
 	Help       key.Binding
 }
@@ -19,51 +22,63 @@ type keyMap struct {
 func defaultKeyMap() keyMap {
 	return keyMap{
 		PrevProc: key.NewBinding(
-			key.WithKeys("up"),
-			key.WithHelp("↑", "prev process"),
+			key.WithKeys("j", "up"),
+			key.WithHelp("↑:", "prev"),
 		),
 		NextProc: key.NewBinding(
-			key.WithKeys("down"),
-			key.WithHelp("↓", "next process"),
+			key.WithKeys("k", "down"),
+			key.WithHelp("↓:", "next"),
 		),
 		ScrollUp: key.NewBinding(
 			key.WithKeys("pgup"),
-			key.WithHelp("pgup", "scroll up"),
+			key.WithHelp("pgup:", "scroll up"),
 		),
 		ScrollDown: key.NewBinding(
 			key.WithKeys("pgdn"),
-			key.WithHelp("pgdn", "scroll down"),
+			key.WithHelp("pgdn:", "scroll down"),
 		),
 		GotoTop: key.NewBinding(
 			key.WithKeys("home"),
-			key.WithHelp("home", "top"),
+			key.WithHelp("home:", "top"),
 		),
 		GotoBottom: key.NewBinding(
 			key.WithKeys("end"),
-			key.WithHelp("end", "bottom"),
+			key.WithHelp("end:", "bottom"),
 		),
 		SwapFocus: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("tab", "swap focus"),
+			key.WithHelp("tab:", "swap pane"),
 		),
 		Restart: key.NewBinding(
 			key.WithKeys("r"),
-			key.WithHelp("r", "restart"),
+			key.WithHelp("r:", "restart"),
+		),
+		Docker: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d:", "lazydocker"),
+		),
+		CopyMode: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c:", "copy mode"),
+		),
+		CopyEsc: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc:", "esc copy"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
-			key.WithHelp("q", "quit"),
+			key.WithHelp("q:", "quit"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
-			key.WithHelp("?", "help"),
+			key.WithHelp("?:", "help"),
 		),
 	}
 }
 
 // ShortHelp implements help.KeyMap, shown in the collapsed footer.
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextProc, k.PrevProc, k.SwapFocus, k.Restart, k.Quit, k.Help}
+	return []key.Binding{k.NextProc, k.PrevProc, k.SwapFocus, k.CopyMode, k.Restart, k.Quit, k.Help}
 }
 
 // FullHelp implements help.KeyMap, shown when the user presses '?'.
@@ -72,7 +87,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.NextProc, k.PrevProc},
 		{k.ScrollUp, k.ScrollDown},
 		{k.GotoTop, k.GotoBottom},
-		{k.SwapFocus},
-		{k.Restart, k.Quit, k.Help},
+		{k.Restart, k.SwapFocus, k.Docker},
+		{k.CopyMode, k.CopyEsc},
+		{k.Quit, k.Help},
 	}
 }
