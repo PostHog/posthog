@@ -48,7 +48,7 @@ def load_github_cases(expected_labels: dict[str, str]) -> list[EvalCase]:
 
 
 class TestGitHubActionability:
-    NOT_ACTIONABLE_ISSUES: set[str] = set()
+    NOT_ACTIONABLE_ISSUES: set[str] = {"3916615872", "9000000001", "9000000002", "9000000003"}
 
     JUDGE_PROMPT = """You are an eval judge for a GitHub issue actionability classifier.
 
