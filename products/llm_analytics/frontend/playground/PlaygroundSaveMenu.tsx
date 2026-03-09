@@ -12,7 +12,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
-import { getLinkedSourceLabel, llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
+import {
+    cleanSourceSearchParams,
+    getLinkedSourceLabel,
+    llmPlaygroundPromptsLogic,
+    type PromptConfig,
+} from './llmPlaygroundPromptsLogic'
 
 export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.Element | null {
     const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
@@ -30,8 +35,6 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
     const { promptName: linkedPromptName, evaluationId: linkedEvaluationId } = linkedSource
     const hasLinkedSource = !!linkedPromptName || !!linkedEvaluationId
     const linkedLabel = getLinkedSourceLabel(linkedSource)
-
-    const { source_prompt_name: _, source_evaluation_id: __, ...cleanSearchParams } = searchParams
 
     const modelConfig = selectedModel
         ? {
@@ -90,7 +93,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
 
     const clearLinkedSourceState = (): void => {
         clearLinkedSource()
-        router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanSearchParams).url)
+        router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanSourceSearchParams(searchParams)).url)
     }
 
     const linkedActions: JSX.Element[] = []

@@ -17,6 +17,17 @@ import { normalizeRole } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
 import { isTraceLikeSelection } from './playgroundModelMatching'
 
+const SOURCE_PARAM_KEYS = ['source_prompt_name', 'source_prompt_version', 'source_evaluation_id'] as const
+
+/** Strip all source-linking URL params, returning only the unrelated params. */
+export function cleanSourceSearchParams(searchParams: Record<string, any>): Record<string, any> {
+    const clean = { ...searchParams }
+    for (const key of SOURCE_PARAM_KEYS) {
+        delete clean[key]
+    }
+    return clean
+}
+
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type ReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | null
 
@@ -597,13 +608,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             const activeTabId = sceneLogic.findMounted()?.values.activeTabId
             const isActiveTab = !activeTabId || activeTabId === props.tabId
             if (isActiveTab) {
-                const {
-                    source_prompt_name: _,
-                    source_prompt_version: __,
-                    source_evaluation_id: ___,
-                    ...cleanParams
-                } = router.values.searchParams
-                router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanParams).url)
+                router.actions.replace(
+                    combineUrl(urls.llmAnalyticsPlayground(), cleanSourceSearchParams(router.values.searchParams)).url
+                )
             }
         },
         removePromptConfig: ({ promptId }) => {
@@ -627,12 +634,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             const finishSourceSetup = (sourceParam: Record<string, string>): void => {
                 actions.setMessages([], promptId)
                 actions.setActivePromptId(promptId)
-                const {
-                    source_prompt_name: _,
-                    source_prompt_version: __,
-                    source_evaluation_id: ___,
-                    ...cleanParams
-                } = router.values.searchParams
+                const cleanParams = cleanSourceSearchParams(router.values.searchParams)
                 router.actions.push(combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, ...sourceParam }).url)
             }
 
@@ -764,7 +766,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     prompt: prompt.systemPrompt,
                     base_version: current.latest_version,
                 })
-                const promptName = linkedSource.promptName!
+                const promptName = linkedSource.promptName
                 // After saving, the playground is linked to the latest version
                 if (linkedSource.promptVersion) {
                     actions.setPromptConfigs(
@@ -820,7 +822,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
                 })
                 const label = getLinkedSourceLabel(linkedSource) ?? 'linked evaluation'
-                const evalId = linkedSource.evaluationId!
+                const evalId = linkedSource.evaluationId
                 lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`, {
                     button: {
                         label: 'View',
@@ -859,13 +861,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         sourceEvaluationName: null,
                     }))
                 )
-                const {
-                    source_prompt_version: _,
-                    source_evaluation_id: __,
-                    ...cleanParams
-                } = router.values.searchParams
                 router.actions.replace(
-                    combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, source_prompt_name: name }).url
+                    combineUrl(urls.llmAnalyticsPlayground(), {
+                        ...cleanSourceSearchParams(router.values.searchParams),
+                        source_prompt_name: name,
+                    }).url
                 )
                 lemonToast.success('Prompt saved', {
                     button: {
@@ -913,10 +913,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         sourceEvaluationName: created.name,
                     }))
                 )
-                const { source_prompt_name: _, ...cleanParams } = router.values.searchParams
                 router.actions.replace(
                     combineUrl(urls.llmAnalyticsPlayground(), {
-                        ...cleanParams,
+                        ...cleanSourceSearchParams(router.values.searchParams),
                         source_evaluation_id: created.id,
                     }).url
                 )
