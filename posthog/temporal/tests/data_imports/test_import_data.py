@@ -102,6 +102,8 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             team_id=team.id,
             require_ssl=True,
         )
+        # TEMPORARY
+        assert False  # noqa
 
 
 @pytest.mark.django_db(transaction=True)
