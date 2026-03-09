@@ -1203,6 +1203,11 @@ export interface PatchedIntegrationApi {
     readonly display_name?: string
 }
 
+export interface GitHubBranchesResponseApi {
+    /** List of branch names */
+    branches: string[]
+}
+
 export interface GitHubRepoApi {
     id: number
     name: string
@@ -2003,6 +2008,14 @@ export type IntegrationsList2Params = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type IntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
 }
 
 export type PropertyDefinitionsListParams = {
