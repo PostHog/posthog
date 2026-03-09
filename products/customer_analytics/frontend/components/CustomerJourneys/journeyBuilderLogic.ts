@@ -72,6 +72,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
         openBuilder: true,
         closeBuilder: true,
         setQuery: (query: InsightVizNode<FunnelsQuery>) => ({ query }),
+        setQueryFromViz: (query: InsightVizNode<FunnelsQuery>) => ({ query }),
         addStep: (insertAtIndex: number) => ({ insertAtIndex }),
         removeStep: (stepIndex: number) => ({ stepIndex }),
         updateStepEvent: (
@@ -107,6 +108,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             createDefaultQuery(),
             {
                 setQuery: (_, { query }) => query,
+                setQueryFromViz: (_, { query }) => query,
                 addJourneySuccess: () => createDefaultQuery(),
             },
         ],

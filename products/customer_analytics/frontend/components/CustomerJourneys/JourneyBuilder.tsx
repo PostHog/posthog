@@ -20,7 +20,7 @@ const JOURNEY_BUILDER_CONTEXT: QueryContext<InsightVizNode> = {
 
 export function JourneyBuilder(): JSX.Element {
     const { query, journeyName, isSaving } = useValues(journeyBuilderLogic)
-    const { setQuery, setJourneyName, saveJourney, closeBuilder } = useActions(journeyBuilderLogic)
+    const { setQueryFromViz, setJourneyName, saveJourney, closeBuilder } = useActions(journeyBuilderLogic)
     const builderRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -53,7 +53,7 @@ export function JourneyBuilder(): JSX.Element {
             </div>
             <InsightViz
                 query={query}
-                setQuery={(node) => setQuery(node as InsightVizNode<FunnelsQuery>)}
+                setQuery={(node) => setQueryFromViz(node as InsightVizNode<FunnelsQuery>)}
                 editMode={true}
                 uniqueKey="journey-builder"
                 context={JOURNEY_BUILDER_CONTEXT}
