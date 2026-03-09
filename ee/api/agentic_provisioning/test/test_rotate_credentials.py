@@ -1,9 +1,12 @@
+from django.test import override_settings
+
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
 
 
+@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
 class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
     def test_rotate_returns_access_configuration(self):
         token = self._get_bearer_token()
@@ -52,3 +55,16 @@ class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
             token=token,
         )
         assert res.status_code == 404
+
+    def test_rotate_returns_service_id_from_create(self):
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "session_replay"},
+            token=token,
+        )
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
+            token=token,
+        )
+        assert res.json()["service_id"] == "session_replay"
