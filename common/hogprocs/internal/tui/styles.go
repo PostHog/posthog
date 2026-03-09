@@ -13,7 +13,7 @@ const (
 	iconCharCrashed = "✗"
 )
 
-// PostHog brand palette.
+// PostHog brand palette
 var (
 	colorOrange   = lipgloss.Color("#F54E00")
 	colorBlue     = lipgloss.Color("#1D4AFF")
@@ -25,7 +25,7 @@ var (
 	colorWhite    = lipgloss.Color("#FFFFFF")
 )
 
-// sidebarWidth is the outer width of the process list column (including border).
+// Outer width of the process list column (including border)
 const sidebarWidth = 24
 
 var (

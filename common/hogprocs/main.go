@@ -19,7 +19,7 @@ import (
 	"log"
 	"os"
 
-	bubbletea "charm.land/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/hogprocs/internal/config"
 	"github.com/posthog/posthog/hogprocs/internal/process"
 	"github.com/posthog/posthog/hogprocs/internal/tui"
@@ -56,13 +56,13 @@ func main() {
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "hogprocs: load config: %v\n", configPath, err)
+		fmt.Fprintf(os.Stderr, "hogprocs: load config: %v\n", err)
 		os.Exit(1)
 	}
 
 	mgr := process.NewManager(cfg)
 	m := tui.New(mgr, logger)
-	p := bubbletea.NewProgram(m)
+	p := tea.NewProgram(m)
 
 	// Wire the send function before starting processes.
 	// StartAll is launched in a goroutine so it doesn't block: p.Send() inside

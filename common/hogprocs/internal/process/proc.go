@@ -10,7 +10,7 @@ import (
 	"sync"
 	"syscall"
 
-	bubbletea "charm.land/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 	"github.com/creack/pty"
 	"github.com/posthog/posthog/hogprocs/internal/config"
 )
@@ -97,7 +97,7 @@ func (p *Process) Lines() []string {
 
 // Start spawns the process. send delivers messages back to the Bubble Tea program.
 // It is safe to call Start concurrently; a running process is a no-op.
-func (p *Process) Start(send func(bubbletea.Msg)) error {
+func (p *Process) Start(send func(tea.Msg)) error {
 	p.mu.Lock()
 	if p.status == StatusRunning {
 		p.mu.Unlock()
@@ -172,7 +172,7 @@ func (p *Process) Start(send func(bubbletea.Msg)) error {
 }
 
 // startWithPipe falls back to stdout/stderr pipes when PTY allocation fails.
-func (p *Process) startWithPipe(cmd *exec.Cmd, send func(bubbletea.Msg)) error {
+func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return err
@@ -232,7 +232,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(bubbletea.Msg)) error {
 }
 
 // readLoop scans r line by line, appending to the output buffer and sending OutputMsgs.
-func (p *Process) readLoop(r io.Reader, send func(bubbletea.Msg)) {
+func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 	// Larger buffer to handle long lines (e.g., minified JS error traces).
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
@@ -269,7 +269,7 @@ func (p *Process) Stop() {
 }
 
 // Restart stops the process, clears its output buffer, and starts it again.
-func (p *Process) Restart(send func(bubbletea.Msg)) {
+func (p *Process) Restart(send func(tea.Msg)) {
 	p.Stop()
 	_ = p.Start(send)
 }

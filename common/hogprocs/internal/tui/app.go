@@ -1,16 +1,16 @@
-// Package tui implements the Bubble Tea TUI for hogprocs.
+// Package tui implements the Bubble Tea TUI for hogprocs
 //
 // Layout:
 //
-//	┌──────────────────────────────────────────┐
-//	│  PostHog Dev          ● N running        │  ← header
-//	├────────────────┬─────────────────────────┤
+//	┌───────────────────────────────────────────┐
+//	│  PostHog Dev          ● N running         │  ← header
+//	├────────────────┬──────────────────────────┤
 //	│ ● backend      │ (process output)         │
 //	│ ● frontend     │                          │  ← sidebar + viewport
 //	│ ✗ capture      │                          │
-//	├────────────────┴─────────────────────────┤
+//	├────────────────┴──────────────────────────┤
 //	│ j next  k prev  r restart  q quit  ? help │  ← footer
-//	└──────────────────────────────────────────┘
+//	└───────────────────────────────────────────┘
 package tui
 
 import (
@@ -19,21 +19,21 @@ import (
 	"log"
 	"strings"
 
-	bubbletea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/posthog/posthog/hogprocs/internal/process"
 )
 
-// headerHeight is the number of terminal lines the header occupies.
+// Number of terminal lines the header occupies.
 const headerHeight = 1
 
-// footerHeight is the minimum number of lines for the collapsed help footer.
+// Minimum number of lines for the collapsed help footer.
 const footerHeight = 2 // top border + content line
 
-// Model is the root Bubble Tea model for hogprocs.
+// oot Bubble Tea model for hogprocs.
 type Model struct {
 	mgr   *process.Manager
 	procs []*process.Process
@@ -79,21 +79,25 @@ func (m Model) dbg(format string, args ...any) {
 }
 
 // Init satisfies tea.Model. Processes are started externally before p.Run().
-func (m Model) Init() bubbletea.Cmd {
-	return nil
+func (m Model) Init() tea.Cmd {
+	return tea.RequestBackgroundColor
 }
 
 // Update handles all incoming Bubble Tea messages.
-func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
-	var cmds []bubbletea.Cmd
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 
-	case bubbletea.WindowSizeMsg:
+	case tea.WindowSizeMsg:
 		m.dbg("resize: %dx%d", msg.Width, msg.Height)
 		m.width = msg.Width
 		m.height = msg.Height
 		m = m.applySize()
+
+	case tea.BackgroundColorMsg:
+		isDark := msg.IsDark()
+		m.help.Styles = help.DefaultStyles(isDark)
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap.
@@ -109,12 +113,12 @@ func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
 		// Re-fetch the process slice so status icons refresh on the next render.
 		m.procs = m.mgr.Procs()
 
-	case bubbletea.KeyPressMsg:
+	case tea.KeyPressMsg:
 		m.dbg("key: %q", msg.String())
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			m.mgr.StopAll()
-			return m, bubbletea.Quit
+			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Help):
 			m.showHelp = !m.showHelp
@@ -157,15 +161,15 @@ func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
 
 		default:
 			// Forward remaining key events to the viewport for scrolling.
-			var vpCmd bubbletea.Cmd
+			var vpCmd tea.Cmd
 			m.viewport, vpCmd = m.viewport.Update(msg)
 			cmds = append(cmds, vpCmd)
 			m.atBottom = m.viewport.AtBottom()
 		}
 
-	case bubbletea.MouseClickMsg:
+	case tea.MouseClickMsg:
 		// Handle left clicks in the sidebar to select a process
-		if msg.Button == bubbletea.MouseLeft {
+		if msg.Button == tea.MouseLeft {
 			// Sidebar is from x=0 to x=sidebarWidth-1, content starts at y=headerHeight
 			if msg.X < sidebarWidth && msg.Y >= headerHeight {
 				row := msg.Y - headerHeight
@@ -181,30 +185,30 @@ func (m Model) Update(msg bubbletea.Msg) (bubbletea.Model, bubbletea.Cmd) {
 			}
 		}
 		// Forward clicks outside sidebar to viewport
-		var vpCmd bubbletea.Cmd
+		var vpCmd tea.Cmd
 		m.viewport, vpCmd = m.viewport.Update(msg)
 		cmds = append(cmds, vpCmd)
 
-	case bubbletea.MouseMsg:
+	case tea.MouseMsg:
 		// Forward other mouse events (wheel, motion, etc.) to viewport
-		var vpCmd bubbletea.Cmd
+		var vpCmd tea.Cmd
 		m.viewport, vpCmd = m.viewport.Update(msg)
 		cmds = append(cmds, vpCmd)
 		m.atBottom = m.viewport.AtBottom()
 	}
 
-	return m, bubbletea.Batch(cmds...)
+	return m, tea.Batch(cmds...)
 }
 
 // View renders the full TUI as a single string.
-func (m Model) View() bubbletea.View {
+func (m Model) View() tea.View {
 	if !m.ready {
-		v := bubbletea.NewView("\n  Initialising...\n")
+		v := tea.NewView("\n  Initialising...\n")
 		v.AltScreen = true
-		v.MouseMode = bubbletea.MouseModeCellMotion
+		v.MouseMode = tea.MouseModeCellMotion
 		return v
 	}
-	v := bubbletea.NewView(lipgloss.JoinVertical(
+	v := tea.NewView(lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.renderHeader(),
 		lipgloss.JoinHorizontal(
@@ -215,7 +219,7 @@ func (m Model) View() bubbletea.View {
 		m.renderFooter(),
 	))
 	v.AltScreen = true
-	v.MouseMode = bubbletea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -228,7 +232,7 @@ func (m Model) activeProc() *process.Process {
 	return m.procs[m.cursor]
 }
 
-// applySize recalculates viewport/sidebar dimensions whenever the terminal resizes
+// Recalculates viewport/sidebar dimensions whenever the terminal resizes
 // or the footer height changes.
 func (m Model) applySize() Model {
 	fh := footerHeight
@@ -372,7 +376,7 @@ func (m Model) renderFooter() string {
 
 // ── utility ───────────────────────────────────────────────────────────────────
 
-// statusIconChar returns the plain Unicode character for the given status.
+// Returns the plain Unicode character for the given status.
 func statusIconChar(s process.Status) string {
 	switch s {
 	case process.StatusRunning:
@@ -386,11 +390,11 @@ func statusIconChar(s process.Status) string {
 	case process.StatusCrashed:
 		return iconCharCrashed
 	default:
-		return iconCharPending
+		return iconCharStopped
 	}
 }
 
-// statusIconColor returns the lipgloss colour associated with the given status.
+// Returns the lipgloss colour associated with the given status.
 func statusIconColor(s process.Status) color.Color {
 	switch s {
 	case process.StatusRunning:

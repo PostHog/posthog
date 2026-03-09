@@ -3,7 +3,7 @@ package process
 import (
 	"sync"
 
-	bubbletea "charm.land/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/hogprocs/internal/config"
 )
 
@@ -12,7 +12,7 @@ type Manager struct {
 	mu     sync.Mutex
 	procs  []*Process
 	byName map[string]*Process
-	send   func(bubbletea.Msg)
+	send   func(tea.Msg)
 }
 
 // NewManager creates a Manager from a config, building Process objects in stable order.
@@ -35,7 +35,7 @@ func NewManager(cfg *config.Config) *Manager {
 
 // SetSend wires the tea.Program.Send function so process goroutines can deliver messages.
 // Must be called before StartAll.
-func (m *Manager) SetSend(send func(bubbletea.Msg)) {
+func (m *Manager) SetSend(send func(tea.Msg)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.send = send
@@ -83,7 +83,7 @@ func (m *Manager) Get(name string) (*Process, bool) {
 }
 
 // Send returns the send function so the TUI can pass it to Restart calls.
-func (m *Manager) Send() func(bubbletea.Msg) {
+func (m *Manager) Send() func(tea.Msg) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.send
