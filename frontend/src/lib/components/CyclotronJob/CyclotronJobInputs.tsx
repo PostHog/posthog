@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconGear, IconLock, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { IconBrackets, IconGear, IconLock, IconPlus, IconToggleOff, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -383,8 +383,9 @@ function BooleanField({
 
     if (isTemplateMode) {
         return (
-            <div className="flex flex-col gap-2">
+            <div className="min-w-full flex gap-2 justify-between">
                 <CyclotronJobTemplateInput
+                    className="grow"
                     input={input}
                     onChange={onChange}
                     templating={templating}
@@ -394,6 +395,7 @@ function BooleanField({
                     className="self-start"
                     size="xsmall"
                     type="tertiary"
+                    icon={<IconToggleOff />}
                     onClick={() => onChange?.({ ...input, value: false })}
                 >
                     Use toggle
@@ -403,7 +405,7 @@ function BooleanField({
     }
 
     return (
-        <div className="flex gap-2 items-center">
+        <div className="min-w-full flex gap-2 justify-between">
             <LemonSwitch
                 checked={!!input.value}
                 onChange={(checked) => onChange?.({ ...input, value: checked })}
@@ -414,11 +416,12 @@ function BooleanField({
                     size="xsmall"
                     type="tertiary"
                     status="alt"
+                    icon={<IconBrackets />}
                     onClick={() =>
                         onChange?.({ ...input, value: input.value ? '{true}' : '{false}', templating: 'hog' })
                     }
                 >
-                    Use templating
+                    Use conditional
                 </LemonButton>
             )}
         </div>
