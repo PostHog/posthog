@@ -95,7 +95,6 @@ export interface PaginatedNotebookMinimalListApi {
 
 export interface NotebookApi {
     readonly id: string
-    /** @maxLength 12 */
     short_id?: string
     /**
      * @maxLength 256
@@ -125,7 +124,6 @@ export interface NotebookApi {
 
 export interface PatchedNotebookApi {
     readonly id?: string
-    /** @maxLength 12 */
     short_id?: string
     /**
      * @maxLength 256
