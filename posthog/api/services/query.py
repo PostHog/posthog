@@ -56,6 +56,30 @@ def _validated_source_for_connection(team: Team, connection_id: str | None) -> E
     return source
 
 
+def _database_for_connection_source(team: Team, user: User | None, source: ExternalDataSource | None) -> Database:
+    return Database.create_for(
+        team=team,
+        modifiers=create_default_modifiers_for_team(team),
+        user=user,
+        direct_query_source_id=str(source.id)
+        if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
+        else None,
+    )
+
+
+def _connection_context(
+    team: Team,
+    connection_id: str | None,
+    user: User | None,
+    *,
+    require_database: bool,
+) -> tuple[ExternalDataSource | None, set[str] | None, Database | None]:
+    source = _validated_source_for_connection(team, connection_id)
+    source_ids = connection_source_identifiers(source)
+    database = _database_for_connection_source(team, user, source) if require_database or source else None
+    return source, source_ids, database
+
+
 def process_query_dict(
     team: Team,
     query_json: dict,
@@ -141,21 +165,11 @@ def process_query_model(
     result: dict | BaseModel
 
     if isinstance(query, HogQLAutocomplete):
-        source = _validated_source_for_connection(team, query.connectionId)
-        database = None
-        if source:
-            database = Database.create_for(
-                team=team,
-                modifiers=create_default_modifiers_for_team(team),
-                user=user,
-                direct_query_source_id=str(source.id)
-                if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                else None,
-            )
+        _, source_ids, database = _connection_context(team, query.connectionId, user, require_database=False)
+        if database:
             serialized_tables = database.serialize(
                 HogQLContext(team_id=team.pk, team=team, database=database, user=user)
             )
-            source_ids = connection_source_identifiers(source)
             filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
             prune_database_for_connection(database, set(filtered_tables.keys()))
         return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
@@ -165,16 +179,8 @@ def process_query_model(
         return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
-        source = _validated_source_for_connection(team, query.connectionId)
-        source_ids = connection_source_identifiers(source)
-        database = Database.create_for(
-            team=team,
-            modifiers=create_default_modifiers_for_team(team),
-            user=user,
-            direct_query_source_id=str(source.id)
-            if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
-            else None,
-        )
+        _, source_ids, database = _connection_context(team, query.connectionId, user, require_database=True)
+        assert database is not None
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         filtered_tables = filter_schema_tables_for_connection(
             database.serialize(context, include_hidden_posthog_tables=True),
