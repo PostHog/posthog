@@ -8,14 +8,14 @@ import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, string
 /** CDP - destinations, webhooks, and realtime alerts */
 export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpProcessedEvents: true,
-    // cdpPersonUpdates: true,
-    // cdpInternalEvents: true,
+    cdpPersonUpdates: true,
+    cdpInternalEvents: true,
     cdpCyclotronWorker: true,
     cdpCyclotronShadowWorker: true,
     cdpApi: true,
-    // appManagementSingleton: true,
-    // cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
-    // cdpLegacyOnEvent: false, // most of the times not needed
+    appManagementSingleton: true,
+    cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
+    cdpLegacyOnEvent: false, // most of the times not needed
 }
 
 /** CDP + Workflows - full CDP with HogFlow workflow automation */
@@ -27,39 +27,39 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
 
 /** Realtime Cohorts - precalculated filters and cohort membership */
 export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
-    // cdpPrecalculatedFilters: true,
-    // cdpCohortMembership: true,
+    cdpPrecalculatedFilters: true,
+    cdpCohortMembership: true,
 }
 
 /** Session Replay - recording ingestion + serving */
 export const CAPABILITIES_SESSION_REPLAY: PluginServerCapabilities = {
-    // sessionRecordingBlobIngestionV2: true,
-    // recordingApi: true,
+    sessionRecordingBlobIngestionV2: true,
+    recordingApi: true,
 }
 
 /** Session Replay Overflow - overflow recording ingestion */
 export const CAPABILITIES_SESSION_REPLAY_OVERFLOW: PluginServerCapabilities = {
-    // sessionRecordingBlobIngestionV2Overflow: true,
+    sessionRecordingBlobIngestionV2Overflow: true,
 }
 
 /** Recording API - decryption and serving of encrypted recordings */
 export const CAPABILITIES_RECORDING_API: PluginServerCapabilities = {
-    // recordingApi: true,
+    recordingApi: true,
 }
 
 /** Logs - log ingestion */
 export const CAPABILITIES_LOGS: PluginServerCapabilities = {
-    // logsIngestion: true,
+    logsIngestion: true,
 }
 
 /** Feature Flags - evaluation scheduler for flags and experiments */
 export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
-    // evaluationScheduler: true,
+    evaluationScheduler: true,
 }
 
 /** Ingestion Only - basic event ingestion without CDP processing */
 export const CAPABILITIES_INGESTION_ONLY: PluginServerCapabilities = {
-    // ingestionV2Combined: true,
+    ingestionV2Combined: true,
 }
 
 // =============================================================================
