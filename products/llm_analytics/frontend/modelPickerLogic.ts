@@ -128,6 +128,8 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
     })),
 
     listeners(({ actions }) => ({
+        // Refresh BYOK models whenever provider keys change so the
+        // model picker immediately reflects newly valid options.
         loadProviderKeysSuccess: () => {
             actions.loadByokModels()
         },
