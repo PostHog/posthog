@@ -2,6 +2,7 @@ import { type ReactElement, type ReactNode, useCallback, useState } from 'react'
 
 import { BackButton, Badge, DataTable, type DataTableColumn, formatDate, LoadingState, Stack } from '@posthog/mosaic'
 
+import { STATUS_VARIANTS } from './utils'
 import { WorkflowView, type WorkflowData } from './WorkflowView'
 
 export interface WorkflowListData {
@@ -17,13 +18,6 @@ export interface WorkflowListViewProps {
 
 type ViewState = { view: 'list' } | { view: 'loading'; name: string } | { view: 'detail'; workflow: WorkflowData }
 
-const statusVariants: Record<string, 'success' | 'neutral' | 'info'> = {
-    active: 'success',
-    draft: 'neutral',
-    archived: 'neutral',
-    paused: 'info',
-}
-
 export function WorkflowListView({ data, onWorkflowClick }: WorkflowListViewProps): ReactElement {
     const [viewState, setViewState] = useState<ViewState>({ view: 'list' })
 
@@ -32,8 +26,13 @@ export function WorkflowListView({ data, onWorkflowClick }: WorkflowListViewProp
             if (!onWorkflowClick) {
                 return
             }
+
             setViewState({ view: 'loading', name: workflow.name })
-            const detail = await onWorkflowClick(workflow)
+            const detail = await onWorkflowClick(workflow).catch((error) => {
+                console.error('Error loading workflow detail:', error)
+                return null
+            })
+
             if (detail) {
                 setViewState({ view: 'detail', workflow: detail })
             } else {
@@ -88,10 +87,10 @@ export function WorkflowListView({ data, onWorkflowClick }: WorkflowListViewProp
             key: 'status',
             header: 'Status',
             render: (row): ReactNode => {
-                const s = row.status ?? 'draft'
+                const status = row.status ?? 'draft'
                 return (
-                    <Badge variant={statusVariants[s] ?? 'neutral'} size="sm">
-                        {s.charAt(0).toUpperCase() + s.slice(1)}
+                    <Badge variant={STATUS_VARIANTS[status] ?? 'neutral'} size="sm">
+                        {status.charAt(0).toUpperCase() + status.slice(1)}
                     </Badge>
                 )
             },

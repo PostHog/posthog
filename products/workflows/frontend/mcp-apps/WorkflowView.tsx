@@ -2,6 +2,8 @@ import type { ReactElement } from 'react'
 
 import { Badge, Card, DescriptionList, formatDate, Stack } from '@posthog/mosaic'
 
+import { STATUS_VARIANTS } from './utils'
+
 export interface WorkflowData {
     id: string
     name: string
@@ -20,13 +22,6 @@ export interface WorkflowViewProps {
     workflow: WorkflowData
 }
 
-const statusVariants: Record<string, 'success' | 'neutral' | 'info'> = {
-    active: 'success',
-    draft: 'neutral',
-    archived: 'neutral',
-    paused: 'info',
-}
-
 export function WorkflowView({ workflow }: WorkflowViewProps): ReactElement {
     const status = workflow.status ?? 'draft'
 
@@ -36,7 +31,7 @@ export function WorkflowView({ workflow }: WorkflowViewProps): ReactElement {
                 <Stack gap="xs">
                     <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-lg font-semibold text-text-primary">{workflow.name}</span>
-                        <Badge variant={statusVariants[status] ?? 'neutral'} size="md">
+                        <Badge variant={STATUS_VARIANTS[status] ?? 'neutral'} size="md">
                             {status.charAt(0).toUpperCase() + status.slice(1)}
                         </Badge>
                         {workflow.version != null && (
