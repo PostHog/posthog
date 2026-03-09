@@ -327,6 +327,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprColumnsAll(HogQLParser::ColumnExprColumnsAllContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprTernaryOp(HogQLParser::ColumnExprTernaryOpContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -372,6 +376,10 @@ public:
   }
 
   virtual std::any visitColumnExprWinFunctionTarget(HogQLParser::ColumnExprWinFunctionTargetContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprNamedArg(HogQLParser::ColumnExprNamedArgContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -456,6 +464,14 @@ public:
   }
 
   virtual std::any visitColumnExprSpreadColumnsList(HogQLParser::ColumnExprSpreadColumnsListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprColumnsExclude(HogQLParser::ColumnExprColumnsExcludeContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprColonLambda(HogQLParser::ColumnExprColonLambdaContext *ctx) override {
     return visitChildren(ctx);
   }
 

@@ -506,7 +506,21 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return arr;
   }
 
-  VISIT(IdentifierList) { return visitAsVectorOfStrings(ctx->identifier()); }
+  VISIT(IdentifierList) {
+    vector<string> identifiers;
+    for (auto nested_ctx : ctx->nestedIdentifier()) {
+      vector<string> parts = any_cast<vector<string>>(visit(nested_ctx));
+      string joined;
+      for (size_t i = 0; i < parts.size(); i++) {
+        if (i > 0) {
+          joined += ".";
+        }
+        joined += parts[i];
+      }
+      identifiers.push_back(joined);
+    }
+    return identifiers;
+  }
 
   VISIT(EmptyStmt) {
     Json json = Json::object();
@@ -1136,7 +1150,22 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (ctx->PRECEDING() || ctx->FOLLOWING()) {
       json["frame_type"] = ctx->PRECEDING() ? "PRECEDING" : "FOLLOWING";
       if (ctx->columnExpr()) {
-        json["frame_value"] = visitAsJSON(ctx->columnExpr());
+        Json value = visitAsJSON(ctx->columnExpr());
+        // Unwrap Constant integer/float values to bare numbers to match Python parser behavior
+        if (value.isObject()) {
+          const auto& obj = value.getObject();
+          auto node_it = obj.find("node");
+          auto val_it = obj.find("value");
+          if (node_it != obj.end() && node_it->second.isString()
+              && node_it->second.getString() == "Constant"
+              && val_it != obj.end() && val_it->second.isInt()) {
+            json["frame_value"] = val_it->second.getInt();
+          } else {
+            json["frame_value"] = std::move(value);
+          }
+        } else {
+          json["frame_value"] = std::move(value);
+        }
       } else {
         json["frame_value"] = nullptr;
       }
@@ -1866,6 +1895,20 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprAsterisk) {
     auto table_identifier_ctx = ctx->tableIdentifier();
 
+    if (ctx->EXCLUDE()) {
+      Json json = Json::object();
+      json["node"] = "ColumnsExpr";
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["all_columns"] = true;
+      Json exclude = Json::array();
+      vector<string> identifiers = any_cast<vector<string>>(visit(ctx->identifierList()));
+      for (const auto& ident : identifiers) {
+        exclude.pushBack(ident);
+      }
+      json["exclude"] = std::move(exclude);
+      return json;
+    }
+
     Json json = Json::object();
     json["node"] = "Field";
     if (!is_internal) addPositionInfo(json, ctx);
@@ -1901,6 +1944,28 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
+  VISIT(ColumnExprColumnsExclude) {
+    Json json = Json::object();
+    json["node"] = "ColumnsExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["all_columns"] = true;
+    Json exclude = Json::array();
+    vector<string> identifiers = any_cast<vector<string>>(visit(ctx->identifierList()));
+    for (const auto& ident : identifiers) {
+      exclude.pushBack(ident);
+    }
+    json["exclude"] = std::move(exclude);
+    return json;
+  }
+
+  VISIT(ColumnExprColumnsAll) {
+    Json json = Json::object();
+    json["node"] = "ColumnsExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["all_columns"] = true;
+    return json;
+  }
+
   VISIT(ColumnExprSpreadColumnsRegex) {
     Json json = Json::object();
     json["node"] = "SpreadExpr";
@@ -1924,6 +1989,28 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
+
+  VISIT_UNSUPPORTED(ColumnExprNamedArg)
+
+  VISIT(ColumnExprLambda) {
+    return visit(ctx->columnLambdaExpr());
+  }
+
+  VISIT(ColumnExprColonLambda) {
+    vector<string> args_vec = visitAsVectorOfStrings(ctx->identifier());
+
+    Json json = Json::object();
+    json["node"] = "Lambda";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json args = Json::array();
+    for (const auto& arg : args_vec) {
+      args.pushBack(arg);
+    }
+    json["args"] = std::move(args);
+    json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["style"] = "colon";
+    return json;
+  }
 
   VISIT(ArrowLambda) {
     auto column_expr_ctx = ctx->columnExpr();

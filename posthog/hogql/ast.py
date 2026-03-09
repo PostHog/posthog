@@ -844,6 +844,8 @@ class Field(Expr):
 class ColumnsExpr(Expr):
     regex: Optional[str] = None
     columns: Optional[list[Expr]] = None
+    all_columns: bool = False
+    exclude: Optional[list[str]] = None
 
 
 @dataclass(kw_only=True)

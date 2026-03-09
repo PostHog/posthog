@@ -625,6 +625,8 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             regex=node.regex,
             columns=[self.visit(col) for col in node.columns] if node.columns else None,
+            all_columns=node.all_columns,
+            exclude=list(node.exclude) if node.exclude else None,
         )
 
     def visit_spread_expr(self, node: ast.SpreadExpr):

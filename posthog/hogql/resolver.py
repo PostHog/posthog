@@ -132,6 +132,14 @@ class Resolver(CloningVisitor):
         self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
+        self._scope_table_names: dict[int, dict[str, str]] = {}
+        self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
+
+    def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
+        return self._scope_table_names.setdefault(id(scope), {})
+
+    def _get_scope_table_column_aliases(self, scope: ast.SelectQueryType) -> dict[str, list[str]]:
+        return self._scope_table_column_aliases.setdefault(id(scope), {})
 
     def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
@@ -452,6 +460,92 @@ class Resolver(CloningVisitor):
 
     def _columns_expr_exprs(self, node: ast.ColumnsExpr) -> list[ast.Expr]:
         """Expand a COLUMNS() expression into individual fields or expressions."""
+        if node.all_columns:
+            scope = self.scopes[-1]
+            table_names = self._get_scope_table_names(scope)
+            table_column_aliases = self._get_scope_table_column_aliases(scope)
+            table_fields: list[tuple[Optional[str], ast.Expr]] = []
+
+            for alias, table_type in scope.tables.items():
+                asterisk_type = ast.AsteriskType(table_type=table_type)
+                try:
+                    all_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
+                except QueryError:
+                    continue
+                column_aliases = table_column_aliases.get(alias)
+                if column_aliases:
+                    all_fields = self._apply_column_aliases(all_fields, column_aliases)
+                for field in all_fields:
+                    table_fields.append((alias, field))
+
+            for table_type in scope.anonymous_tables:
+                asterisk_type = ast.AsteriskType(table_type=table_type)
+                try:
+                    all_fields = self._asterisk_columns(asterisk_type, chain_prefix=[])
+                except QueryError:
+                    continue
+                for field in all_fields:
+                    table_fields.append((None, field))
+
+            if node.exclude:
+                remaining_fields = list(table_fields)
+                for raw_name in node.exclude:
+                    name = str(raw_name)
+                    parts = name.split(".")
+                    column_name = parts[-1]
+
+                    if len(parts) > 1:
+                        qualifier = ".".join(parts[:-1])
+                        candidate_aliases = [
+                            alias
+                            for alias in scope.tables.keys()
+                            if alias == qualifier or table_names.get(alias) == qualifier
+                        ]
+
+                        if not candidate_aliases:
+                            raise QueryError(f'Column "{column_name}" in EXCLUDE list was not found in {qualifier}')
+
+                        found = False
+                        filtered_fields: list[tuple[Optional[str], ast.Expr]] = []
+                        for alias, field in remaining_fields:
+                            field_name = str(field.chain[-1]) if isinstance(field, ast.Field) else None
+                            if alias in candidate_aliases and field_name == column_name:
+                                found = True
+                                continue
+                            filtered_fields.append((alias, field))
+
+                        if not found:
+                            raise QueryError(f'Column "{column_name}" in EXCLUDE list was not found in {qualifier}')
+
+                        remaining_fields = filtered_fields
+                        continue
+
+                    filtered_fields: list[tuple[Optional[str], ast.Expr]] = []
+                    found = False
+                    for alias, field in remaining_fields:
+                        field_name = str(field.chain[-1]) if isinstance(field, ast.Field) else None
+                        if field_name == column_name:
+                            found = True
+                            continue
+                        filtered_fields.append((alias, field))
+
+                    if not found:
+                        if len(scope.tables) == 1 and len(scope.anonymous_tables) == 0:
+                            [only_alias] = list(scope.tables.keys())
+                            table_label = table_names.get(only_alias, only_alias)
+                        else:
+                            table_label = "the selected tables"
+                        raise QueryError(f'Column "{column_name}" in EXCLUDE list was not found in {table_label}')
+
+                    remaining_fields = filtered_fields
+
+                table_fields = remaining_fields
+
+            matched_fields = [field for _, field in table_fields]
+            if not matched_fields:
+                raise QueryError("No columns matched the EXCLUDE list")
+            return matched_fields
+
         if node.columns is not None:
             return list(node.columns)
 
@@ -481,6 +575,24 @@ class Resolver(CloningVisitor):
         if not matched_fields:
             raise QueryError(f"No columns matched the COLUMNS('{node.regex}') expression")
         return matched_fields
+
+    def _apply_column_aliases(self, fields: list[ast.Expr], column_aliases: list[str]) -> list[ast.Expr]:
+        if not column_aliases:
+            return fields
+
+        aliased_fields: list[ast.Expr] = []
+        for index, field in enumerate(fields):
+            if index >= len(column_aliases):
+                aliased_fields.append(field)
+                continue
+            if not isinstance(field, ast.Field):
+                aliased_fields.append(field)
+                continue
+            aliased = cast(ast.Field, clone_expr(field))
+            aliased.chain = [*aliased.chain[:-1], column_aliases[index]]
+            aliased_fields.append(aliased)
+
+        return aliased_fields
 
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
@@ -519,6 +631,11 @@ class Resolver(CloningVisitor):
                     node.constraint = self.visit_join_constraint(node.constraint)
 
                 scope.tables[table_alias or cte_table.name] = node_type
+                scope_table_names = self._get_scope_table_names(scope)
+                scope_table_names[table_alias or cte_table.name] = cte_table.name
+                if node.column_aliases:
+                    scope_table_column_aliases = self._get_scope_table_column_aliases(scope)
+                    scope_table_column_aliases[table_alias or cte_table.name] = node.column_aliases
 
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
                 node.type = node_type
@@ -572,6 +689,11 @@ class Resolver(CloningVisitor):
                 node.constraint = self.visit_join_constraint(node.constraint)
 
             scope.tables[table_alias] = node_type
+            scope_table_names = self._get_scope_table_names(scope)
+            scope_table_names[table_alias] = ".".join(table_name_chain)
+            if node.column_aliases:
+                scope_table_column_aliases = self._get_scope_table_column_aliases(scope)
+                scope_table_column_aliases[table_alias] = node.column_aliases
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.type = node_type

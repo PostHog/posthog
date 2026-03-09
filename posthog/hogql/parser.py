@@ -325,7 +325,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return (self.visit(k), self.visit(v))
 
     def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):
-        return [ident.getText() for ident in ctx.identifier()]
+        return [ident.getText() for ident in ctx.nestedIdentifier()]
 
     def visitEmptyStmt(self, ctx: HogQLParser.EmptyStmtContext):
         return ast.ExprStatement(expr=None)
@@ -1112,6 +1112,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Call(name=name, params=parameters, args=args, distinct=distinct)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
+        if ctx.EXCLUDE():
+            exclude = self.visit(ctx.identifierList())
+            return ast.ColumnsExpr(all_columns=True, exclude=exclude)
         if ctx.tableIdentifier():
             table = self.visit(ctx.tableIdentifier())
             return ast.Field(chain=[*table, "*"])
@@ -1124,6 +1127,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprColumnsList(self, ctx: HogQLParser.ColumnExprColumnsListContext):
         columns = self.visit(ctx.columnExprList())
         return ast.ColumnsExpr(columns=columns)
+
+    def visitColumnExprColumnsExclude(self, ctx: HogQLParser.ColumnExprColumnsExcludeContext):
+        exclude = self.visit(ctx.identifierList())
+        return ast.ColumnsExpr(all_columns=True, exclude=exclude)
+
+    def visitColumnExprColumnsAll(self, ctx: HogQLParser.ColumnExprColumnsAllContext):
+        return ast.ColumnsExpr(all_columns=True)
 
     def visitColumnExprSpreadColumnsRegex(self, ctx: HogQLParser.ColumnExprSpreadColumnsRegexContext):
         pattern = parse_string_literal_ctx(ctx.STRING_LITERAL())
@@ -1145,6 +1155,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             end=end,
         )
 
+    def visitColumnExprNamedArg(self, ctx: HogQLParser.ColumnExprNamedArgContext):
+        raise NotImplementedError(f"Unsupported node: ColumnExprNamedArg")
+
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
         return self.visit(ctx.hogqlxTagElement())
 
@@ -1160,6 +1173,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             expr=self.visit(ctx.columnExpr()),
             style="colon",
         )
+
+    def visitColumnExprColonLambda(self, ctx: HogQLParser.ColumnExprColonLambdaContext):
+        return ast.Lambda(
+            args=[self.visit(identifier) for identifier in ctx.identifier()],
+            expr=self.visit(ctx.columnExpr()),
+            style="colon",
+        )
+
+    def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
+        return self.visitArrowLambda(ctx)
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
         ctes: dict[str, ast.CTE] = {}

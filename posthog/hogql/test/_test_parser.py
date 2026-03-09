@@ -226,22 +226,14 @@ def parser_test_factory(backend: HogQLParserBackend):
                         left=ast.Constant(value=1),
                         right=ast.Constant(value=2),
                     ),
-                    end_expr=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Sub,
-                        left=ast.Constant(value=0),
-                        right=ast.Constant(value=3),
-                    ),
+                    end_expr=ast.Constant(value=-3),
                 ),
             )
             self.assertEqual(
                 self._expr("arr[-5:]"),
                 ast.ArraySlice(
                     array=ast.Field(chain=["arr"]),
-                    start_expr=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Sub,
-                        left=ast.Constant(value=0),
-                        right=ast.Constant(value=5),
-                    ),
+                    start_expr=ast.Constant(value=-5),
                     end_expr=None,
                 ),
             )
@@ -1085,6 +1077,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                         alias="e",
                         column_aliases=["event_alias", "ts_alias"],
                     ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select * exclude (first_name) from customers"),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(all_columns=True, exclude=["first_name"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
                 ),
             )
             self.assertEqual(

@@ -113,6 +113,53 @@ class TestResolver(BaseTest):
             "Limit percent must be between 0 and 100",
         )
 
+    @parameterized.expand(
+        [
+            ("events.created_at", None),
+            ("created_at", None),
+            ("e.created_at", "e"),
+            ("events.created_at", "e"),
+        ]
+    )
+    def test_resolve_exclude_qualified_columns(self, exclude, alias):
+        expr = ast.SelectQuery(
+            select=[ast.ColumnsExpr(all_columns=True, exclude=[exclude])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias=alias),
+        )
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "created_at" not in selected_names
+
+    def test_resolve_exclude_missing_column(self):
+        expr = ast.SelectQuery(
+            select=[ast.ColumnsExpr(all_columns=True, exclude=["first_names"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        )
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        self.assertEqual(
+            str(context.exception),
+            'Column "first_names" in EXCLUDE list was not found in events',
+        )
+
+    def test_resolve_exclude_with_column_aliases(self):
+        expr = ast.SelectQuery(
+            select=[ast.ColumnsExpr(all_columns=True, exclude=["a", "b", "c"])],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                alias="c",
+                column_aliases=["a", "b", "c"],
+            ),
+        )
+
+        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        selected_names = [str(field.chain[-1]) for field in resolved.select if isinstance(field, ast.Field)]
+        assert "a" not in selected_names
+        assert "b" not in selected_names
+        assert "c" not in selected_names
+
     def test_resolve_lambda_style_dialect_guard(self):
         expr = self._select("SELECT lambda x: x + 1")
 

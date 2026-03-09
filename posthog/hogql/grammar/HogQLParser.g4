@@ -11,8 +11,8 @@ declaration: varDecl | statement ;
 
 expression: columnExpr;
 
-varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
-identifierList: identifier (COMMA identifier)* COMMA?;
+varDecl: LET identifier ( COLONEQUALS expression )? ;
+identifierList: nestedIdentifier (COMMA nestedIdentifier)* COMMA?;
 
 statement      : returnStmt
                | throwStmt
@@ -41,7 +41,7 @@ forStmt        : FOR LPAREN
                  RPAREN statement SEMICOLON?;
 forInStmt      : FOR LPAREN LET identifier (COMMA identifier)? IN expression RPAREN statement SEMICOLON?;
 funcStmt       : (FN | FUN) identifier LPAREN identifierList? RPAREN block;
-varAssignment  : expression COLON EQ_SINGLE expression ;
+varAssignment  : expression COLONEQUALS expression ;
 exprStmt       : expression SEMICOLON?;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
@@ -174,6 +174,8 @@ columnExpr
     | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExpr RPAREN               # ColumnExprTrim
     | COLUMNS LPAREN STRING_LITERAL RPAREN                                                # ColumnExprColumnsRegex
     | COLUMNS LPAREN columnExprList RPAREN                                                # ColumnExprColumnsList
+    | COLUMNS LPAREN ASTERISK EXCLUDE LPAREN identifierList RPAREN RPAREN                 # ColumnExprColumnsExclude
+    | COLUMNS LPAREN ASTERISK RPAREN                                                      # ColumnExprColumnsAll
     | ASTERISK COLUMNS LPAREN STRING_LITERAL RPAREN                                      # ColumnExprSpreadColumnsRegex
     | ASTERISK COLUMNS LPAREN columnExprList RPAREN                                      # ColumnExprSpreadColumnsList
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
@@ -229,13 +231,15 @@ columnExpr
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
-    | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
+    | (tableIdentifier DOT)? ASTERISK (EXCLUDE LPAREN identifierList RPAREN)?             # ColumnExprAsterisk  // single-column only
+    | LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr                       # ColumnExprColonLambda
     | LPAREN selectSetStmt RPAREN                                                         # ColumnExprSubquery  // single-column only
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
     | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict
     | columnLambdaExpr                                                                    # ColumnExprLambda
+    | identifier COLONEQUALS columnExpr                                                   # ColumnExprNamedArg
     | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 
@@ -316,7 +320,7 @@ keyword
     // except NULL_SQL, INF, NAN_SQL
     : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
     | CAST | COHORT | COLLATE | COLUMNS | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
-    | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
+    | DISTINCT | ELSE | END | EXCLUDE | EXTRACT | FINAL | FIRST
     | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
     | GROUPING | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAMBDA | LAST | LEADING | LEFT | LIKE | LIMIT
