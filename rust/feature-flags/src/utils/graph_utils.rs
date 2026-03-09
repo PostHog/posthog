@@ -12,6 +12,19 @@ use crate::metrics::consts::{FLAG_EVALUATION_ERROR_COUNTER, TOMBSTONE_COUNTER};
 use common_metrics::inc;
 use tracing::warn;
 
+/// Increments the tombstone counter for a graph_utils operation.
+fn inc_graph_tombstone(operation: &str) {
+    inc(
+        TOMBSTONE_COUNTER,
+        &[
+            ("namespace".to_string(), "feature_flags".to_string()),
+            ("operation".to_string(), operation.to_string()),
+            ("component".to_string(), "graph_utils".to_string()),
+        ],
+        1,
+    );
+}
+
 #[derive(Debug, Clone)]
 pub enum GraphError<Id> {
     MissingDependency(Id),
@@ -497,25 +510,8 @@ pub fn build_dependency_graph(
     let mut edges: HashMap<i32, HashSet<i32>> = HashMap::with_capacity(visited.len());
     while let Some(current_id) = queue.pop_front() {
         let Some(flag) = lookup.get(&current_id) else {
-            // Should never happen: every queued ID comes from `lookup`'s keys
-            // (seed loop or guarded push). Fire a tombstone metric and skip.
-            inc(
-                TOMBSTONE_COUNTER,
-                &[
-                    ("namespace".to_string(), "feature_flags".to_string()),
-                    (
-                        "operation".to_string(),
-                        "bfs_closure_lookup_miss".to_string(),
-                    ),
-                    ("component".to_string(), "graph_utils".to_string()),
-                ],
-                1,
-            );
-            warn!(
-                team_id = team_id,
-                flag_id = current_id,
-                "BFS queued a flag ID not present in lookup, skipping"
-            );
+            // Invariant: every queued ID comes from lookup's keys. Fire tombstone and skip.
+            inc_graph_tombstone("bfs_closure_lookup_miss");
             continue;
         };
         // Filtered-out flags (inactive, deleted, survey-excluded, etc.) are
@@ -718,15 +714,7 @@ pub fn log_dependency_graph_construction_errors(
             GraphError::CycleDetected(_) => "flag_dependency_cycle",
         };
 
-        inc(
-            TOMBSTONE_COUNTER,
-            &[
-                ("namespace".to_string(), "feature_flags".to_string()),
-                ("operation".to_string(), failure_type.to_string()),
-                ("component".to_string(), "graph_utils".to_string()),
-            ],
-            1,
-        );
+        inc_graph_tombstone(failure_type);
     }
 
     tracing::warn!(
