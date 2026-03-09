@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -138,19 +138,25 @@ export interface ComparisonItem {
 // without storing a non-serializable controller in Kea state.
 let activeAbortController: AbortController | null = null
 
+export interface LLMPlaygroundRunLogicProps {
+    tabId?: string
+}
+
 export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'playground', 'llmPlaygroundRunLogic']),
+    props({} as LLMPlaygroundRunLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
-    connect(() => ({
+    connect(({ tabId }: LLMPlaygroundRunLogicProps) => ({
         values: [
-            llmPlaygroundPromptsLogic,
+            llmPlaygroundPromptsLogic({ tabId }),
             ['promptConfigs'],
-            llmPlaygroundModelLogic,
+            llmPlaygroundModelLogic({ tabId }),
             ['effectiveModelOptions', 'activeProviderKeyId'],
             llmProviderKeysLogic,
             ['providerKeys'],
         ],
-        actions: [llmPlaygroundPromptsLogic, ['resetPlayground']],
+        actions: [llmPlaygroundPromptsLogic({ tabId }), ['resetPlayground']],
     })),
 
     actions({

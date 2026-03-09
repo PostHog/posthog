@@ -1,14 +1,17 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { isObject, uuid } from 'lib/utils'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
+import { llmPromptLogic } from '../prompts/llmPromptLogic'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { normalizeRole } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
@@ -191,8 +194,14 @@ function extractConversationMessage(rawMessage: RawMessage): { role: Conversatio
     }
 }
 
+export interface LLMPlaygroundPromptsLogicProps {
+    tabId?: string
+}
+
 export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'playground', 'llmPlaygroundPromptsLogic']),
+    props({} as LLMPlaygroundPromptsLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
     actions({
         addPromptConfig: (sourcePromptId?: string) => ({ sourcePromptId, newPromptId: uuid() }),
@@ -565,10 +574,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         resetPlayground: () => {
-            const { source_prompt_name: _, source_evaluation_id: __, ...cleanParams } = router.values.searchParams
-            router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanParams).url)
+            const activeTabId = sceneLogic.findMounted()?.values.activeTabId
+            const isActiveTab = !activeTabId || activeTabId === props.tabId
+            if (isActiveTab) {
+                const { source_prompt_name: _, source_evaluation_id: __, ...cleanParams } = router.values.searchParams
+                router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanParams).url)
+            }
         },
         removePromptConfig: ({ promptId }) => {
             if (values.promptConfigs.length === 0) {
@@ -715,7 +728,18 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     prompt: prompt.systemPrompt,
                     base_version: current.latest_version,
                 })
-                lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`)
+                const promptName = linkedSource.promptName!
+                lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`, {
+                    button: {
+                        label: 'View',
+                        action: () => router.actions.push(urls.llmAnalyticsPrompt(promptName)),
+                    },
+                })
+                for (const logic of llmPromptLogic.findAllMounted()) {
+                    if (logic.props.promptName === promptName) {
+                        logic.actions.loadPrompt()
+                    }
+                }
             } catch {
                 lemonToast.error('Failed to update prompt')
             } finally {
@@ -748,7 +772,18 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
                 })
                 const label = getLinkedSourceLabel(linkedSource) ?? 'linked evaluation'
-                lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`)
+                const evalId = linkedSource.evaluationId!
+                lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`, {
+                    button: {
+                        label: 'View',
+                        action: () => router.actions.push(urls.llmAnalyticsEvaluation(evalId)),
+                    },
+                })
+                for (const logic of llmEvaluationLogic.findAllMounted()) {
+                    if (logic.props.evaluationId === evalId) {
+                        logic.actions.loadEvaluation()
+                    }
+                }
             } catch {
                 lemonToast.error('Failed to update evaluation')
             } finally {
@@ -779,7 +814,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 router.actions.replace(
                     combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, source_prompt_name: name }).url
                 )
-                lemonToast.success('Prompt saved')
+                lemonToast.success('Prompt saved', {
+                    button: {
+                        label: 'View',
+                        action: () => router.actions.push(urls.llmAnalyticsPrompt(name)),
+                    },
+                })
             } catch {
                 lemonToast.error('Failed to save prompt')
             } finally {
@@ -827,7 +867,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         source_evaluation_id: created.id,
                     }).url
                 )
-                lemonToast.success('Evaluation saved')
+                lemonToast.success('Evaluation saved', {
+                    button: {
+                        label: 'View',
+                        action: () => router.actions.push(urls.llmAnalyticsEvaluation(created.id)),
+                    },
+                })
             } catch {
                 lemonToast.error('Failed to save evaluation')
             } finally {
@@ -836,25 +881,62 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        const { searchParams } = router.values
-        const sourcePromptName =
-            typeof searchParams.source_prompt_name === 'string' ? searchParams.source_prompt_name : null
-        const sourceEvaluationId =
-            typeof searchParams.source_evaluation_id === 'string' ? searchParams.source_evaluation_id : null
+    urlToAction(({ actions, values, props }) => ({
+        [urls.llmAnalyticsPlayground()]: (_, searchParams) => {
+            // urlToAction fires on ALL mounted instances for the matching URL.
+            // Only process for the active tab to avoid cross-tab state interference.
+            if (props.tabId && sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
+                return
+            }
 
-        if (sourcePromptName) {
-            actions.setupPlaygroundFromEvent({
-                sourceType: 'prompt',
-                sourcePromptName,
-            })
-        } else if (sourceEvaluationId) {
-            actions.setupPlaygroundFromEvent({
-                sourceType: 'evaluation',
-                sourceEvaluationId,
-            })
-        } else {
-            actions.clearLinkedSource()
-        }
-    }),
+            // External callers (trace scene, conversation display) dispatch
+            // setupPlaygroundFromEvent on the default-keyed instance (no tabId).
+            // Transfer that state to this tab-keyed instance.
+            if (props.tabId) {
+                const defaultLogic = llmPlaygroundPromptsLogic.findMounted({})
+                if (defaultLogic) {
+                    const defaultConfigs = defaultLogic.values.promptConfigs
+                    const hasContent =
+                        defaultConfigs.length > 1 ||
+                        defaultConfigs[0]?.messages.length > 0 ||
+                        defaultConfigs[0]?.systemPrompt !== DEFAULT_SYSTEM_PROMPT
+                    if (hasContent) {
+                        actions.setPromptConfigs(defaultConfigs)
+                        actions.setActivePromptId(defaultLogic.values.activePromptId)
+                        // Reset the default instance without triggering its resetPlayground
+                        // listener, which would modify the current tab's URL params.
+                        defaultLogic.actions.setPromptConfigs([createPromptConfig()])
+                        return
+                    }
+                }
+            }
+
+            const sourcePromptName =
+                typeof searchParams?.source_prompt_name === 'string' ? searchParams.source_prompt_name : null
+            const sourceEvaluationId =
+                typeof searchParams?.source_evaluation_id === 'string' ? searchParams.source_evaluation_id : null
+
+            if (sourcePromptName) {
+                const currentSource = values.linkedSource
+                if (currentSource.type === 'prompt' && currentSource.promptName === sourcePromptName) {
+                    return
+                }
+                actions.setupPlaygroundFromEvent({
+                    sourceType: 'prompt',
+                    sourcePromptName,
+                })
+            } else if (sourceEvaluationId) {
+                const currentSource = values.linkedSource
+                if (currentSource.type === 'evaluation' && currentSource.evaluationId === sourceEvaluationId) {
+                    return
+                }
+                actions.setupPlaygroundFromEvent({
+                    sourceType: 'evaluation',
+                    sourceEvaluationId,
+                })
+            } else {
+                actions.clearLinkedSource()
+            }
+        },
+    })),
 ])
