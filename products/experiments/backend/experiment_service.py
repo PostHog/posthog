@@ -230,9 +230,10 @@ class ExperimentService:
 
     def _apply_exposure_criteria_defaults(self, exposure_criteria: dict | None) -> dict:
         """Apply default exposure criteria if not provided."""
-        if exposure_criteria is None:
-            return {"filterTestAccounts": True}
-        return exposure_criteria
+        result = dict(exposure_criteria or {})
+        if result.get("filterTestAccounts") is None:
+            result["filterTestAccounts"] = True
+        return result
 
     def _apply_web_variants(self, experiment: Experiment, variants: list[dict]) -> None:
         """Copy variant rollout data to web experiment."""
