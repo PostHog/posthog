@@ -1,4 +1,4 @@
-// Package tui implements the Bubble Tea TUI for phdev.
+// Package tui implements the Bubble Tea TUI for hogprocs.
 //
 // Layout:
 //
@@ -24,7 +24,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
-	"github.com/posthog/posthog/phdev/internal/process"
+	"github.com/posthog/posthog/hogprocs/internal/process"
 )
 
 // headerHeight is the number of terminal lines the header occupies.
@@ -33,7 +33,7 @@ const headerHeight = 1
 // footerHeight is the minimum number of lines for the collapsed help footer.
 const footerHeight = 2 // top border + content line
 
-// Model is the root Bubble Tea model for phdev.
+// Model is the root Bubble Tea model for hogprocs.
 type Model struct {
 	mgr   *process.Manager
 	procs []*process.Process
@@ -53,7 +53,7 @@ type Model struct {
 	height int
 	ready  bool
 
-	// log is non-nil when --debug is active; writes go to /tmp/phdev-debug.log.
+	// log is non-nil when --debug is active; writes go to /tmp/hogprocs-debug.log.
 	log *log.Logger
 }
 

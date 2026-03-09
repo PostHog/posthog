@@ -1,4 +1,4 @@
-module github.com/posthog/posthog/phdev
+module github.com/posthog/posthog/hogprocs
 
 go 1.24.2
 

@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	bubbletea "charm.land/bubbletea/v2"
-	"github.com/posthog/posthog/phdev/internal/config"
+	"github.com/posthog/posthog/hogprocs/internal/config"
 )
 
 // Manager holds and orchestrates all processes for the dev environment.

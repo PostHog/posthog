@@ -1,4 +1,4 @@
-// phdev is a PostHog-branded dev process runner built with Bubble Tea.
+// hogprocs is a PostHog-branded dev process runner built with Bubble Tea.
 //
 // It is a drop-in replacement for mprocs: it reads the same YAML config
 // that `hogli dev:generate` produces and renders a customisable TUI with a
@@ -6,11 +6,11 @@
 //
 // Usage:
 //
-//	phdev [--debug] <config.yaml>
+//	hogprocs [--debug] <config.yaml>
 //
 // Flags:
 //
-//	--debug   Write a debug log to /tmp/phdev-debug.log (key inputs, proc
+//	--debug   Write a debug log to /tmp/hogprocs-debug.log (key inputs, proc
 //	          selection changes, status transitions, etc.)
 package main
 
@@ -20,21 +20,28 @@ import (
 	"os"
 
 	bubbletea "charm.land/bubbletea/v2"
-	"github.com/posthog/posthog/phdev/internal/config"
-	"github.com/posthog/posthog/phdev/internal/process"
-	"github.com/posthog/posthog/phdev/internal/tui"
+	"github.com/posthog/posthog/hogprocs/internal/config"
+	"github.com/posthog/posthog/hogprocs/internal/process"
+	"github.com/posthog/posthog/hogprocs/internal/tui"
 )
 
 func main() {
 	// Parse args: optional --debug flag followed by the config path.
 	var configPath string
 	var logger *log.Logger
-	for _, arg := range os.Args[1:] {
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch arg {
+		case "--config":
+			if i+1 < len(args) {
+				configPath = args[i+1]
+				i++ // skip the next arg since we consumed it
+			}
 		case "--debug":
-			f, err := os.OpenFile("/tmp/phdev-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			f, err := os.OpenFile("/tmp/hogprocs-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "phdev: open debug log: %v\n", err)
+				fmt.Fprintf(os.Stderr, "hogprocs: open debug log: %v\n", err)
 				os.Exit(1)
 			}
 			// f is intentionally not closed — it lives for the duration of the process.
@@ -48,13 +55,13 @@ func main() {
 	}
 
 	if configPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: phdev [--debug] <config.yaml>")
+		fmt.Fprintln(os.Stderr, "usage: hogprocs [--debug] --config <config.yaml>")
 		os.Exit(1)
 	}
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "phdev: load config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hogprocs: load config: %v\n", configPath, err)
 		os.Exit(1)
 	}
 
@@ -73,7 +80,7 @@ func main() {
 	go mgr.StartAll()
 
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "phdev: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hogprocs: %v\n", err)
 		os.Exit(1)
 	}
 }
