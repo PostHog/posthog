@@ -262,7 +262,7 @@ dev = [
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
-    "torch~=2.7.0",
+    "torch~=2.8.0",
 ]
 
 [tool.uv]
