@@ -862,19 +862,17 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         actual_indices = [row[0] for row in all_results]
         self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])
 
-    def test_cursor_pagination_sets_before_and_resets_offset(self):
+    def test_cursor_pagination_sets_before(self):
         query = EventsQuery(
             kind="EventsQuery",
             select=["*"],
             orderBy=["timestamp DESC"],
             limit=10,
-            offset=5,
         )
         runner = EventsQueryRunner(query=query, team=self.team)
         runner.apply_pagination_cursor("2020-01-11T12:00:00+00:00")
 
         self.assertEqual(runner.query.before, "2020-01-11T12:00:00+00:00")
-        self.assertEqual(runner.paginator.offset, 0)
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries

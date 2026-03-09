@@ -128,7 +128,6 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             self.query.after = cursor
         else:
             self.query.before = cursor
-        self.paginator.offset = 0
 
     def _infer_order(self) -> str:
         if self.query.orderBy:
