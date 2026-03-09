@@ -294,9 +294,10 @@ def fetch_item_metrics(
         return {}
 
     is_generation = analysis_level == "generation"
-    item_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in item_ids])
 
     if is_generation:
+        # Cast constant IDs to UUID to filter on native uuid column (avoids per-row toString)
+        item_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in item_ids])
         query = parse_select(
             """
             SELECT
@@ -309,41 +310,48 @@ def fetch_item_metrics(
             FROM events
             WHERE event = '$ai_generation'
                 AND timestamp >= {start_dt}
-                AND timestamp <= {end_dt}
+                AND timestamp < {end_dt}
                 AND toString(uuid) IN {item_ids}
             LIMIT {max_rows}
             """
         )
     else:
+        # Use ast.Field placeholder so HogQL resolves materialized columns for $ai_trace_id
+        # (JSONExtractString would bypass materialized column optimization)
+        item_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in item_ids])
         query = parse_select(
             """
             SELECT
-                JSONExtractString(properties, '$ai_trace_id') as item_id,
-                sum(toFloat(properties.$ai_total_cost_usd)) as cost,
-                max(toFloat(properties.$ai_latency)) as latency,
-                sum(toInt(properties.$ai_input_tokens)) as input_tokens,
-                sum(toInt(properties.$ai_output_tokens)) as output_tokens,
+                {trace_id_prop} as item_id,
+                sumIf(toFloat(properties.$ai_total_cost_usd), event IN ('$ai_generation', '$ai_embedding')) as cost,
+                sumIf(toFloat(properties.$ai_latency), event = '$ai_generation') as latency,
+                sumIf(toInt(properties.$ai_input_tokens), event IN ('$ai_generation', '$ai_embedding')) as input_tokens,
+                sumIf(toInt(properties.$ai_output_tokens), event IN ('$ai_generation', '$ai_embedding')) as output_tokens,
                 countIf(properties.$ai_is_error = 'true') as error_count
             FROM events
             WHERE event IN ('$ai_generation', '$ai_embedding', '$ai_span')
                 AND timestamp >= {start_dt}
-                AND timestamp <= {end_dt}
-                AND JSONExtractString(properties, '$ai_trace_id') IN {item_ids}
+                AND timestamp < {end_dt}
+                AND {trace_id_prop} IN {item_ids}
             GROUP BY item_id
             LIMIT {max_rows}
             """
         )
 
+    placeholders: dict[str, ast.Expr] = {
+        "start_dt": ast.Constant(value=window_start),
+        "end_dt": ast.Constant(value=window_end),
+        "item_ids": item_ids_tuple,
+        "max_rows": ast.Constant(value=len(item_ids)),
+    }
+    if not is_generation:
+        placeholders["trace_id_prop"] = ast.Field(chain=["properties", "$ai_trace_id"])
+
     with tags_context(product=Product.LLM_ANALYTICS):
         result = execute_hogql_query(
             query_type="ClusterItemMetrics",
             query=query,
-            placeholders={
-                "start_dt": ast.Constant(value=window_start),
-                "end_dt": ast.Constant(value=window_end),
-                "item_ids": item_ids_tuple,
-                "max_rows": ast.Constant(value=len(item_ids)),
-            },
+            placeholders=placeholders,
             team=team,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )

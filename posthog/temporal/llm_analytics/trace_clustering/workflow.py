@@ -3,6 +3,7 @@
 import json
 from datetime import timedelta
 
+import temporalio.exceptions
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -242,7 +243,9 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                 heartbeat_timeout=AGGREGATES_HEARTBEAT_TIMEOUT,
                 retry_policy=AGGREGATES_ACTIVITY_RETRY_POLICY,
             )
-        except Exception:
+        except temporalio.exceptions.ActivityError as e:
+            if isinstance(e.cause, temporalio.exceptions.CancelledError):
+                raise
             workflow.logger.warning("Aggregate metrics activity failed, continuing without metrics")
 
         # Activity 4: Emit events to ClickHouse
