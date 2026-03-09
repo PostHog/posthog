@@ -463,6 +463,7 @@ class TestQueryService(APIBaseTest):
         ]
     )
     def test_query_service_rejects_soft_deleted_connection_ids(self, _label: str, query_cls):
+        query: HogQLAutocomplete | DatabaseSchemaQuery
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
@@ -488,7 +489,7 @@ class TestQueryService(APIBaseTest):
         with self.assertRaises(ValidationError) as error:
             process_query_model(self.team, query)
 
-        self.assertEqual(error.exception.detail[0], "Invalid connectionId for this team")
+        self.assertEqual(cast(list[str], error.exception.detail)[0], "Invalid connectionId for this team")
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
