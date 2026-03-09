@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 import { supportTicketCounterLogic } from 'products/conversations/frontend/supportTicketCounterLogic'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { AiFirstNavBar } from './AiFirstNavBar'
+import { Nav as AiFirstNavBar } from './ai-first/Nav'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
 import { PROJECT_TREE_KEY, ProjectTree } from './ProjectTree/ProjectTree'
@@ -112,7 +112,25 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                 }
             >
                 {isAIFirst ? (
-                    <AiFirstNavBar />
+                    <AiFirstNavBar>
+                        {activePanelIdentifier === 'DataAndPeople' && (
+                            <ProjectTree root="data-and-people://" searchPlaceholder="Search data" />
+                        )}
+                        {activePanelIdentifier === 'Project' && (
+                            <ProjectTree
+                                root="project://"
+                                logicKey={PROJECT_TREE_KEY}
+                                searchPlaceholder="Search files"
+                                showRecents
+                            />
+                        )}
+                        {activePanelIdentifier === 'Products' && (
+                            <ProjectTree root="products://" searchPlaceholder="Search apps" />
+                        )}
+                        {activePanelIdentifier === 'Shortcuts' && (
+                            <ProjectTree root="shortcuts://" searchPlaceholder="Search starred items" />
+                        )}
+                    </AiFirstNavBar>
                 ) : (
                     <PanelLayoutNavBar>
                         {activePanelIdentifier === 'Project' && (

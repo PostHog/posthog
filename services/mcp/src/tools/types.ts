@@ -45,11 +45,6 @@ export type Env = {
      * PostHog API token for MCP Apps analytics (used for CSP and analytics ingestion).
      */
     POSTHOG_UI_APPS_TOKEN: string | undefined
-    /**
-     * When 'true', generated MCP tools (from definitions/*.yaml) override
-     * hand-written equivalents. Default: undefined (off).
-     */
-    USE_GENERATED_TOOLS?: string
 }
 
 export type Context = {
@@ -60,12 +55,12 @@ export type Context = {
     sessionManager: SessionManager
 }
 
-export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
+export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     name: string
     title: string
     description: string
     schema: TSchema
-    handler: (context: Context, params: z.infer<TSchema>) => Promise<any>
+    handler: (context: Context, params: z.infer<TSchema>) => Promise<TResult>
     scopes: string[]
     annotations: {
         destructiveHint: boolean
@@ -76,14 +71,14 @@ export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
     _meta?: ToolMeta
 }
 
-export type ToolBase<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = Omit<
-    Tool<TSchema>,
+export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = Omit<
+    Tool<TSchema, TResult>,
     'title' | 'description' | 'scopes' | 'annotations'
 > & {
     _meta?: ToolMeta
 }
 
-export type ZodObjectAny = z.ZodObject<any, any, any, any, any>
+export type ZodObjectAny = z.ZodType<any>
 
 export type ToolUiMeta = {
     resourceUri: string

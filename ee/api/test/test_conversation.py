@@ -705,6 +705,34 @@ class TestConversation(APIBaseTest):
                 self.assertIn("Research mode", response_data["detail"])
 
     @override_settings(DEBUG=False)
+    @patch("posthog.utils.get_instance_region", return_value="US")
+    def test_research_rate_limit_exempt_team_bypasses_throttle(self, _mock_region):
+        """Test that teams listed in the posthog-ai-rate-limit-exemptions flag bypass research rate limits."""
+        with patch(
+            "posthoganalytics.get_feature_flag_payload",
+            return_value={"US": [self.team.id]},
+        ):
+            with patch(
+                "ee.hogai.core.executor.AgentExecutor.astream",
+                return_value=_async_generator(),
+            ):
+                with patch(
+                    "ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response
+                ):
+                    # Should exceed the 3/minute burst limit without being throttled
+                    for i in range(5):
+                        response = self.client.post(
+                            f"/api/environments/{self.team.id}/conversations/",
+                            {
+                                "content": f"test query {i}",
+                                "trace_id": str(uuid.uuid4()),
+                                "conversation": str(uuid.uuid4()),
+                                "agent_mode": AgentMode.RESEARCH.value,
+                            },
+                        )
+                        self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+
+    @override_settings(DEBUG=False)
     def test_normal_ai_has_standard_rate_limits(self):
         """Test that normal AI conversations have standard rate limits (10/minute)."""
         with patch(

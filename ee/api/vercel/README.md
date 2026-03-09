@@ -51,10 +51,9 @@ In your Vercel integration settings:
 1. **Configuration URL**: Set to your Django tunnel URL (port 8000)
    - Example: `https://abc123.ngrok-free.dev`
 
-2. **Redirect URL**: **Leave this field BLANK/EMPTY**
-   - Vercel marketplace integrations don't need a redirect URL
-   - Installation happens via API calls, not web redirects
-   - SSO flow includes the return URL in the `url` query parameter
+2. **Redirect URL**: Set to `{your_ngrok_url}/connect/vercel/callback`
+   - This enables the "Link Existing Account" connectable account flow
+   - Example: `https://abc123.ngrok-free.dev/connect/vercel/callback`
 
 ## Step 4: Start Development Servers
 
@@ -88,13 +87,18 @@ Vercel marketplace integrations have two separate flows:
    - Authenticates the user and links their PostHog account
    - Returns user back to Vercel using the `url` parameter
 
-### Why No Redirect URL?
+### Connectable Account Flow (Link Existing Account)
 
-The "Redirect URL" field in Vercel integration settings is for OAuth-style integrations. PostHog's Vercel marketplace integration doesn't need it because:
+When a user clicks "Link Existing Account" in the Vercel Marketplace:
 
-- Installation happens via direct API calls
-- SSO flow receives the return URL in the `url` query parameter from Vercel
-- No web-based OAuth callback is needed
+1. Vercel opens a popup to our **Redirect URL** (`/connect/vercel/callback`) with an OAuth code
+2. PostHog exchanges the code for an access token via `POST /v2/oauth/access_token`
+3. If the user isn't logged in, they're redirected to `/login` first
+4. The user selects which PostHog organization to link
+5. An `OrganizationIntegration` record is created with `type=connectable`
+6. The popup closes and returns the user to Vercel
+
+Billing stays with PostHog for connected accounts - no billing provider migration is needed.
 
 ## Troubleshooting
 
@@ -114,8 +118,8 @@ The "Redirect URL" field in Vercel integration settings is for OAuth-style integ
 
 **Solution**:
 
-1. Check that Redirect URL is blank/empty in Vercel settings
-2. Verify Configuration URL points to your Django ngrok tunnel (port 8000)
+1. Verify Configuration URL points to your Django ngrok tunnel (port 8000)
+2. Verify Redirect URL is set to `{ngrok_url}/connect/vercel/callback`
 3. Check Django logs for detailed error messages
 
 ### Environment variables not loaded
@@ -208,6 +212,25 @@ Before releasing changes to the Vercel integration, manually verify the followin
 - [ ] Installation completes without errors
 - [ ] User is reactivated (is_active=True)
 - [ ] User is added to the new organization
+
+#### Scenario 5: Link Existing Account (Connectable Account)
+
+**Setup**: Have an existing PostHog account with admin access to an organization
+
+1. In the Vercel Marketplace, click "Add" on the PostHog integration
+2. Choose "Link Existing Account"
+3. A popup opens — log in with your PostHog credentials
+4. Select an organization from the dropdown
+5. Click "Connect organization"
+
+**Expected**:
+
+- [ ] Popup opens to PostHog login page (if not already logged in)
+- [ ] After login, org selector is shown with orgs where user is admin/owner
+- [ ] Already-linked orgs are not available for selection
+- [ ] Clicking "Connect organization" shows success message
+- [ ] "Return to Vercel" button redirects back to Vercel
+- [ ] `OrganizationIntegration` record created with `config.type = "connectable"`
 
 #### Quick Local Verification
 

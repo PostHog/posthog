@@ -23,7 +23,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -32,6 +32,11 @@ logger = structlog.get_logger(__name__)
 if TYPE_CHECKING:
     from posthog.models.tag import Tag
     from posthog.models.team import Team
+
+
+class FeatureFlagManager(RootTeamManager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
 
 
 class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -117,6 +122,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         blank=True,
         help_text="Last time this feature flag was called (from $feature_flag_called events)",
     )
+
+    objects = FeatureFlagManager()  # type: ignore
+    objects_including_soft_deleted: models.Manager["FeatureFlag"] = RootTeamManager()
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -574,8 +582,7 @@ def get_feature_flags(
         raise ValueError("Either team or project_id must be provided")
 
     # Include disabled flags (active=False) so flag dependencies can reference them
-    # and evaluate them as false, rather than raising DependencyNotFound errors
-    filter_kwargs.update({"deleted": False})
+    # and evaluate them as false, rather than raising DependencyNotFound errors.
 
     # Build queryset with evaluation tags aggregated
     # Single-shot query: flags plus evaluation tag names aggregated to a string array.

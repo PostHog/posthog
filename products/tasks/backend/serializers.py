@@ -29,6 +29,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "task_number",
             "slug",
             "title",
+            "title_manually_set",
             "description",
             "origin_product",
             "repository",
@@ -84,12 +85,19 @@ class TaskSerializer(serializers.ModelSerializer):
             if default_integration:
                 validated_data["github_integration"] = default_integration
 
-        # Auto-generate title from description if not provided or empty
         title = validated_data.get("title", "").strip()
         if not title and validated_data.get("description"):
             validated_data["title"] = generate_task_title(validated_data["description"])
+            validated_data.setdefault("title_manually_set", False)
+        elif title:
+            validated_data.setdefault("title_manually_set", True)
 
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if "title" in validated_data and "title_manually_set" not in validated_data:
+            validated_data["title_manually_set"] = True
+        return super().update(instance, validated_data)
 
 
 class AgentDefinitionSerializer(serializers.Serializer):
@@ -218,6 +226,10 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         return value
 
 
+class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=10000)
+
+
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
     ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact"]
 
@@ -331,6 +343,13 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default="background",
         help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
     )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=255,
+        help_text="Git branch to checkout in the sandbox",
+    )
 
 
 class TaskRunCommandRequestSerializer(serializers.Serializer):
@@ -383,6 +402,10 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
     id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
     result = serializers.DictField(required=False, help_text="Command result on success")
     error = serializers.DictField(required=False, help_text="Error details on failure")
+
+
+class CodeInviteRedeemRequestSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50)
 
 
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):

@@ -46,12 +46,9 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         groupId: string = 'cdp-batch-hogflow-requests-consumer'
     ) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config, 'hogflow')
+        this.cyclotronJobQueue = new CyclotronJobQueue(config)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(
-            config.SITE_URL,
-            new InternalFetchService(config)
-        )
+        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(new InternalFetchService(config))
     }
 
     private createHogFlowInvocation({
@@ -69,7 +66,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
     }): CyclotronJobInvocation {
         const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             team: team,
-            personId: personId,
+            personId,
             siteUrl: this.config.SITE_URL,
         })
 
@@ -79,6 +76,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
             id: new UUIDT().toString(),
             state: {
                 event: invocationGlobals.event,
+                personId,
                 actionStepCount: 0,
                 variables: defaultVariables,
             },
@@ -140,6 +138,15 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
 
             const batchPersonsCount = blastRadiusPersons.users_affected.length
             totalPersonsProcessed += batchPersonsCount
+
+            if (totalPersonsProcessed > this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE) {
+                logger.warn(
+                    '⚠️',
+                    `Batch HogFlow run ${batchHogFlowRequest.parentRunId} has exceeded the maximum audience size of ${this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE}. Stopping further processing.`,
+                    { totalPersonsProcessed, batchHogFlowRequest }
+                )
+                break
+            }
 
             logger.info(
                 '📝',

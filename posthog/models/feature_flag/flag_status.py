@@ -45,7 +45,11 @@ class FeatureFlagStatusChecker:
             return FeatureFlagStatus.UNKNOWN, "Must provide feature flag or feature flag id"
 
         try:
-            flag = FeatureFlag.objects.get(pk=self.feature_flag_id) if self.feature_flag_id else self.feature_flag
+            flag = (
+                FeatureFlag.objects_including_soft_deleted.get(pk=self.feature_flag_id)
+                if self.feature_flag_id
+                else self.feature_flag
+            )
         except FeatureFlag.DoesNotExist:
             return FeatureFlagStatus.UNKNOWN, "Flag could not be found"
 

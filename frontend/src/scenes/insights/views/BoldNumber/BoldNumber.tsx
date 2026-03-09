@@ -26,6 +26,30 @@ import { ChartParams, TrendResult } from '~/types'
 import { insightLogic } from '../../insightLogic'
 import { Textfit } from './Textfit'
 
+export interface ComparisonDisplay {
+    percentageDiff: number | null
+    hasComparableDiff: boolean
+    displayText: string
+}
+
+export function computeComparisonDisplay(currentValue: number | null, previousValue: number | null): ComparisonDisplay {
+    const percentageDiff =
+        previousValue === null || currentValue === null
+            ? null
+            : (currentValue - previousValue) / Math.abs(previousValue)
+
+    const hasComparableDiff = percentageDiff !== null && Number.isFinite(percentageDiff)
+    const displayText = !hasComparableDiff
+        ? 'No data in the'
+        : percentageDiff > 0
+          ? `Up ${percentage(percentageDiff)} from`
+          : percentageDiff < 0
+            ? `Down ${percentage(-percentageDiff)} from`
+            : 'No change from'
+
+    return { percentageDiff, hasComparableDiff, displayText }
+}
+
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
 
@@ -162,24 +186,16 @@ function BoldNumberComparison({
     const previousValue = previousPeriodSeries.aggregated_value
     const currentValue = currentPeriodSeries.aggregated_value
 
-    const percentageDiff =
-        previousValue === null || currentValue === null
-            ? null
-            : (currentValue - previousValue) / Math.abs(previousValue)
-
-    const hasComparableDiff = percentageDiff !== null && Number.isFinite(percentageDiff)
-    const percentageDiffDisplay = !hasComparableDiff
-        ? 'No data in the'
-        : percentageDiff > 0
-          ? `Up ${percentage(percentageDiff)} from`
-          : percentageDiff < 0
-            ? `Down ${percentage(-percentageDiff)} from`
-            : 'No change from'
+    const {
+        percentageDiff,
+        hasComparableDiff,
+        displayText: percentageDiffDisplay,
+    } = computeComparisonDisplay(currentValue, previousValue)
 
     return (
         <LemonRow
             icon={
-                !hasComparableDiff ? (
+                !hasComparableDiff || percentageDiff === null ? (
                     <IconFlare />
                 ) : percentageDiff > 0 ? (
                     <IconTrending />
@@ -245,10 +261,10 @@ export function HogQLBoldNumber(): JSX.Element {
         )
     }
 
-    const formattedValue = tabularData?.[0]?.[0]?.formattedValue
-    const directValue = response?.[0]?.[0]
-    const resultsValue = 'results' in response ? response?.results?.[0]?.[0] : undefined
-    const resultValue = 'result' in response ? response?.result?.[0]?.[0] : undefined
+    const formattedValue = tabularData[0]?.[0]?.formattedValue ?? null
+    const directValue = Array.isArray(response) ? response[0]?.[0] : undefined
+    const resultsValue = 'results' in response ? response.results[0]?.[0] : undefined
+    const resultValue = 'result' in response ? response.result[0]?.[0] : undefined
 
     // If any of the values is null, show empty state
     if (formattedValue === null || directValue === null || resultsValue === null || resultValue === null) {

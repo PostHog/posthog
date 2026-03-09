@@ -2228,6 +2228,11 @@
             "label": "Transformations succeeded",
             "used_for_debug": true
         },
+        "$update_person_last_seen_at": {
+            "description": "When set to false, the event will not update the person's last_seen_at timestamp",
+            "label": "Update last seen at",
+            "system": true
+        },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",
             "examples": [
@@ -5292,6 +5297,11 @@
             "description": "Array of transformations that succeeded during ingestion.",
             "label": "Transformations succeeded",
             "used_for_debug": true
+        },
+        "$update_person_last_seen_at": {
+            "description": "When set to false, the event will not update the person's last_seen_at timestamp",
+            "label": "Update last seen at",
+            "system": true
         },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",

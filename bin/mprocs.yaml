@@ -154,6 +154,18 @@ procs:
             bin/start-rust-service batch-import-worker
         capability: batch_imports
 
+    personhog-replica:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-replica
+        capability: personhog
+
+    personhog-router:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-router
+        capability: personhog
+
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         autostart: true
@@ -171,6 +183,10 @@ procs:
     mcp-ui-apps:
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
+
+    stripe-app:
+        shell: 'bin/start-stripe-app'
+        capability: stripe_app
 
     migrate-postgres:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && bin/migrate --scope=postgres'

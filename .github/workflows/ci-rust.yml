@@ -43,6 +43,8 @@ jobs:
                         - '.github/workflows/ci-rust.yml'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
+                        - '.github/actions/setup-protoc/**'
+                        - '.github/actions/setup-sccache/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
@@ -142,6 +144,8 @@ jobs:
                   sparse-checkout: |
                       rust/
                       proto/
+                      .github/actions/setup-protoc/
+                      .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -151,10 +155,7 @@ jobs:
                   sudo apt-get install -y libssl-dev pkg-config
 
             - name: Install protoc
-              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-              with:
-                  version: '28.x'
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+              uses: ./.github/actions/setup-protoc
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
@@ -162,12 +163,7 @@ jobs:
                   toolchain: 1.91.1
 
             - name: Install sccache
-              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-            - name: Configure sccache
-              run: |
-                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
+              uses: ./.github/actions/setup-sccache
 
             - name: Run cargo build
               env:
@@ -200,12 +196,14 @@ jobs:
               continue-on-error: true
 
             - name: Setup main repo and dependencies
+              env:
+                  COMPOSE_FILES: -f ../docker-compose.dev.yml -f ../docker-compose.profiles.yml --profile etcd
               run: |
-                  docker compose -f ../docker-compose.dev.yml down
+                  docker compose $COMPOSE_FILES down
 
                   # Retry docker compose up with exponential backoff to handle transient registry errors
                   for i in 1 2 3; do
-                    if docker compose -f ../docker-compose.dev.yml up -d; then
+                    if docker compose $COMPOSE_FILES up -d; then
                       echo "Docker compose up succeeded"
                       break
                     else
@@ -237,18 +235,10 @@ jobs:
                   toolchain: 1.91.1
 
             - name: Install protoc
-              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-              with:
-                  version: '28.x'
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+              uses: ./.github/actions/setup-protoc
 
             - name: Install sccache
-              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-            - name: Configure sccache
-              run: |
-                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
+              uses: ./.github/actions/setup-sccache
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -274,8 +264,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
             - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Set up databases
               env:
@@ -327,6 +316,8 @@ jobs:
                   sparse-checkout: |
                       rust/
                       proto/
+                      .github/actions/setup-protoc/
+                      .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -336,10 +327,7 @@ jobs:
                   sudo apt-get install -y libssl-dev pkg-config
 
             - name: Install protoc
-              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-              with:
-                  version: '28.x'
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+              uses: ./.github/actions/setup-protoc
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
@@ -348,12 +336,7 @@ jobs:
                   components: clippy,rustfmt
 
             - name: Install sccache
-              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-
-            - name: Configure sccache
-              run: |
-                  echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-                  sccache --start-server
+              uses: ./.github/actions/setup-sccache
 
             - name: Check format
               run: cargo fmt -- --check
