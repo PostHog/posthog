@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -225,6 +226,16 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 return
             }
 
+            posthog.capture('llma playground prompt submitted', {
+                prompt_count: runnablePrompts.length,
+                models: runnablePrompts.map(({ prompt }) => prompt.model),
+                has_tools: runnablePrompts.some(({ prompt }) => !!prompt.tools?.length),
+                total_message_count: runnablePrompts.reduce(
+                    (sum, { messagesToSend }) => sum + messagesToSend.length,
+                    0
+                ),
+            })
+
             const key = props.tabId ?? 'default'
             const abortController = new AbortController()
             abortControllersByKey.set(key, abortController)
@@ -419,6 +430,18 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         responseText += separator + toolCallsText
                     }
                     upsertLiveItem()
+
+                    posthog.capture('llma playground prompt completed', {
+                        model: prompt.model,
+                        provider: selectedModelProvider,
+                        latency_ms: latencyMs,
+                        ttft_ms: ttftMs,
+                        prompt_tokens: responseUsage.prompt_tokens,
+                        completion_tokens: responseUsage.completion_tokens,
+                        success: !responseHasError,
+                        has_tools: !!prompt.tools?.length,
+                        aborted: abortController.signal.aborted,
+                    })
                 })
 
                 await Promise.allSettled(runs)
