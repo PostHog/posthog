@@ -387,7 +387,10 @@ def get_teams_with_flags_queryset() -> "QuerySet[Team]":
     Used as the single source of truth for scoping both Celery verification
     tasks and management commands to the ~10% of teams that have flags.
     """
-    has_flags = FeatureFlag.objects_including_soft_deleted.filter(team_id=OuterRef("pk"))
+    # Use Q() to pass team_id as a positional arg, bypassing RootTeamQuerySet.filter()
+    # which intercepts team_id kwargs and adds expensive parent-team JOIN/subquery logic
+    # that makes the correlated EXISTS subquery unusable at scale.
+    has_flags = FeatureFlag.objects_including_soft_deleted.filter(Q(team_id=OuterRef("pk")))
     return Team.objects.filter(Exists(has_flags))
 
 

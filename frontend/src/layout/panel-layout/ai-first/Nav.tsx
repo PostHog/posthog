@@ -13,6 +13,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { Label } from 'lib/ui/Label/Label'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -174,7 +175,17 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
                             <NavTabBrowse />
                         </Tabs.Panel>
                         <Tabs.Panel value="chat" className="absolute inset-0 flex flex-col" keepMounted>
-                            <Suspense fallback={<div>Loading...</div>}>
+                            <Suspense
+                                fallback={
+                                    <div className="flex flex-col gap-px px-1 pt-2">
+                                        {Array.from({ length: 15 }).map((_, index) => (
+                                            <WrappingLoadingSkeleton fullWidth key={index}>
+                                                <ButtonPrimitive aria-hidden inert menuItem />
+                                            </WrappingLoadingSkeleton>
+                                        ))}
+                                    </div>
+                                }
+                            >
                                 <NavTabChat />
                             </Suspense>
                         </Tabs.Panel>

@@ -185,6 +185,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         return None
 
+    @property
+    def schema_metadata(self) -> dict[str, Any] | None:
+        if self.sync_type_config:
+            metadata = self.sync_type_config.get("schema_metadata")
+            if isinstance(metadata, dict):
+                return metadata
+        return None
+
+    @property
+    def foreign_keys(self) -> list[dict[str, str]] | None:
+        metadata = self.schema_metadata
+        if metadata:
+            foreign_keys = metadata.get("foreign_keys")
+            if isinstance(foreign_keys, list):
+                return foreign_keys
+        return None
+
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],
@@ -330,9 +347,12 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 
 
 def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
-    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()
+
+    if not schema.source.supports_scheduled_sync:
+        return schema
 
     schedule_exists = external_data_workflow_exists(schema_id)
 
@@ -365,16 +385,27 @@ def sync_old_schemas_with_new_schemas(
     actually_created: list[str] = []
 
     for schema in schemas_to_create:
+        deleted_obj = (
+            ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema, deleted=True)
+            .order_by("-updated_at", "-created_at")
+            .first()
+        )
+        if deleted_obj is not None:
+            deleted_obj.deleted = False
+            deleted_obj.deleted_at = None
+            deleted_obj.save(update_fields=["deleted", "deleted_at", "updated_at"])
+            actually_created.append(schema)
+            continue
+
         obj, created = ExternalDataSchema.objects.get_or_create(
-            team_id=team_id, source_id=source_id, name=schema, deleted=False, defaults={"should_sync": False}
+            team_id=team_id,
+            source_id=source_id,
+            name=schema,
+            deleted=False,
+            defaults={"should_sync": False},
         )
         if created:
             actually_created.append(schema)
-        elif obj.deleted:
-            obj.deleted = False
-            obj.deleted_at = None
-            obj.should_sync = False
-            obj.save(update_fields=["deleted", "deleted_at", "should_sync"])
 
     for schema in schemas_to_possibly_delete:
         # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible
