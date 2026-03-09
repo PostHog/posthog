@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import secrets
 import time
+import secrets
 from datetime import timedelta
 from typing import Any
 from urllib.parse import urlencode
