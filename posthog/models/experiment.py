@@ -150,7 +150,9 @@ def holdout_filters_for_flag(holdout: "ExperimentHoldout | None") -> dict:
         return {"holdout_groups": None, "holdout": None}
     return {
         "holdout_groups": holdout.filters,
-        "holdout": {"id": holdout.id, "exclusion_percentage": holdout.filters[0]["rollout_percentage"]},
+        "holdout": {"id": holdout.id, "exclusion_percentage": holdout.filters[0]["rollout_percentage"]}
+        if holdout.filters
+        else None,
     }
 
 
