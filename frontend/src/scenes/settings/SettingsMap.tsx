@@ -41,7 +41,6 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import {
     ExceptionAutocaptureToggle,
-    ExceptionIngestionControls,
     ExceptionSuppressionRules,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 
@@ -1008,15 +1007,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.errorTrackingSuppressionRules,
                 component: <ExceptionSuppressionRules />,
                 keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
-            },
-            {
-                id: 'error-tracking-ingestion-controls',
-                title: 'Autocapture controls',
-                description: 'Selectively enable exception autocapture based on the user or scenario.',
-                platformSupport: FEATURE_SUPPORT.errorTrackingSuppressionRules,
-                component: <ExceptionIngestionControls />,
-                flag: 'ERROR_TRACKING_INGESTION_CONTROLS',
-                keywords: ['ingestion', 'control', 'selective', 'autocapture'],
             },
             {
                 id: 'error-tracking-alerting',

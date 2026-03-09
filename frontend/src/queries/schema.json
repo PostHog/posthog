@@ -2544,6 +2544,12 @@
                 },
                 "p75": {
                     "type": "number"
+                },
+                "series_index": {
+                    "$ref": "#/definitions/integer"
+                },
+                "series_label": {
+                    "type": "string"
                 }
             },
             "required": ["day", "label", "min", "p25", "median", "p75", "max", "mean"],
@@ -8214,6 +8220,9 @@
                     "type": ["string", "null"]
                 },
                 "showLegend": {
+                    "type": "boolean"
+                },
+                "showNullsAsZero": {
                     "type": "boolean"
                 },
                 "showTotalRow": {
@@ -22124,23 +22133,91 @@
         },
         "MultiQuestionFormAnswers": {
             "additionalProperties": {
-                "type": "string"
+                "anyOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    }
+                ]
             },
             "type": "object"
+        },
+        "MultiQuestionFormField": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "Unique identifier for this field, used as the answer key",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Label displayed above/beside the field",
+                    "type": "string"
+                },
+                "max": {
+                    "description": "Maximum value (for number and slider types)",
+                    "type": "number"
+                },
+                "min": {
+                    "description": "Minimum value (for number and slider types)",
+                    "type": "number"
+                },
+                "optional": {
+                    "description": "Whether this field can be left empty (default: false)",
+                    "type": "boolean"
+                },
+                "options": {
+                    "description": "Available answer options (required for dropdown)",
+                    "items": {
+                        "$ref": "#/definitions/MultiQuestionFormQuestionOption"
+                    },
+                    "type": "array"
+                },
+                "placeholder": {
+                    "description": "Placeholder text (for text and number types)",
+                    "type": "string"
+                },
+                "step": {
+                    "description": "Step size (for number and slider types)",
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/MultiQuestionFormFieldType",
+                    "description": "Field type (required, no default)"
+                }
+            },
+            "required": ["id", "type", "label"],
+            "type": "object"
+        },
+        "MultiQuestionFormFieldType": {
+            "description": "Field types allowed inside a multi_field composite question",
+            "enum": ["text", "number", "slider", "dropdown", "toggle"],
+            "type": "string"
         },
         "MultiQuestionFormQuestion": {
             "additionalProperties": false,
             "properties": {
                 "allow_custom_answer": {
-                    "description": "Whether to show a \"Type your answer\" option (default: true)",
+                    "description": "Whether to show a \"Type your answer\" option (default: true). Only used for select type.",
                     "type": "boolean"
+                },
+                "fields": {
+                    "description": "Fields for multi_field type questions, grouped with a shared submit button",
+                    "items": {
+                        "$ref": "#/definitions/MultiQuestionFormField"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "description": "Unique identifier for this question",
                     "type": "string"
                 },
                 "options": {
-                    "description": "Available answer options",
+                    "description": "Available answer options (required for select and multi_select)",
                     "items": {
                         "$ref": "#/definitions/MultiQuestionFormQuestionOption"
                     },
@@ -22153,9 +22230,14 @@
                 "title": {
                     "description": "One word title for the question e.g. \"Use case\", \"Team size\", \"Experience\"",
                     "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/MultiQuestionFormQuestionType",
+                    "default": "select",
+                    "description": "Question type. Use 'multi_field' with fields array for composite questions."
                 }
             },
-            "required": ["id", "title", "question", "options"],
+            "required": ["id", "title", "question"],
             "type": "object"
         },
         "MultiQuestionFormQuestionOption": {
@@ -22172,6 +22254,11 @@
             },
             "required": ["value"],
             "type": "object"
+        },
+        "MultiQuestionFormQuestionType": {
+            "description": "Question types: select/multi_select for standalone, multi_field for composite",
+            "enum": ["select", "multi_select", "multi_field"],
+            "type": "string"
         },
         "MultiVisualizationMessage": {
             "additionalProperties": false,
