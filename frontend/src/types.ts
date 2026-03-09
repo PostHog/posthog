@@ -903,6 +903,12 @@ export enum ExperimentProgressStatus {
     Complete = 'complete',
 }
 
+export enum ExperimentStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Stopped = 'stopped',
+}
+
 export enum PropertyFilterType {
     /** Event metadata and fields on the clickhouse events table */
     Meta = 'meta',
@@ -4344,6 +4350,7 @@ export interface Experiment {
     }
     start_date?: string | null
     end_date?: string | null
+    status?: ExperimentStatus | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
