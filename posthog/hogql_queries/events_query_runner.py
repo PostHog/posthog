@@ -124,10 +124,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         # NB: This uses the last row's timestamp as the cursor, so events sharing
         # the exact same timestamp as the page boundary may be skipped. In practice
         # this is rare since the events table uses DateTime64(6) (microsecond precision).
-        order = "DESC"
+        order: str = "DESC"
         if self.query.orderBy:
-            parsed = parse_order_expr(self.query.orderBy[0])
-            order = parsed.order or "DESC"
+            order = parse_order_expr(self.query.orderBy[0]).order
         if order == "ASC":
             self.query.after = cursor
         else:

@@ -209,7 +209,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_asc_order
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
@@ -234,7 +234,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_asc_order.1
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc.1
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
@@ -259,7 +259,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_asc_order.2
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc.2
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
@@ -284,7 +284,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_asc_order_minus_utc
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_minus_utc
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
@@ -309,7 +309,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_asc_order_minus_utc.1
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_minus_utc.1
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
@@ -334,7 +334,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_asc_order_minus_utc.2
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_minus_utc.2
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
@@ -359,7 +359,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_asc_order_plus_utc
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_plus_utc
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
@@ -384,7 +384,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_asc_order_plus_utc.1
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_plus_utc.1
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
@@ -409,7 +409,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_asc_order_plus_utc.2
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc_plus_utc.2
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
@@ -434,7 +434,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
@@ -459,7 +459,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page.1
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc.1
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
@@ -484,7 +484,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page.2
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc.2
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
@@ -509,7 +509,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_minus_utc
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_minus_utc
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
@@ -534,7 +534,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_minus_utc.1
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_minus_utc.1
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
@@ -559,7 +559,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_minus_utc.2
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_minus_utc.2
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'America/Phoenix') AS timestamp
@@ -584,7 +584,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_plus_utc
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_plus_utc
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
@@ -609,7 +609,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_plus_utc.1
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_plus_utc.1
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
@@ -634,7 +634,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_plus_utc.2
+# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc_plus_utc.2
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'Asia/Tokyo') AS timestamp
