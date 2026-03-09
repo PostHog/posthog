@@ -149,7 +149,7 @@ class FOSSCohortQuery(EventQuery):
         self._cohort_pk = cohort_pk
 
         super().__init__(
-            filter=FOSSCohortQuery.unwrap_cohort(filter, team.pk),
+            filter=FOSSCohortQuery.unwrap_cohort(filter, team.pk, team),
             team=team,
             round_interval=round_interval,
             should_join_distinct_ids=should_join_distinct_ids,
@@ -169,8 +169,11 @@ class FOSSCohortQuery(EventQuery):
         self._outer_property_groups = property_groups.outer
 
     @staticmethod
-    def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
+    def unwrap_cohort(
+        filter: Filter, team_id: int, team: Optional[Team] = None, cohort: Optional[Cohort] = None
+    ) -> Filter:
         def _unwrap(property_group: PropertyGroup, negate_group: bool = False) -> PropertyGroup:
+            nonlocal team
             if len(property_group.values):
                 if isinstance(property_group.values[0], PropertyGroup):
                     # dealing with a list of property groups, so unwrap each one
@@ -202,7 +205,16 @@ class FOSSCohortQuery(EventQuery):
                         negation_value = not current_negation if negate_group else current_negation
                         if prop.type in ["cohort", "precalculated-cohort"]:
                             try:
-                                prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+                                # Use passed cohort object if it matches the requested cohort ID
+                                if cohort is not None and cohort.pk == prop.value:
+                                    prop_cohort = cohort
+                                else:
+                                    # Use passed team object if available, otherwise fetch from database
+                                    if team is None:
+                                        team = Team.objects.get(pk=team_id)
+                                    prop_cohort: Cohort = Cohort.objects.get(
+                                        pk=prop.value, team__project_id=team.project_id
+                                    )
                                 new_property_group_list.append(
                                     PropertyGroup(
                                         type=PropertyOperatorType.AND,
