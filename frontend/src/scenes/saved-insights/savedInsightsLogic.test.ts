@@ -137,6 +137,28 @@ describe('savedInsightsLogic', () => {
             })
     })
 
+    it('passes not_on_dashboard param when notOnDashboard filter is set', async () => {
+        let capturedParams: URLSearchParams | null = null
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': (req) => {
+                    capturedParams = req.url.searchParams
+                    return [200, createSavedInsights('', 0)]
+                },
+            },
+        })
+
+        logic.actions.setSavedInsightsFilters({ notOnDashboard: true })
+        await expectLogic(logic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+        expect(capturedParams!.get('not_on_dashboard')).toBe('true')
+
+        logic.actions.setSavedInsightsFilters({ notOnDashboard: false })
+        await expectLogic(logic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+        expect(capturedParams!.has('not_on_dashboard')).toBe(false)
+    })
+
     it('resets the page on filter change', async () => {
         logic.actions.setSavedInsightsFilters({ page: 2 })
         await expectLogic(logic)

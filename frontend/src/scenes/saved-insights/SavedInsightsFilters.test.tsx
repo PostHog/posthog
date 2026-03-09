@@ -120,3 +120,37 @@ describe('SavedInsightsFilters Created by dropdown', () => {
         expect(setFilters).toHaveBeenCalledWith({ createdBy: [MOCK_SECOND_BASIC_USER.id] })
     })
 })
+
+describe('SavedInsightsFilters Unused button', () => {
+    let setFilters: jest.Mock
+
+    beforeEach(() => {
+        useMocks({ get: { '/api/organizations/@current/members/': { results: [] } } })
+        initKeaTests()
+        setFilters = jest.fn()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    function renderFilters(filters: Partial<SavedInsightFilters> = {}): void {
+        render(
+            <Provider>
+                <SavedInsightsFilters filters={{ ...DEFAULT_FILTERS, ...filters }} setFilters={setFilters} />
+            </Provider>
+        )
+    }
+
+    it('calls setFilters with notOnDashboard: true when clicking Unused', async () => {
+        renderFilters()
+        userEvent.click(screen.getByText('Unused'))
+        expect(setFilters).toHaveBeenCalledWith({ notOnDashboard: true })
+    })
+
+    it('calls setFilters with notOnDashboard: false when clicking Unused while active', async () => {
+        renderFilters({ notOnDashboard: true })
+        userEvent.click(screen.getByText('Unused'))
+        expect(setFilters).toHaveBeenCalledWith({ notOnDashboard: false })
+    })
+})
