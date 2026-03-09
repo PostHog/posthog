@@ -30,7 +30,13 @@ hogli lint:skills
 # 4. Build locally to verify rendered output
 hogli build:skills
 
-# 5. Merge to master – CI builds and distributes automatically
+# 5. Test locally with PostHog Code or a coding agent
+hogli sync:skill -- --name <skill-name>
+
+# 6. Delete the test skill (optional)
+hogli unsync:skill -- --name <skill-name>
+
+# 7. Merge to master – CI builds and distributes automatically
 ```
 
 ## Skills vs tools
@@ -297,6 +303,8 @@ hogli build:skills          # Build all skills and create dist/skills.zip
 hogli build:skills --list   # List discovered skills without building
 hogli lint:skills           # Validate skill sources (no Django required)
 hogli init:skill            # Scaffold a new skill directory
+hogli sync:skill            # Build + sync a skill to .agents/skills/ for local testing
+hogli unsync:skill          # Remove a synced skill from .agents/skills/
 ```
 
 `lint:skills` validates syntax, frontmatter, binary file detection, and duplicate names.
@@ -323,6 +331,23 @@ Product teams don't need to handle distribution –
 the pipeline and CI take care of it.
 
 ## Testing
+
+To test a product skill locally with Claude Code, sync it to `.agents/skills/`:
+
+```sh
+# Build and sync a specific skill
+hogli sync:skill -- --name query-examples
+
+# The skill is now available at .agents/skills/query-examples/
+# Claude Code picks it up via the .claude/skills -> .agents/skills symlink
+
+# When done testing, remove the synced copy
+hogli unsync:skill -- --name query-examples
+```
+
+Synced skills are automatically gitignored and should not be committed.
+Both `sync:skill` and `unsync:skill` accept `--name` to identify the skill
+by its source directory name (the folder name under `products/*/skills/`).
 
 See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
 for instructions on running the MCP server locally and verifying skills end-to-end.

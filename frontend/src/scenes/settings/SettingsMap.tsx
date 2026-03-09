@@ -12,7 +12,6 @@ import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analy
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -41,7 +40,6 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import {
     ExceptionAutocaptureToggle,
-    ExceptionIngestionControls,
     ExceptionSuppressionRules,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 
@@ -320,6 +318,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
             {
+                // FIXME: changelog should probably not be here since it updates user's settings. Maybe belongs under account settings?
                 id: 'changelog',
                 title: 'Changelog',
                 description:
@@ -560,21 +559,16 @@ export const SETTINGS_MAP: SettingSection[] = [
         },
         settings: [
             {
+                // FIXME: remove from "Revenue definitions" page
                 id: 'revenue-base-currency',
                 title: 'Base currency',
                 description: 'Set the base currency for revenue analytics calculations.',
-                component: (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.RevenueAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <BaseCurrency hideTitle />
-                    </AccessControlAction>
-                ),
+                component: <BaseCurrency hideTitle />,
                 hideWhenNoSection: true,
                 keywords: ['money', 'currency', 'usd', 'eur'],
             },
             {
+                // FIXME: remove from "Revenue definitions" page
                 id: 'revenue-analytics-filter-test-accounts',
                 title: 'Filter out internal and test users from revenue analytics',
                 description: 'Exclude test accounts from revenue calculations and reports.',
@@ -582,6 +576,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['test account', 'internal', 'exclude', 'filter', 'revenue'],
             },
             {
+                // FIXME: should not be in settings
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 description: 'Set revenue targets to track performance against your business objectives.',
@@ -589,6 +584,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['target', 'mrr', 'arr', 'goal'],
             },
             {
+                // FIXME: should not be in settings
                 id: 'revenue-analytics-events',
                 title: 'Revenue events',
                 description: 'Configure which events represent revenue-generating actions.',
@@ -597,6 +593,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['purchase', 'payment', 'subscription', 'charge'],
             },
             {
+                // FIXME: should not be in settings
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 description: 'Connect external data sources like Stripe for revenue tracking.',
@@ -1010,15 +1007,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
-                id: 'error-tracking-ingestion-controls',
-                title: 'Autocapture controls',
-                description: 'Selectively enable exception autocapture based on the user or scenario.',
-                platformSupport: FEATURE_SUPPORT.errorTrackingSuppressionRules,
-                component: <ExceptionIngestionControls />,
-                flag: 'ERROR_TRACKING_INGESTION_CONTROLS',
-                keywords: ['ingestion', 'control', 'selective', 'autocapture'],
-            },
-            {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when new errors occur or error rates spike.',
@@ -1048,9 +1036,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
-                description: 'Connect error tracking with external services like Sentry or PagerDuty.',
+                description: 'Connect error tracking with external services like GitHub or Linear.',
                 component: <ErrorTrackingIntegrations />,
-                keywords: ['sentry', 'pagerduty', 'integration', 'connect'],
+                keywords: ['github', 'linear', 'gitlab', 'jira', 'integration', 'connect', 'issue'],
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -1148,6 +1136,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Get notified about activity log events via configured destinations.',
                 component: <ActivityLogNotifications />,
                 flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['notification', 'alert', 'activity', 'webhook'],
             },
         ],
@@ -1186,6 +1175,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Integrations',
                 description: 'Configure how discussion mentions are delivered via integrations.',
                 component: <DiscussionMentionNotifications />,
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['mention', 'notification', 'comment', 'discussion'],
             },
         ],

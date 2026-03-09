@@ -25,6 +25,7 @@ from posthog.models.feature_flag.flags_cache import (
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
+    get_teams_with_flags_queryset,
     update_flags_cache,
 )
 
@@ -1612,9 +1613,15 @@ class TestManagementCommands(BaseTest):
 
         from django.core.management import call_command
 
-        # Create additional teams
+        # Create additional teams with flags so they appear in the scoped queryset
         for i in range(5):
-            Team.objects.create(organization=self.organization, name=f"Team {i}")
+            team = Team.objects.create(organization=self.organization, name=f"Team {i}")
+            FeatureFlag.objects.create(
+                team=team,
+                key="test-flag",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
 
         mock_get_cache.return_value = []
         mock_batch_get_flags.return_value = {}
@@ -2189,3 +2196,47 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
 
         result = _get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
+
+
+class TestGetTeamsWithFlagsQueryset(BaseTest):
+    def test_includes_team_with_active_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="active-flag", created_by=self.user)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_includes_team_with_soft_deleted_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="del", created_by=self.user, deleted=True)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_includes_team_with_inactive_flag(self):
+        FeatureFlag.objects.create(team=self.team, key="off", created_by=self.user, active=False)
+        qs = get_teams_with_flags_queryset()
+        assert self.team.id in qs.values_list("id", flat=True)
+
+    def test_excludes_team_with_no_flags(self):
+        team_no_flags = Team.objects.create(organization=self.organization, name="No Flags")
+        qs = get_teams_with_flags_queryset()
+        assert team_no_flags.id not in qs.values_list("id", flat=True)
+
+    def test_queryset_does_not_include_parent_team_join(self):
+        """The Q() wrapper in get_teams_with_flags_queryset bypasses
+        RootTeamQuerySet.filter() to keep the EXISTS subquery simple.
+        If someone removes the Q() wrapper, the query will regress to
+        include parent_team joins that are unusable at scale."""
+        qs = get_teams_with_flags_queryset()
+        sql = str(qs.query).lower()
+        # Extract the EXISTS subquery — this is where the regression would appear.
+        # The SELECT column list legitimately contains parent_team_id as a Team field.
+        exists_start = sql.index("exists(")
+        subquery_sql = sql[exists_start:]
+        assert "parent_team" not in subquery_sql, (
+            f"EXISTS subquery should not reference parent_team, got: {subquery_sql}"
+        )
+
+    def test_team_with_multiple_flags_returned_once(self):
+        FeatureFlag.objects.create(team=self.team, key="flag-1", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="flag-2", created_by=self.user)
+        qs = get_teams_with_flags_queryset()
+        team_ids = list(qs.values_list("id", flat=True))
+        assert team_ids.count(self.team.id) == 1
