@@ -1,6 +1,7 @@
 from django.db.models import Count, QuerySet
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.request import Request
 
@@ -11,16 +12,27 @@ logger = structlog.get_logger(__name__)
 
 
 class HogFunctionMappingTemplateSerializer(serializers.Serializer):
-    name = serializers.CharField()
-    include_by_default = serializers.BooleanField(required=False, allow_null=True)
-    filters = serializers.JSONField(required=False, allow_null=True)
-    inputs = serializers.JSONField(required=False, allow_null=True)
-    inputs_schema = serializers.JSONField(required=False, allow_null=True)
+    name = serializers.CharField(help_text="Name of this mapping template.")
+    include_by_default = serializers.BooleanField(
+        required=False, allow_null=True, help_text="Whether this mapping is enabled by default."
+    )
+    filters = serializers.JSONField(
+        required=False, allow_null=True, help_text="Event filters specific to this mapping."
+    )
+    inputs = serializers.JSONField(required=False, allow_null=True, help_text="Input values specific to this mapping.")
+    inputs_schema = serializers.JSONField(
+        required=False, allow_null=True, help_text="Additional input schema fields specific to this mapping."
+    )
 
 
 class HogFunctionTemplateSerializer(serializers.ModelSerializer):
-    mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False, allow_null=True)
-    id = serializers.CharField(source="template_id")
+    mapping_templates = HogFunctionMappingTemplateSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        help_text="Pre-defined mapping configurations for destination templates.",
+    )
+    id = serializers.CharField(source="template_id", help_text="Unique template identifier (e.g. 'template-slack').")
 
     class Meta:
         model = HogFunctionTemplate
@@ -40,9 +52,26 @@ class HogFunctionTemplateSerializer(serializers.ModelSerializer):
             "masking",
             "mapping_templates",
         ]
+        extra_kwargs = {
+            "name": {"help_text": "Display name of the template."},
+            "description": {"help_text": "What this template does."},
+            "code": {"help_text": "Source code of the template."},
+            "code_language": {"help_text": "Programming language: 'hog' or 'javascript'."},
+            "inputs_schema": {
+                "help_text": "Schema defining configurable inputs for functions created from this template."
+            },
+            "type": {"help_text": "Function type this template creates."},
+            "status": {"help_text": "Lifecycle status: alpha, beta, stable, deprecated, or hidden."},
+            "category": {"help_text": "Category tags for organizing templates."},
+            "free": {"help_text": "Whether available on free plans."},
+            "icon_url": {"help_text": "URL for the template's icon."},
+            "filters": {"help_text": "Default event filters."},
+            "masking": {"help_text": "Default PII masking configuration."},
+        }
 
 
 # NOTE: There is nothing currently private about these values
+@extend_schema(tags=["hog_function_templates"])
 class PublicHogFunctionTemplateViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -52,6 +81,8 @@ class PublicHogFunctionTemplateViewSet(
     serializer_class = HogFunctionTemplateSerializer
     queryset = HogFunctionTemplate.objects.all()
     lookup_field = "template_id"
+    # Required for the OpenAPI preprocessor to include this viewset in the schema.
+    scope_object = "hog_function"
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
