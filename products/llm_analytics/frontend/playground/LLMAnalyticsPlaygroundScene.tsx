@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
 import {
@@ -30,6 +30,7 @@ import {
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -97,25 +98,39 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
-    logic: llmPlaygroundRunLogic,
+    logic: llmPlaygroundPromptsLogic,
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
-export function LLMAnalyticsPlaygroundScene(): JSX.Element {
-    useMountedLogic(llmPlaygroundRunLogic)
+export function LLMAnalyticsPlaygroundScene({ tabId }: { tabId?: string }): JSX.Element {
+    const promptsLogic = llmPlaygroundPromptsLogic({ tabId })
+    const modelLogic = llmPlaygroundModelLogic({ tabId })
+    const runLogic = llmPlaygroundRunLogic({ tabId })
+
+    // Attach child logics to the prompts logic so they persist across tab switches
+    useAttachedLogic(modelLogic, promptsLogic)
+    useAttachedLogic(runLogic, promptsLogic)
 
     return (
-        <SceneContent className="h-full">
-            <SceneTitleSection
-                name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
-                description="Test and experiment with LLM prompts in a sandbox environment."
-                resourceType={{ type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics' }}
-                actions={<PlaygroundHeaderActions />}
-            />
-            <div className="flex h-full flex-1 flex-col min-h-0">
-                <PlaygroundLayout />
-            </div>
-        </SceneContent>
+        <BindLogic logic={llmPlaygroundPromptsLogic} props={{ tabId }}>
+            <BindLogic logic={llmPlaygroundModelLogic} props={{ tabId }}>
+                <BindLogic logic={llmPlaygroundRunLogic} props={{ tabId }}>
+                    <SceneContent className="h-full">
+                        <SceneTitleSection
+                            name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
+                            description="Test and experiment with LLM prompts in a sandbox environment."
+                            resourceType={{
+                                type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics',
+                            }}
+                            actions={<PlaygroundHeaderActions />}
+                        />
+                        <div className="flex h-full flex-1 flex-col min-h-0">
+                            <PlaygroundLayout />
+                        </div>
+                    </SceneContent>
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
     )
 }
 
