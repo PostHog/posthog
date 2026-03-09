@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -74,6 +75,7 @@ export function DashboardsTable({
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { openMoveToModal } = useActions(moveToLogic)
     const { itemsByRef } = useValues(projectTreeDataLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
@@ -209,9 +211,26 @@ export function DashboardsTable({
                                           Duplicate
                                       </LemonButton>
 
+                                      {itemsByRef[`dashboard::${id}`] && (
+                                          <LemonButton
+                                              onClick={() => {
+                                                  const entry = itemsByRef[`dashboard::${id}`]
+                                                  openMoveToModal([entry as any])
+                                              }}
+                                              fullWidth
+                                              data-attr="dashboard-move-to-folder"
+                                          >
+                                              Move to another folder
+                                          </LemonButton>
+                                      )}
+
                                       <LemonDivider />
 
-                                      <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
+                                      <LemonRow
+                                          icon={<IconHome className="size-4 text-warning" />}
+                                          fullWidth
+                                          status="warning"
+                                      >
                                           <span className="text-secondary">
                                               Change the default dashboard
                                               <br />
