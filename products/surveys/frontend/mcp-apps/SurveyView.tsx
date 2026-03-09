@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { Badge, Card, DescriptionList, formatDate, Stack } from '@posthog/mosaic'
 
 import { SurveyQuestion, type SurveyQuestionData } from './SurveyQuestion'
+import { STATUS_VARIANTS, TYPE_LABELS } from './utils'
 
 export interface SurveyData {
     id: string
@@ -24,22 +25,6 @@ export interface SurveyViewProps {
     survey: SurveyData
 }
 
-const statusVariants: Record<string, 'success' | 'warning' | 'neutral' | 'info'> = {
-    active: 'success',
-    draft: 'neutral',
-    completed: 'info',
-    archived: 'neutral',
-}
-
-const typeLabels: Record<string, string> = {
-    popover: 'Popover',
-    api: 'API',
-    widget: 'Widget',
-    button: 'Button',
-    full_screen: 'Full screen',
-    email: 'Email',
-}
-
 export function SurveyView({ survey }: SurveyViewProps): ReactElement {
     const status = survey.status ?? 'draft'
 
@@ -49,12 +34,12 @@ export function SurveyView({ survey }: SurveyViewProps): ReactElement {
                 <Stack gap="xs">
                     <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-lg font-semibold text-text-primary">{survey.name}</span>
-                        <Badge variant={statusVariants[status] ?? 'neutral'} size="md">
+                        <Badge variant={STATUS_VARIANTS[status] ?? 'neutral'} size="md">
                             {status.charAt(0).toUpperCase() + status.slice(1)}
                         </Badge>
                         {survey.type && (
                             <Badge variant="neutral" size="sm">
-                                {typeLabels[survey.type] ?? survey.type}
+                                {TYPE_LABELS[survey.type] ?? survey.type}
                             </Badge>
                         )}
                     </div>

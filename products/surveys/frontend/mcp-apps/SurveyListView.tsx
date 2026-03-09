@@ -3,6 +3,7 @@ import { type ReactElement, type ReactNode, useCallback, useState } from 'react'
 import { BackButton, Badge, DataTable, type DataTableColumn, formatDate, LoadingState, Stack } from '@posthog/mosaic'
 
 import { SurveyView, type SurveyData } from './SurveyView'
+import { STATUS_VARIANTS } from './utils'
 
 export interface SurveyListData {
     results: SurveyData[]
@@ -16,13 +17,6 @@ export interface SurveyListViewProps {
 
 type ViewState = { view: 'list' } | { view: 'loading'; name: string } | { view: 'detail'; survey: SurveyData }
 
-const statusVariants: Record<string, 'success' | 'warning' | 'neutral' | 'info'> = {
-    active: 'success',
-    draft: 'neutral',
-    completed: 'info',
-    archived: 'neutral',
-}
-
 export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): ReactElement {
     const [viewState, setViewState] = useState<ViewState>({ view: 'list' })
 
@@ -31,8 +25,13 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
             if (!onSurveyClick) {
                 return
             }
+
             setViewState({ view: 'loading', name: survey.name })
-            const detail = await onSurveyClick(survey)
+            const detail = await onSurveyClick(survey).catch((error) => {
+                console.error('Error loading survey detail:', error)
+                return null
+            })
+
             if (detail) {
                 setViewState({ view: 'detail', survey: detail })
             } else {
@@ -101,7 +100,7 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
             render: (row): ReactNode => {
                 const status = row.status ?? 'draft'
                 return (
-                    <Badge variant={statusVariants[status] ?? 'neutral'} size="sm">
+                    <Badge variant={STATUS_VARIANTS[status] ?? 'neutral'} size="sm">
                         {status.charAt(0).toUpperCase() + status.slice(1)}
                     </Badge>
                 )

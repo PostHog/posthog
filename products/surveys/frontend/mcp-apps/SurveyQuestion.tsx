@@ -2,6 +2,8 @@ import type { ReactElement } from 'react'
 
 import { Badge, Stack } from '@posthog/mosaic'
 
+import { TYPE_LABELS } from './utils'
+
 export interface SurveyQuestionData {
     type: string
     question: string
@@ -18,22 +20,18 @@ export interface SurveyQuestionProps {
     index: number
 }
 
-const typeLabels: Record<string, string> = {
-    open: 'Open text',
-    multiple_choice: 'Multiple choice',
-    single_choice: 'Single choice',
-    rating: 'Rating',
-    link: 'Link',
-    nps: 'NPS',
-}
-
 export function SurveyQuestion({ question, index }: SurveyQuestionProps): ReactElement {
+    const bounds =
+        question.lowerBoundLabel || question.upperBoundLabel
+            ? `(${question.lowerBoundLabel ?? ''}${question.lowerBoundLabel && question.upperBoundLabel ? ' to ' : ''}${question.upperBoundLabel ?? ''})`
+            : ''
+
     return (
         <Stack gap="xs">
             <div className="flex items-center gap-2">
                 <span className="text-xs text-text-secondary">Q{index + 1}</span>
                 <Badge variant="neutral" size="sm">
-                    {typeLabels[question.type] ?? question.type}
+                    {TYPE_LABELS[question.type] ?? question.type}
                 </Badge>
             </div>
             <span className="text-sm text-text-primary">{question.question}</span>
@@ -47,9 +45,7 @@ export function SurveyQuestion({ question, index }: SurveyQuestionProps): ReactE
             )}
             {question.type === 'rating' && question.scale && (
                 <span className="text-xs text-text-secondary">
-                    Scale: 1&ndash;{question.scale}
-                    {question.lowerBoundLabel && ` (${question.lowerBoundLabel}`}
-                    {question.upperBoundLabel && ` to ${question.upperBoundLabel})`}
+                    Scale: 1&ndash;{question.scale}&nbsp;{bounds}
                 </span>
             )}
         </Stack>
