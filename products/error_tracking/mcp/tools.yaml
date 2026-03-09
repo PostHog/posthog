@@ -29,24 +29,6 @@ tools:
     error-tracking-assignment-rules-reorder-partial-update:
         operation: error_tracking_assignment_rules_reorder_partial_update
         enabled: false
-    error-tracking-autocapture-controls-list:
-        operation: error_tracking_autocapture_controls_list
-        enabled: false
-    error-tracking-autocapture-controls-create:
-        operation: error_tracking_autocapture_controls_create
-        enabled: false
-    error-tracking-autocapture-controls-retrieve:
-        operation: error_tracking_autocapture_controls_retrieve
-        enabled: false
-    error-tracking-autocapture-controls-update:
-        operation: error_tracking_autocapture_controls_update
-        enabled: false
-    error-tracking-autocapture-controls-partial-update:
-        operation: error_tracking_autocapture_controls_partial_update
-        enabled: false
-    error-tracking-autocapture-controls-destroy:
-        operation: error_tracking_autocapture_controls_destroy
-        enabled: false
     error-tracking-external-references-list:
         operation: error_tracking_external_references_list
         enabled: false
