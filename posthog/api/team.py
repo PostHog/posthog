@@ -211,7 +211,7 @@ TEAM_CONFIG_FIELDS = (
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
-class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
     goals = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
@@ -237,7 +237,7 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
         return internal_value
 
 
-class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     sources_map = serializers.JSONField(required=False)
     conversion_goals = serializers.JSONField(required=False)
     attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
@@ -297,7 +297,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
         return instance
 
 
-class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False)
     signup_pageview_event = serializers.JSONField(required=False)
     signup_event = serializers.JSONField(required=False)
@@ -916,7 +916,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         serializer = TeamRevenueAnalyticsConfigSerializer(
-            instance.revenue_analytics_config, data=validated_data, partial=True
+            instance.revenue_analytics_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
         )
         if not serializer.is_valid():
             raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
@@ -988,7 +991,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(
-            instance.customer_analytics_config, data=validated_data, partial=True
+            instance.customer_analytics_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
         )
         if not serializer.is_valid():
             raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
@@ -1269,7 +1275,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                 if created:
                     report_user_action(
-                        cast(User, request.user),
+                        request.user,
                         "default evaluation tag added",
                         {"team_id": team.id, "tag_name": tag_name},
                         team=team,
@@ -1293,7 +1299,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                     if deleted_count > 0:
                         report_user_action(
-                            cast(User, request.user),
+                            request.user,
                             "default evaluation tag removed",
                             {"team_id": team.id, "tag_name": tag_name},
                             team=team,
@@ -1347,7 +1353,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         config.save()
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "default release conditions updated",
             {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
         )

@@ -32,6 +32,7 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
@@ -339,6 +340,8 @@ class CHQueries:
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
+            source=get_event_source(request),
+            **get_mcp_properties(request),
         )
 
         try:
@@ -679,7 +682,7 @@ class ToolbarOAuthCoopMiddleware:
 
     Django's SecurityMiddleware sets COOP to "same-origin" by default. This severs
     window.opener when a cross-origin popup navigates to our pages — breaking
-    the postMessage flow or Vercel's popup monitoring.
+    Vercel's popup monitoring.
 
     We set COOP to "unsafe-none" on the specific paths involved in popup flows
     so the opener reference is preserved.
@@ -690,9 +693,7 @@ class ToolbarOAuthCoopMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        is_toolbar_flow = request.path.startswith("/toolbar_oauth/") or (
-            request.path.startswith("/oauth/authorize") and request.session.get("toolbar_oauth_redirect_flow")
-        )
+        is_toolbar_flow = request.path.startswith("/toolbar_oauth/")
         is_vercel_connect = request.path.startswith("/connect/vercel/")
         if is_toolbar_flow or is_vercel_connect:
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"

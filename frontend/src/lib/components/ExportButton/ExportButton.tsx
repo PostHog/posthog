@@ -49,9 +49,13 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                             <h5>File type</h5>
                             <LemonDivider />
                             {items.map(({ title, ...triggerExportProps }, i) => {
-                                const exportFormatExtension = Object.keys(ExporterFormat)
-                                    .find((key) => ExporterFormat[key as any] === triggerExportProps.export_format)
-                                    ?.toLowerCase()
+                                const exportFormatExtension = (
+                                    Object.keys(ExporterFormat).find(
+                                        (key) =>
+                                            ExporterFormat[key as keyof typeof ExporterFormat] ===
+                                            triggerExportProps.export_format
+                                    ) ?? triggerExportProps.export_format
+                                ).toLowerCase()
 
                                 let target: string
                                 let exportBody: string = ''

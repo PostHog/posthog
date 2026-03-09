@@ -387,9 +387,6 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
-    /** Rate (0.0–1.0) at which to verify encrypt→decrypt round-trip integrity during ingestion */
-    SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
-
     // Kafka consumer config (overrides hardcoded defaults when set)
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
     INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
@@ -529,6 +526,7 @@ export interface PluginsServerConfig
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
     CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
+    CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
 
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number

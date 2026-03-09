@@ -1,19 +1,15 @@
-import FuseClass from 'fuse.js'
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { createFeaturePreviewSearch } from 'lib/utils/fuseSearch'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, EarlyAccessFeatureType } from '~/types'
 
 import type { earlyAccessFeaturesLogicType } from './earlyAccessFeaturesLogicType'
 
-export const earlyAccessFeaturesFuse = new FuseClass<EarlyAccessFeatureType>([], {
-    keys: ['name', 'description', 'stage'],
-    threshold: 0.3,
-})
+const search = createFeaturePreviewSearch<EarlyAccessFeatureType>()
 
 export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
     path(['products', 'earlyAccessFeatures', 'frontend', 'earlyAccessFeaturesLogic']),
@@ -57,20 +53,9 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
         filteredEarlyAccessFeatures: [
             (s) => [s.earlyAccessFeatures, s.searchTerm],
             (earlyAccessFeatures: EarlyAccessFeatureType[], searchTerm: string): EarlyAccessFeatureType[] => {
-                if (!searchTerm.trim()) {
-                    return earlyAccessFeatures
-                }
-
-                const results = earlyAccessFeaturesFuse.search(searchTerm)
-                return results.map((result) => result.item)
+                return search(earlyAccessFeatures, searchTerm)
             },
         ],
-    }),
-
-    subscriptions({
-        earlyAccessFeatures: (earlyAccessFeatures: EarlyAccessFeatureType[]) => {
-            earlyAccessFeaturesFuse.setCollection(earlyAccessFeatures || [])
-        },
     }),
 
     afterMount(({ actions }) => {

@@ -70,6 +70,8 @@ const errorHandler = async (response: Response): Promise<Response> => {
         const body = await response.clone().text()
         if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
             return new Response('OAuth token is inactive', { status: 401 })
+        } else if (body.includes(ErrorCode.INVALID_API_KEY)) {
+            return new Response('Invalid API key', { status: 401 })
         }
     }
 
@@ -227,7 +229,10 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    Object.assign(ctx.props, { features, region: regionParam, version })
+    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
+
+    Object.assign(ctx.props, { features, region: regionParam, version, readOnly })
     log.extend({ features, version })
 
     if (url.pathname.startsWith('/mcp')) {

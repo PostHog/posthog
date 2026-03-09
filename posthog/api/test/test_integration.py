@@ -601,7 +601,10 @@ class TestIntegrationAPIKeyAccess:
 
     @patch("posthog.models.integration.GitHubIntegration.list_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
-        mock_list_repos.return_value = ["repo1", "repo2"]
+        mock_list_repos.return_value = [
+            {"id": 1, "name": "repo1", "full_name": "org/repo1"},
+            {"id": 2, "name": "repo2", "full_name": "org/repo2"},
+        ]
 
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
@@ -617,7 +620,10 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["repositories"] == ["repo1", "repo2"]
+        repos = response.json()["repositories"]
+        assert len(repos) == 2
+        assert repos[0]["name"] == "repo1"
+        assert repos[1]["name"] == "repo2"
 
     def test_github_repos_without_scope_fails(self, client: HttpClient):
         key_value = "test_key_123"
