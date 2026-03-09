@@ -258,7 +258,9 @@ def get_groups(
     return groups, serialize_groups(groups, value_per_actor_id)
 
 
-def _fetch_people_via_personhog(team_id: int, people_ids: list[Any], distinct_id_limit: int = 1000) -> list[Person]:
+def _fetch_people_via_personhog(
+    team_id: int, people_ids: list[Any], distinct_id_limit: int | None = 1000
+) -> list[Person]:
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.converters import proto_person_to_model
     from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
@@ -292,7 +294,7 @@ def get_people(
     team: Team,
     people_ids: list[Any],
     value_per_actor_id: Optional[dict[str, float]] = None,
-    distinct_id_limit=1000,
+    distinct_id_limit: int | None = 1000,
 ) -> tuple[Union[QuerySet[Person], list[Person]], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
     from posthog.personhog_client.gate import use_personhog
@@ -332,7 +334,10 @@ def get_people(
 
 # A faster get_people if you don't need the Person objects
 def get_serialized_people(
-    team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None, distinct_id_limit=1000
+    team: Team,
+    people_ids: list[Any],
+    value_per_actor_id: Optional[dict[str, float]] = None,
+    distinct_id_limit: int | None = 1000,
 ) -> list[SerializedPerson]:
     persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(
         people_ids, sort_by_created_at_descending=True
