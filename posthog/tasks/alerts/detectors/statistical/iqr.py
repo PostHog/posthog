@@ -1,9 +1,19 @@
 import numpy as np
+from scipy.special import erf
 
 from posthog.schema import DetectorType
 
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.registry import register_detector
+
+
+def _iqr_distance_to_probability(distance: float) -> float:
+    """Convert an IQR-normalized fence distance to a [0, 1] anomaly probability.
+
+    Uses the same erf-based approach as pyod's predict_proba so that
+    probability scores are comparable across all detector types.
+    """
+    return float(erf(distance / np.sqrt(2)))
 
 
 @register_detector(DetectorType.IQR)
@@ -15,17 +25,17 @@ class IQRDetector(BaseDetector):
     - Values below Q1 - multiplier*IQR are anomalies
     - Values above Q3 + multiplier*IQR are anomalies
 
-    Common multipliers:
-    - 1.5 for "mild" outliers (standard box plot whiskers)
-    - 3.0 for "extreme" outliers
+    Scores are normalized to [0, 1] probabilities using the error
+    function (same approach as pyod's predict_proba).
 
     Config:
-        multiplier: float - IQR multiplier (default: 1.5)
+        threshold: float - Anomaly probability threshold (default: 0.9)
+        multiplier: float - IQR multiplier for fences (default: 1.5)
         window: int - Rolling window size (default: 30)
     """
 
     def detect(self, data: np.ndarray) -> DetectionResult:
-        """Check if the latest point is an IQR anomaly."""
+        threshold = self.config.get("threshold", 0.9)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)
 
@@ -35,7 +45,6 @@ class IQRDetector(BaseDetector):
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
 
-        # Use rolling window (exclude current point)
         window_data = values[-(window + 1) : -1]
         q1 = np.percentile(window_data, 25)
         q3 = np.percentile(window_data, 75)
@@ -45,23 +54,25 @@ class IQRDetector(BaseDetector):
         upper_fence = q3 + multiplier * iqr
 
         current_value = values[-1]
-        is_anomaly = current_value < lower_fence or current_value > upper_fence
 
-        # Score is distance from nearest fence, normalized by IQR
+        # Raw distance from nearest fence, normalized by IQR
         if iqr == 0:
-            score = 0.0
+            raw_distance = 0.0
         elif current_value < lower_fence:
-            score = (lower_fence - current_value) / iqr
+            raw_distance = (lower_fence - current_value) / iqr
         elif current_value > upper_fence:
-            score = (current_value - upper_fence) / iqr
+            raw_distance = (current_value - upper_fence) / iqr
         else:
-            score = 0.0
+            raw_distance = 0.0
+
+        prob = _iqr_distance_to_probability(raw_distance)
+        is_anomaly = prob > threshold
 
         return DetectionResult(
             is_anomaly=is_anomaly,
-            score=float(score),
+            score=prob,
             triggered_indices=[len(values) - 1] if is_anomaly else [],
-            all_scores=[float(score)],
+            all_scores=[prob],
             metadata={
                 "q1": float(q1),
                 "q3": float(q3),
@@ -69,11 +80,12 @@ class IQRDetector(BaseDetector):
                 "lower_fence": float(lower_fence),
                 "upper_fence": float(upper_fence),
                 "value": float(current_value),
+                "raw_distance": raw_distance,
             },
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        """Check all points for IQR anomalies."""
+        threshold = self.config.get("threshold", 0.9)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)
 
@@ -84,7 +96,7 @@ class IQRDetector(BaseDetector):
         values = data if data.ndim == 1 else data[:, 0]
 
         triggered = []
-        scores: list[float | None] = [None] * window  # Pad initial window
+        scores: list[float | None] = [None] * window
 
         for i in range(window, len(values)):
             window_data = values[i - window : i]
@@ -96,19 +108,19 @@ class IQRDetector(BaseDetector):
             upper_fence = q3 + multiplier * iqr
 
             val = values[i]
-            is_outlier = val < lower_fence or val > upper_fence
 
             if iqr == 0:
-                score = 0.0
+                raw_distance = 0.0
             elif val < lower_fence:
-                score = (lower_fence - val) / iqr
+                raw_distance = (lower_fence - val) / iqr
             elif val > upper_fence:
-                score = (val - upper_fence) / iqr
+                raw_distance = (val - upper_fence) / iqr
             else:
-                score = 0.0
+                raw_distance = 0.0
 
-            scores.append(float(score))
-            if is_outlier:
+            prob = _iqr_distance_to_probability(raw_distance)
+            scores.append(prob)
+            if prob > threshold:
                 triggered.append(i)
 
         return DetectionResult(
@@ -122,6 +134,7 @@ class IQRDetector(BaseDetector):
     def get_default_config(cls) -> dict:
         return {
             "type": DetectorType.IQR.value,
+            "threshold": 0.9,
             "multiplier": 1.5,
             "window": 30,
         }
