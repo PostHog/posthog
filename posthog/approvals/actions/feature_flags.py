@@ -9,6 +9,20 @@ from posthog.approvals.exceptions import ApplyFailed, PreconditionFailed
 from posthog.models import FeatureFlag
 
 
+def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
+    """Check staleness by comparing stored version precondition against current instance version."""
+    instance = context.get("instance") if context else None
+    if not instance:
+        return True
+
+    preconditions = intent_data.get("preconditions", {})
+    stored_version = preconditions.get("version")
+    if stored_version is not None and instance.version != stored_version:
+        return True
+
+    return False
+
+
 class FeatureFlagActionBase(BaseAction):
     """Base class for feature flag state change actions."""
 
@@ -18,6 +32,14 @@ class FeatureFlagActionBase(BaseAction):
 
     # Subclasses define the target state
     target_active_state: bool
+
+    @classmethod
+    def check_staleness(
+        cls,
+        intent_data: dict[str, Any],
+        context: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        return _check_version_staleness(intent_data, context)
 
     @classmethod
     def validate_intent(
@@ -208,6 +230,14 @@ class UpdateFeatureFlagAction(BaseAction):
     ]
 
     intent_fields = ["rollout_percentage"]
+
+    @classmethod
+    def check_staleness(
+        cls,
+        intent_data: dict[str, Any],
+        context: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        return _check_version_staleness(intent_data, context)
 
     @classmethod
     def _extract_rollout_percentages(cls, filters: dict[str, Any]) -> list[dict[str, Any]]:

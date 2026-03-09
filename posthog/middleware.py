@@ -32,6 +32,7 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
@@ -254,7 +255,7 @@ class AutoProjectMiddleware:
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
+                    return FeatureFlag.objects.filter(id=feature_flag_id)
             elif path_parts[0] == "action":
                 action_id = path_parts[1]
                 if action_id.isnumeric():
@@ -339,6 +340,8 @@ class CHQueries:
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
+            source=get_event_source(request),
+            **get_mcp_properties(request),
         )
 
         try:
@@ -675,14 +678,14 @@ class Fix204Middleware:
 
 class ToolbarOAuthCoopMiddleware:
     """
-    Override Cross-Origin-Opener-Policy for toolbar OAuth popup pages.
+    Override Cross-Origin-Opener-Policy for popup pages that need cross-origin communication.
 
     Django's SecurityMiddleware sets COOP to "same-origin" by default. This severs
-    window.opener when a cross-origin popup navigates to our OAuth pages — breaking
-    the postMessage flow that sends tokens back to the toolbar.
+    window.opener when a cross-origin popup navigates to our pages — breaking
+    Vercel's popup monitoring.
 
-    We set COOP to "unsafe-none" on the specific paths involved in the toolbar
-    OAuth popup flow so the opener reference is preserved.
+    We set COOP to "unsafe-none" on the specific paths involved in popup flows
+    so the opener reference is preserved.
     """
 
     def __init__(self, get_response):
@@ -690,10 +693,9 @@ class ToolbarOAuthCoopMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        is_toolbar_flow = request.path.startswith("/toolbar_oauth/") or (
-            request.path.startswith("/oauth/authorize") and request.session.get("toolbar_oauth_code_verifier")
-        )
-        if is_toolbar_flow:
+        is_toolbar_flow = request.path.startswith("/toolbar_oauth/")
+        is_vercel_connect = request.path.startswith("/connect/vercel/")
+        if is_toolbar_flow or is_vercel_connect:
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 

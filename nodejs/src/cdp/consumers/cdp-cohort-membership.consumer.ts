@@ -5,6 +5,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
@@ -25,6 +26,7 @@ export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema
 export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     protected name = 'CdpCohortMembershipConsumer'
     private kafkaConsumer: KafkaConsumer
+    private warpstreamProducer?: KafkaProducerWrapper
 
     constructor(config: CdpConsumerBaseConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
@@ -35,7 +37,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     }
 
     private async publishCohortMembershipTriggers(changes: CohortMembershipChange[]): Promise<void> {
-        if (!this.kafkaProducer || changes.length === 0) {
+        if (!this.warpstreamProducer || changes.length === 0) {
             return
         }
 
@@ -44,7 +46,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             key: change.person_id,
         }))
 
-        await this.kafkaProducer.queueMessages({
+        await this.warpstreamProducer.queueMessages({
             topic: KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
             messages,
         })
@@ -56,12 +58,18 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         }
 
         try {
+            // Deduplicate by (team_id, cohort_id, person_id), keeping last in Kafka order
+            const deduped = new Map<string, CohortMembershipChange>()
+            for (const change of changes) {
+                deduped.set(`${change.team_id}:${change.cohort_id}:${change.person_id}`, change)
+            }
+
             // Build the VALUES clause for batch upsert
             const values: any[] = []
             const placeholders: string[] = []
             let paramIndex = 1
 
-            for (const change of changes) {
+            for (const change of deduped.values()) {
                 const inCohort = change.status === 'entered'
                 placeholders.push(
                     `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, CURRENT_TIMESTAMP)`
@@ -136,6 +144,8 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     public async start(): Promise<void> {
         await super.start()
 
+        this.warpstreamProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
+
         logger.info('🚀', `${this.name} starting...`)
 
         await this.kafkaConsumer.connect(async (messages) => {
@@ -162,6 +172,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.kafkaConsumer.disconnect()
+        await this.warpstreamProducer?.disconnect()
 
         // IMPORTANT: super always comes last
         await super.stop()

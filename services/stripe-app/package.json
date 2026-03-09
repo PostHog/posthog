@@ -1,0 +1,20 @@
+{
+    "name": "@posthog/stripe",
+    "version": "0.0.1",
+    "description": "PostHog Stripe app",
+    "license": "MIT",
+    "scripts": {
+        "dev": "stripe apps start --manifest stripe-app.dev.json",
+        "upload": "npm install --package-lock-only && stripe apps upload",
+        "test": "jest --passWithNoTests"
+    },
+    "dependencies": {
+        "@stripe/ui-extension-sdk": "9.2.0-alpha.0",
+        "stripe": "^20.3.1"
+    },
+    "devDependencies": {
+        "@stripe/ui-extension-tools": "^0.0.1",
+        "@types/jest": "^27.5.2",
+        "jest": "^27.5.1"
+    }
+}

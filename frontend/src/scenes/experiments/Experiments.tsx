@@ -320,8 +320,9 @@ const ExperimentsTable = ({
 
                 const score = {
                     draft: 1,
-                    running: 2,
-                    complete: 3,
+                    paused: 2,
+                    running: 3,
+                    complete: 4,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
             },
@@ -351,8 +352,7 @@ const ExperimentsTable = ({
                                     }}
                                 />
                                 {!experiment.archived &&
-                                    experiment?.end_date &&
-                                    dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
+                                    getExperimentStatus(experiment) === ExperimentProgressStatus.Complete && (
                                         <AccessControlAction
                                             resourceType={AccessControlResourceType.Experiment}
                                             minAccessLevel={AccessControlLevel.Editor}

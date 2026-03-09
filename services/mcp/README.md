@@ -356,6 +356,21 @@ npx
 -y mcp-remote@latest http://localhost:8787/mcp --header "Authorization: Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"
 ```
 
+### Developing against Claude Desktop
+
+Claude Desktop is one of the easiest ways to test MCP Apps - while Twig doesn't support it. You can configure access Settings > Developer and then edit `claude_desktop_config.json` with the following:
+
+```json
+{
+  "mcpServers": {
+    "posthog-local": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote@latest", "http://localhost:8787/mcp"]
+    }
+  }
+}
+```
+
 ## Privacy & Support
 
 - **Privacy Policy:** https://posthog.com/privacy

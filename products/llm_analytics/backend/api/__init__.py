@@ -1,5 +1,6 @@
 from .clustering import LLMAnalyticsClusteringRunViewSet
 from .clustering_config import ClusteringConfigViewSet
+from .clustering_job import ClusteringJobViewSet
 from .datasets import DatasetItemViewSet, DatasetViewSet
 from .evaluation_config import EvaluationConfigViewSet
 from .evaluation_runs import EvaluationRunViewSet
@@ -15,6 +16,7 @@ from .translate import LLMAnalyticsTranslateViewSet
 
 __all__ = [
     "ClusteringConfigViewSet",
+    "ClusteringJobViewSet",
     "LLMAnalyticsClusteringRunViewSet",
     "LLMModelsViewSet",
     "LLMProxyViewSet",

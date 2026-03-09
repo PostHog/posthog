@@ -97,7 +97,7 @@ jobs:
               run: pnpm run lint:css
 
             - name: Lint with Oxlint
-              run: pnpm run lint:js -f github
+              run: pnpm exec oxlint --quiet
 
             - name: Check markdown formatting with oxfmt
               run: pnpm exec oxfmt --check "**/*.{md,mdx}"

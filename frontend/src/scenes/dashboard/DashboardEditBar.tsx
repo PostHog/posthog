@@ -2,7 +2,6 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton, Popover } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -11,7 +10,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -24,17 +22,8 @@ import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardMode, InsightLogicProps } from '~/types'
 
 export function DashboardEditBar(): JSX.Element {
-    const {
-        dashboard,
-        dashboardMode,
-        hasVariables,
-        effectiveEditBarFilters,
-        showEditBarApplyPopover,
-        loadingPreview,
-        cancellingPreview,
-        hasUrlFilters,
-    } = useValues(dashboardLogic)
-    const { setDates, setProperties, setBreakdownFilter, setDashboardMode, applyFilters } = useActions(dashboardLogic)
+    const { dashboard, dashboardMode, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { setDates, setProperties, setBreakdownFilter, setDashboardMode } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -55,129 +44,98 @@ export function DashboardEditBar(): JSX.Element {
     }
 
     return (
-        // Only show preview button for large dashboards where we don't automatically preview filter changes */
-        <Popover
-            visible={showEditBarApplyPopover}
-            overlay={
-                <div className="flex items-center gap-2 m-1">
-                    <LemonButton
-                        onClick={() =>
-                            setDashboardMode(
-                                hasUrlFilters ? dashboardMode : null,
-                                DashboardEventSource.DashboardHeaderDiscardChanges
-                            )
-                        }
-                        loading={cancellingPreview}
-                        type="secondary"
-                        size="small"
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton onClick={applyFilters} loading={loadingPreview} type="primary" size="small">
-                        Apply filters and preview
-                    </LemonButton>
-                </div>
-            }
-            placement="bottom"
-            showArrow
+        <div
+            className={clsx(
+                'flex gap-2 items-end flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
+                dashboardMode === DashboardMode.Edit
+                    ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
+                    : 'border-transparent'
+            )}
         >
-            <div
-                className={clsx(
-                    'flex gap-2 items-end flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
-                    dashboardMode === DashboardMode.Edit
-                        ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
-                        : 'border-transparent'
-                )}
-            >
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                    <AppShortcut
-                        name="DashboardDateFilter"
-                        keybind={[keyBinds.dateFilter]}
-                        intent="Date filter"
-                        interaction="click"
-                        scope={Scene.Dashboard}
-                    >
-                        <DateFilter
-                            showCustom
-                            showExplicitDateToggle={canAccessExplicitDateToggle}
-                            allowTimePrecision
-                            allowFixedRangeWithTime
-                            dateFrom={effectiveEditBarFilters.date_from}
-                            dateTo={effectiveEditBarFilters.date_to}
-                            explicitDate={effectiveEditBarFilters.explicitDate}
-                            onChange={(from_date, to_date, explicitDate) => {
-                                if (dashboardMode !== DashboardMode.Edit) {
-                                    setDashboardMode(DashboardMode.Edit, null)
-                                }
-                                setDates(from_date, to_date, explicitDate)
-                            }}
-                            makeLabel={(key) => (
-                                <>
-                                    <IconCalendar />
-                                    <span className="hide-when-small"> {key}</span>
-                                </>
-                            )}
-                        />
-                    </AppShortcut>
-                </div>
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                    <PropertyFilters
-                        onChange={(properties) => {
+            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <AppShortcut
+                    name="DashboardDateFilter"
+                    keybind={[keyBinds.dateFilter]}
+                    intent="Date filter"
+                    interaction="click"
+                    scope={Scene.Dashboard}
+                >
+                    <DateFilter
+                        showCustom
+                        showExplicitDateToggle={canAccessExplicitDateToggle}
+                        allowTimePrecision
+                        allowFixedRangeWithTime
+                        dateFrom={effectiveEditBarFilters.date_from}
+                        dateTo={effectiveEditBarFilters.date_to}
+                        explicitDate={effectiveEditBarFilters.explicitDate}
+                        onChange={(from_date, to_date, explicitDate) => {
                             if (dashboardMode !== DashboardMode.Edit) {
                                 setDashboardMode(DashboardMode.Edit, null)
                             }
-                            setProperties(properties)
+                            setDates(from_date, to_date, explicitDate)
                         }}
-                        pageKey={'dashboard_' + dashboard?.id}
-                        propertyFilters={effectiveEditBarFilters.properties}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            TaxonomicFilterGroupType.EventMetadata,
-                            ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
-                            ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
-                            TaxonomicFilterGroupType.EmailAddresses,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
-                            TaxonomicFilterGroupType.SessionProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                        ]}
+                        makeLabel={(key) => (
+                            <>
+                                <IconCalendar />
+                                <span className="hide-when-small"> {key}</span>
+                            </>
+                        )}
                     />
-                </div>
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                    <BindLogic logic={insightLogic} props={insightProps}>
-                        <TaxonomicBreakdownFilter
-                            insightProps={insightProps}
-                            breakdownFilter={effectiveEditBarFilters.breakdown_filter}
-                            isTrends={false}
-                            showLabel={false}
-                            updateBreakdownFilter={(breakdown_filter) => {
-                                if (dashboardMode !== DashboardMode.Edit) {
-                                    setDashboardMode(DashboardMode.Edit, null)
-                                }
-                                let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
-                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
-                                if (
-                                    breakdown_filter &&
-                                    !breakdown_filter.breakdown_type &&
-                                    !breakdown_filter.breakdowns
-                                ) {
-                                    saved_breakdown_filter = null
-                                }
-                                setBreakdownFilter(saved_breakdown_filter)
-                            }}
-                            updateDisplay={() => {}}
-                            disablePropertyInfo
-                            size="small"
-                        />
-                    </BindLogic>
-                </div>
-
-                <VariablesForDashboard />
+                </AppShortcut>
             </div>
-        </Popover>
+            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <PropertyFilters
+                    onChange={(properties) => {
+                        if (dashboardMode !== DashboardMode.Edit) {
+                            setDashboardMode(DashboardMode.Edit, null)
+                        }
+                        setProperties(properties)
+                    }}
+                    pageKey={'dashboard_' + dashboard?.id}
+                    propertyFilters={effectiveEditBarFilters.properties}
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.EventFeatureFlags,
+                        TaxonomicFilterGroupType.EventMetadata,
+                        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+                        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+                        TaxonomicFilterGroupType.EmailAddresses,
+                        ...groupsTaxonomicTypes,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.Elements,
+                        TaxonomicFilterGroupType.SessionProperties,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                    ]}
+                />
+            </div>
+            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <BindLogic logic={insightLogic} props={insightProps}>
+                    <TaxonomicBreakdownFilter
+                        insightProps={insightProps}
+                        breakdownFilter={effectiveEditBarFilters.breakdown_filter}
+                        isTrends={false}
+                        showLabel={false}
+                        updateBreakdownFilter={(breakdown_filter) => {
+                            if (dashboardMode !== DashboardMode.Edit) {
+                                setDashboardMode(DashboardMode.Edit, null)
+                            }
+                            let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
+                            // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
+                            if (breakdown_filter && !breakdown_filter.breakdown_type && !breakdown_filter.breakdowns) {
+                                saved_breakdown_filter = null
+                            }
+                            setBreakdownFilter(saved_breakdown_filter)
+                        }}
+                        updateDisplay={() => {}}
+                        disablePropertyInfo
+                        size="small"
+                    />
+                </BindLogic>
+            </div>
+
+            <VariablesForDashboard />
+        </div>
     )
 }

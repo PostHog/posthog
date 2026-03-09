@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
     IconAsterisk,
@@ -412,6 +412,7 @@ const ReplayFiltersTab = ({
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
+        TaxonomicFilterGroupType.ReplaySavedFilters,
         TaxonomicFilterGroupType.Events,
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.Actions,
@@ -431,8 +432,25 @@ const ReplayFiltersTab = ({
 
     taxonomicGroupTypes.unshift(TaxonomicFilterGroupType.SuggestedFilters)
 
-    const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
-    const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
+    const { appliedSavedFilter, pendingFilterApplication } = useValues(sessionRecordingSavedFiltersLogic)
+    const { loadSavedFilters, setAppliedSavedFilter, clearPendingFilterApplication } = useActions(
+        sessionRecordingSavedFiltersLogic
+    )
+    const { setActiveFilterTab } = useActions(playlistFiltersLogic)
+
+    useEffect(() => {
+        if (!pendingFilterApplication) {
+            return
+        }
+
+        if (pendingFilterApplication.filters) {
+            setFilters(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>)
+            setAppliedSavedFilter(pendingFilterApplication)
+            setActiveFilterTab('filters')
+        }
+
+        clearPendingFilterApplication()
+    }, [pendingFilterApplication, setFilters, setActiveFilterTab, setAppliedSavedFilter, clearPendingFilterApplication])
 
     const updateSavedFilter = async (): Promise<void> => {
         if (appliedSavedFilter === null) {

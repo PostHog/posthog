@@ -55,7 +55,7 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
     '--annotations-overlay-tick-interval': `${string}px`
 }
 
-export function AnnotationsOverlay({
+export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     chart,
     chartWidth,
     chartHeight,
@@ -65,14 +65,26 @@ export function AnnotationsOverlay({
     const { insightProps } = useValues(insightLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
+    // Memoize ticks by value to prevent unnecessary kea selector cascades.
+    // chart.scales.x.ticks is a Chart.js internal array that is the same object between renders
+    // when the chart hasn't changed, but .map() would create new references every render,
+    // causing all downstream selectors (tickDates → dateRange → relevantAnnotations →
+    // groupedAnnotations) to recompute unnecessarily.
+    const prevTicksRef = useRef<{ value: number }[]>([])
+    const currentChartTicks = chart.scales.x.ticks
+    if (
+        prevTicksRef.current.length !== currentChartTicks.length ||
+        prevTicksRef.current.some((t, i) => t.value !== currentChartTicks[i]?.value)
+    ) {
+        prevTicksRef.current = currentChartTicks.map(({ value }) => ({ value }))
+    }
+
     const annotationsOverlayLogicProps: AnnotationsOverlayLogicProps = {
         ...insightProps,
         dashboardId: insightProps.dashboardId,
         insightNumericId,
         dates,
-        // Extract only primitive values to avoid retaining Chart.js internal references
-        // (tick objects contain $context which holds references to scales/chart/canvas)
-        ticks: chart.scales.x.ticks.map(({ value }) => ({ value })),
+        ticks: prevTicksRef.current,
     }
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
     const { activeDate, tickDates } = useValues(logic)
@@ -124,7 +136,7 @@ export function AnnotationsOverlay({
             </div>
         </BindLogic>
     )
-}
+})
 
 interface AnnotationsBadgeProps {
     index: number

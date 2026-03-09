@@ -627,7 +627,12 @@ class TeamAdmin(admin.ModelAdmin):
         """Return just the workflow table rows as an HTML fragment for AJAX polling."""
         team = Team.objects.get(pk=object_id)
         workflows = self._get_delete_workflows(team.id)
-        context = {"team": team, "workflows": workflows}
+        context = {
+            "team": team,
+            "workflows": workflows,
+            "temporal_ui_host": settings.TEMPORAL_UI_HOST,
+            "temporal_namespace": settings.TEMPORAL_NAMESPACE,
+        }
         return render(request, "admin/posthog/team/_delete_recordings_workflows.html", context)
 
     def delete_recordings_view(self, request, object_id):
@@ -640,6 +645,8 @@ class TeamAdmin(admin.ModelAdmin):
                 "team": team,
                 "title": f"Delete Recordings - {team.name}",
                 "workflows": workflows,
+                "temporal_ui_host": settings.TEMPORAL_UI_HOST,
+                "temporal_namespace": settings.TEMPORAL_NAMESPACE,
             }
             return render(request, "admin/posthog/team/delete_recordings.html", context)
 

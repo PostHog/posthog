@@ -58,6 +58,7 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
     CURRENCY = "currency"
+    SHORT = "short"
 
 
 class AlertCalculationInterval(StrEnum):
@@ -288,7 +289,6 @@ class AssistantNavigateUrl(StrEnum):
     SETTINGS = "settings"
     SQL_EDITOR = "sqlEditor"
     SURVEYS = "surveys"
-    SURVEY_TEMPLATES = "surveyTemplates"
     TOOLBAR_LAUNCH = "toolbarLaunch"
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
@@ -428,6 +428,7 @@ class Display(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    BOX_PLOT = "BoxPlot"
 
 
 class YAxisScaleType(StrEnum):
@@ -702,6 +703,7 @@ class ChartDisplayType(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    BOX_PLOT = "BoxPlot"
 
 
 class DisplayType(StrEnum):
@@ -729,6 +731,7 @@ class ChartSettingsDisplay(BaseModel):
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
+    SHORT = "short"
     PERCENT = "percent"
 
 
@@ -1047,14 +1050,6 @@ class DataWarehouseSyncInterval(StrEnum):
     FIELD_24HOUR = "24hour"
     FIELD_7DAY = "7day"
     FIELD_30DAY = "30day"
-
-
-class DataWarehouseViewLinkConfiguration(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    experiments_optimized: bool | None = None
-    experiments_timestamp_key: str | None = None
 
 
 class DatabaseSchemaManagedViewTableKind(StrEnum):
@@ -1392,7 +1387,6 @@ class OrderBy1(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
-    REVENUE = "revenue"
 
 
 class OrderDirection1(StrEnum):
@@ -1413,20 +1407,6 @@ class ErrorTrackingIssueStatus(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
-
-
-class RevenueEntity(StrEnum):
-    PERSON = "person"
-    GROUP_0 = "group_0"
-    GROUP_1 = "group_1"
-    GROUP_2 = "group_2"
-    GROUP_3 = "group_3"
-    GROUP_4 = "group_4"
-
-
-class RevenuePeriod(StrEnum):
-    ALL_TIME = "all_time"
-    MRR = "mrr"
 
 
 class EventDefinition(BaseModel):
@@ -1862,6 +1842,7 @@ class FileSystemIconType(StrEnum):
     FOLDER_OPEN = "folder_open"
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
+    VISUAL_REVIEW = "visual_review"
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
@@ -1980,6 +1961,31 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
+
+
+class GithubIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    html_url: str
+    labels: list[str]
+    locked: bool
+    number: float
+    state: str
+    updated_at: str
+
+
+class GithubIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: GithubIssueSignalExtra
+    source_id: str
+    source_product: Literal["github"] = "github"
+    source_type: Literal["issue"] = "issue"
+    weight: float
 
 
 class Position(StrEnum):
@@ -2248,6 +2254,7 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
+    SLACK_TWIG = "slack-twig"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
@@ -2311,6 +2318,35 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class LinearIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    identifier: str
+    labels: list[str]
+    number: float
+    priority: float
+    priority_label: str
+    state_name: str | None = None
+    state_type: str | None = None
+    team_name: str | None = None
+    updated_at: str
+    url: str
+
+
+class LinearIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LinearIssueSignalExtra
+    source_id: str
+    source_product: Literal["linear"] = "linear"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
 class LinkedinAdsDefaultSources(StrEnum):
     LINKEDIN = "linkedin"
     LI = "li"
@@ -2322,6 +2358,30 @@ class LinkedinAdsTableExclusions(StrEnum):
 
 class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
+
+
+class LlmEvalSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    evaluation_id: str
+    model: str | None = None
+    provider: str | None = None
+    target_event_id: str | None = None
+    target_event_type: str | None = None
+    trace_id: str
+
+
+class LlmEvaluationSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalSignalExtra
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation"] = "evaluation"
+    weight: float
 
 
 class LoadingBlock(BaseModel):
@@ -2692,6 +2752,23 @@ class MaxErrorTrackingSearchResponse(BaseModel):
     status: str | None = Field(default=None, description="Issue status filter (active, resolved, etc.)")
 
 
+class EvaluationType(StrEnum):
+    HOG = "hog"
+    LLM_JUDGE = "llm_judge"
+
+
+class MaxEvaluationContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    evaluation_type: EvaluationType
+    hog_source: str | None = None
+    id: str
+    name: str | None = None
+    type: Literal["evaluation"] = "evaluation"
+
+
 class MaxEventContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2728,6 +2805,15 @@ class MaxExperimentVariantResultFrequentist(BaseModel):
     key: str
     p_value: float | None = None
     significant: bool
+
+
+class MaxNotebookContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str | None = None
+    type: Literal["notebook"] = "notebook"
 
 
 class MaxProductInfo(BaseModel):
@@ -2813,6 +2899,14 @@ class ModeContext(BaseModel):
     type: Literal["mode"] = "mode"
 
 
+class MultiQuestionFormFieldType(StrEnum):
+    TEXT = "text"
+    NUMBER = "number"
+    SLIDER = "slider"
+    DROPDOWN = "dropdown"
+    TOGGLE = "toggle"
+
+
 class MultiQuestionFormQuestionOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2825,6 +2919,12 @@ class MultiQuestionFormQuestionOption(BaseModel):
         ...,
         description="A short value to use when this option is selected, in a few words",
     )
+
+
+class MultiQuestionFormQuestionType(StrEnum):
+    SELECT = "select"
+    MULTI_SELECT = "multi_select"
+    MULTI_FIELD = "multi_field"
 
 
 class MultipleBreakdownType(StrEnum):
@@ -2930,6 +3030,7 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
 class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
@@ -3158,6 +3259,7 @@ class ProductKey(StrEnum):
     TEAMS = "teams"
     TOOLBAR = "toolbar"
     USER_INTERVIEWS = "user_interviews"
+    VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
@@ -3235,6 +3337,11 @@ class PropertyOperator(StrEnum):
     SEMVER_WILDCARD = "semver_wildcard"
     ICONTAINS_MULTI = "icontains_multi"
     NOT_ICONTAINS_MULTI = "not_icontains_multi"
+
+
+class PropertyType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
 
 
 class Mark(BaseModel):
@@ -3655,6 +3762,48 @@ class SessionReplayBlock(BaseModel):
     type: Literal["session_replay"] = "session_replay"
 
 
+class SessionReplaySegment(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    distinct_id: str
+    end_time: str
+    session_id: str
+    start_time: str
+
+
+class SessionSegmentClusterMetrics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_users_in_period: float
+    occurrence_count: float
+    relevant_user_count: float
+
+
+class SessionSegmentClusterSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actionable: bool
+    label_title: str
+    metrics: SessionSegmentClusterMetrics
+    segments: list[SessionReplaySegment]
+
+
+class SessionSegmentClusterSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SessionSegmentClusterSignalExtra
+    source_id: str
+    source_product: Literal["session_replay"] = "session_replay"
+    source_type: Literal["session_segment_cluster"] = "session_segment_cluster"
+    weight: float
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3987,6 +4136,7 @@ class TaxonomicFilterGroupType(StrEnum):
     LOG_ATTRIBUTES = "log_attributes"
     LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
     REPLAY = "replay"
+    REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
@@ -4316,6 +4466,30 @@ class YAxisSettings(BaseModel):
     showGridLines: bool | None = None
     showTicks: bool | None = None
     startAtZero: bool | None = Field(default=None, description="Whether the Y axis should start at zero")
+
+
+class ZendeskTicketSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    priority: str | None = None
+    status: str
+    tags: list[str]
+    type: str | None = None
+    url: str
+
+
+class ZendeskTicketSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ZendeskTicketSignalExtra
+    source_id: str
+    source_product: Literal["zendesk"] = "zendesk"
+    source_type: Literal["ticket"] = "ticket"
+    weight: float
 
 
 class Integer(RootModel[int]):
@@ -4836,6 +5010,22 @@ class AutocompleteCompletionItem(BaseModel):
     )
 
 
+class BoxPlotDatum(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: str
+    label: str
+    max: float
+    mean: float
+    median: float
+    min: float
+    p25: float
+    p75: float
+    series_index: int | None = None
+    series_label: str | None = None
+
+
 class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4914,6 +5104,7 @@ class ChartSettings(BaseModel):
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
+    showNullsAsZero: bool | None = None
     showTotalRow: bool | None = None
     showXAxisBorder: bool | None = None
     showXAxisTicks: bool | None = None
@@ -5004,7 +5195,6 @@ class DataWarehouseViewLink(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    configuration: DataWarehouseViewLinkConfiguration | None = None
     created_at: str | None = None
     created_by: UserBasicType | None = None
     field_name: str | None = None
@@ -5394,7 +5584,7 @@ class FormResumePayload(BaseModel):
         extra="forbid",
     )
     action: Literal["form"] = "form"
-    form_answers: dict[str, str]
+    form_answers: dict[str, str | list[str]]
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -5740,20 +5930,51 @@ class MaxRecordingEventFilter(BaseModel):
     type: Literal["events"] = "events"
 
 
+class MultiQuestionFormField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(..., description="Unique identifier for this field, used as the answer key")
+    label: str = Field(..., description="Label displayed above/beside the field")
+    max: float | None = Field(default=None, description="Maximum value (for number and slider types)")
+    min: float | None = Field(default=None, description="Minimum value (for number and slider types)")
+    optional: bool | None = Field(
+        default=None,
+        description="Whether this field can be left empty (default: false)",
+    )
+    options: list[MultiQuestionFormQuestionOption] | None = Field(
+        default=None, description="Available answer options (required for dropdown)"
+    )
+    placeholder: str | None = Field(default=None, description="Placeholder text (for text and number types)")
+    step: float | None = Field(default=None, description="Step size (for number and slider types)")
+    type: MultiQuestionFormFieldType = Field(..., description="Field type (required, no default)")
+
+
 class MultiQuestionFormQuestion(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     allow_custom_answer: bool | None = Field(
         default=None,
-        description='Whether to show a "Type your answer" option (default: true)',
+        description=('Whether to show a "Type your answer" option (default: true). Only used for select type.'),
+    )
+    fields: list[MultiQuestionFormField] | None = Field(
+        default=None,
+        description=("Fields for multi_field type questions, grouped with a shared submit button"),
     )
     id: str = Field(..., description="Unique identifier for this question")
-    options: list[MultiQuestionFormQuestionOption] = Field(..., description="Available answer options")
+    options: list[MultiQuestionFormQuestionOption] | None = Field(
+        default=None,
+        description="Available answer options (required for select and multi_select)",
+    )
     question: str = Field(..., description="The question text to display")
     title: str = Field(
         ...,
         description=('One word title for the question e.g. "Use case", "Team size", "Experience"'),
+    )
+    type: MultiQuestionFormQuestionType | None = Field(
+        default=MultiQuestionFormQuestionType.SELECT,
+        description=("Question type. Use 'multi_field' with fields array for composite questions."),
     )
 
 
@@ -5835,6 +6056,14 @@ class ProductsData(BaseModel):
     games: list[ProductItem]
     metadata: list[ProductItem]
     products: list[ProductItem]
+
+
+class PropertyValueItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int | None = None
+    name: str | float | bool | None = None
 
 
 class QueryResponseAlternative9(BaseModel):
@@ -6527,6 +6756,24 @@ class SessionsTimelineQueryResponse(BaseModel):
     )
 
 
+class SignalInput(
+    RootModel[
+        SessionSegmentClusterSignalInput
+        | LlmEvaluationSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
+    ]
+):
+    root: (
+        SessionSegmentClusterSignalInput
+        | LlmEvaluationSignalInput
+        | ZendeskTicketSignalInput
+        | GithubIssueSignalInput
+        | LinearIssueSignalInput
+    ) = Field(..., discriminator="source_product")
+
+
 class SourceFieldFileUploadConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6892,6 +7139,7 @@ class TrendsFilter(BaseModel):
     formulas: list[str] | None = None
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
+    hideWeekends: bool | None = False
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(
@@ -6920,6 +7168,9 @@ class TrendsFilter(BaseModel):
 class TrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    boxplot_data: list[BoxPlotDatum] | None = Field(
+        default=None, description="Box plot data when display type is BoxPlot"
     )
     error: str | None = Field(
         default=None,
@@ -8572,6 +8823,43 @@ class CachedPathsQueryResponse(BaseModel):
     )
 
 
+class CachedPropertyValuesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PropertyValueItem]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
 class CachedRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9269,6 +9557,9 @@ class CachedTracesQueryResponse(BaseModel):
 class CachedTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    boxplot_data: list[BoxPlotDatum] | None = Field(
+        default=None, description="Box plot data when display type is BoxPlot"
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -10942,7 +11233,6 @@ class ErrorTrackingIssue(BaseModel):
     last_seen: AwareDatetime
     library: str | None = None
     name: str | None = None
-    revenue: float | None = None
     source: str | None = None
     status: ErrorTrackingIssueStatus
 
@@ -12118,6 +12408,32 @@ class PropertyGroupFilterValue(BaseModel):
         | LogPropertyFilter
         | RevenueAnalyticsPropertyFilter
     ]
+
+
+class PropertyValuesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PropertyValueItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
 
 
 class QueryResponseAlternative1(BaseModel):
@@ -13473,6 +13789,9 @@ class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    boxplot_data: list[BoxPlotDatum] | None = Field(
+        default=None, description="Box plot data when display type is BoxPlot"
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -13952,6 +14271,32 @@ class QueryResponseAlternative87(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[dict[str, Any]]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class QueryResponseAlternative88(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[PropertyValueItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16016,6 +16361,22 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
+class PropertyValuesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_names: list[str] | None = None
+    is_column: bool | None = None
+    kind: Literal["PropertyValuesQuery"] = "PropertyValuesQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    property_key: str
+    property_type: PropertyType
+    response: PropertyValuesQueryResponse | None = None
+    search_value: str | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16673,8 +17034,6 @@ class ErrorTrackingQuery(BaseModel):
     orderDirection: OrderDirection1 | None = None
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
-    revenueEntity: RevenueEntity | None = None
-    revenuePeriod: RevenuePeriod | None = None
     searchQuery: str | None = None
     status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
@@ -17834,6 +18193,10 @@ class NotebookArtifactContent(BaseModel):
         ..., description="Structured blocks for the notebook content"
     )
     content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+    is_saved: bool | None = Field(
+        default=None,
+        description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
+    )
     title: str | None = Field(default=None, description="Title for the notebook")
 
 
@@ -17991,6 +18354,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
+        | QueryResponseAlternative88
     ]
 ):
     root: (
@@ -18074,6 +18438,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
+        | QueryResponseAlternative88
     )
 
 
@@ -18988,6 +19353,7 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
     result: Any | None = None
     type: Literal["insight"] = "insight"
@@ -19001,9 +19367,11 @@ class MaxUIContext(BaseModel):
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
     error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = None
+    evaluations: list[MaxEvaluationContext] | None = None
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
+    notebooks: list[MaxNotebookContext] | None = None
 
 
 class QueryRequest(BaseModel):
@@ -19097,6 +19465,7 @@ class QueryRequest(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(
         ...,
         description=(
@@ -19200,6 +19569,7 @@ class QuerySchemaRoot(
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ]
 ):
     root: (
@@ -19273,6 +19643,7 @@ class QuerySchemaRoot(
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
 
@@ -19351,6 +19722,7 @@ class QueryUpgradeRequest(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
 
@@ -19429,6 +19801,7 @@ class QueryUpgradeResponse(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
 
@@ -19633,6 +20006,7 @@ class VisualizationArtifactContent(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | PropertyValuesQuery
     )
 
 

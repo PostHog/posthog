@@ -57,18 +57,35 @@ pub struct FlagEvaluationOverrides {
     pub request_hash_key_override: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum EvaluationType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvaluationType {
     Sequential,
     Parallel,
 }
 
+impl EvaluationType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            EvaluationType::Sequential => "sequential",
+            EvaluationType::Parallel => "parallel",
+        }
+    }
+
+    /// Promote evaluation type across dependency levels:
+    /// None → Sequential, None → Parallel, Sequential → Parallel.
+    /// Parallel is sticky — once set, it never demotes back to Sequential.
+    pub fn promote(current: Option<Self>, level_type: Self) -> Option<Self> {
+        match (current, level_type) {
+            (_, Self::Parallel) => Some(Self::Parallel),
+            (None, Self::Sequential) => Some(Self::Sequential),
+            (current, Self::Sequential) => current,
+        }
+    }
+}
+
 impl std::fmt::Display for EvaluationType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EvaluationType::Sequential => write!(f, "sequential"),
-            EvaluationType::Parallel => write!(f, "parallel"),
-        }
+        f.write_str(self.as_str())
     }
 }
 
@@ -317,7 +334,7 @@ impl FeatureFlagMatcher {
         request_id: Uuid,
         flag_keys: Option<Vec<String>>,
         optimize_experience_continuity_lookups: bool,
-    ) -> FlagsResponse {
+    ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
         // Build dependency graph once - reused for both optimization check and evaluation
@@ -327,7 +344,7 @@ impl FeatureFlagMatcher {
             flags_with_missing_deps: global_flags_with_missing_deps,
         } = match build_dependency_graph(&feature_flags, self.team_id) {
             Some(result) => result,
-            None => return FlagsResponse::new(true, HashMap::new(), None, request_id),
+            None => return Ok(FlagsResponse::new(true, HashMap::new(), None, request_id)),
         };
 
         // Filter graph by flag_keys if specified (includes transitive dependencies)
@@ -341,7 +358,7 @@ impl FeatureFlagMatcher {
                     graph,
                     flags_with_missing_deps,
                 }) => (graph, flags_with_missing_deps),
-                None => return FlagsResponse::new(true, HashMap::new(), None, request_id),
+                None => return Ok(FlagsResponse::new(true, HashMap::new(), None, request_id)),
             }
         } else {
             (global_dependency_graph, global_flags_with_missing_deps)
@@ -434,7 +451,7 @@ impl FeatureFlagMatcher {
                 dependency_graph,
                 flags_with_missing_deps,
             )
-            .await;
+            .await?;
 
         let has_cycle_errors = graph_errors.iter().any(|e| e.is_cycle());
         let has_errors = flag_hash_key_override_error
@@ -445,7 +462,12 @@ impl FeatureFlagMatcher {
             .label("outcome", if has_errors { "error" } else { "success" })
             .fin();
 
-        FlagsResponse::new(has_errors, flags_response.flags, None, request_id)
+        Ok(FlagsResponse::new(
+            has_errors,
+            flags_response.flags,
+            None,
+            request_id,
+        ))
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -615,7 +637,7 @@ impl FeatureFlagMatcher {
         request_id: Uuid,
         dependency_graph: DependencyGraph<FeatureFlag>,
         flags_with_missing_deps: HashSet<i32>,
-    ) -> FlagsResponse {
+    ) -> Result<FlagsResponse, FlagError> {
         let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
 
@@ -660,15 +682,15 @@ impl FeatureFlagMatcher {
                 &mut evaluated_flags_map,
                 &flags_with_missing_deps,
             )
-            .await;
+            .await?;
         errors_while_computing_flags |= graph_evaluation_errors;
 
-        FlagsResponse::new(
+        Ok(FlagsResponse::new(
             errors_while_computing_flags,
             evaluated_flags_map,
             None,
             request_id,
-        )
+        ))
     }
 
     /// Evaluates flags using the provided dependency graph.
@@ -683,13 +705,13 @@ impl FeatureFlagMatcher {
         request_hash_key_override: &Option<String>,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         flags_with_missing_deps: &HashSet<i32>,
-    ) -> bool {
+    ) -> Result<bool, FlagError> {
         // Consume the graph to get owned flags in evaluation order
         let evaluation_stages = match flag_dependency_graph.into_evaluation_stages() {
             Ok(stages) => stages,
             Err(e) => {
                 log_dependency_graph_operation_error("get evaluation stages", &e, self.team_id);
-                return true;
+                return Ok(true);
             }
         };
 
@@ -706,12 +728,12 @@ impl FeatureFlagMatcher {
                     request_hash_key_override,
                     flags_with_missing_deps,
                 )
-                .await;
+                .await?;
             errors_while_computing_flags |= level_errors;
             evaluated_flags_map.extend(level_evaluated_flags_map);
         }
 
-        errors_while_computing_flags
+        Ok(errors_while_computing_flags)
     }
 
     /// Prepares evaluation state for flags that require database properties.
@@ -796,7 +818,7 @@ impl FeatureFlagMatcher {
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
         flags_with_missing_deps: &HashSet<i32>,
-    ) -> (HashMap<String, FlagDetails>, bool) {
+    ) -> Result<(HashMap<String, FlagDetails>, bool), FlagError> {
         let mut errors_while_computing_flags = false;
         let mut level_evaluated_flags_map = HashMap::new();
 
@@ -816,6 +838,15 @@ impl FeatureFlagMatcher {
         } else {
             EvaluationType::Sequential
         };
+
+        // Record evaluation type in canonical log for E2E latency metrics.
+        // Skip if no flags to evaluate (all deleted or already evaluated) — lets the
+        // metric label stay None → "none" rather than incorrectly reporting Sequential.
+        if !flags_to_evaluate.is_empty() {
+            with_canonical_log(|log| {
+                log.evaluation_type = EvaluationType::promote(log.evaluation_type, eval_type);
+            });
+        }
 
         let labels = [("evaluation_type".to_string(), eval_type.to_string())];
         histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
@@ -851,7 +882,7 @@ impl FeatureFlagMatcher {
                         hash_key_overrides,
                         request_hash_key_override,
                     )
-                    .await;
+                    .await?;
 
                 for (flag, result) in &results {
                     self.process_flag_result(
@@ -875,7 +906,7 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        (level_evaluated_flags_map, errors_while_computing_flags)
+        Ok((level_evaluated_flags_map, errors_while_computing_flags))
     }
 
     /// Pre-compute property overrides for all flags upfront.
@@ -998,7 +1029,7 @@ impl FeatureFlagMatcher {
         flags_with_missing_deps: &HashSet<i32>,
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
-    ) -> Vec<(FeatureFlag, Result<FeatureFlagMatch, FlagError>)> {
+    ) -> Result<Vec<(FeatureFlag, Result<FeatureFlagMatch, FlagError>)>, FlagError> {
         let matcher = self.clone();
         let missing_deps = flags_with_missing_deps.clone();
         let hash_overrides = hash_key_overrides.clone();
@@ -1036,7 +1067,10 @@ impl FeatureFlagMatcher {
         };
 
         let result = match &self.rayon_dispatcher {
-            Some(dispatcher) => dispatcher.spawn(work).await,
+            Some(dispatcher) => dispatcher
+                .try_spawn(work)
+                .await
+                .map_err(|t| FlagError::RayonSemaphoreTimeout(t.waited.as_millis() as u64))?,
             None => {
                 // Fallback for tests: unbounded dispatch (no semaphore).
                 let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1058,7 +1092,7 @@ impl FeatureFlagMatcher {
                 .collect()
         });
 
-        results_with_deltas
+        Ok(results_with_deltas
             .into_iter()
             .map(|(flag, result, delta)| {
                 if let Some(delta) = delta {
@@ -1066,7 +1100,7 @@ impl FeatureFlagMatcher {
                 }
                 (flag, result)
             })
-            .collect()
+            .collect())
     }
 
     /// Constructs per-flag error results from lightweight snapshots when the
@@ -2084,6 +2118,46 @@ impl FeatureFlagMatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_promote_evaluation_type_none_to_sequential() {
+        assert_eq!(
+            EvaluationType::promote(None, EvaluationType::Sequential),
+            Some(EvaluationType::Sequential)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_none_to_parallel() {
+        assert_eq!(
+            EvaluationType::promote(None, EvaluationType::Parallel),
+            Some(EvaluationType::Parallel)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_sequential_to_parallel() {
+        assert_eq!(
+            EvaluationType::promote(Some(EvaluationType::Sequential), EvaluationType::Parallel),
+            Some(EvaluationType::Parallel)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_parallel_stays_sticky() {
+        assert_eq!(
+            EvaluationType::promote(Some(EvaluationType::Parallel), EvaluationType::Sequential),
+            Some(EvaluationType::Parallel)
+        );
+    }
+
+    #[test]
+    fn test_promote_evaluation_type_sequential_stays_sequential() {
+        assert_eq!(
+            EvaluationType::promote(Some(EvaluationType::Sequential), EvaluationType::Sequential),
+            Some(EvaluationType::Sequential)
+        );
+    }
 
     #[test]
     fn test_panic_fallback_preserves_flag_identity() {

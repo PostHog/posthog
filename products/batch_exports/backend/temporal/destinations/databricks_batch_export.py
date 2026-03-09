@@ -936,7 +936,7 @@ def _is_warehouse_stopped_error(err: ServerOperationError) -> bool:
     """Check if the error is a warehouse stopped error."""
     if err.message is None:
         return False
-    return "warehouse" in err.message and "is stopped" in err.message
+    return "warehouse" in err.message and "stopped" in err.message
 
 
 def _get_long_running_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:

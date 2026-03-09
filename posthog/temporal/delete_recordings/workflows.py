@@ -16,6 +16,7 @@ from posthog.temporal.delete_recordings.activities import (
     load_session_id_chunk,
     purge_deleted_metadata,
 )
+from posthog.temporal.delete_recordings.metrics import increment_recordings_deleted, increment_recordings_failed
 from posthog.temporal.delete_recordings.types import (
     CleanupChunksInput,
     DeleteRecordingsInput,
@@ -60,6 +61,8 @@ async def _delete_page(
             )
             progress.total_deleted += len(result.deleted)
             progress.total_failed += result.failed_count
+            increment_recordings_deleted(len(result.deleted))
+            increment_recordings_failed(result.failed_count)
 
             if config.max_deletions_per_second > 0:
                 elapsed = (workflow.now() - batch_start).total_seconds()
