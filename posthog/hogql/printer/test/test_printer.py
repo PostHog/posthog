@@ -11,6 +11,7 @@ from posthog.test.base import (
     _create_person,
     clean_varying_query_parts,
     cleanup_materialized_columns,
+    flush_persons_and_events,
     get_index_from_explain,
     materialized,
     snapshot_clickhouse_queries,
@@ -3818,6 +3819,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event=event_name, distinct_id=distinct_id_with_empty)
         _create_event(team=self.team, event=event_name, distinct_id=distinct_id_with_null)
         _create_event(team=self.team, event=event_name, distinct_id=distinct_id_without)
+        flush_persons_and_events()
 
         # Build the is_not_set expression using property_to_expr
         is_not_set_expr = property_to_expr(
@@ -4164,6 +4166,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 event="test_event",
                 properties={"test_prop": case if case != "None" else None},
             )
+        flush_persons_and_events()
 
         for pattern, (ilike_expected, ilike_expected_if_non_nullable) in patterns_and_expected.items():
             if ilike_expected_if_non_nullable is not None and (is_nullable is False):
@@ -4702,6 +4705,7 @@ class TestPostgresPrinter(BaseTest):
         result = self._select("SELECT 1 FROM events HAVING 1 == 1 QUALIFY 1 == 1")
         self.assertIn("HAVING", result)
         self.assertIn("QUALIFY", result)
+
     def test_values_query(self):
         self.assertEqual(
             self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)"),
@@ -4725,6 +4729,51 @@ class TestPostgresPrinter(BaseTest):
 
         with self.assertRaises(QueryError):
             self._select("SELECT * FROM (VALUES (1, 'a')) AS v(id, name)", dialect="clickhouse")
+
+    def test_unpivot_prints_basic(self):
+        self.assertEqual(
+            self._select("SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))"),
+            "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_alias(self):
+        self.assertEqual(
+            self._select("SELECT field_name FROM events UNPIVOT (field_value FOR field_name IN (event)) AS u"),
+            "SELECT u.field_name FROM events UNPIVOT (field_value FOR field_name IN (events.event)) AS u LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_table_alias(self):
+        self.assertEqual(
+            self._select("SELECT field_name FROM events e UNPIVOT (field_value FOR field_name IN (event))"),
+            "SELECT field_name FROM events AS e UNPIVOT (field_value FOR field_name IN (e.event)) LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_multiple_in_columns(self):
+        self.assertEqual(
+            self._select(
+                "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event, uuid))"
+            ),
+            "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event, events.uuid)) LIMIT 50000",
+        )
+
+    def test_unpivot_prints_with_where_group_order(self):
+        result = self._select(
+            "SELECT field_name, count() FROM events UNPIVOT (field_value FOR field_name IN (event)) "
+            "WHERE field_value != '' GROUP BY field_name ORDER BY field_name"
+        )
+        self.assertIn("UNPIVOT", result)
+        self.assertIn("WHERE", result)
+        self.assertIn("GROUP BY", result)
+        self.assertIn("ORDER BY", result)
+
+    def test_unpivot_clickhouse_raises_error(self):
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError):
+            self._select(
+                "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))",
+                dialect="clickhouse",
+            )
 
     def test_intersect_all(self):
         result = self._select("select 1 as id intersect all select 2 as id")

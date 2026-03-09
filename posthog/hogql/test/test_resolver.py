@@ -1395,6 +1395,48 @@ class TestResolver(BaseTest):
             expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v (id, name, extra)")
             resolve_types(expr, self.context, dialect="postgres")
 
+    def test_unpivot_basic_resolves(self):
+        expr = self._select(
+            "SELECT field_name, field_value, distinct_id FROM events UNPIVOT (field_value FOR field_name IN (event))"
+        )
+        expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
+        assert isinstance(expr.select_from, ast.JoinExpr)
+        assert isinstance(expr.select_from.table, ast.UnpivotExpr)
+        assert isinstance(expr.select_from.type, ast.SelectQueryType)
+
+        columns = expr.select_from.type.columns
+        assert "field_name" in columns
+        assert "field_value" in columns
+        assert "distinct_id" in columns
+        assert "event" not in columns
+
+        for column in expr.select:
+            field = column.expr if isinstance(column, ast.Alias) else column
+            assert isinstance(field, ast.Field)
+            assert isinstance(field.type, ast.FieldType)
+
+    def test_unpivot_non_postgres_dialect_error(self):
+        with self.assertRaisesMessage(QueryError, "UNPIVOT is not allowed in clickhouse dialect"):
+            expr = self._select(
+                "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))"
+            )
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_unpivot_non_identifier_output_columns_error(self):
+        with self.assertRaisesMessage(QueryError, "UNPIVOT columns must be identifiers"):
+            expr = self._select("SELECT * FROM events UNPIVOT (field_value + 1 FOR field_name IN (event))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_unpivot_unknown_in_column_error(self):
+        with self.assertRaisesMessage(QueryError, 'UNPIVOT value column "does_not_exist" was not found'):
+            expr = self._select("SELECT * FROM events UNPIVOT (field_value FOR field_name IN (does_not_exist))")
+            resolve_types(expr, self.context, dialect="postgres")
+
+    def test_limit_with_ties_postgres_error(self):
+        with self.assertRaisesMessage(QueryError, "WITH TIES is not supported in postgres dialect"):
+            expr = self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES")
+            resolve_types(expr, self.context, dialect="postgres")
+
     def test_subquery_alias_columns_remap(self):
         # Subquery with alias column list: SELECT * FROM (SELECT 1, 'a') AS v(id, name)
         # The resolver should remap columns so that v.id and v.name resolve correctly,

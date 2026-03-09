@@ -115,6 +115,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitLimitAndOffsetClauseOptional(HogQLParser::LimitAndOffsetClauseOptionalContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitSelectStmt(HogQLParser::SelectStmtContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -316,6 +320,14 @@ public:
   }
 
   virtual std::any visitColumnTypeExprSimple(HogQLParser::ColumnTypeExprSimpleContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnTypeCastExprCompound(HogQLParser::ColumnTypeCastExprCompoundContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnTypeCastExprSimple(HogQLParser::ColumnTypeCastExprSimpleContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -628,6 +640,22 @@ public:
   }
 
   virtual std::any visitTableExprFunction(HogQLParser::TableExprFunctionContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTableExprUnpivot(HogQLParser::TableExprUnpivotContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitUnpivotColumnList(HogQLParser::UnpivotColumnListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitUnpivotColumn(HogQLParser::UnpivotColumnContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprTupleOrSingle(HogQLParser::ColumnExprTupleOrSingleContext *ctx) override {
     return visitChildren(ctx);
   }
 

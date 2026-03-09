@@ -870,6 +870,12 @@ class Placeholder(Expr):
 
 
 @dataclass(kw_only=True)
+class NamedArgument(Expr):
+    name: str
+    value: Expr
+
+
+@dataclass(kw_only=True)
 class Call(Expr):
     name: str
     """Function name"""
@@ -899,12 +905,27 @@ class JoinConstraint(Expr):
 
 
 @dataclass(kw_only=True)
+class UnpivotColumn(Expr):
+    value_columns: Expr
+    name_columns: Expr
+    unpivot_values: list[Expr]
+
+
+@dataclass(kw_only=True)
+class UnpivotExpr(Expr):
+    table: Expr
+    columns: list[UnpivotColumn]
+
+
+@dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", "ValuesQuery", "Placeholder", "HogQLXTag", "Field"]] = None
+    table: Optional[
+        Union["SelectQuery", "SelectSetQuery", "ValuesQuery", "UnpivotExpr", "Placeholder", "HogQLXTag", "Field"]
+    ] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     column_aliases: Optional[list[str]] = None
@@ -1048,6 +1069,10 @@ class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
     initial_select_query: Union["SelectQuery", "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
+    limit: Optional[Expr] = None
+    offset: Optional[Expr] = None
+    limit_percent: Optional[bool] = None
+    limit_with_ties: Optional[bool] = None
 
     def select_queries(self):
         return [self.initial_select_query] + [node.select_query for node in self.subsequent_select_queries]

@@ -164,6 +164,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       return buildJSONError("ParsingError", e.what(), e.start, e.end).dump();
     } catch (const bad_any_cast& e) {
       return buildJSONError("ParsingError", "Parsing failed due to bad type casting", 0, 0).dump();
+    } catch (const std::exception& e) {
+      return buildJSONError("ParsingError", string("Unknown error: ") + e.what(), 0, 0).dump();
     } catch (...) {
       return buildJSONError("ParsingError", "Unknown parsing error occurred", 0, 0).dump();
     }
@@ -574,8 +576,27 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT(SelectSetStmt) {
     const auto subsequent_clauses = ctx->subsequentSelectSetClause();
 
+    auto limit_clause = ctx->limitAndOffsetClauseOptional();
+
     if (subsequent_clauses.empty()) {
-      return visit(ctx->selectStmtWithParens());
+      Json result = visitAsJSON(ctx->selectStmtWithParens());
+      if (limit_clause) {
+        auto exprs = limit_clause->columnExpr();
+        if (limit_clause->OFFSET()) {
+          if (limit_clause->LIMIT()) {
+            result["limit"] = visitAsJSON(exprs[0]);
+            result["offset"] = visitAsJSON(exprs[1]);
+          } else {
+            result["offset"] = visitAsJSON(exprs[0]);
+          }
+        } else if (limit_clause->LIMIT() && exprs.size() >= 2) {
+          result["limit"] = visitAsJSON(exprs[0]);
+          result["offset"] = visitAsJSON(exprs[1]);
+        } else if (!exprs.empty()) {
+          result["limit"] = visitAsJSON(exprs[0]);
+        }
+      }
+      return result;
     }
 
     Json json = Json::object();
@@ -617,6 +638,29 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       node_json["select_query"] = visitAsJSON(subsequent->selectStmtWithParens());
       node_json["set_operator"] = set_operator;
       json["subsequent_select_queries"].pushBack(node_json);
+    }
+
+    if (limit_clause) {
+      auto exprs = limit_clause->columnExpr();
+      if (limit_clause->OFFSET()) {
+        if (limit_clause->LIMIT()) {
+          json["limit"] = visitAsJSON(exprs[0]);
+          json["offset"] = visitAsJSON(exprs[1]);
+        } else {
+          json["offset"] = visitAsJSON(exprs[0]);
+        }
+      } else if (limit_clause->LIMIT() && exprs.size() >= 2) {
+        json["limit"] = visitAsJSON(exprs[0]);
+        json["offset"] = visitAsJSON(exprs[1]);
+      } else if (!exprs.empty()) {
+        json["limit"] = visitAsJSON(exprs[0]);
+      }
+      if (limit_clause->PERCENT()) {
+        json["limit_percent"] = true;
+      }
+      if (limit_clause->TIES()) {
+        json["limit_with_ties"] = true;
+      }
     }
 
     return json;
@@ -1020,12 +1064,21 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT(JoinConstraintClause) {
     Json column_expr_list_json = visitAsJSON(ctx->columnExprList());
 
-    if (column_expr_list_json.isArray() && column_expr_list_json.getArray().size() > 1) {
-      throw NotImplementedError("Unsupported: JOIN ... ON with multiple expressions");
+    Json expr_json;
+    if (ctx->USING()) {
+      if (column_expr_list_json.isArray() && column_expr_list_json.getArray().size() == 1) {
+        expr_json = column_expr_list_json.getArray().at(0);
+      } else {
+        expr_json = Json::object();
+        expr_json["node"] = "Tuple";
+        expr_json["exprs"] = column_expr_list_json;
+      }
+    } else {
+      if (column_expr_list_json.isArray() && column_expr_list_json.getArray().size() > 1) {
+        throw NotImplementedError("Unsupported: JOIN ... ON with multiple expressions");
+      }
+      expr_json = column_expr_list_json.getArray().at(0);
     }
-
-    // Extract the single expression from the array
-    Json expr_json = column_expr_list_json.getArray().at(0);
 
     Json json = Json::object();
     json["node"] = "JoinConstraint";
@@ -1657,15 +1710,25 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnExprTypeCast) {
-    Json expr_json = visitAsJSON(ctx->columnExpr());
-    string type_name = to_lower_copy(visitAsString(ctx->identifier()));
-
     Json json = Json::object();
     json["node"] = "TypeCast";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = expr_json;
-    json["type_name"] = type_name;
+    json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["type_name"] = visitAsJSON(ctx->columnTypeCastExpr());
     return json;
+  }
+
+  VISIT(ColumnTypeCastExprSimple) {
+    return Json(to_lower_copy(visitAsString(ctx->identifier())));
+  }
+
+  VISIT(ColumnTypeCastExprCompound) {
+    string result;
+    for (auto ident : ctx->identifier()) {
+      if (!result.empty()) result += " ";
+      result += visitAsString(ident);
+    }
+    return Json(to_lower_copy(result));
   }
 
   VISIT(ColumnExprBetween) {
@@ -1990,7 +2053,13 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
 
-  VISIT_UNSUPPORTED(ColumnExprNamedArg)
+  VISIT(ColumnExprNamedArg) {
+    Json json = Json::object();
+    json["node"] = Json("NamedArgument");
+    json["name"] = visitAsString(ctx->identifier());
+    json["value"] = visitAsJSON(ctx->columnExpr());
+    return json;
+  }
 
   VISIT(ColumnExprLambda) {
     return visit(ctx->columnLambdaExpr());
@@ -2205,6 +2274,46 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(TableExprPlaceholder) { return visitAsJSON(ctx->placeholder()); }
 
+  VISIT(TableExprUnpivot) {
+    Json json = Json::object();
+    json["node"] = "UnpivotExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["table"] = visitAsJSON(ctx->tableExpr());
+
+    Json columns = Json::array();
+    for (auto unpivot_col : ctx->unpivotColumnList()->unpivotColumn()) {
+      Json col_json = Json::object();
+      col_json["node"] = "UnpivotColumn";
+
+      auto tuple_or_singles = unpivot_col->columnExprTupleOrSingle();
+      // value_columns
+      auto val_ctx = tuple_or_singles[0];
+      if (val_ctx->columnExprList()) {
+        Json tuple_json = Json::object();
+        tuple_json["node"] = "Tuple";
+        tuple_json["exprs"] = visitAsJSON(val_ctx->columnExprList());
+        col_json["value_columns"] = std::move(tuple_json);
+      } else {
+        col_json["value_columns"] = visitAsJSON(val_ctx->columnExpr());
+      }
+      // name_columns
+      auto name_ctx = tuple_or_singles[1];
+      if (name_ctx->columnExprList()) {
+        Json tuple_json = Json::object();
+        tuple_json["node"] = "Tuple";
+        tuple_json["exprs"] = visitAsJSON(name_ctx->columnExprList());
+        col_json["name_columns"] = std::move(tuple_json);
+      } else {
+        col_json["name_columns"] = visitAsJSON(name_ctx->columnExpr());
+      }
+      // unpivot_values
+      col_json["unpivot_values"] = visitAsJSON(unpivot_col->columnExprList());
+      columns.pushBack(std::move(col_json));
+    }
+    json["columns"] = std::move(columns);
+    return json;
+  }
+
   VISIT(TableExprAlias) {
     auto alias_ctx = ctx->alias();
     string alias = any_cast<string>(alias_ctx ? visit(alias_ctx) : visit(ctx->identifier()));
@@ -2315,7 +2424,11 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       json["value"] = Json(stod(text));  // Float
       return json;
     } else {
-      json["value"] = static_cast<int64_t>(stoll(text));  // Integer
+      try {
+        json["value"] = static_cast<int64_t>(stoll(text));  // Integer
+      } catch (const std::out_of_range&) {
+        json["value"] = Json(stod(text));  // Too large for int64, use float
+      }
       return json;
     }
 

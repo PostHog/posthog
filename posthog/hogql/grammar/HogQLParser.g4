@@ -56,7 +56,12 @@ select: (selectSetStmt | selectStmt | hogqlxTagElement) SEMICOLON? EOF;
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
 
 subsequentSelectSetClause: (EXCEPT ALL | EXCEPT | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL | INTERSECT DISTINCT | INTERSECT) selectStmtWithParens;
-selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
+selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)* limitAndOffsetClauseOptional?;
+limitAndOffsetClauseOptional
+    : LIMIT columnExpr PERCENT? (COMMA columnExpr)? (WITH TIES)?
+    | LIMIT columnExpr PERCENT? (WITH TIES)? OFFSET columnExpr
+    | OFFSET columnExpr
+    ;
 
 selectStmt:
     with=withClause?
@@ -158,6 +163,11 @@ columnTypeExpr
     | identifier identifier+                                                                 # ColumnTypeExprCompound // TIME WITH TIME ZONE
     | identifier                                                                             # ColumnTypeExprSimple   // UInt64
     ;
+// Restricted type expr for :: casts — no parenthesized variants to avoid ambiguity with function calls
+columnTypeCastExpr
+    : identifier identifier+                                                                 # ColumnTypeCastExprCompound
+    | identifier                                                                             # ColumnTypeCastExprSimple
+    ;
 columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
 selectColumnExprList: selectColumnExpr (COMMA selectColumnExpr)* COMMA?;
 selectColumnExpr
@@ -198,7 +208,7 @@ columnExpr
     | columnExpr NULL_PROPERTY LBRACKET columnExpr RBRACKET                               # ColumnExprNullArrayAccess
     | columnExpr NULL_PROPERTY DECIMAL_LITERAL                                            # ColumnExprNullTupleAccess
     | columnExpr NULL_PROPERTY identifier                                                 # ColumnExprNullPropertyAccess
-    | columnExpr DOUBLECOLON identifier                                                  # ColumnExprTypeCast
+    | columnExpr DOUBLECOLON columnTypeCastExpr                                            # ColumnExprTypeCast
     | DASH columnExpr                                                                     # ColumnExprNegate
     | left=columnExpr ( operator=ASTERISK                                                 // *
                  | operator=SLASH                                                         // /
@@ -289,14 +299,18 @@ withExprColumnNameList: LPAREN identifier (COMMA identifier)* RPAREN;
 columnIdentifier: placeholder | ((tableIdentifier DOT)? nestedIdentifier);
 nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
-    : tableIdentifier                                                   # TableExprIdentifier
-    | tableFunctionExpr                                                 # TableExprFunction
-    | LPAREN selectSetStmt RPAREN                                       # TableExprSubquery
-    | LPAREN valuesClause RPAREN                                        # TableExprValues
-    | tableExpr (alias | AS identifier) columnAliases?                  # TableExprAlias
-    | hogqlxTagElement                                                  # TableExprTag
-    | placeholder                                                       # TableExprPlaceholder
+    : tableIdentifier                                   # TableExprIdentifier
+    | tableFunctionExpr                                 # TableExprFunction
+    | LPAREN selectSetStmt RPAREN                       # TableExprSubquery
+    | LPAREN valuesClause RPAREN                        # TableExprValues
+    | tableExpr UNPIVOT LPAREN unpivotColumnList RPAREN # TableExprUnpivot
+    | tableExpr (alias | AS identifier) columnAliases?  # TableExprAlias
+    | hogqlxTagElement                                  # TableExprTag
+    | placeholder                                       # TableExprPlaceholder
     ;
+unpivotColumnList: unpivotColumn (unpivotColumn)*;
+unpivotColumn: columnExprTupleOrSingle FOR columnExprTupleOrSingle IN LPAREN columnExprList RPAREN;
+columnExprTupleOrSingle: LPAREN columnExprList RPAREN | columnExpr;
 columnAliases: LPAREN identifier (COMMA identifier)* RPAREN;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? nestedIdentifier;
@@ -332,7 +346,7 @@ keyword
     | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETS | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TRY_CAST | TO | TOP
-    | UNBOUNDED | UNION | USING | VALUES | WHEN | WHERE | WINDOW | WITH
+    | UNBOUNDED | UNION | UNPIVOT | USING | VALUES | WHEN | WHERE | WINDOW | WITH
     ;
 keywordForAlias
     : DATE | FIRST | ID | KEY

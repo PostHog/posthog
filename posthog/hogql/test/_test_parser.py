@@ -3409,4 +3409,94 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_from_unpivot(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["field_name"]), ast.Field(chain=["field_value"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["event"])],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_unpivot_tuple(self):
+            self.assertEqual(
+                self._select(
+                    "SELECT * FROM events UNPIVOT ((value_a, value_b) FOR (name_a, name_b) IN ((event, uuid)))"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Tuple(
+                                        exprs=[ast.Field(chain=["value_a"]), ast.Field(chain=["value_b"])]
+                                    ),
+                                    name_columns=ast.Tuple(
+                                        exprs=[ast.Field(chain=["name_a"]), ast.Field(chain=["name_b"])]
+                                    ),
+                                    unpivot_values=[
+                                        ast.Tuple(exprs=[ast.Field(chain=["event"]), ast.Field(chain=["uuid"])])
+                                    ],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_unpivot_multiple_in(self):
+            self.assertEqual(
+                self._select("SELECT * FROM events UNPIVOT (field_value FOR field_name IN (event, uuid))"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.Field(chain=["events"]),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["event"]), ast.Field(chain=["uuid"])],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
+        def test_select_from_unpivot_with_table_alias(self):
+            self.assertEqual(
+                self._select("SELECT * FROM events e UNPIVOT (field_value FOR field_name IN (event))"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.UnpivotExpr(
+                            table=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+                            columns=[
+                                ast.UnpivotColumn(
+                                    value_columns=ast.Field(chain=["field_value"]),
+                                    name_columns=ast.Field(chain=["field_name"]),
+                                    unpivot_values=[ast.Field(chain=["event"])],
+                                )
+                            ],
+                        )
+                    ),
+                ),
+            )
+
     return TestParser

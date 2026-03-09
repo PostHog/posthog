@@ -134,6 +134,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#limitAndOffsetClauseOptional.
+    def visitLimitAndOffsetClauseOptional(self, ctx:HogQLParser.LimitAndOffsetClauseOptionalContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#selectStmt.
     def visitSelectStmt(self, ctx:HogQLParser.SelectStmtContext):
         return self.visitChildren(ctx)
@@ -386,6 +391,16 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#ColumnTypeExprSimple.
     def visitColumnTypeExprSimple(self, ctx:HogQLParser.ColumnTypeExprSimpleContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnTypeCastExprCompound.
+    def visitColumnTypeCastExprCompound(self, ctx:HogQLParser.ColumnTypeCastExprCompoundContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnTypeCastExprSimple.
+    def visitColumnTypeCastExprSimple(self, ctx:HogQLParser.ColumnTypeCastExprSimpleContext):
         return self.visitChildren(ctx)
 
 
@@ -776,6 +791,26 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#TableExprFunction.
     def visitTableExprFunction(self, ctx:HogQLParser.TableExprFunctionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#TableExprUnpivot.
+    def visitTableExprUnpivot(self, ctx:HogQLParser.TableExprUnpivotContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#unpivotColumnList.
+    def visitUnpivotColumnList(self, ctx:HogQLParser.UnpivotColumnListContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#unpivotColumn.
+    def visitUnpivotColumn(self, ctx:HogQLParser.UnpivotColumnContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#columnExprTupleOrSingle.
+    def visitColumnExprTupleOrSingle(self, ctx:HogQLParser.ColumnExprTupleOrSingleContext):
         return self.visitChildren(ctx)
 
 

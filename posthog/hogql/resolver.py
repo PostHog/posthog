@@ -152,6 +152,9 @@ class Resolver(CloningVisitor):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
 
+        if node.limit_with_ties and self.dialect == "postgres":
+            raise QueryError("WITH TIES is not supported in postgres dialect")
+
         initial = self.visit(node.initial_select_query)
 
         # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
@@ -170,6 +173,10 @@ class Resolver(CloningVisitor):
             end=node.end,
             initial_select_query=initial,
             subsequent_select_queries=subsequent,
+            limit=self.visit(node.limit) if node.limit is not None else None,
+            offset=self.visit(node.offset) if node.offset is not None else None,
+            limit_percent=node.limit_percent,
+            limit_with_ties=node.limit_with_ties,
         )
         result.type = ast.SelectSetQueryType(
             types=[result.initial_select_query.type, *(x.select_query.type for x in result.subsequent_select_queries)]  # type: ignore
@@ -203,6 +210,171 @@ class Resolver(CloningVisitor):
         )
         result.type = ast.SelectQueryType(columns=columns)
         return result
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr):
+        if self.dialect != "postgres":
+            raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
+
+        node = cast(ast.UnpivotExpr, clone_expr(node))
+
+        # Resolve the source table in an isolated scope so we can use its columns.
+        temp_scope = ast.SelectQueryType()
+        self.scopes.append(temp_scope)
+        try:
+            if isinstance(node.table, ast.JoinExpr):
+                temp_join = self.visit_join_expr(node.table)
+                node.table = temp_join
+            else:
+                temp_join = self.visit_join_expr(ast.JoinExpr(table=node.table))
+                node.table = cast(ast.Expr, temp_join.table)
+            base_type = temp_join.type
+
+            resolved_columns: list[ast.UnpivotColumn] = []
+            unpivoted_names: set[str] = set()
+
+            def _extract_unpivot_field(expr: ast.Expr) -> ast.Field | None:
+                if isinstance(expr, ast.Field):
+                    return expr
+                if isinstance(expr, ast.Alias) and isinstance(expr.expr, ast.Field):
+                    return expr.expr
+                return None
+
+            def resolve_unpivot_value(expr: ast.Expr) -> ast.Expr:
+                resolved = self.visit(expr)
+                field = _extract_unpivot_field(resolved)
+                if field and field.chain:
+                    unpivoted_names.add(str(field.chain[-1]))
+                return field if field is not None else resolved
+
+            for col in node.columns:
+                resolved_values = [resolve_unpivot_value(val) for val in col.unpivot_values]
+                resolved_columns.append(
+                    ast.UnpivotColumn(
+                        value_columns=clone_expr(col.value_columns),
+                        name_columns=clone_expr(col.name_columns),
+                        unpivot_values=resolved_values,
+                    )
+                )
+
+            node.columns = resolved_columns
+
+            columns: dict[str, ast.Type] = {}
+
+            def add_column(name: str, column_type: ast.Type | None) -> None:
+                if name in columns:
+                    return
+                columns[name] = column_type or ast.UnknownType()
+
+            base_field_names: set[str] = set()
+            if isinstance(base_type, ast.SelectQueryAliasType):
+                base_type = base_type.select_query_type
+
+            if isinstance(base_type, ast.SelectSetQueryType):
+                base_type = base_type.types[0]
+
+            if isinstance(base_type, ast.SelectQueryType):
+                base_field_names = set(base_type.columns.keys())
+                for name, col_type in base_type.columns.items():
+                    if name not in unpivoted_names:
+                        add_column(name, col_type)
+            elif isinstance(base_type, ast.BaseTableType):
+                base_field_names = set(base_type.resolve_database_table(self.context).get_asterisk().keys())
+                for name in base_field_names:
+                    if name not in unpivoted_names:
+                        add_column(name, None)
+
+            # Ensure unpivoted columns are not exposed from the base table.
+            fallback_unpivoted: set[str] = set()
+            for col in node.columns:
+                for value in col.unpivot_values:
+                    if isinstance(value, ast.Field) and value.chain:
+                        fallback_unpivoted.add(str(value.chain[-1]))
+            for name in unpivoted_names.union(fallback_unpivoted):
+                columns.pop(name, None)
+
+            def normalize_output_columns(expr: ast.Expr) -> tuple[ast.Expr, list[str]]:
+                if isinstance(expr, ast.Tuple):
+                    exprs = expr.exprs
+                else:
+                    exprs = [expr]
+                names: list[str] = []
+                normalized: list[ast.Expr] = []
+                for item in exprs:
+                    if isinstance(item, ast.Field) and len(item.chain) == 1:
+                        name = str(item.chain[0])
+                        names.append(name)
+                        field = cast(ast.Field, clone_expr(item))
+                        field.type = field.type or ast.UnknownType()
+                        normalized.append(field)
+                    else:
+                        raise QueryError("UNPIVOT columns must be identifiers")
+                if isinstance(expr, ast.Tuple):
+                    return ast.Tuple(exprs=normalized), names
+                return normalized[0], names
+
+            def ensure_unpivot_value_valid(expr: ast.Expr) -> None:
+                field = _extract_unpivot_field(expr)
+                if not field or not field.chain:
+                    return
+                name = str(field.chain[-1])
+                if base_field_names and name not in base_field_names:
+                    raise QueryError(f'UNPIVOT value column "{name}" was not found in the source table')
+
+            normalized_columns: list[ast.UnpivotColumn] = []
+            for col in node.columns:
+                value_expr, value_names = normalize_output_columns(col.value_columns)
+                name_expr, name_names = normalize_output_columns(col.name_columns)
+                for name in value_names:
+                    add_column(name, None)
+                for name in name_names:
+                    add_column(name, None)
+                for value in col.unpivot_values:
+                    ensure_unpivot_value_valid(value)
+                normalized_columns.append(
+                    ast.UnpivotColumn(
+                        value_columns=value_expr,
+                        name_columns=name_expr,
+                        unpivot_values=col.unpivot_values,
+                    )
+                )
+
+            node.columns = normalized_columns
+
+            select_query_type = ast.SelectQueryType(columns=columns)
+            node.type = select_query_type
+
+            # Final safety: ensure unpivoted value columns are removed from output columns.
+            to_remove: set[str] = set()
+            for col in node.columns:
+                for value in col.unpivot_values:
+                    field = _extract_unpivot_field(value)
+                    if field and field.chain:
+                        to_remove.add(str(field.chain[-1]))
+            for name in to_remove:
+                select_query_type.columns.pop(name, None)
+
+            # Remove unpivoted columns by name from the original source list as well.
+            for col in node.columns:
+                for value in col.unpivot_values:
+                    field = _extract_unpivot_field(value)
+                    if field and field.chain:
+                        select_query_type.columns.pop(str(field.chain[-1]), None)
+
+            def attach_unpivot_types(expr: ast.Expr) -> None:
+                if isinstance(expr, ast.Tuple):
+                    for item in expr.exprs:
+                        attach_unpivot_types(item)
+                    return
+                if isinstance(expr, ast.Field) and len(expr.chain) == 1:
+                    name = str(expr.chain[0])
+                    expr.type = ast.FieldType(name=name, table_type=select_query_type)
+
+            for col in node.columns:
+                attach_unpivot_types(col.value_columns)
+                attach_unpivot_types(col.name_columns)
+            return node
+        finally:
+            self.scopes.pop()
 
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
@@ -305,6 +477,8 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
+        if node.limit_with_ties and self.dialect == "postgres":
+            raise QueryError("WITH TIES is not supported in postgres dialect")
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -863,6 +1037,32 @@ class Resolver(CloningVisitor):
                 node.table.type.columns = {
                     new_name: list(original_columns.values())[i] for i, new_name in enumerate(node.column_aliases)
                 }
+
+            if node.alias is not None:
+                if node.alias in scope.tables:
+                    raise QueryError(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
+                scope.tables[node.alias] = node.type
+            else:
+                node.type = cast(ast.TableOrSelectType, node.table.type)
+                scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
+
+            node.next_join = self.visit(node.next_join)
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
+            node.sample = self.visit(node.sample)
+
+            return node
+        elif isinstance(node.table, ast.UnpivotExpr):
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                node.constraint = self.visit_join_constraint(node.constraint)
+
+            node.table = cast(ast.UnpivotExpr, self.visit(node.table))
 
             if node.alias is not None:
                 if node.alias in scope.tables:
