@@ -163,7 +163,10 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
             ])
         },
         splitIssueSuccess: ({ newIssueIds }) => {
-            if (newIssueIds.length === 1) {
+            if (newIssueIds.length === 0) {
+                lemonToast.warning('No fingerprints were unmerged')
+                actions.loadIssueFingerprints()
+            } else if (newIssueIds.length === 1) {
                 lemonToast.success('Fingerprint unmerged successfully', {
                     button: {
                         label: 'View issue',

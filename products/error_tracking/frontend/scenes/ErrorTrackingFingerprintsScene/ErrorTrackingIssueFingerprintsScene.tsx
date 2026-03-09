@@ -154,7 +154,9 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
                 event: '$exception',
                 select: ['uuid', 'properties'],
                 ...timeWindow,
-                where: [`properties.$exception_fingerprint = '${fingerprint.replace(/'/g, "\\'")}'`],
+                where: [
+                    `properties.$exception_fingerprint = '${fingerprint.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`,
+                ],
                 orderBy: ['timestamp ASC'],
                 limit: 1,
             }
