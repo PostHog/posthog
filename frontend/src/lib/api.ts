@@ -19,7 +19,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { GitHubReposResponseApi, OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
@@ -4962,9 +4962,7 @@ const api = {
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
-        async githubRepositories(
-            id: IntegrationType['id']
-        ): Promise<{ repositories: { id: number; name: string; full_name: string }[] }> {
+        async githubRepositories(id: IntegrationType['id']): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).get()
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
