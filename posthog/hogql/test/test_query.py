@@ -285,6 +285,39 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(str(error.exception), "Unknown table `hubspot.deals`.")
 
+    @patch("posthog.hogql.query.sync_execute")
+    def test_execute_hogql_query_uses_clickhouse_for_selected_warehouse_connection(self, mock_sync_execute):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="stripe",
+        )
+
+        DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format="Parquet",
+            team=self.team,
+            external_data_source=selected_source,
+            url_pattern="s3://test/stripe_customers",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        mock_sync_execute.return_value = ([(1,)], [("id", "Int64")])
+
+        response = execute_hogql_query(
+            "select * from stripe.customers limit 1",
+            team=self.team,
+            connection_id=str(selected_source.id),
+        )
+
+        self.assertEqual(response.results, [(1,)])
+        self.assertIn("stripe_customers", response.clickhouse or "")
+        self.assertEqual(mock_sync_execute.call_count, 1)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_persons(self):
         with freeze_time("2020-01-10"):

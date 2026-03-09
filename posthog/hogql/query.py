@@ -698,7 +698,7 @@ class HogQLQueryExecutor:
 
         if self.connection_id is not None or self._should_use_direct_postgres():
             self._maybe_prepare_direct_postgres_query()
-        else:
+        if self.direct_postgres_sql is None:
             with self.timings.measure("_generate_clickhouse_sql"):
                 self._generate_clickhouse_sql()
 

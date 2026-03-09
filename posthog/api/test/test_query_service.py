@@ -241,6 +241,77 @@ class TestQueryService(APIBaseTest):
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.Database.create_for")
+    def test_hogql_autocomplete_without_connection_hides_direct_tables(
+        self,
+        mock_create_for: MagicMock,
+        mock_get_hogql_autocomplete: MagicMock,
+    ):
+        database = Database()
+        database.tables.add_child(
+            TableNode(
+                name="events",
+                table=PostgresTable(name="events", fields={}, postgres_table_name="events"),
+            ),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
+        )
+        database.tables.add_child(
+            TableNode(
+                name="direct_table",
+                table=PostgresTable(
+                    name="direct_table",
+                    fields={},
+                    postgres_table_name="posthog_dashboard",
+                ),
+            ),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
+        )
+        mock_create_for.return_value = database
+
+        serialized_database = {
+            "events": DatabaseSchemaPostHogTable(fields={}, id="events", name="events"),
+            "direct_table": DatabaseSchemaDataWarehouseTable(
+                fields={},
+                format="Parquet",
+                id="posthog_dashboard_id",
+                name="direct_table",
+                url_pattern="direct://postgres",
+                source=DatabaseSchemaSource(
+                    id="direct-source",
+                    status="Completed",
+                    source_type="Postgres",
+                    access_method="direct",
+                    prefix="ph3",
+                ),
+            ),
+        }
+
+        def _mock_autocomplete(*args, **kwargs):
+            database_arg = kwargs["database_arg"]
+            self.assertIsNotNone(database_arg)
+            self.assertTrue(database_arg.has_table("events"))
+            self.assertFalse(database_arg.has_table("direct_table"))
+            return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+
+        mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
+
+        with patch("posthog.api.services.query.Database.serialize", return_value=serialized_database):
+            response = process_query_model(
+                self.team,
+                HogQLAutocomplete(
+                    kind="HogQLAutocomplete",
+                    query="SELECT * FROM ",
+                    language=HogLanguage.HOG_QL,
+                    startPosition=14,
+                    endPosition=14,
+                ),
+            )
+
+        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+
+    @patch("posthog.api.services.query.get_hogql_autocomplete")
+    @patch("posthog.api.services.query.Database.create_for")
     def test_hogql_autocomplete_with_direct_connection_hides_posthog_tables(
         self,
         mock_create_for: MagicMock,
@@ -645,11 +716,27 @@ class TestQueryService(APIBaseTest):
         mock_create_for.return_value = mock_database
         mock_join_queryset = MagicMock()
         mock_filtered_join_queryset = MagicMock()
+        dangling_direct_join = SimpleNamespace(
+            id="1",
+            source_table_name="direct_table",
+            source_table_key="direct_table.id",
+            joining_table_name="warehouse_table",
+            joining_table_key="warehouse_table.id",
+            field_name="direct_join",
+            configuration={},
+            created_at=self.team.created_at,
+        )
         mock_join_queryset.exclude.return_value = mock_filtered_join_queryset
-        mock_filtered_join_queryset.iterator.return_value = iter([])
+        mock_filtered_join_queryset.iterator.return_value = iter([dangling_direct_join])
+        mock_filtered_join_queryset.filter.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.filter.return_value.iterator.return_value = iter([])
         mock_join_filter.return_value = mock_join_queryset
 
         response = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
 
         self.assertEqual(set(response.tables.keys()), {"warehouse_table", "events"})
-        mock_filtered_join_queryset.filter.assert_not_called()
+        self.assertEqual(response.joins, [])
+        mock_filtered_join_queryset.filter.assert_called_once_with(
+            source_table_name__in={"warehouse_table", "events"},
+            joining_table_name__in={"warehouse_table", "events"},
+        )

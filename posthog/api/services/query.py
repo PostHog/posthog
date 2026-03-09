@@ -165,12 +165,11 @@ def process_query_model(
     result: dict | BaseModel
 
     if isinstance(query, HogQLAutocomplete):
-        _, source_ids, database = _connection_context(team, query.connectionId, user, require_database=False)
-        if database:
-            serialized_tables = database.serialize(
-                HogQLContext(team_id=team.pk, team=team, database=database, user=user)
-            )
-            filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
+        _, source_ids, database = _connection_context(team, query.connectionId, user, require_database=True)
+        assert database is not None
+        serialized_tables = database.serialize(HogQLContext(team_id=team.pk, team=team, database=database, user=user))
+        filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
+        if set(filtered_tables.keys()) != set(serialized_tables.keys()):
             prune_database_for_connection(database, set(filtered_tables.keys()))
         return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
@@ -182,11 +181,11 @@ def process_query_model(
         _, source_ids, database = _connection_context(team, query.connectionId, user, require_database=True)
         assert database is not None
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
-        filtered_tables = filter_schema_tables_for_connection(
-            database.serialize(context, include_hidden_posthog_tables=True),
-            source_ids,
+        serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
+        filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
+        table_names = (
+            set(filtered_tables.keys()) if source_ids or set(filtered_tables.keys()) != set(serialized_tables) else None
         )
-        table_names = set(filtered_tables.keys()) if source_ids else None
         joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
         if table_names is not None:
             joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
