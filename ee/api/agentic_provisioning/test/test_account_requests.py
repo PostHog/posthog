@@ -125,7 +125,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert res.status_code == 200
         mock_proxy.assert_called_once()
         args = mock_proxy.call_args
-        assert "eu.posthog.com" in args[0][1]
+        assert args[0][1] == "eu.posthog.com"
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_matching_region_succeeds(self):
@@ -143,7 +143,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert res.status_code == 200
         mock_proxy.assert_called_once()
         args = mock_proxy.call_args
-        assert "us.posthog.com" in args[0][1]
+        assert args[0][1] == "us.posthog.com"
 
     def test_no_region_defaults_to_us_and_succeeds(self):
         payload = self._account_request_payload()
