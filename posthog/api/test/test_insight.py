@@ -664,6 +664,45 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert sorted(matched_insights) == [insight_one_id]
 
+    def test_list_insights_not_on_any_dashboard(self) -> None:
+        insight_on_dashboard_id, _ = self.dashboard_api.create_insight(
+            {"name": "on a dashboard", "filters": {"events": [{"id": "$pageview"}]}}
+        )
+        insight_on_two_dashboards_id, _ = self.dashboard_api.create_insight(
+            {"name": "on two dashboards", "filters": {"events": [{"id": "$pageview"}]}}
+        )
+        insight_orphan_id, _ = self.dashboard_api.create_insight(
+            {"name": "not on any dashboard", "filters": {"events": [{"id": "$pageview"}]}}
+        )
+
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard 1"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard 2"})
+        self.dashboard_api.add_insight_to_dashboard([dashboard_one_id], insight_on_dashboard_id)
+        self.dashboard_api.add_insight_to_dashboard([dashboard_one_id, dashboard_two_id], insight_on_two_dashboards_id)
+
+        # only the insight that is on no dashboards should be returned
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?not_on_dashboard=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        matched_ids = [i["id"] for i in response.json()["results"]]
+        self.assertEqual(matched_ids, [insight_orphan_id])
+
+        # removing an insight from all dashboards should make it appear in the not_on_dashboard results
+        self.dashboard_api.update_insight(insight_on_dashboard_id, {"dashboards": []})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?not_on_dashboard=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        matched_ids = sorted(i["id"] for i in response.json()["results"])
+        self.assertEqual(matched_ids, sorted([insight_orphan_id, insight_on_dashboard_id]))
+
+        # not_on_dashboard=false does not filter anything out, we should get all three insights back
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?not_on_dashboard=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        all_ids = sorted(i["id"] for i in response.json()["results"])
+        self.assertEqual(
+            all_ids,
+            sorted([insight_on_dashboard_id, insight_on_two_dashboards_id, insight_orphan_id]),
+        )
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self) -> None:
         response = self.client.post(
