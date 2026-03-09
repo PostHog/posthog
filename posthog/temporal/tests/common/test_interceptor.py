@@ -1,0 +1,23 @@
+import pytest
+
+from posthog.temporal.common.interceptor import ALL_TASK_QUEUES, is_task_queue_supported
+
+
+@pytest.mark.parametrize(
+    "task_queue,interceptor_task_queue,supported",
+    (
+        ("test", "test", True),
+        ("test", "not-test", False),
+        ("test", ("not-test", "test"), True),
+        ("test", ("not-test",), False),
+        ("test", ALL_TASK_QUEUES, True),
+        ("another", ALL_TASK_QUEUES, True),
+    ),
+)
+def test_is_task_queue_supported(task_queue, interceptor_task_queue, supported):
+    class MockInterceptor:
+        task_queue = interceptor_task_queue
+
+    result = is_task_queue_supported(task_queue, MockInterceptor)
+
+    assert result is supported
