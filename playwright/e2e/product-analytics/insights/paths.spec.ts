@@ -10,7 +10,7 @@ const events = [...sequentialPageviews.events, ...sequentialCustomEvents.events]
 
 function expectNodesToMatch(actual: PathNode[], expected: { name: string; count: number }[]): void {
     for (const exp of expected) {
-        const match = actual.find((n) => n.name.includes(exp.name))
+        const match = actual.find((n) => n.name === exp.name)
         expect(match, `expected node containing "${exp.name}"`).toBeDefined()
         expect(match!.count, `count for "${exp.name}"`).toBe(exp.count)
     }
@@ -53,7 +53,7 @@ test.describe('User Paths insights', () => {
             await insight.paths.waitForNodes()
             const nodes = await insight.paths.getNodes()
             expectNodesToMatch(nodes, sequentialPageviews.expected.nodes.slice(0, 3))
-            const signupNode = nodes.find((n) => n.name.includes('/signup'))
+            const signupNode = nodes.find((n) => n.name === '/signup')
             expect(signupNode, '/signup should not appear with 3 steps').toBeUndefined()
         })
 

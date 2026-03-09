@@ -9,6 +9,7 @@ const EVENT_TYPE_ATTRS: Record<string, string> = {
     'Page views': 'path-type-$pageview',
     'Screen views': 'path-type-$screen',
     'Custom event': 'path-type-custom_event',
+    'SQL expression': 'path-type-hogql',
 }
 
 export class PathsInsight {
@@ -41,7 +42,7 @@ export class PathsInsight {
         await expect(this.pathNodes.first()).toBeVisible({ timeout: 15000 })
     }
 
-    async selectEventType(type: 'Page views' | 'Screen views' | 'Custom event'): Promise<void> {
+    async selectEventType(type: 'Page views' | 'Screen views' | 'Custom event' | 'SQL expression'): Promise<void> {
         await this.eventTypeButton.click()
         const desiredTestId = EVENT_TYPE_ATTRS[type]
         const desiredItem = this.page.getByTestId(desiredTestId)
