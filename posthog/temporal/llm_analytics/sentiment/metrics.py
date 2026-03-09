@@ -158,7 +158,7 @@ def increment_errors(error_type: str) -> None:
 class SentimentMetricsInterceptor(Interceptor):
     """Interceptor to emit Prometheus metrics for sentiment workflows."""
 
-    task_queue = settings.LLMA_TASK_QUEUE
+    task_queue = settings.LLMA_SENTIMENT_TASK_QUEUE
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _SentimentActivityInterceptor(super().intercept_activity(next))
