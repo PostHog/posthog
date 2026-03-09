@@ -75,7 +75,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
-        default=Status.DRAFT,
+        default=None,
+        null=True,
+        blank=True,
     )
 
     conclusion = models.CharField(
@@ -120,7 +122,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     @property
     def is_draft(self):
-        return self.status == self.Status.DRAFT
+        return not self.start_date
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
