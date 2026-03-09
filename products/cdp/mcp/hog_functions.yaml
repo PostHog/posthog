@@ -1,0 +1,201 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Hog functions
+feature: hog_functions
+url_prefix: /pipeline
+tools:
+    environments-hog-functions-list:
+        operation: environments_hog_functions_list
+        enabled: false
+    environments-hog-functions-create:
+        operation: environments_hog_functions_create
+        enabled: false
+    environments-hog-functions-retrieve:
+        operation: environments_hog_functions_retrieve
+        enabled: false
+    environments-hog-functions-update:
+        operation: environments_hog_functions_update
+        enabled: false
+    environments-hog-functions-partial-update:
+        operation: environments_hog_functions_partial_update
+        enabled: false
+    environments-hog-functions-destroy:
+        operation: environments_hog_functions_destroy
+        enabled: false
+    environments-hog-functions-enable-backfills-create:
+        operation: environments_hog_functions_enable_backfills_create
+        enabled: false
+    environments-hog-functions-invocations-create:
+        operation: environments_hog_functions_invocations_create
+        enabled: false
+    environments-hog-functions-logs-retrieve:
+        operation: environments_hog_functions_logs_retrieve
+        enabled: false
+    environments-hog-functions-metrics-retrieve:
+        operation: environments_hog_functions_metrics_retrieve
+        enabled: false
+    environments-hog-functions-metrics-totals-retrieve:
+        operation: environments_hog_functions_metrics_totals_retrieve
+        enabled: false
+    environments-hog-functions-icon-retrieve:
+        operation: environments_hog_functions_icon_retrieve
+        enabled: false
+    environments-hog-functions-icons-retrieve:
+        operation: environments_hog_functions_icons_retrieve
+        enabled: false
+    environments-hog-functions-rearrange-partial-update:
+        operation: environments_hog_functions_rearrange_partial_update
+        enabled: false
+    hog-functions-list:
+        operation: hog_functions_list
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List hog functions
+        description: >
+            List all hog functions (destinations, transformations, site apps, and source webhooks) in the project.
+            Returns each function's name, type, enabled status, execution order, and template info. Filter by type
+            (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app,
+            transformation) and enabled status via query parameters.
+        mcp_version: 1
+    hog-functions-create:
+        operation: hog_functions_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create hog function
+        description: >
+            Create a new hog function. Requires 'type' (destination, site_destination, internal_destination,
+            source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a
+            'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and
+            'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run
+            during ingestion and have an 'execution_order' field.
+        exclude_params:
+            - bytecode
+            - transpiled
+            - status
+            - _create_in_folder
+            - batch_export_id
+        param_overrides:
+            type:
+                description: >
+                    Function type. One of: destination, site_destination, internal_destination, source_webhook,
+                    warehouse_source_webhook, site_app, transformation.
+            template_id:
+                description: >
+                    ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description).
+                    Use the hog-function-templates-list tool to find available templates.
+            hog:
+                description: >
+                    Source code for the function. For most types this is Hog code; for site_destination and site_app
+                    types this is TypeScript. Required if no template_id is provided.
+            enabled:
+                description: Whether the function is active and processing events.
+            execution_order:
+                description: >
+                    Execution priority for transformation functions (lower runs first). Only applies to
+                    type=transformation. If omitted, the function is appended at the end.
+    hog-functions-retrieve:
+        operation: hog_functions_retrieve
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get hog function
+        description: >
+            Get a specific hog function by ID. Returns the full configuration including source code, inputs schema,
+            input values (secrets are masked), filters, mappings, masking config, and runtime status.
+        mcp_version: 1
+    hog-functions-update:
+        operation: hog_functions_update
+        enabled: false
+    hog-functions-partial-update:
+        operation: hog_functions_partial_update
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update hog function
+        description: >
+            Partially update a hog function. Can enable/disable the function, change its name, description, source code,
+            inputs, filters, mappings, or masking config. Set 'deleted: true' to soft-delete. The 'type' field cannot be
+            changed after creation.
+        exclude_params:
+            - bytecode
+            - transpiled
+            - status
+            - _create_in_folder
+            - batch_export_id
+        param_overrides:
+            enabled:
+                description: Set to true to activate or false to deactivate the function.
+            deleted:
+                description: Set to true to soft-delete the function. Set to false to restore a deleted function.
+    hog-functions-destroy:
+        operation: hog_functions_destroy
+        enabled: false
+    hog-functions-enable-backfills-create:
+        operation: hog_functions_enable_backfills_create
+        enabled: false
+    hog-functions-invocations-create:
+        operation: hog_functions_invocations_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Test-invoke hog function
+        description: >
+            Test-invoke a hog function with a mock event payload. Sends the function configuration and test data to the
+            plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to
+            simulate external calls like fetch() without making real HTTP requests.
+    hog-functions-logs-retrieve:
+        operation: hog_functions_logs_retrieve
+        enabled: false
+    hog-functions-metrics-retrieve:
+        operation: hog_functions_metrics_retrieve
+        enabled: false
+    hog-functions-metrics-totals-retrieve:
+        operation: hog_functions_metrics_totals_retrieve
+        enabled: false
+    hog-functions-icon-retrieve:
+        operation: hog_functions_icon_retrieve
+        enabled: false
+    hog-functions-icons-retrieve:
+        operation: hog_functions_icons_retrieve
+        enabled: false
+    hog-functions-rearrange-partial-update:
+        operation: hog_functions_rearrange_partial_update
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Reorder transformation execution
+        description: >
+            Update the execution order of transformation functions. Send an 'orders' object mapping function UUIDs to
+            their new execution_order integer values. Only applies to functions with type=transformation. Returns the
+            updated list of transformations.
