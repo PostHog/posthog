@@ -27,11 +27,11 @@ import (
 	"github.com/posthog/posthog/hogprocs/internal/process"
 )
 
-// Number of terminal lines the header occupies.
+// Number of terminal lines the header occupies
 const headerHeight = 1
 
-// Minimum number of lines for the collapsed help footer.
-const footerHeight = 2 // top border + content line
+// Minimum number of lines for the collapsed help footer
+const footerHeight = 3
 
 type focusPane int
 
@@ -40,19 +40,20 @@ const (
 	focusOutput
 )
 
-// oot Bubble Tea model for hogprocs.
 type Model struct {
 	mgr   *process.Manager
 	procs []*process.Process
 
-	// cursor is the index of the currently selected process in the sidebar.
+	// Index of the currently selected process in the sidebar
 	cursor int
+	// First visible process row in the sidebar
+	sidebarOffset int
 
-	// focusedPane tracks which pane has focus (sidebar or output).
+	// Tracks which pane has focus (sidebar or output)
 	focusedPane focusPane
 
 	viewport viewport.Model
-	// atBottom tracks whether the viewport is auto-scrolling to the tail of output.
+	// Tracks whether the viewport is auto-scrolling to the tail of output
 	atBottom bool
 
 	keys     keyMap
@@ -63,7 +64,7 @@ type Model struct {
 	height int
 	ready  bool
 
-	// log is non-nil when --debug is active; writes go to /tmp/hogprocs-debug.log.
+	// Writes go to /tmp/hogprocs-debug.log
 	log *log.Logger
 }
 
@@ -71,14 +72,15 @@ type Model struct {
 // Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.).
 func New(mgr *process.Manager, logger *log.Logger) Model {
 	return Model{
-		mgr:         mgr,
-		procs:       mgr.Procs(),
-		cursor:      0,
-		focusedPane: focusSidebar,
-		atBottom:    true,
-		keys:        defaultKeyMap(),
-		help:        help.New(),
-		log:         logger,
+		mgr:           mgr,
+		procs:         mgr.Procs(),
+		cursor:        0,
+		sidebarOffset: 0,
+		focusedPane:   focusSidebar,
+		atBottom:      true,
+		keys:          defaultKeyMap(),
+		help:          help.New(),
+		log:           logger,
 	}
 }
 
@@ -123,6 +125,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dbg("status: proc=%s status=%s", msg.Name, msg.Status)
 		// Re-fetch the process slice so status icons refresh on the next render.
 		m.procs = m.mgr.Procs()
+		if m.cursor >= len(m.procs) {
+			m.cursor = max(0, len(m.procs)-1)
+		}
+		m.ensureSidebarCursorVisible()
 
 	case tea.KeyPressMsg:
 		m.dbg("key: %q", msg.String())
@@ -153,6 +159,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor < len(m.procs)-1 {
 					prev := m.cursor
 					m.cursor++
+					m.ensureSidebarCursorVisible()
 					m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
 					m = m.loadActiveProc()
 				}
@@ -171,6 +178,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor > 0 {
 					prev := m.cursor
 					m.cursor--
+					m.ensureSidebarCursorVisible()
 					m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
 					m = m.loadActiveProc()
 				}
@@ -215,9 +223,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusedPane = focusSidebar
 				m.dbg("focus: mouse click → sidebar")
 				row := msg.Y - headerHeight
-				if row >= 0 && row < len(m.procs) {
+				idx := m.sidebarOffset + row
+				if idx >= 0 && idx < len(m.procs) {
 					prev := m.cursor
-					m.cursor = row
+					m.cursor = idx
+					m.ensureSidebarCursorVisible()
 					if prev != m.cursor {
 						m.dbg("proc selected (mouse): %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
 						m = m.loadActiveProc()
@@ -305,6 +315,8 @@ func (m Model) applySize() Model {
 		m.viewport.SetHeight(contentH)
 	}
 
+	m.ensureSidebarCursorVisible()
+
 	// Keep every pty window size in sync with the output pane so programs
 	// that detect terminal width (webpack, Django dev-server) reflow correctly.
 	for _, p := range m.procs {
@@ -363,11 +375,7 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderSidebar() string {
-	fh := footerHeight
-	if m.showHelp {
-		fh = 7
-	}
-	h := m.height - headerHeight - fh
+	h := m.sidebarHeight()
 	if h < 1 {
 		h = 1
 	}
@@ -375,8 +383,18 @@ func (m Model) renderSidebar() string {
 	// innerW is the usable column width inside the border.
 	innerW := sidebarWidth - 1
 
+	start := m.sidebarOffset
+	if start < 0 {
+		start = 0
+	}
+	if start > max(0, len(m.procs)-1) {
+		start = max(0, len(m.procs)-1)
+	}
+	end := min(len(m.procs), start+h)
+
 	var sb strings.Builder
-	for i, p := range m.procs {
+	for i := start; i < end; i++ {
+		p := m.procs[i]
 		iconChar := statusIconChar(p.Status())
 		iconColor := statusIconColor(p.Status())
 
@@ -408,12 +426,56 @@ func (m Model) renderSidebar() string {
 	}
 
 	// Pad remaining rows so the sidebar border extends the full height.
-	for i := len(m.procs); i < h; i++ {
+	for i := end - start; i < h; i++ {
 		sb.WriteString(procInactiveStyle.Width(innerW).Render(""))
 		sb.WriteByte('\n')
 	}
 
 	return sidebarBorderStyle.Height(h).Render(sb.String())
+}
+
+func (m Model) sidebarHeight() int {
+	fh := footerHeight
+	if m.showHelp {
+		fh = 7
+	}
+	h := m.height - headerHeight - fh
+	if h < 1 {
+		return 1
+	}
+	return h
+}
+
+// ensureSidebarCursorVisible keeps the selected process row within the visible
+// sidebar window by adjusting sidebarOffset.
+func (m *Model) ensureSidebarCursorVisible() {
+	h := m.sidebarHeight()
+	if len(m.procs) <= h {
+		m.sidebarOffset = 0
+		return
+	}
+
+	maxOffset := len(m.procs) - h
+	if m.sidebarOffset > maxOffset {
+		m.sidebarOffset = maxOffset
+	}
+	if m.sidebarOffset < 0 {
+		m.sidebarOffset = 0
+	}
+
+	if m.cursor < m.sidebarOffset {
+		m.sidebarOffset = m.cursor
+	}
+	if m.cursor >= m.sidebarOffset+h {
+		m.sidebarOffset = m.cursor - h + 1
+	}
+
+	if m.sidebarOffset > maxOffset {
+		m.sidebarOffset = maxOffset
+	}
+	if m.sidebarOffset < 0 {
+		m.sidebarOffset = 0
+	}
 }
 
 func (m Model) renderOutput() string {

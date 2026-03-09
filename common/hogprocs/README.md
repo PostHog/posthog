@@ -48,6 +48,8 @@ The behavior of `j`/`k` (and arrow keys) changes based on which pane is focused:
 - **Sidebar focused**: Navigate between processes
 - **Output focused**: Scroll the output
 
+When there are more processes than visible rows, the sidebar auto-scrolls to keep the selected process in view.
+
 Mouse scroll is also supported in the output pane. Clicking in a pane switches focus to it.
 The header also shows the current focus as `focus: sidebar` or `focus: output`.
 
