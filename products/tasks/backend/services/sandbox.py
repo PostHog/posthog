@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
-from typing import Protocol
+from typing import Any, Protocol
 
 from django.conf import settings
 
@@ -114,6 +114,7 @@ class SandboxProtocol(Protocol):
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
+        mcp_configs: list[dict[str, Any]] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 

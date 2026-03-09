@@ -14,6 +14,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
+from products.tasks.backend.temporal.process_task.utils import get_sandbox_mcp_configs
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
@@ -245,7 +246,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _start_agent_server(self, sandbox_id: str) -> StartAgentServerOutput:
         return await workflow.execute_activity(
             start_agent_server,
-            StartAgentServerInput(context=self.context, sandbox_id=sandbox_id),
+            StartAgentServerInput(
+                context=self.context,
+                sandbox_id=sandbox_id,
+                mcp_configs=get_sandbox_mcp_configs(),
+            ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

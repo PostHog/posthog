@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import uuid
 import shlex
@@ -35,6 +36,7 @@ SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
+MCP_CONFIG_PATH = "/tmp/mcp-config.json"
 
 
 @lru_cache(maxsize=2)
@@ -432,6 +434,7 @@ class ModalSandbox:
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
+        mcp_configs: list[dict[str, Any]] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -445,13 +448,18 @@ class ModalSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
+        mcp_config_arg = ""
+        if mcp_configs:
+            self._write_mcp_config(mcp_configs)
+            mcp_config_arg = f" --mcpConfigPath {MCP_CONFIG_PATH}"
+
         env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         command = (
             f"cd /scripts && "
             f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag} "
+            f"{branch_flag}{mcp_config_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 
@@ -474,6 +482,19 @@ class ModalSandbox:
             )
 
         logger.info(f"Agent-server started in sandbox {self.id}")
+
+    def _write_mcp_config(self, mcp_configs: list[dict[str, Any]]) -> None:
+        config_json = json.dumps(mcp_configs)
+        result = self.execute(
+            f"cat > {MCP_CONFIG_PATH} << 'MCPEOF'\n{config_json}\nMCPEOF",
+            timeout_seconds=5,
+        )
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Failed to write MCP config",
+                {"sandbox_id": self.id, "stderr": result.stderr},
+                cause=RuntimeError(result.stderr),
+            )
 
     def _wait_for_health_check(self, max_attempts: int = 20, delay_seconds: float = 1.0) -> bool:
         """Poll health endpoint until server is ready."""

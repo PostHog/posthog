@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from temporalio import activity
 
@@ -19,6 +20,7 @@ logger = get_logger(__name__)
 class StartAgentServerInput:
     context: TaskProcessingContext
     sandbox_id: str
+    mcp_configs: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -71,6 +73,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 mode=ctx.mode,
                 interaction_origin=ctx.interaction_origin,
                 branch=ctx.branch,
+                mcp_configs=input.mcp_configs or None,
             )
         except Exception as e:
             raise SandboxExecutionError(

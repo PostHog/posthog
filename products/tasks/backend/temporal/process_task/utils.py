@@ -1,23 +1,32 @@
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
 
 from posthog.models.integration import GitHubIntegration, Integration
 
+McpConfig = dict[str, Any]
+
 
 def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
-def get_sandbox_mcp_url() -> str | None:
-    """Return the MCP server URL for sandbox agents.
+def get_sandbox_mcp_configs() -> list[McpConfig]:
+    """Return MCP server configurations for sandbox agents.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
     - eu.posthog.com → https://mcp-eu.posthog.com/mcp
-    - Other hosts → None (MCP not available)
+    - Other hosts → empty list (MCP not available)
     """
+    url = _resolve_mcp_url()
+    if not url:
+        return []
+    return [{"type": "streamable-http", "url": url}]
+
+
+def _resolve_mcp_url() -> str | None:
     if settings.SANDBOX_MCP_URL:
         return settings.SANDBOX_MCP_URL
 

@@ -18,7 +18,6 @@ from products.tasks.backend.temporal.observability import emit_agent_log, log_ac
 from products.tasks.backend.temporal.process_task.utils import (
     get_github_token,
     get_sandbox_api_url,
-    get_sandbox_mcp_url,
     get_sandbox_name_for_task,
 )
 
@@ -94,10 +93,6 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         if settings.SANDBOX_LLM_GATEWAY_URL:
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
-
-        mcp_url = get_sandbox_mcp_url()
-        if mcp_url:
-            environment_variables["POSTHOG_MCP_URL"] = mcp_url
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
