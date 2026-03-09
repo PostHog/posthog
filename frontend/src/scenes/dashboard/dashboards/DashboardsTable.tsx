@@ -212,16 +212,22 @@ export function DashboardsTable({
                                       </LemonButton>
 
                                       {itemsByRef[`dashboard::${id}`] && (
-                                          <LemonButton
-                                              onClick={() => {
-                                                  const entry = itemsByRef[`dashboard::${id}`]
-                                                  openMoveToModal([entry as any])
-                                              }}
-                                              fullWidth
-                                              data-attr="dashboard-move-to-folder"
+                                          <AccessControlAction
+                                              resourceType={AccessControlResourceType.Dashboard}
+                                              minAccessLevel={AccessControlLevel.Editor}
+                                              userAccessLevel={user_access_level}
                                           >
-                                              Move to another folder
-                                          </LemonButton>
+                                              <LemonButton
+                                                  onClick={() => {
+                                                      const entry = itemsByRef[`dashboard::${id}`]
+                                                      openMoveToModal([entry as any])
+                                                  }}
+                                                  fullWidth
+                                                  data-attr="dashboard-move-to-folder"
+                                              >
+                                                  Move to another folder
+                                              </LemonButton>
+                                          </AccessControlAction>
                                       )}
 
                                       <LemonDivider />
