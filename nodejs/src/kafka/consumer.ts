@@ -26,6 +26,7 @@ import {
 import { sanitizeString } from '~/utils/db/utils'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
+import { normalizeSessionId } from '~/utils/utils'
 
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
@@ -883,7 +884,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
             } else if (key === 'distinct_id') {
                 result.distinct_id = sanitizeString(value)
             } else if (key === 'session_id') {
-                result.session_id = sanitizeString(value)
+                result.session_id = normalizeSessionId(sanitizeString(value))
             } else if (key === 'timestamp') {
                 result.timestamp = value
             } else if (key === 'event') {

@@ -24,6 +24,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { isKeyOf } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { ProxyRecord, proxyLogic } from './proxyLogic'
@@ -36,7 +37,7 @@ const statusText = {
 export function ManagedReverseProxy(): JSX.Element {
     const { cloudflareOptInAcknowledged, formState, proxyRecords, proxyRecordsLoading, maxProxyRecords } =
         useValues(proxyLogic)
-    const { acknowledgeCloudflareOptIn, deleteRecord, showForm } = useActions(proxyLogic)
+    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, showForm } = useActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
     const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
@@ -75,7 +76,7 @@ export function ManagedReverseProxy(): JSX.Element {
                         )}
                     >
                         {status === 'issuing' && <Spinner />}
-                        <span className="capitalize">{statusText[status] || status}</span>
+                        <span className="capitalize">{isKeyOf(status, statusText) ? statusText[status] : status}</span>
                         {status === 'waiting' && (
                             <Tooltip title="Waiting for DNS records to be created">
                                 <IconInfo className="cursor-pointer" />
@@ -100,9 +101,17 @@ export function ManagedReverseProxy(): JSX.Element {
                     !restrictionReason && (
                         <LemonMenu
                             items={[
+                                ...(status === 'erroring' || status === 'timed_out'
+                                    ? [
+                                          {
+                                              label: 'Retry',
+                                              onClick: () => retryRecord(id),
+                                          },
+                                      ]
+                                    : []),
                                 {
                                     label: 'Delete',
-                                    status: 'danger',
+                                    status: 'danger' as const,
                                     onClick: () => {
                                         LemonDialog.open({
                                             title: 'Delete managed proxy',
@@ -291,13 +300,13 @@ function CreateRecordForm(): JSX.Element {
                         <ul className="list-disc pl-5 space-y-0.5 mb-1">
                             <li>
                                 <strong>Do not use</strong> subdomains containing words related to tracking, analytics,
-                                or advertising (e.g. <code>analytics.mydomain.com</code>,{' '}
-                                <code>posthog.mydomain.com</code>). These are commonly blocked by ad-blockers and will
-                                cause data loss.
+                                advertising, or PostHog (e.g. <code>analytics.mydomain.com</code>,{' '}
+                                <code>posthog.mydomain.com</code>, or <code>ph.mydomain.com</code>). These are commonly
+                                blocked by ad-blockers and will cause data loss. The proxy will <strong>NOT</strong>{' '}
+                                achieve the intended effect if ad-blockers are blocking the domain.
                             </li>
                             <li>
-                                <strong>Use a generic subdomain</strong> such as <code>t.mydomain.com</code> or{' '}
-                                <code>app.mydomain.com</code> instead.
+                                <strong>Use a generic subdomain</strong> such as <code>t.mydomain.com</code> instead.
                             </li>
                         </ul>
                     </LemonBanner>
@@ -363,6 +372,11 @@ const WaitingRecords = (): JSX.Element | null => {
                         />
                     </div>
                 ))}
+            </div>
+            <div className="text-sm">
+                <strong>Important:</strong> If you are using a DNS provider like Cloudflare that offers proxy options
+                (orange cloud), make sure the proxy is <strong>disabled</strong> (gray cloud) for this domain. Enabling
+                the proxy at your DNS provider may interfere with the managed reverse proxy functionality.
             </div>
         </div>
     )

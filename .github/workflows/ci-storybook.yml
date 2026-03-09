@@ -37,7 +37,7 @@ jobs:
                         - 'frontend/**'
                         - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'
-                        - 'common/{esbuilder,storybook,tailwind}/**'
+                        - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
                         - 'ee/frontend/**'
                         - '.storybook/**'
                         - 'package.json'
@@ -46,7 +46,7 @@ jobs:
 
     build-storybook:
         name: Build Storybook
-        runs-on: depot-ubuntu-24.04-8
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 15
         needs: changes
         if: needs.changes.outputs.frontend == 'true'

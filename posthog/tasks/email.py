@@ -1532,7 +1532,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
                 "project_sections": user_team_sections,
                 "disabled_project_names": disabled_team_names,
                 "excluded_project_count": excluded_project_count,
-                "settings_url": f"{settings.SITE_URL}/settings/user-notifications",
+                "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
                 "contact_support_url": "https://posthog.com/support",
                 "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={user.distinct_id}",
             },

@@ -37,8 +37,14 @@ async def format_sse_stream(llm_stream: AsyncGenerator[Any, None]) -> AsyncGener
 
         if not is_raw_passthrough:
             yield b"data: [DONE]\n\n"
-    except Exception:
+    except Exception as e:
         logger.exception("Error in LLM stream")
-        error_data = {"error": {"message": "An internal error has occurred.", "type": "internal_error"}}
+        error_data = {
+            "error": {
+                "message": getattr(e, "message", str(e)),
+                "type": getattr(e, "type", "internal_error"),
+                "code": getattr(e, "code", None),
+            }
+        }
         yield f"data: {json.dumps(error_data)}\n\n".encode()
         raise

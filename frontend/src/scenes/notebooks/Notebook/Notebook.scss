@@ -316,16 +316,16 @@
                 color: var(--text-3000);
             }
 
-            // Tables
-            table {
+            // Tables — :not(.NotebookNode *) excludes LemonTable widgets inside notebook nodes
+            table:not(.NotebookNode *) {
                 width: 100%;
                 margin: 1rem 0;
                 border-spacing: 0;
                 border-collapse: separate;
             }
 
-            table th,
-            table td {
+            table:not(.NotebookNode *) th,
+            table:not(.NotebookNode *) td {
                 position: relative;
                 padding: 0.5rem 0.75rem;
                 vertical-align: top;
@@ -333,26 +333,26 @@
                 border-bottom: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
             }
 
-            table th {
+            table:not(.NotebookNode *) th {
                 font-weight: 600;
                 text-align: left;
                 background: var(--color-bg-surface-primary);
             }
 
-            table tbody tr:nth-child(odd) {
+            table:not(.NotebookNode *) tbody tr:nth-child(odd) {
                 background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 60%);
             }
 
-            table tbody tr:hover {
+            table:not(.NotebookNode *) tbody tr:hover {
                 background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 30%);
             }
 
             // TipTap table cell selection
-            table .selectedCell {
+            table:not(.NotebookNode *) .selectedCell {
                 background: color-mix(in oklab, var(--color-accent), transparent 85%);
             }
 
-            table p {
+            table:not(.NotebookNode *) p {
                 margin: 0;
             }
 

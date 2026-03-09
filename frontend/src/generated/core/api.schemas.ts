@@ -1088,6 +1088,15 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface FlagValueItemApi {
+    name: unknown
+}
+
+export interface FlagValueResponseApi {
+    results: FlagValueItemApi[]
+    refreshing: boolean
+}
+
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -1100,6 +1109,7 @@ export interface SharingConfigurationApi {
 
 /**
  * * `slack` - Slack
+ * `slack-twig` - Slack Twig
  * `salesforce` - Salesforce
  * `hubspot` - Hubspot
  * `google-pubsub` - Google Pubsub
@@ -1126,10 +1136,11 @@ export interface SharingConfigurationApi {
  * `jira` - Jira
  * `pinterest-ads` - Pinterest Ads
  */
-export type KindE61EnumApi = (typeof KindE61EnumApi)[keyof typeof KindE61EnumApi]
+export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi]
 
-export const KindE61EnumApi = {
+export const Kind439EnumApi = {
     Slack: 'slack',
+    SlackTwig: 'slack-twig',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -1162,7 +1173,7 @@ export const KindE61EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindE61EnumApi
+    kind: Kind439EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1184,12 +1195,22 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindE61EnumApi
+    kind?: Kind439EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+}
+
+export interface GitHubRepoApi {
+    id: number
+    name: string
+    full_name: string
+}
+
+export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
 }
 
 /**
@@ -1962,8 +1983,6 @@ export type FlagValueValuesRetrieveParams = {
      */
     key?: string
 }
-
-export type FlagValueValuesRetrieve200Item = { [key: string]: unknown }
 
 /**
  * Unspecified response body

@@ -14,6 +14,7 @@ import {
     IconEye,
     IconFlask,
     IconHide,
+    IconLeave,
     IconLive,
     IconNight,
     IconPieChart,
@@ -37,6 +38,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
@@ -218,6 +220,8 @@ function MoreMenu(): JSX.Element {
         startGracefulExit,
         openHedgehogOptions,
     } = useActions(toolbarLogic)
+    const { isAuthenticated } = useValues(toolbarConfigLogic)
+    const { logout } = useActions(toolbarConfigLogic)
     const { isTakingScreenshot } = useValues(screenshotUploadLogic)
     const { takeScreenshot } = useActions(screenshotUploadLogic)
 
@@ -291,6 +295,7 @@ function MoreMenu(): JSX.Element {
                                 window.open(HELP_URL, '_blank')?.focus()
                             },
                         },
+                        isAuthenticated ? { icon: <IconLeave />, label: 'Sign out', onClick: logout } : undefined,
                         { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
                     ].filter(Boolean) as LemonMenuItems
                 }
@@ -374,8 +379,8 @@ export function Toolbar(): JSX.Element | null {
         useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
         useActions(toolbarLogic)
-    const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
-    const { authenticate } = useActions(toolbarConfigLogic)
+    const { isAuthenticated, userIntent, uiHostCheckStatus, uiHostConfigModalVisible } = useValues(toolbarConfigLogic)
+    const { authenticate, openUiHostConfigModal, closeUiHostConfigModal } = useActions(toolbarConfigLogic)
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
@@ -450,7 +455,7 @@ export function Toolbar(): JSX.Element | null {
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
                     <AnimatedLogomark
-                        animate={isLoading}
+                        animate={isLoading || uiHostCheckStatus === 'checking'}
                         animateOnce={isExiting ? completeGracefulExit : undefined}
                         className="Toolbar__logomark"
                     />
@@ -486,11 +491,28 @@ export function Toolbar(): JSX.Element | null {
                             </ToolbarButton>
                         )}
                     </>
+                ) : uiHostCheckStatus === 'checking' ? (
+                    <ToolbarButton flex>
+                        <span className="flex items-center gap-1">
+                            <Spinner /> Checking…
+                        </span>
+                    </ToolbarButton>
+                ) : uiHostCheckStatus === 'error' ? (
+                    <ToolbarButton
+                        flex
+                        onClick={openUiHostConfigModal}
+                        title="PostHog app unreachable — click for help"
+                    >
+                        <span className="flex items-center gap-1">
+                            Authenticate <IconWarning className="text-warning" />
+                        </span>
+                    </ToolbarButton>
                 ) : (
                     <ToolbarButton flex onClick={authenticate}>
                         Authenticate
                     </ToolbarButton>
                 )}
+                <UiHostConfigModal visible={uiHostConfigModalVisible} onClose={closeUiHostConfigModal} />
 
                 <MoreMenu />
             </div>

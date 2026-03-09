@@ -138,7 +138,11 @@ class ClickHouseError(Exception):
 
 
 class ClickHouseAllReplicasAreStaleError(ClickHouseError):
-    """Exception raised when all replicas are stale."""
+    """Exception raised when all replicas are stale.
+
+    This can happen when using max_replica_delay_for_distributed_queries
+    and fallback_to_stale_replicas_for_distributed_queries=0.
+    """
 
     def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
         super().__init__(error_message, query, query_id)
@@ -163,6 +167,13 @@ class ClickHouseQueryNotFound(ClickHouseError):
 
 class ClickHouseMemoryLimitExceededError(ClickHouseError):
     """Exception raised when a query exceeds the memory limit."""
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
+
+
+class ClickHouseTooManySimultaneousQueriesError(ClickHouseError):
+    """Exception raised when ClickHouse has too many simultaneous queries running."""
 
     def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
         super().__init__(error_message, query, query_id)
@@ -346,43 +357,29 @@ class ClickHouseClient:
             request_data = None
         return request_data
 
-    async def acheck_response(self, response, query) -> None:
-        """Asynchronously check the HTTP response received from ClickHouse.
+    @staticmethod
+    def raise_clickhouse_error(error_message: str, query: str | None = None) -> typing.NoReturn:
+        """Raise the appropriate ClickHouseError subclass based on the error message."""
+        ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
+            "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
+            "MEMORY_LIMIT_EXCEEDED": ClickHouseMemoryLimitExceededError,
+            "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
+        }
+        for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
+            if error_code in error_message:
+                raise exc_class(error_message, query=query)
+        raise ClickHouseError(error_message, query=query)
 
-        Raises:
-            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
-                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
-                and fallback_to_stale_replicas_for_distributed_queries=0
-            ClickHouseMemoryLimitExceededError: If the status code is not 200 and error message contains
-                "MEMORY_LIMIT_EXCEEDED".
-            ClickHouseError: If the status code is not 200.
-        """
+    async def acheck_response(self, response, query) -> None:
+        """Asynchronously check the HTTP response received from ClickHouse."""
         if response.status != 200:
             error_message = await response.text()
-            if "ALL_REPLICAS_ARE_STALE" in error_message:
-                raise ClickHouseAllReplicasAreStaleError(error_message, query=query)
-            if "MEMORY_LIMIT_EXCEEDED" in error_message:
-                raise ClickHouseMemoryLimitExceededError(error_message, query=query)
-            raise ClickHouseError(error_message, query=query)
+            self.raise_clickhouse_error(error_message, query=query)
 
     def check_response(self, response, query) -> None:
-        """Check the HTTP response received from ClickHouse.
-
-        Raises:
-            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
-                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
-                and fallback_to_stale_replicas_for_distributed_queries=0
-            ClickHouseMemoryLimitExceededError: If the status code is not 200 and error message contains
-                "MEMORY_LIMIT_EXCEEDED".
-            ClickHouseError: If the status code is not 200.
-        """
+        """Check the HTTP response received from ClickHouse."""
         if response.status_code != 200:
-            error_message = response.text
-            if "ALL_REPLICAS_ARE_STALE" in error_message:
-                raise ClickHouseAllReplicasAreStaleError(error_message, query=query)
-            if "MEMORY_LIMIT_EXCEEDED" in error_message:
-                raise ClickHouseMemoryLimitExceededError(error_message, query=query)
-            raise ClickHouseError(error_message, query=query)
+            self.raise_clickhouse_error(response.text, query=query)
 
     @contextlib.asynccontextmanager
     async def aget_query(

@@ -6,33 +6,32 @@ import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } fro
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    PluginServerService,
+    PluginsServerConfig,
+} from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
 import { createCdpCoreServices } from './cdp-services'
+import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import {
     CdpSourceWebhooksConsumer,
-    CdpSourceWebhooksConsumerHub,
     HogFunctionWebhookResult,
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
-import {
-    HogTransformerService,
-    HogTransformerServiceDeps,
-    createHogTransformerService,
-} from './hog-transformations/hog-transformer.service'
+import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
-import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
-import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
-import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
-import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
@@ -43,23 +42,8 @@ import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from '
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
-/**
- * Hub type for CdpApi.
- * Combines all hub types needed by CdpApi and its dependencies.
- */
-export type CdpApiHub = CdpSourceWebhooksConsumerHub &
-    HogTransformerServiceDeps &
-    Pick<
-        Hub,
-        | 'teamManager'
-        | 'SITE_URL'
-        | 'REDIS_URL'
-        | 'REDIS_POOL_MIN_SIZE'
-        | 'REDIS_POOL_MAX_SIZE'
-        | 'CDP_REDIS_HOST'
-        | 'CDP_REDIS_PORT'
-        | 'CDP_REDIS_PASSWORD'
-    >
+export type CdpApiConfig = PluginsServerConfig
+export type CdpApiDeps = CdpConsumerBaseDeps
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -67,33 +51,28 @@ export class CdpApi {
     private segmentDestinationExecutorService: SegmentDestinationExecutorService
 
     private hogFunctionManager: HogFunctionManagerService
-    private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     private hogFlowManager: HogFlowManagerService
-    private recipientsManager: RecipientsManagerService
 
     private hogFlowExecutor: HogFlowExecutorService
-    private hogFlowFunctionsService: HogFlowFunctionsService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private emailTrackingService: EmailTrackingService
-    private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
     private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
     private batchExportHogFunctionService: BatchExportHogFunctionService
 
-    constructor(private hub: CdpApiHub) {
-        const services = createCdpCoreServices(hub, 'cdp-api-redis')
+    constructor(
+        private config: PluginsServerConfig,
+        private deps: CdpApiDeps
+    ) {
+        const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
 
         this.hogFunctionManager = services.hogFunctionManager
-        this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
         this.hogFlowManager = services.hogFlowManager
-        this.recipientsManager = services.recipientsManager
         this.recipientTokensService = services.recipientTokensService
         this.hogExecutor = services.hogExecutor
-        this.hogFlowFunctionsService = services.hogFlowFunctionsService
-        this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
@@ -101,16 +80,17 @@ export class CdpApi {
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
 
         // API-only services
-        this.hogTransformer = createHogTransformerService(hub)
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
+        this.hogTransformer = createHogTransformerService(config, deps)
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
             this.hogFunctionMonitoringService
         )
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
-            hub.SITE_URL,
-            hub.teamManager,
+            config.SITE_URL,
+            deps.teamManager,
+            new GroupsManagerService(deps.teamManager, deps.groupRepository),
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
@@ -128,7 +108,7 @@ export class CdpApi {
 
     async start(): Promise<void> {
         this.cdpWarehouseKafkaProducer = await KafkaProducerWrapper.create(
-            this.hub.KAFKA_CLIENT_RACK,
+            this.config.KAFKA_CLIENT_RACK,
             'WAREHOUSE_PRODUCER'
         )
         await this.cdpSourceWebhooksConsumer.start()
@@ -300,14 +280,14 @@ export class CdpApi {
             const hogFunction = isNewFunction
                 ? null
                 : await this.hogFunctionManager.fetchHogFunction(req.params.id).catch(() => null)
-            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
 
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
             }
 
             globals = clickhouse_event
-                ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.hub.SITE_URL)
+                ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.config.SITE_URL)
                 : globals
 
             if (!globals || !globals.event) {
@@ -337,7 +317,7 @@ export class CdpApi {
                 project: {
                     id: team.id,
                     name: team.name,
-                    url: `${this.hub.SITE_URL}/project/${team.id}`,
+                    url: `${this.config.SITE_URL}/project/${team.id}`,
                     ...globals.project,
                 },
             }
@@ -459,7 +439,7 @@ export class CdpApi {
             const isNewHogFlow = req.params.id === 'new'
             const hogFlow = isNewHogFlow ? null : await this.hogFlowManager.getHogFlow(req.params.id)
 
-            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
 
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
@@ -475,7 +455,7 @@ export class CdpApi {
                 ? convertToHogFunctionInvocationGlobals(
                       clickhouse_event,
                       team,
-                      this.hub.SITE_URL ?? 'http://localhost:8000'
+                      this.config.SITE_URL ?? 'http://localhost:8000'
                   )
                 : req.body.globals
 
@@ -495,7 +475,7 @@ export class CdpApi {
                 project: {
                     id: team.id,
                     name: team.name,
-                    url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
                 },
             }
 
@@ -539,7 +519,7 @@ export class CdpApi {
 
             logger.info('⚡️', 'Received hogflow batch invocation', { id, team_id, parent_run_id })
 
-            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
 
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
@@ -552,7 +532,7 @@ export class CdpApi {
             }
 
             // Queue a message for the CDP batch producer to consume
-            const kafkaProducer = this.hub.kafkaProducer
+            const kafkaProducer = this.deps.kafkaProducer
             if (!kafkaProducer) {
                 return res.status(500).json({ error: 'Kafka producer not available' })
             }

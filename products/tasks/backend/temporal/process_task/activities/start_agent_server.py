@@ -69,6 +69,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 task_id=ctx.task_id,
                 run_id=ctx.run_id,
                 mode=ctx.mode,
+                interaction_origin=ctx.interaction_origin,
             )
         except Exception as e:
             raise SandboxExecutionError(

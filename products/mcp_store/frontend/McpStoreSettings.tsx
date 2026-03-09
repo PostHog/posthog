@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { IconCheck, IconPlus, IconServer, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -10,18 +10,27 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { teamLogic } from 'scenes/teamLogic'
 
 import IconPostHogService from 'public/posthog-icon.svg'
+import IconAtlassianService from 'public/services/atlassian.svg'
+import IconAttioService from 'public/services/attio.png'
+import IconCanvaService from 'public/services/canva.svg'
 import IconGitHubService from 'public/services/github.svg'
 import IconLinearService from 'public/services/linear.svg'
+import IconMondayService from 'public/services/monday.svg'
 import IconNotionService from 'public/services/notion.svg'
 
 import { AddCustomServerModal } from './AddCustomServerModal'
-import { MCPServerInstallation, RecommendedServer, mcpStoreLogic } from './mcpStoreLogic'
+import type { MCPServerInstallationApi, RecommendedServerApi } from './generated/api.schemas'
+import { mcpStoreLogic } from './mcpStoreLogic'
 
 const SERVER_ICONS: Record<string, string> = {
     'PostHog MCP': IconPostHogService,
     Linear: IconLinearService,
     GitHub: IconGitHubService,
     Notion: IconNotionService,
+    Monday: IconMondayService,
+    Canva: IconCanvaService,
+    Attio: IconAttioService,
+    Atlassian: IconAtlassianService,
 }
 
 function ConnectOAuthButton({
@@ -70,10 +79,37 @@ function ConnectOAuthButton({
 export function McpStoreSettings(): JSX.Element {
     const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)
-    const { uninstallServer, openAddCustomServerModal, openAddCustomServerModalWithDefaults } =
-        useActions(mcpStoreLogic)
+    const {
+        uninstallServer,
+        toggleServerEnabled,
+        openAddCustomServerModal,
+        openAddCustomServerModalWithDefaults,
+        loadInstallations,
+        loadServers,
+    } = useActions(mcpStoreLogic)
     const { currentTeamId } = useValues(teamLogic)
     const [searchTerm, setSearchTerm] = useState('')
+
+    const refreshMcpStoreState = useCallback(() => {
+        loadInstallations()
+        loadServers()
+    }, [loadInstallations, loadServers])
+
+    useEffect(() => {
+        const handleVisibilityChange = (): void => {
+            if (document.visibilityState === 'visible') {
+                refreshMcpStoreState()
+            }
+        }
+
+        window.addEventListener('focus', refreshMcpStoreState)
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+
+        return () => {
+            window.removeEventListener('focus', refreshMcpStoreState)
+            document.removeEventListener('visibilitychange', handleVisibilityChange)
+        }
+    }, [refreshMcpStoreState])
 
     return (
         <>
@@ -90,7 +126,7 @@ export function McpStoreSettings(): JSX.Element {
                 columns={[
                     {
                         width: 0,
-                        render: (_: any, installation: MCPServerInstallation) => {
+                        render: (_: any, installation: MCPServerInstallationApi) => {
                             const iconSrc = SERVER_ICONS[installation.name]
                             return iconSrc ? (
                                 <div className="w-6 h-6 flex items-center justify-center">
@@ -105,7 +141,7 @@ export function McpStoreSettings(): JSX.Element {
                     },
                     {
                         title: 'Name',
-                        render: (_: any, installation: MCPServerInstallation) => (
+                        render: (_: any, installation: MCPServerInstallationApi) => (
                             <div>
                                 <span className="font-semibold">{installation.name}</span>
                                 {installation.description && (
@@ -116,13 +152,13 @@ export function McpStoreSettings(): JSX.Element {
                     },
                     {
                         width: 0,
-                        render: (_: any, installation: MCPServerInstallation) => (
+                        render: (_: any, installation: MCPServerInstallationApi) => (
                             <div className="flex items-center justify-end">
                                 {installation.pending_oauth ? (
                                     <ConnectOAuthButton
                                         name={installation.display_name || installation.name}
-                                        url={installation.url}
-                                        description={installation.description}
+                                        url={installation.url ?? ''}
+                                        description={installation.description ?? ''}
                                     />
                                 ) : installation.needs_reauth && installation.server_id ? (
                                     <LemonButton
@@ -135,16 +171,20 @@ export function McpStoreSettings(): JSX.Element {
                                         Reconnect
                                     </LemonButton>
                                 ) : (
-                                    <LemonTag type="success" icon={<IconCheck />}>
-                                        Active
-                                    </LemonTag>
+                                    <LemonSwitch
+                                        checked={installation.is_enabled !== false}
+                                        onChange={(checked) =>
+                                            toggleServerEnabled({ id: installation.id, enabled: checked })
+                                        }
+                                        size="small"
+                                    />
                                 )}
                             </div>
                         ),
                     },
                     {
                         width: 0,
-                        render: (_: any, installation: MCPServerInstallation) => (
+                        render: (_: any, installation: MCPServerInstallationApi) => (
                             <More
                                 overlay={
                                     <LemonMenuOverlay
@@ -167,7 +207,7 @@ export function McpStoreSettings(): JSX.Element {
             {recommendedServers.length > 0 && (
                 <>
                     <div className="flex-col items-center justify-between mt-4 mb-2">
-                        <h3 className="mb-4">Recommended servers</h3>
+                        <h3 className="mb-4">Pre-configured servers</h3>
                         <LemonInput
                             type="search"
                             placeholder="Search MCP servers..."
@@ -178,7 +218,7 @@ export function McpStoreSettings(): JSX.Element {
                     <LemonTable
                         loading={serversLoading}
                         dataSource={recommendedServers.filter(
-                            (s: RecommendedServer) =>
+                            (s: RecommendedServerApi) =>
                                 !searchTerm ||
                                 s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                 s.description.toLowerCase().includes(searchTerm.toLowerCase())
@@ -186,8 +226,8 @@ export function McpStoreSettings(): JSX.Element {
                         columns={[
                             {
                                 width: 0,
-                                render: (_: any, server: RecommendedServer) => {
-                                    const iconSrc = SERVER_ICONS[server.name] || server.icon_url
+                                render: (_: any, server: RecommendedServerApi) => {
+                                    const iconSrc = SERVER_ICONS[server.name]
                                     return iconSrc ? (
                                         <div className="w-6 h-6 flex items-center justify-center">
                                             <img src={iconSrc} alt="" className="w-6 h-6" />
@@ -202,8 +242,9 @@ export function McpStoreSettings(): JSX.Element {
                             {
                                 title: 'Name',
                                 key: 'name',
-                                sorter: (a: RecommendedServer, b: RecommendedServer) => a.name.localeCompare(b.name),
-                                render: (_: any, server: RecommendedServer) => (
+                                sorter: (a: RecommendedServerApi, b: RecommendedServerApi) =>
+                                    a.name.localeCompare(b.name),
+                                render: (_: any, server: RecommendedServerApi) => (
                                     <div>
                                         <span className="font-semibold">{server.name}</span>
                                         {server.description && (
@@ -214,7 +255,7 @@ export function McpStoreSettings(): JSX.Element {
                             },
                             {
                                 width: 0,
-                                render: (_: any, server: RecommendedServer) => (
+                                render: (_: any, server: RecommendedServerApi) => (
                                     <div className="flex items-center justify-end">
                                         {installedServerUrls.has(server.url) ? (
                                             <LemonTag type="success" icon={<IconCheck />}>

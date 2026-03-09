@@ -629,6 +629,22 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
         )
 
 
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def sync_billing_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from posthog.tasks.sync_billing import sync_members_to_billing
+
+    if not is_cloud():
+        return
+
+    organization_id = str(instance.organization_id)
+
+    def _sync_if_org_exists():
+        if Organization.objects.filter(id=organization_id).exists():
+            sync_members_to_billing.delay(organization_id)
+
+    transaction.on_commit(_sync_if_org_exists)
+
+
 @receiver(models.signals.pre_save, sender=OrganizationMembership)
 def organization_membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
     from posthog.event_usage import report_user_organization_membership_level_changed

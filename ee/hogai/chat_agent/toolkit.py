@@ -36,7 +36,6 @@ from ee.hogai.utils.feature_flags import (
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
-    has_web_search_feature_flag,
 )
 from ee.hogai.utils.types.base import AssistantState
 
@@ -141,7 +140,6 @@ class ChatAgentToolkitManager(AgentToolkitManager):
                 available_tools.append(mcp_tool)
 
         # Final tools = available contextual tools + LLM provider server tools
-        if has_web_search_feature_flag(self._team, self._user):
-            available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
+        available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
         return available_tools

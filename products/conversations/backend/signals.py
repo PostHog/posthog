@@ -103,7 +103,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             if is_team_message and created_by_id:
                 user = User.objects.filter(id=created_by_id).first()
                 if user:
-                    report_user_action(user, "support message sent", props, ticket.team)
+                    report_user_action(user, "support message sent", props, team=ticket.team)
             else:
                 report_team_action(ticket.team, "support message received", props)
         except Ticket.DoesNotExist:

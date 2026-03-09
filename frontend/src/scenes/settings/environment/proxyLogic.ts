@@ -21,7 +21,7 @@ import type { proxyLogicType } from './proxyLogicType'
 export type ProxyRecord = {
     id: string
     domain: string
-    status: 'waiting' | 'issuing' | 'valid' | 'erroring' | 'deleting'
+    status: 'waiting' | 'issuing' | 'valid' | 'warning' | 'erroring' | 'deleting' | 'timed_out'
     message?: string
     target_cname: string
 }
@@ -41,7 +41,7 @@ export function domainFor(proxyRecord: ProxyRecord | undefined): string {
     return domain
 }
 
-const RISKY_DOMAIN_PATTERNS = /posthog|analytics|tracking|tracker|pixel|telemetry|measure|collect|beacon/i
+const RISKY_DOMAIN_PATTERNS = /\bph\.|posthog|analytics|tracking|tracker|pixel|telemetry|measure|collect|beacon/i
 
 function isRiskyDomain(domain: string): boolean {
     return RISKY_DOMAIN_PATTERNS.test(domain)
@@ -136,6 +136,15 @@ export const proxyLogic = kea<proxyLogicType>([
                 }))
                 return newRecords
             },
+            retryRecord: async (id: ProxyRecord['id']) => {
+                await api.create(`api/organizations/${values.currentOrganization?.id}/proxy_records/${id}/retry`)
+                lemonToast.success('Retry initiated')
+                return values.proxyRecords.map((r) => ({
+                    ...r,
+                    status: r.id === id ? 'waiting' : r.status,
+                    message: r.id === id ? undefined : r.message,
+                })) as ProxyRecord[]
+            },
         },
     })),
     selectors(() => ({
@@ -149,6 +158,7 @@ export const proxyLogic = kea<proxyLogicType>([
     listeners(({ actions, values }) => ({
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
+        retryRecordFailure: () => actions.loadRecords(),
         createRecordSuccess: () => actions.loadRecords(),
         loadRecordsSuccess: ({ proxyRecords }) => {
             // Mark the reverse proxy setup task as completed if any proxy is valid

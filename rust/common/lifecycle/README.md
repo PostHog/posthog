@@ -16,6 +16,7 @@ Summary of how the library works and can be intergrated into your Rust services.
 - Register each app component on `Manager` and configure:
   - Optional active health reporting (usually not needed)
   - Optional graceful shutdown timeout (overrides global)
+  - If handle is for metrics server (etc.) set `builder.is_observability(true)`
   - Returns a `HealthHandle`
 - Pass or clone the health handle to the component prior to blocking in `main`:
   - If component is a function, clone handle into it's scope
@@ -23,7 +24,7 @@ Summary of how the library works and can be intergrated into your Rust services.
   - If the component runs for the full app lifecycle:
     - Create a drop guard at the top of the processing loop
     - Example: `let _completed = handle.process_scope();`
-    - Call `handle.work_completed();` prior to a clean exit
+    - Optional: call `handle.work_completed();` prior to a clean exit
     - Return an error or panic to signal completion and app shutdown
   - If using active health reporting:
     - Call `handle.report_healthy();` regularly
@@ -106,6 +107,7 @@ All options except `name` have sensible defaults.
 | `.with_prestop_check(bool)`               | Poll for pre-stop shutdown file (K8s pre-stop hook pattern).                                                                                                                                                   | `true`          |
 | `.with_prestop_path(path)`                | Override the pre-stop file path.                                                                                                                                                                               | `/tmp/shutdown` |
 | `.with_health_poll_interval(duration)`    | Override health monitor poll frequency. The health monitor is automatically active when any component has `with_liveness_deadline`. (see test `stall_triggers_shutdown`)                                       | `5s`            |
+| `.with_shutdown_token(token)`             | Caller supplies an external `CancellationToken`. Use in tests to trigger deterministic, app-global shutdown (simulate `SIGTERM` from k8s etc.)                                                                                   | `None`          |
 | `.build()`                                | Consume the builder and produce a `Manager`.                                                                                                                                                                   | —               |
 
 ### register() / ComponentOptions
@@ -115,7 +117,8 @@ All options except `name` have sensible defaults.
 | Method                              | Effect                                                                                                                                                                                                                                 | Default                                                            |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `ComponentOptions::new()`           | Base options with defaults for all fields.                                                                                                                                                                                             | —                                                                  |
-| `.with_graceful_shutdown(duration)` | Max time for this component to clean up after shutdown begins. Exceeded = marked timed out. (see test `component_timeout_then_late_drop_preserves_timeout`)                                                                            | `None` — waits indefinitely (bounded by `global_shutdown_timeout`) |
+| `.is_observability(bool)`           | Mark as an observability handle (e.g. metrics server). Shut down *after* all standard components finish. Cannot combine with `with_liveness_deadline`. (see test `observability_handle_shuts_down_after_standard_handles`)              | `false`                                                            |
+| `.with_graceful_shutdown(duration)` | Max time for this component to clean up after shutdown begins. Exceeded = marked timed out. (see test `component_timeout_then_late_drop_preserves_timeout`)                                                                            | `None` — waits indefinitely (bounded by `global_shutdown_timeout`). Observability handles default to `1s` if unset. |
 | `.with_liveness_deadline(duration)` | Component must call `report_healthy()` within this interval or the health monitor considers it stalled. After `stall_threshold` consecutive stalled checks, the manager triggers global shutdown. (see test `stall_triggers_shutdown`) | `None` — no health monitoring                                      |
 | `.with_stall_threshold(n)`          | Number of consecutive stalled health checks before the manager triggers global shutdown. Set higher for tolerance of transient hiccups. Only meaningful with `with_liveness_deadline`. (see test `stall_threshold_allows_recovery`)    | `1` — immediate shutdown on first stall                            |
 
@@ -130,9 +133,12 @@ Components in **Starting** state (never called `report_healthy()`) are skipped b
 ### Axum route setup
 
 ```rust
+let metrics_handle = manager.register(
+    "metrics",
+    ComponentOptions::new().is_observability(true),
+);
 let readiness = manager.readiness_handler();
 let liveness = manager.liveness_handler();
-let shutdown = manager.shutdown_signal();
 
 let app = Router::new()
     .route("/_readiness", get({
@@ -148,8 +154,9 @@ let guard = manager.monitor_background();
 
 let listener = TcpListener::bind("0.0.0.0:8080").await?;
 axum::serve(listener, app)
-    .with_graceful_shutdown(shutdown)
+    .with_graceful_shutdown(metrics_handle.shutdown_signal())
     .await?;
+metrics_handle.work_completed();
 
 guard.wait().await?;
 ```
@@ -224,11 +231,56 @@ async fn consumer_loop(handle: lifecycle::Handle) {
 
 After `signal_failure()`, just return — the manager records the failure immediately and the subsequent handle drop is harmlessly ignored. For normal shutdown or `request_shutdown()`, just return too — drop during shutdown is treated as completion. For one-shot/finite work that completes during normal operation, call `work_completed()` to prevent the drop from signaling "died". (see test `direct_work_completed_prevents_died_on_drop`)
 
+### Pull-based worker pattern (poll-for-work loop)
+
+Use when your component polls for work (e.g. claim a job from a queue, process it, loop) rather than receiving pushed messages.
+The key difference from the push-based patterns above: there's no inner `tokio::select!` on the work itself — instead, check `is_shutting_down()` at logical boundaries between units of work.
+Active health reporting (`with_liveness_deadline`) is typically not needed here — individual network clients (S3, Kafka, PG) should have their own timeouts as the defense against hangs.
+
+```rust
+let job_handle = manager.register(
+    "job-loop",
+    ComponentOptions::new()
+        .with_graceful_shutdown(Duration::from_secs(30)),
+);
+let monitor = manager.monitor_background();
+
+tokio::spawn(async move {
+    let _guard = job_handle.process_scope();
+
+    while !job_handle.is_shutting_down() {
+        let Some(job) = claim_next_job().await else {
+            // No work available — sleep, but wake immediately on shutdown
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {},
+                _ = job_handle.shutdown_recv() => break,
+            }
+            continue;
+        };
+
+        // Process the job; check shutdown at logical boundaries
+        if let Err(e) = job.process().await {
+            tracing::error!("job failed: {e}");
+        }
+    }
+});
+
+monitor.wait().await?;
+```
+
+Key points:
+
+- **`process_scope()`** in the spawned task — the manager is notified when the task returns.
+- **`is_shutting_down()`** as the while-loop condition — sync check, no allocation.
+- **`tokio::select!`** on idle sleep + `shutdown_recv()` — responsive wakeup instead of sleeping through a shutdown signal.
+- **No `with_liveness_deadline`** — the worker is pull-based and may legitimately idle. Client-level timeouts (S3, PG, Kafka) prevent indefinite hangs in network calls.
+
 ### Handle API summary
 
 | Method                   | Use when                                                                                                                                                                                              |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shutdown_recv()`        | In `tokio::select!` to react to shutdown.                                                                                                                                                             |
+| `shutdown_recv()`        | In `tokio::select!` to react to shutdown. Returns a borrowed future — zero allocation per call. (see test `component_a_clean_shutdown`)                                                               |
+| `shutdown_signal()`      | Owned `'static` future for passing to `axum::serve(...).with_graceful_shutdown(handle.shutdown_signal())`. Clones the internal token once. (see test `handle_shutdown_signal_method`)                  |
 | `is_shutting_down()`     | Sync check (e.g. in a hot loop) to bail out.                                                                                                                                                          |
 | `signal_failure(reason)` | Fatal error; triggers global shutdown. Just return after calling it.                                                                                                                                  |
 | `request_shutdown()`     | Request clean shutdown (non-fatal). Then return (drop is enough).                                                                                                                                     |
@@ -244,6 +296,72 @@ After `signal_failure()`, just return — the manager records the failure immedi
 3. **Health monitoring** — Activated by `with_liveness_deadline` on any component. You must call `report_healthy()` more frequently than `liveness_deadline`, or the health monitor triggers global shutdown after `stall_threshold` consecutive stalled checks. Components that haven't called `report_healthy()` yet (Starting state) are skipped. Use `with_health_poll_interval` on the builder to tune poll frequency (default 5s).
 4. **Struct-held handles** — If your struct owns the handle and `process()` is the run method, use `process_scope()`. Otherwise the manager is only notified when the struct is dropped, not when `process()` returns.
 
+## Observability handles
+
+Observability handles (`is_observability(true)`) implement **two-phase shutdown**: they stay alive while standard components drain, so metrics/health endpoints remain available throughout graceful shutdown.
+
+```text
+Phase 1: Normal operation — all components running
+Phase 2: Standard drain — standard shutdown_token cancelled, standard components drain
+Phase 3: Observability drain — observability shutdown_token cancelled, obs components drain (default 1s timeout)
+```
+
+### When to use
+
+Use `is_observability(true)` for components that serve infrastructure endpoints (metrics, health, pprof) and should outlive the app's business logic during shutdown. The canonical example is a metrics HTTP server.
+
+### Behavior
+
+- **Separate `CancellationToken`**: Observability handles receive a different token than standard handles. `handle.shutdown_recv()` and `handle.shutdown_signal()` resolve at the right time for each tier automatically.
+- **No health monitoring**: Observability handles cannot use `with_liveness_deadline` (panics at registration). They're lightweight infrastructure; active heartbeating would add complexity for no benefit.
+- **No metrics during Phase 3**: The manager only emits `tracing` logs for observability component outcomes. Since the metrics server itself may be draining, metric emission would be unreliable.
+- **Default 1s timeout**: Observability handles without explicit `with_graceful_shutdown` get a 1-second timeout. Override with `.with_graceful_shutdown(duration)` if your metrics server needs longer.
+- **Failures during normal operation**: An observability handle calling `signal_failure()` during Phase 1 triggers global shutdown for *all* components, same as a standard handle. (see test `observability_failure_during_normal_operation_triggers_shutdown`)
+
+### Example: metrics server as observability handle
+
+```rust
+let mut manager = Manager::builder("my-service").build();
+
+let consumer_handle = manager.register("consumer", ComponentOptions::new()
+    .with_graceful_shutdown(Duration::from_secs(10))
+    .with_liveness_deadline(Duration::from_secs(30)));
+
+let metrics_handle = manager.register("metrics", ComponentOptions::new()
+    .is_observability(true));
+
+let readiness = manager.readiness_handler();
+let liveness = manager.liveness_handler();
+let guard = manager.monitor_background();
+
+// Consumer task — uses standard shutdown token
+tokio::spawn(async move {
+    let _scope = consumer_handle.process_scope();
+    loop {
+        tokio::select! {
+            _ = consumer_handle.shutdown_recv() => return,
+            msg = recv_message() => {
+                process(msg).await;
+                consumer_handle.report_healthy();
+            }
+        }
+    }
+});
+
+// Metrics server — uses observability shutdown token, stays alive during consumer drain
+let app = Router::new()
+    .route("/_readiness", get(move || async move { readiness.check().await }))
+    .route("/_liveness", get(move || async move { liveness.check().into_response() }));
+
+let listener = TcpListener::bind("0.0.0.0:9090").await?;
+axum::serve(listener, app)
+    .with_graceful_shutdown(metrics_handle.shutdown_signal())
+    .await?;
+metrics_handle.work_completed();
+
+guard.wait().await?;
+```
+
 ## Metrics
 
 The crate emits metrics via the `metrics` facade (no recorder installed by this crate; the parent app does that). All metrics are segmented by `**service_name`**: set the name in `Manager::builder("name")` to your app's service name (e.g. K8s service name or logical app name) so dashboards and alerts can filter by service.
@@ -256,7 +374,7 @@ The crate emits metrics via the `metrics` facade (no recorder installed by this 
 | `lifecycle_shutdown_completed_total`            | Counter   | `service_name`, `clean`                               | Once when monitor returns successfully         |
 | `lifecycle_component_healthy`                   | Gauge     | `service_name`, `component`                           | Continuously during normal operation           |
 
-Label values: `trigger_reason` = `signal`, `prestop`, `failure`, `requested`, `died`; `result` = `completed`, `timeout`, `died`; `clean` = `true` / `false`.
+Label values: `trigger_reason` = `signal`, `failure`, `requested`, `died`; `result` = `completed`, `timeout`, `died`; `clean` = `true` / `false`.
 
 `lifecycle_shutdown_completed_total` is **not** emitted on global timeout or if the process is killed; that asymmetry with `lifecycle_shutdown_initiated_total` is how incomplete shutdowns (e.g. SIGKILL) are detected.
 
@@ -291,6 +409,26 @@ by `component`, `result`.
 - Incomplete shutdown count > 0 over 1h:
 `increase(lifecycle_shutdown_initiated_total{service_name="$service_name"}[1h]) - increase(lifecycle_shutdown_completed_total{service_name="$service_name"}[1h]) > 0`
 - Component unhealthy for > 2 consecutive scrapes: e.g. alert when `lifecycle_component_healthy{service_name="$service_name"}` is 0 for a given component for 2 scrape intervals.
+
+## Testing
+
+For deterministic shutdown in tests, use `with_shutdown_token` on the builder. The test holds the token and calls `token.cancel()` to trigger shutdown:
+
+```rust
+use tokio_util::sync::CancellationToken;
+
+let shutdown_token = CancellationToken::new();
+let mut manager = Manager::builder("test-service")
+    .with_trap_signals(false)
+    .with_prestop_check(false)
+    .with_shutdown_token(shutdown_token.clone())
+    .build();
+
+// ... register components, spawn monitor_background, spawn component tasks ...
+
+shutdown_token.cancel(); // test triggers shutdown
+guard.wait().await?;
+```
 
 ## SIGKILL detection
 
