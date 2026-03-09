@@ -1991,6 +1991,9 @@ public:
     std::vector<antlr4::tree::TerminalNode *> RPAREN();
     antlr4::tree::TerminalNode* RPAREN(size_t i);
     antlr4::tree::TerminalNode *DISTINCT();
+    antlr4::tree::TerminalNode *ORDER();
+    antlr4::tree::TerminalNode *BY();
+    OrderExprListContext *orderExprList();
     std::vector<ColumnExprListContext *> columnExprList();
     ColumnExprListContext* columnExprList(size_t i);
 

@@ -915,6 +915,7 @@ class Call(Expr):
     """
     distinct: bool = False
     within_group: Optional[list["OrderExpr"]] = None
+    order_by: Optional[list["OrderExpr"]] = None
 
 
 @dataclass(kw_only=True)

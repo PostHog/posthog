@@ -782,10 +782,12 @@ class HogQLPrinter(Visitor[str]):
             )
 
             params_part = f"({', '.join(params)})" if params is not None else ""
+            order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+            args_body = f"{'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)}{order_by_part}"
             args_part = (
                 ""
-                if node.within_group is not None and len(arg_strings) == 0 and not node.distinct
-                else f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+                if node.within_group is not None and len(arg_strings) == 0 and not node.distinct and not node.order_by
+                else f"({args_body})"
             )
 
             if node.within_group is not None and not func_meta.requires_within_group:
@@ -945,10 +947,12 @@ class HogQLPrinter(Visitor[str]):
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
                 params_part = f"({', '.join(params)})" if params is not None else ""
-                args_part = f"({', '.join(args)})"
+                order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+                args_part = f"({', '.join(args)}{order_by_part})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+                order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])}{order_by_part})"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(
                 node.args,

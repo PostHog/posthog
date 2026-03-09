@@ -1193,7 +1193,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         args: list[ast.Expr] = self.visit(ctx.columnArgList) if ctx.columnArgList is not None else []
         distinct = True if ctx.DISTINCT() else False
-        return ast.Call(name=name, params=parameters, args=args, distinct=distinct)
+        order_by = self.visit(ctx.orderExprList()) if ctx.orderExprList() else None
+        return ast.Call(name=name, params=parameters, args=args, distinct=distinct, order_by=order_by)
 
     def visitColumnExprFunctionWithinGroup(self, ctx: HogQLParser.ColumnExprFunctionWithinGroupContext):
         name = self.visit(ctx.identifier())

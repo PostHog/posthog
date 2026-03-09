@@ -2018,6 +2018,12 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["params"] = params_json;
     json["args"] = args_json;
     json["distinct"] = ctx->DISTINCT() != nullptr;
+    auto order_expr_list_ctx = ctx->orderExprList();
+    if (order_expr_list_ctx) {
+      json["order_by"] = visitAsJSON(order_expr_list_ctx);
+    } else {
+      json["order_by"] = Json();
+    }
     return json;
   }
 
