@@ -607,6 +607,8 @@ TOOLBAR_OAUTH_SCOPES = [
     "uploaded_media:write",
 ]
 
+ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
+
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 

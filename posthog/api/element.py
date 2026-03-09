@@ -1,5 +1,6 @@
-import os
 from typing import Literal
+
+from django.conf import settings
 
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Histogram
@@ -17,8 +18,6 @@ from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
-
-ELEMENT_STATS_DEFAULT_LIMIT = int(os.environ.get("ELEMENT_STATS_DEFAULT_LIMIT", 50_000))
 
 ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "element_stats_time_seconds",
@@ -87,7 +86,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 date_params.update(date_to_params)
 
                 try:
-                    limit = int(request.query_params.get("limit", ELEMENT_STATS_DEFAULT_LIMIT))
+                    limit = int(request.query_params.get("limit", settings.ELEMENT_STATS_DEFAULT_LIMIT))
                 except ValueError:
                     raise ValidationError("Limit must be an integer")
 
