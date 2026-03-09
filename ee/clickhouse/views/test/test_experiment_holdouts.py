@@ -206,3 +206,20 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Rollout percentage must be present.")
+
+    def test_update_with_empty_filters_is_rejected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts/",
+            data={
+                "name": "Test holdout",
+                "filters": [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}],
+            },
+            format="json",
+        )
+        holdout_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_holdouts/{holdout_id}",
+            {"filters": []},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

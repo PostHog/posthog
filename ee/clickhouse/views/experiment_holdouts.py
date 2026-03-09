@@ -52,6 +52,9 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
         return updated_filters
 
     def validate_filters(self, filters):
+        if not filters:
+            raise serializers.ValidationError("Filters must not be empty.")
+
         for filter in filters:
             rollout_percentage = filter.get("rollout_percentage")
             if rollout_percentage is None:
