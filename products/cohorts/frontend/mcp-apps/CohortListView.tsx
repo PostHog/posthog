@@ -25,7 +25,11 @@ export function CohortListView({ data, onCohortClick }: CohortListViewProps): Re
                 return
             }
             setViewState({ view: 'loading', name: cohort.name })
-            const detail = await onCohortClick(cohort)
+            const detail = await onCohortClick(cohort).catch((error) => {
+                console.error('Error loading cohort detail:', error)
+                return null
+            })
+
             if (detail) {
                 setViewState({ view: 'detail', cohort: detail })
             } else {
@@ -58,8 +62,6 @@ export function CohortListView({ data, onCohortClick }: CohortListViewProps): Re
             </div>
         )
     }
-
-    const items = Array.isArray(data.results) ? data.results : Array.isArray(data) ? data : []
 
     const columns: DataTableColumn<CohortData>[] = [
         {
@@ -116,12 +118,12 @@ export function CohortListView({ data, onCohortClick }: CohortListViewProps): Re
             <Stack gap="sm">
                 <div className="flex items-center justify-between">
                     <span className="text-sm text-text-secondary">
-                        {items.length} cohort{items.length === 1 ? '' : 's'}
+                        {data.results.length} cohort{data.results.length === 1 ? '' : 's'}
                     </span>
                 </div>
                 <DataTable<CohortData>
                     columns={columns}
-                    data={items}
+                    data={data.results}
                     pageSize={10}
                     defaultSort={{ key: 'name', direction: 'asc' }}
                     emptyMessage="No cohorts found"
