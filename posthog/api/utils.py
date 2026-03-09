@@ -424,6 +424,11 @@ def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]],
     return hostname_in_allowed_url_list(allowed_url_list, hostname)
 
 
+def _strip_www(host: str) -> str:
+    """Treat www.domain.com and domain.com as equivalent."""
+    return host[4:] if host.startswith("www.") else host
+
+
 def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
     if not hostname:
         return False
@@ -440,7 +445,7 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
             pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
             if re.search(pattern, hostname):
                 return True
-        elif permitted_domain == hostname:
+        elif _strip_www(permitted_domain) == _strip_www(hostname):
             return True
 
     return False

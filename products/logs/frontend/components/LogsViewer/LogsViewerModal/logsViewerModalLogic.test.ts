@@ -86,6 +86,34 @@ describe('logsViewerModalLogic', () => {
         })
     })
 
+    describe('initialFilters', () => {
+        it('defaults to null', () => {
+            expect(logic.values.initialFilters).toBeNull()
+        })
+
+        it('stores provided initialFilters', async () => {
+            const filters = { searchTerm: 'session_id:abc' }
+            await expectLogic(logic, () => {
+                logic.actions.openLogsViewerModal({ initialFilters: filters })
+            }).toMatchValues({ initialFilters: filters })
+        })
+
+        it('defaults to null when not provided in options', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openLogsViewerModal({ id: 'some-id' })
+            }).toMatchValues({ initialFilters: null })
+        })
+
+        it('clears initialFilters on close', async () => {
+            logic.actions.openLogsViewerModal({ initialFilters: { searchTerm: 'test' } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.closeLogsViewerModal()
+            }).toMatchValues({ initialFilters: null })
+        })
+    })
+
     describe('open/close cycle', () => {
         it('restores all state on reopen with different options', async () => {
             logic.actions.openLogsViewerModal({ id: 'first', fullScreen: false })

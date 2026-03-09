@@ -895,7 +895,7 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 
-    // Remove breakdown filter and formulas for box plot
+    // Remove formulas for box plot (formulas don't apply to statistical distributions)
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoxPlot) {
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
         ;(mergedUpdate as TrendsQuery).trendsFilter = {

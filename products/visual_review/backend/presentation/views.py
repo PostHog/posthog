@@ -10,7 +10,7 @@ Responsibilities:
 No business logic here - that belongs in logic.py via the facade.
 """
 
-from typing import Generic, TypeVar, cast
+from typing import cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -19,7 +19,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
@@ -44,20 +44,6 @@ from .serializers import (
     SnapshotSerializer,
     UpdateRepoInputSerializer,
 )
-
-_T = TypeVar("_T")
-
-
-class TypedRequest(ValidatedRequest, Generic[_T]):
-    """ValidatedRequest with a typed validated_data field.
-
-    DataclassSerializer.validated_data returns a dataclass instance, but
-    ValidatedRequest annotates it as dict[str, Any].  This subclass lets
-    view methods declare the actual type so the checker can follow along.
-    """
-
-    validated_data: _T  # type: ignore[assignment]
-
 
 # TODO: Add VISUAL_REVIEW to frontend/src/queries/schema/schema-general.ts ProductKey enum
 # and regenerate posthog/schema.py, then use ProductKey.VISUAL_REVIEW here

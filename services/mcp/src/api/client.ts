@@ -37,7 +37,6 @@ import { type CreateInsightInput, CreateInsightInputSchema, type ListInsightsDat
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
-import type { CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
 import type {
     LogAttribute,
     LogAttributeValue,
@@ -976,7 +975,9 @@ export class ApiClient {
                     return { success: true, data: insight }
                 }
 
-                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`)
+                return this.fetchJson<Schemas.Insight>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
+                )
             },
 
             update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<Schemas.Insight>> => {
@@ -1061,9 +1062,7 @@ export class ApiClient {
 
     dashboards({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListDashboardsData } = {}): Promise<
-                Result<Schemas.Dashboard[]>
-            > => {
+            list: async ({ params }: { params?: ListDashboardsData } = {}): Promise<Result<Schemas.Dashboard[]>> => {
                 const validatedParams = params ? ListDashboardsSchema.parse(params) : undefined
                 const searchParams = new URLSearchParams()
 
@@ -1099,13 +1098,10 @@ export class ApiClient {
             create: async ({ data }: { data: CreateDashboardInput }): Promise<Result<Schemas.Dashboard>> => {
                 const validatedInput = CreateDashboardInputSchema.parse(data)
 
-                return this.fetchJson<Schemas.Dashboard>(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/`,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
+                return this.fetchJson<Schemas.Dashboard>(`${this.baseUrl}/api/projects/${projectId}/dashboards/`, {
+                    method: 'POST',
+                    body: JSON.stringify(validatedInput),
+                })
             },
 
             update: async ({
@@ -1258,9 +1254,7 @@ export class ApiClient {
 
     surveys({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<
-                Result<Array<Schemas.Survey>>
-            > => {
+            list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<Result<Array<Schemas.Survey>>> => {
                 const validatedParams = params ? ListSurveysInputSchema.parse(params) : undefined
                 const searchParams = new URLSearchParams()
 
@@ -1307,10 +1301,13 @@ export class ApiClient {
             }): Promise<Result<Schemas.Survey>> => {
                 const validatedInput = UpdateSurveyInputSchema.parse(data)
 
-                return this.fetchJson<Schemas.Survey>(`${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`, {
-                    method: 'PATCH',
-                    body: JSON.stringify(validatedInput),
-                })
+                return this.fetchJson<Schemas.Survey>(
+                    `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify(validatedInput),
+                    }
+                )
             },
 
             delete: async ({
@@ -1385,11 +1382,15 @@ export class ApiClient {
                         },
                         severityLevels: params.severityLevels ?? [],
                         serviceNames: params.serviceNames ?? [],
-                        searchTerm: params.searchTerm ?? null,
                         orderBy: params.orderBy ?? 'latest',
                         limit: params.limit ?? 100,
                         after: params.after ?? null,
-                        filterGroup: { type: 'AND', values: [] },
+                        filterGroup: params.filters?.length
+                            ? {
+                                  type: 'AND' as const,
+                                  values: [{ type: 'AND' as const, values: params.filters }],
+                              }
+                            : { type: 'AND' as const, values: [] },
                     },
                 }
 
@@ -1434,126 +1435,6 @@ export class ApiClient {
                     return result
                 }
                 return { success: true, data: result.data.results }
-            },
-        }
-    }
-
-    actions({ projectId }: { projectId: string }): Endpoint {
-        return {
-            /**
-             * List all actions in the project
-             */
-            list: async ({ params }: { params?: ListActionsInput } = {}): Promise<Result<Array<Schemas.Action>>> => {
-                const searchParams = new URLSearchParams()
-
-                if (params?.limit) {
-                    searchParams.append('limit', String(params.limit))
-                }
-                if (params?.offset) {
-                    searchParams.append('offset', String(params.offset))
-                }
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/actions/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                const result = await this.fetchJson<{ results: Schemas.Action[] }>(url)
-
-                if (result.success) {
-                    return { success: true, data: result.data.results }
-                }
-
-                return result
-            },
-
-            /**
-             * Get a single action by ID
-             */
-            get: async ({ actionId }: { actionId: number }): Promise<Result<Schemas.Action>> => {
-                return this.fetchJson<Schemas.Action>(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`)
-            },
-
-            /**
-             * Create a new action
-             */
-            create: async ({ data }: { data: CreateActionInput }): Promise<Result<Schemas.Action>> => {
-                const body = {
-                    name: data.name,
-                    description: data.description,
-                    steps: data.steps,
-                    tags: data.tags,
-                    post_to_slack: data.post_to_slack ?? false,
-                    slack_message_format: data.slack_message_format,
-                }
-
-                return this.fetchJson<Schemas.Action>(`${this.baseUrl}/api/projects/${projectId}/actions/`, {
-                    method: 'POST',
-                    body: JSON.stringify(body),
-                })
-            },
-
-            /**
-             * Update an existing action
-             */
-            update: async ({
-                actionId,
-                data,
-            }: {
-                actionId: number
-                data: UpdateActionInput
-            }): Promise<Result<Schemas.Action>> => {
-                return this.fetchJson<Schemas.Action>(
-                    `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    }
-                )
-            },
-
-            /**
-             * Soft delete an action (sets deleted=true)
-             */
-            delete: async ({
-                actionId,
-            }: {
-                actionId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    // First fetch the action to get its name (required by backend validation)
-                    const getResponse = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                        {
-                            method: 'GET',
-                        }
-                    )
-
-                    if (!getResponse.ok) {
-                        throw new Error(`Failed to fetch action: ${getResponse.statusText}`)
-                    }
-
-                    const action = (await getResponse.json()) as { name: string }
-
-                    const response = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ name: action.name, deleted: true }),
-                        }
-                    )
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to delete action: ${response.statusText}`)
-                    }
-
-                    return {
-                        success: true,
-                        data: {
-                            success: true,
-                            message: 'Action deleted successfully',
-                        },
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
             },
         }
     }

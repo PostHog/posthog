@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { getToolDefinitions, getToolsForFeatures } from '@/tools/toolDefinitions'
+import { getToolDefinitions, getToolsForFeatures, type ToolDefinition } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
 describe('Tool Filtering - Features', () => {
@@ -273,5 +273,62 @@ describe('Tool Filtering - excludeTools', () => {
         expect(toolNames).not.toContain('switch-organization')
         expect(toolNames).not.toContain('switch-project')
         expect(toolNames).not.toContain('dashboard-create')
+    })
+})
+
+describe('Tool Filtering - Read-Only Mode', () => {
+    it('should only return read-only tools when readOnly is true', () => {
+        const tools = getToolsForFeatures({ readOnly: true })
+        const definitions = getToolDefinitions()
+
+        for (const toolName of tools) {
+            const def = definitions[toolName] as ToolDefinition
+            expect(def.annotations.readOnlyHint, `${toolName} should be readOnly`).toBe(true)
+        }
+
+        expect(tools).toContain('dashboard-get')
+        expect(tools).toContain('dashboards-get-all')
+        expect(tools).toContain('insights-get-all')
+        expect(tools).not.toContain('dashboard-create')
+        expect(tools).not.toContain('dashboard-delete')
+        expect(tools).not.toContain('insight-create-from-query')
+    })
+
+    it('should return all tools when readOnly is false', () => {
+        const allTools = getToolsForFeatures({})
+        const readOnlyFalseTools = getToolsForFeatures({ readOnly: false })
+
+        expect(readOnlyFalseTools).toEqual(allTools)
+    })
+
+    it('should return all tools when readOnly is undefined', () => {
+        const allTools = getToolsForFeatures({})
+        const readOnlyUndefinedTools = getToolsForFeatures({ readOnly: undefined })
+
+        expect(readOnlyUndefinedTools).toEqual(allTools)
+    })
+
+    it('should combine readOnly with feature filtering', () => {
+        const tools = getToolsForFeatures({ features: ['dashboards'], readOnly: true })
+
+        expect(tools).toContain('dashboard-get')
+        expect(tools).toContain('dashboards-get-all')
+        expect(tools).not.toContain('dashboard-create')
+        expect(tools).not.toContain('dashboard-delete')
+        expect(tools).not.toContain('dashboard-update')
+        expect(tools).not.toContain('feature-flag-get-all')
+    })
+
+    it('should combine readOnly with excludeTools via getToolsFromContext', async () => {
+        const context = createMockContext(['*'])
+        const tools = await getToolsFromContext(context, {
+            readOnly: true,
+            excludeTools: ['dashboard-get'],
+        })
+        const toolNames = tools.map((t) => t.name)
+
+        expect(toolNames).not.toContain('dashboard-get')
+        expect(toolNames).not.toContain('dashboard-create')
+        expect(toolNames).toContain('dashboards-get-all')
     })
 })
