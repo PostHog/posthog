@@ -261,7 +261,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
         return list(
             SessionRecordingExternalReferenceSerializer(
-                obj.external_references.select_related("integration").all(),  # type: ignore[attr-defined]
+                obj.external_references.select_related("integration").all(),
                 many=True,
                 context=self.context,
             ).data
