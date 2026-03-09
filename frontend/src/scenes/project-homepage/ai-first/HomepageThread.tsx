@@ -16,6 +16,13 @@ export function HomepageThread(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
     const { askMax, setQuestion } = useActions(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
 
+    const scrollRef = useRef<HTMLDivElement | null>(null)
+
+    // Mark the scroll container so ThreadAutoScroller can find it
+    useEffect(() => {
+        scrollRef.current?.setAttribute('data-attr', 'max-scrollable')
+    }, [])
+
     // Send the initial query once on mount
     const hasSentInitial = useRef(false)
 
@@ -38,7 +45,7 @@ export function HomepageThread(): JSX.Element {
     return (
         <BindLogic logic={maxLogic} props={{ tabId: HOMEPAGE_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0">
+                <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0" scrollRef={scrollRef}>
                     <ThreadAutoScroller>
                         <Thread className="p-3" />
                     </ThreadAutoScroller>
