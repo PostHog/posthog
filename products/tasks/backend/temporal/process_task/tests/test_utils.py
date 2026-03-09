@@ -1,11 +1,13 @@
 from unittest.mock import patch
 
+from django.test import TestCase
+
 from parameterized import parameterized
 
 from products.tasks.backend.temporal.process_task.utils import get_sandbox_mcp_url
 
 
-class TestGetSandboxMcpUrl:
+class TestGetSandboxMcpUrl(TestCase):
     @parameterized.expand(
         [
             ("https://app.posthog.com", "https://mcp.posthog.com/mcp"),
