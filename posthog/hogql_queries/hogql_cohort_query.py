@@ -111,7 +111,6 @@ class HogQLCohortQuery:
                     hogql_context=self.hogql_context,
                 ),
                 self.team.pk,
-                self.team,
             )
             self.property_groups = filter.property_groups
         elif cohort_query is not None:
