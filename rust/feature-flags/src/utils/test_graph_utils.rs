@@ -1711,6 +1711,33 @@ mod seed_set_closure_tests {
     }
 
     #[test]
+    fn test_runtime_filtered_active_flag_deps_not_followed() {
+        // Simulate a flag that is active+non-deleted but filtered at runtime
+        // (e.g., tag filter or runtime mismatch). Its dependencies should not
+        // be followed even though extract_dependencies() would return them.
+        // Flag 3 is inactive so it won't be a seed — it can only enter the
+        // graph if flag 2's dependencies are followed.
+        let flags = vec![
+            create_flag_with_deps(1, "seed_flag", HashSet::from([2]), true, false),
+            create_flag_with_deps(2, "runtime_filtered", HashSet::from([3]), true, false),
+            create_flag_with_deps(3, "deep_dep", HashSet::new(), false, false),
+        ];
+        let mut feature_flags = make_flag_list(flags);
+        // Manually mark flag 2 as runtime-filtered (on top of make_flag_list's
+        // inactive/deleted filtering which already excluded flag 3).
+        feature_flags.filtered_out_flag_ids.insert(2);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        // Flag 2 is pulled in as a dependency of flag 1, but flag 3
+        // is excluded because flag 2's deps are suppressed.
+        assert_eq!(result.graph.node_count(), 2);
+        assert!(result.graph.contains_node(1));
+        assert!(result.graph.contains_node(2));
+        assert!(!result.graph.contains_node(3));
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
     fn test_cycle_among_active_flags_produces_error() {
         let flags = vec![
             create_flag_with_deps(1, "a", HashSet::from([2]), true, false),
@@ -1720,6 +1747,10 @@ mod seed_set_closure_tests {
         let feature_flags = make_flag_list(flags);
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
-        assert!(!result.errors.is_empty(), "Cycle should produce errors");
+        assert!(
+            result.errors.iter().any(|e| e.is_cycle()),
+            "Expected a CycleDetected error, got: {:?}",
+            result.errors
+        );
     }
 }
