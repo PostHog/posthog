@@ -118,9 +118,7 @@ describe('ResultHandlingPipeline', () => {
             expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'test drop reason', 'unknown')
         })
 
-        it('should handle redirected results and add side effects', async () => {
-            mockRedirectMessageToTopic.mockResolvedValue(undefined)
-
+        it('should handle redirected results and call redirect directly', async () => {
             const messages: Message[] = [
                 { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
                 { value: Buffer.from('redirect'), topic: 'test', partition: 0, offset: 2 } as Message,
@@ -139,33 +137,24 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            // Should return all results including redirect result with side effects
             expect(results).not.toBeNull()
             expect(results).toHaveLength(3)
             expect(results![0]).toEqual(createContext(ok({ processed: 'test1' }), { message: messages[0] }))
             expect(results![1].result).toEqual(redirect('test redirect', 'overflow-topic', true, false))
-            expect(results![1].context.sideEffects).toHaveLength(1)
             expect(results![2]).toEqual(createContext(ok({ processed: 'test3' }), { message: messages[2] }))
 
-            // Extract and await side effects
-            const sideEffects = results![1].context.sideEffects
-            await Promise.all(sideEffects)
-
-            // Now verify the mock was called
+            // Redirect is called directly (fire-and-forget via enqueue), no side effects
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 mockPromiseScheduler,
                 messages[1],
                 'overflow-topic',
                 'unknown',
-                true,
-                false
+                true
             )
         })
 
         it('should redirect messages with event and uuid headers', async () => {
-            mockRedirectMessageToTopic.mockResolvedValue(undefined)
-
             const messagesWithHeaders: Message[] = [
                 {
                     value: Buffer.from('redirect'),
@@ -194,25 +183,18 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            // Should return the redirect result with side effects
             expect(results).not.toBeNull()
             expect(results).toHaveLength(1)
             expect(results![0].result).toEqual(redirect('test redirect', 'overflow-topic', false, true))
-            expect(results![0].context.sideEffects).toHaveLength(1)
 
-            // Extract and await side effects
-            const sideEffects = results![0].context.sideEffects
-            await Promise.all(sideEffects)
-
-            // Now verify the mock was called
+            // Redirect is called directly (fire-and-forget)
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 mockPromiseScheduler,
                 messagesWithHeaders[0],
                 'overflow-topic',
                 'unknown',
-                false,
-                true
+                false
             )
 
             // Verify the message passed to redirect has the correct headers
@@ -225,9 +207,7 @@ describe('ResultHandlingPipeline', () => {
             ])
         })
 
-        it('should handle dlq results and add side effects', async () => {
-            mockSendMessageToDLQ.mockResolvedValue(undefined)
-
+        it('should handle dlq results and send to DLQ directly', async () => {
             const messages: Message[] = [
                 { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
                 { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 2 } as Message,
@@ -247,19 +227,13 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            // Should return all results including dlq result with side effects
             expect(results).not.toBeNull()
             expect(results).toHaveLength(3)
             expect(results![0]).toEqual(createContext(ok({ processed: 'test1' }), { message: messages[0] }))
             expect(results![1].result).toEqual(dlq('test dlq reason', testError))
-            expect(results![1].context.sideEffects).toHaveLength(1)
             expect(results![2]).toEqual(createContext(ok({ processed: 'test3' }), { message: messages[2] }))
 
-            // Extract and await side effects
-            const sideEffects = results![1].context.sideEffects
-            await Promise.all(sideEffects)
-
-            // Now verify the mock was called
+            // DLQ is called directly (fire-and-forget via enqueue), no side effects
             expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 messages[1],
@@ -270,8 +244,6 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should send DLQ messages with event and uuid headers', async () => {
-            mockSendMessageToDLQ.mockResolvedValue(undefined)
-
             const messagesWithHeaders: Message[] = [
                 {
                     value: Buffer.from('dlq'),
@@ -299,17 +271,11 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            // Should return the dlq result with side effects
             expect(results).not.toBeNull()
             expect(results).toHaveLength(1)
             expect(results![0].result).toEqual(dlq('test dlq reason', testError))
-            expect(results![0].context.sideEffects).toHaveLength(1)
 
-            // Extract and await side effects
-            const sideEffects = results![0].context.sideEffects
-            await Promise.all(sideEffects)
-
-            // Now verify the mock was called
+            // DLQ is called directly (fire-and-forget)
             expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 messagesWithHeaders[0],
@@ -329,8 +295,6 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should handle dlq result without error and create default error', async () => {
-            mockSendMessageToDLQ.mockResolvedValue(undefined)
-
             const messages: Message[] = [
                 { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 1 } as Message,
             ]
@@ -345,17 +309,11 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            // Should return the dlq result with side effects
             expect(results).not.toBeNull()
             expect(results).toHaveLength(1)
             expect(results![0].result).toEqual(dlq('test dlq reason'))
-            expect(results![0].context.sideEffects).toHaveLength(1)
 
-            // Extract and await side effects
-            const sideEffects = results![0].context.sideEffects
-            await Promise.all(sideEffects)
-
-            // Now verify the mock was called
+            // DLQ is called directly with a default Error created from the reason
             expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 messages[0],
@@ -369,9 +327,6 @@ describe('ResultHandlingPipeline', () => {
         })
 
         it('should handle mixed results correctly', async () => {
-            mockRedirectMessageToTopic.mockResolvedValue(undefined)
-            mockSendMessageToDLQ.mockResolvedValue(undefined)
-
             const messages: Message[] = [
                 { value: Buffer.from('success1'), topic: 'test', partition: 0, offset: 1 } as Message,
                 { value: Buffer.from('drop'), topic: 'test', partition: 0, offset: 2 } as Message,
@@ -401,16 +356,9 @@ describe('ResultHandlingPipeline', () => {
             expect(results![1]).toEqual(createContext(drop('dropped item'), { message: messages[1] }))
             expect(results![2]).toEqual(createContext(ok({ processed: 'success2' }), { message: messages[2] }))
             expect(results![3].result).toEqual(redirect('redirected item', 'overflow-topic'))
-            expect(results![3].context.sideEffects).toHaveLength(1)
             expect(results![4].result).toEqual(dlq('dlq item', new Error('processing error')))
-            expect(results![4].context.sideEffects).toHaveLength(1)
 
-            // Extract and await side effects from redirect and dlq results
-            const redirectSideEffects = results![3].context.sideEffects
-            const dlqSideEffects = results![4].context.sideEffects
-            await Promise.all([...redirectSideEffects, ...dlqSideEffects])
-
-            // Verify all non-success results were handled
+            // All non-success handlers called directly (fire-and-forget)
             expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'dropped item', 'unknown')
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
                 mockKafkaProducer,
@@ -418,7 +366,6 @@ describe('ResultHandlingPipeline', () => {
                 messages[3],
                 'overflow-topic',
                 'unknown',
-                true,
                 true
             )
             expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
@@ -526,9 +473,7 @@ describe('ResultHandlingPipeline', () => {
     })
 
     describe('redirect result with default parameters', () => {
-        it('should use default preserveKey and awaitAck when not specified', async () => {
-            mockRedirectMessageToTopic.mockResolvedValue(undefined)
-
+        it('should use default preserveKey when not specified', async () => {
             const messages: Message[] = [
                 { value: Buffer.from('redirect'), topic: 'test', partition: 0, offset: 1 } as Message,
             ]
@@ -543,25 +488,18 @@ describe('ResultHandlingPipeline', () => {
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
-            // Should return the redirect result with side effects
             expect(results).not.toBeNull()
             expect(results).toHaveLength(1)
             expect(results![0].result).toEqual(redirect('test redirect', 'overflow-topic'))
-            expect(results![0].context.sideEffects).toHaveLength(1)
 
-            // Extract and await side effects
-            const sideEffects = results![0].context.sideEffects
-            await Promise.all(sideEffects)
-
-            // Now verify the mock was called with default parameters
+            // Redirect is called directly with default preserveKey=true
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 mockPromiseScheduler,
                 messages[0],
                 'overflow-topic',
                 'unknown',
-                true, // default preserveKey
-                true // default awaitAck
+                true // default preserveKey
             )
         })
     })
@@ -640,20 +578,11 @@ describe('Integration tests', () => {
         resultPipeline.feed(batchResults)
         const results = await resultPipeline.next()
 
-        // Should return the DLQ result with side effects
-        expect(results).toEqual([
-            createContext(dlq('Validation failed', new Error('Invalid data')), {
-                message: messages[0],
-                sideEffects: expect.arrayContaining([expect.any(Promise)]),
-            }),
-        ])
+        expect(results).not.toBeNull()
+        expect(results).toHaveLength(1)
+        expect(results![0].result).toEqual(dlq('Validation failed', new Error('Invalid data')))
 
-        // Await the side effects to trigger the DLQ operation
-        if (results && results.length > 0) {
-            const sideEffects = results[0].context.sideEffects
-            await Promise.all(sideEffects)
-        }
-
+        // DLQ called directly (fire-and-forget)
         expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
             mockKafkaProducer,
             messages[0],

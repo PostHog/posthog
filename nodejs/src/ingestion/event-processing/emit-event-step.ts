@@ -3,11 +3,9 @@ import { Message } from 'node-rdkafka'
 
 import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '../../types'
-import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { IngestionOutputs } from './ingestion-outputs'
@@ -43,45 +41,23 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
             ingestionLagHistogram.labels({ groupId, partition: String(message.partition) }).observe(lag)
         }
 
-        const sideEffects: Promise<void>[] = []
-
         for (const { event, output } of eventsToEmit) {
             const { topic, producer } = outputs.resolve(output)
             const serialized = serializeEvent(event)
 
-            // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
-            //       but it might slow the pipeline down. Historically, it has always been like that.
-            //       We should investigate this later.
-            const emitPromise = producer
-                .produce({
-                    topic,
-                    key: serialized.uuid,
-                    value: Buffer.from(JSON.stringify(serialized)),
-                    headers: { productTrack: productTrackHeader(event) },
-                })
-                .then((result) => {
-                    eventProcessedAndIngestedCounter.inc()
-                    return result
-                })
-                .catch(async (error) => {
-                    // TODO: For now we have to live with the ingestion warning happening here
-                    //       Once the batch pipelines support warnings, we'll put it in the result
-                    // Some messages end up significantly larger than the original
-                    // after plugin processing, person & group enrichment, etc.
-                    if (error instanceof MessageSizeTooLarge) {
-                        await captureIngestionWarning(producer, serialized.team_id, 'message_size_too_large', {
-                            eventUuid: serialized.uuid,
-                            distinctId: serialized.distinct_id,
-                        })
-                    } else {
-                        throw error
-                    }
-                })
+            // Fire-and-forget: enqueue into rdkafka's buffer without awaiting delivery reports.
+            // Errors are surfaced at batch boundary via flushWithErrors() in awaitScheduledWork.
+            producer.enqueue({
+                topic,
+                key: serialized.uuid,
+                value: Buffer.from(JSON.stringify(serialized)),
+                headers: { productTrack: productTrackHeader(event) },
+            })
 
-            sideEffects.push(emitPromise)
+            eventProcessedAndIngestedCounter.inc()
         }
 
-        return Promise.resolve(ok(undefined, sideEffects))
+        return Promise.resolve(ok(undefined))
     }
 }
 

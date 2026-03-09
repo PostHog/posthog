@@ -6,7 +6,6 @@ import { PluginEvent, ProcessedPluginEvent } from '~/plugin-scaffold'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
-import { logger } from '../../utils/logger'
 import { IngestionWarningLimiter } from '../../utils/token-bucket'
 import { UUIDT, castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
@@ -69,7 +68,7 @@ export function generateEventDeadLetterQueueMessage(
 // These get displayed under Data Management > Ingestion Warnings
 // These warnings get displayed to end users. Make sure these errors are actionable and useful for them and
 // also update IngestionWarningsView.tsx to display useful context.
-export async function captureIngestionWarning(
+export function captureIngestionWarning(
     kafkaProducer: KafkaProducerWrapper,
     teamId: TeamId,
     type: string,
@@ -83,38 +82,26 @@ export async function captureIngestionWarning(
      * you can use this when a message is rare enough or important enough that it should always be sent
      */
     debounce?: { key?: string; alwaysSend?: boolean }
-): Promise<boolean> {
+): void {
     const limiter_key = `${teamId}:${type}:${debounce?.key || ''}`
     const shouldEmit = !!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1)
 
     ingestionWarningCounter.inc({ type, emitted: shouldEmit.toString() })
 
     if (shouldEmit) {
-        return kafkaProducer
-            .queueMessages({
-                topic: KAFKA_INGESTION_WARNINGS,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            team_id: teamId,
-                            type: type,
-                            source: 'plugin-server',
-                            details: JSON.stringify(details),
-                            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                        }),
-                    },
-                ],
-            })
-            .then(() => true)
-            .catch((error) => {
-                logger.warn('⚠️', 'Failed to produce ingestion warning', {
-                    error,
-                    team_id: teamId,
-                    type,
-                    details,
-                })
-                return false
-            })
+        kafkaProducer.enqueueMessages({
+            topic: KAFKA_INGESTION_WARNINGS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        team_id: teamId,
+                        type: type,
+                        source: 'plugin-server',
+                        details: JSON.stringify(details),
+                        timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                    }),
+                },
+            ],
+        })
     }
-    return Promise.resolve(false)
 }

@@ -26,7 +26,6 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
     ): Promise<PipelineResult<ExtractHeatmapDataStepResult<TInput>>> {
         const { preparedEvent } = input
         const { eventUuid } = preparedEvent
-        const acks: Promise<void>[] = []
         const warnings: PipelineWarning[] = []
 
         try {
@@ -40,15 +39,13 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
             warnings.push(...extractWarnings)
 
             if (heatmapEvents.length > 0) {
-                acks.push(
-                    deps.kafkaProducer.queueMessages({
+                for (const rawEvent of heatmapEvents) {
+                    deps.kafkaProducer.enqueue({
                         topic: deps.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                        messages: heatmapEvents.map((rawEvent) => ({
-                            key: eventUuid,
-                            value: JSON.stringify(rawEvent),
-                        })),
+                        key: eventUuid,
+                        value: Buffer.from(JSON.stringify(rawEvent)),
                     })
-                )
+                }
             }
         } catch (e) {
             warnings.push({
@@ -66,7 +63,7 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
             properties: propertiesWithoutHeatmapData,
         }
 
-        return Promise.resolve(ok({ ...input, preparedEvent: preparedEventWithoutHeatmapData }, acks, warnings))
+        return Promise.resolve(ok({ ...input, preparedEvent: preparedEventWithoutHeatmapData }, [], warnings))
     }
 }
 

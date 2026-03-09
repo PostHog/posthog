@@ -81,11 +81,10 @@ async function createPerson(
     return result.person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStore, kafkaAcks: Promise<void>) {
+async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStore) {
     const kafkaMessages = await personStore.flush()
     await hub.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.kafkaProducer.flush()
-    await kafkaAcks
     return kafkaMessages
 }
 
@@ -310,7 +309,7 @@ describe('PersonState.processEvent()', () => {
         it('creates deterministic person uuids that are different between teams', async () => {
             const event_uuid = new UUIDT().toString()
             const primaryTeamId = teamId
-            const [personPrimaryTeam, kafkaAcks] = await personPropertyService({
+            const personPrimaryTeam = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 uuid: event_uuid,
@@ -319,7 +318,7 @@ describe('PersonState.processEvent()', () => {
             const otherTeamId = await createTeam(hub.postgres, organizationId)
             const otherTeam = (await getTeam(hub, otherTeamId))!
             teamId = otherTeamId
-            const [personOtherTeam, kafkaAcksOther] = await personPropertyService(
+            const personOtherTeam = await personPropertyService(
                 {
                     event: '$pageview',
                     distinct_id: newUserDistinctId,
@@ -332,8 +331,6 @@ describe('PersonState.processEvent()', () => {
             ).updateProperties()
 
             await hub.kafkaProducer.flush()
-            await kafkaAcks
-            await kafkaAcksOther
 
             expect(personPrimaryTeam.uuid).toEqual(uuidFromDistinctId(primaryTeamId, newUserDistinctId))
             expect(personOtherTeam.uuid).toEqual(uuidFromDistinctId(otherTeamId, newUserDistinctId))
@@ -409,7 +406,7 @@ describe('PersonState.processEvent()', () => {
 
         it('creates person if they are new', async () => {
             const event_uuid = new UUIDT().toString()
-            const [person, kafkaAcks] = await personPropertyService({
+            const person = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 uuid: event_uuid,
@@ -417,7 +414,6 @@ describe('PersonState.processEvent()', () => {
                 properties: { $set: { null_byte: '\u0000' } },
             }).updateProperties()
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -452,12 +448,11 @@ describe('PersonState.processEvent()', () => {
                 return Promise.resolve(undefined)
             })
 
-            const [person, kafkaAcks] = await personPropertyService({
+            const person = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
             }).handleUpdate()
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             // if creation fails we should return the person that another thread already created
             expect(person).toEqual(
@@ -512,9 +507,9 @@ describe('PersonState.processEvent()', () => {
                     $set: { b: 4 },
                 },
             })
-            const [person, kafkaAcks] = await propertyService.handleUpdate()
+            const person = await propertyService.handleUpdate()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             // Explicitly restore the spy to prevent Jest state corruption
             fetchPersonSpy.mockRestore()
@@ -548,7 +543,7 @@ describe('PersonState.processEvent()', () => {
         })
 
         it('creates person with properties', async () => {
-            const [person, kafkaAcks] = await personPropertyService({
+            const person = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -557,7 +552,6 @@ describe('PersonState.processEvent()', () => {
                 },
             }).updateProperties()
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -595,9 +589,9 @@ describe('PersonState.processEvent()', () => {
                     $set: { b: 4, toString: 1, null_byte: '\u0000' },
                 },
             })
-            const [person, kafkaAcks] = await propertyService.updateProperties()
+            const person = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -629,7 +623,7 @@ describe('PersonState.processEvent()', () => {
                 distinctId: newUserDistinctId,
             })
 
-            const [person, kafkaAcks] = await personPropertyService({
+            const person = await personPropertyService({
                 event: event,
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -638,7 +632,6 @@ describe('PersonState.processEvent()', () => {
                 },
             }).updateProperties()
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -661,7 +654,7 @@ describe('PersonState.processEvent()', () => {
             await createPerson(hub, timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, {
                 distinctId: newUserDistinctId,
             })
-            const [person, kafkaAcks] = await personPropertyService({
+            const person = await personPropertyService({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
@@ -669,7 +662,6 @@ describe('PersonState.processEvent()', () => {
                 },
             }).updateProperties()
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -710,9 +702,9 @@ describe('PersonState.processEvent()', () => {
                     $set: { $current_url: 4 },
                 },
             })
-            const [person, kafkaAcks] = await propertyService.updateProperties()
+            const person = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -752,9 +744,9 @@ describe('PersonState.processEvent()', () => {
                     $set: { name: 'Jane' },
                 },
             })
-            const [person, kafkaAcks] = await propertyService.updateProperties()
+            const person = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -794,9 +786,9 @@ describe('PersonState.processEvent()', () => {
                     $set: { $initial_current_url: 4 },
                 },
             })
-            const [person, kafkaAcks] = await propertyService.updateProperties()
+            const person = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -846,9 +838,9 @@ describe('PersonState.processEvent()', () => {
                     $set: { $initial_current_url: 4 },
                 },
             })
-            const [person, kafkaAcks] = await propertyService.updateProperties()
+            const person = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -905,7 +897,7 @@ describe('PersonState.processEvent()', () => {
                 Promise.resolve({
                     success: true,
                     person: personInitial,
-                    kafkaAck: Promise.resolve(),
+
                     needsPersonUpdate: true,
                 })
             )
@@ -913,11 +905,7 @@ describe('PersonState.processEvent()', () => {
             const personS = personProcessor(event, undefined, mergeService)
             const result = await personS.processEvent()
             const context = personS.getContext()
-            await flushPersonStoreToKafka(
-                hub,
-                context.personStore,
-                Promise.all(result.sideEffects).then(() => undefined)
-            )
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (isOkResult(result)) {
@@ -961,9 +949,9 @@ describe('PersonState.processEvent()', () => {
                     $set: { b: 3 },
                 },
             })
-            const [person, kafkaAcks] = await propertyService.updateProperties()
+            const person = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -1003,9 +991,9 @@ describe('PersonState.processEvent()', () => {
                 true
             )
 
-            const [person, kafkaAcks] = await personS.updateProperties()
+            const person = await personS.updateProperties()
             const context = personS.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
             expect(person).toEqual(
                 expect.objectContaining({
                     id: expect.any(String),
@@ -1080,7 +1068,7 @@ describe('PersonState.processEvent()', () => {
                 Promise.resolve({
                     success: true,
                     person: mergeDeletedPerson,
-                    kafkaAck: Promise.resolve(),
+
                     needsPersonUpdate: true,
                 })
             )
@@ -1089,11 +1077,7 @@ describe('PersonState.processEvent()', () => {
             const context = personS.getContext()
 
             const result = await personS.processEvent()
-            await flushPersonStoreToKafka(
-                hub,
-                context.personStore,
-                Promise.all(result.sideEffects).then(() => undefined)
-            )
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             // Return logic is still unaware that merge happened
             expect(result.type).toBe(PipelineResultType.OK)
@@ -1141,9 +1125,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -1165,9 +1149,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -1227,9 +1211,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -1270,9 +1254,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             const persons = await fetchPostgresPersonsH()
             expect(person).toMatchObject({
@@ -1707,9 +1691,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             const persons = await fetchPostgresPersonsH()
 
@@ -1761,9 +1745,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -1842,9 +1826,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -1923,9 +1907,8 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             expect(personS.getUpdateIsIdentified()).toBeTruthy()
             expect(person).toEqual(
@@ -1980,9 +1963,8 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -2045,9 +2027,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -2140,9 +2122,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
             jest.spyOn(personRepository, 'addDistinctId').mockRestore()
 
             // if creation fails we should return the person that another thread already created
@@ -2189,7 +2171,7 @@ describe('PersonState.processEvent()', () => {
                 return Promise.resolve({
                     success: true,
                     person: undefined,
-                    kafkaAck: Promise.resolve(),
+
                     needsPersonUpdate: true,
                 })
             })
@@ -2211,7 +2193,7 @@ describe('PersonState.processEvent()', () => {
                 return Promise.resolve({
                     success: true,
                     person: undefined,
-                    kafkaAck: Promise.resolve(),
+
                     needsPersonUpdate: true,
                 })
             })
@@ -2234,7 +2216,7 @@ describe('PersonState.processEvent()', () => {
                 return Promise.resolve({
                     success: true,
                     person: undefined,
-                    kafkaAck: Promise.resolve(),
+
                     needsPersonUpdate: true,
                 })
             })
@@ -2267,9 +2249,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -2344,9 +2326,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -2367,9 +2349,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -2390,9 +2372,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -2413,9 +2395,9 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Expected successful merge result')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -2480,9 +2462,9 @@ describe('PersonState.processEvent()', () => {
             if (!mergeResult.success) {
                 throw new Error('Expected successful merge result')
             }
-            const kafkaAcks = mergeResult.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             const [person] = await fetchPostgresPersonsH()
             expect([identifiedPerson.id, anonPerson.id]).toContain(person.id)
@@ -2575,9 +2557,9 @@ describe('PersonState.processEvent()', () => {
             if (!mergeResult.success) {
                 throw new Error('Expected successful merge result')
             }
-            const kafkaAcks = mergeResult.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             const [person] = await fetchPostgresPersonsH()
             expect([identifiedPerson.id, anonPerson.id]).toContain(person.id)
@@ -2657,9 +2639,9 @@ describe('PersonState.processEvent()', () => {
             if (!mergeResult.success) {
                 throw new Error('Expected successful merge result')
             }
-            const kafkaAcks = mergeResult.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             const [person] = await fetchPostgresPersonsH()
             expect([identifiedPerson.id, anonPerson.id]).toContain(person.id)
@@ -2732,9 +2714,8 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Merge should have succeeded')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -2771,9 +2752,9 @@ describe('PersonState.processEvent()', () => {
             }
 
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             expect(person).toMatchObject({
                 id: first.id,
@@ -2911,10 +2892,9 @@ describe('PersonState.processEvent()', () => {
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
             }
-            const kafkaAcks = result.kafkaAck
 
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(hub, context.personStore)
 
             // Source should be deleted since we moved exactly the limit and none remain
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -3114,9 +3094,8 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Merge should have succeeded')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             // Verify that moveDistinctIds was called twice (initial + retry)
             expect(personRepository.moveDistinctIds).toHaveBeenCalledTimes(2)
@@ -3171,9 +3150,8 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Merge should have succeeded')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             // Verify that moveDistinctIds was called twice (initial + retry)
             expect(personRepository.moveDistinctIds).toHaveBeenCalledTimes(2)
@@ -3245,9 +3223,8 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Merge should have succeeded')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
             expect(personRepository.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -3308,9 +3285,8 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Merge should have succeeded')
             }
             const person = result.person
-            const kafkaAcks = result.kafkaAck
+
             await hub.kafkaProducer.flush()
-            await kafkaAcks
 
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
             expect(personRepository.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -3552,9 +3528,9 @@ describe('PersonState.processEvent()', () => {
                 }
 
                 const person = result.person
-                const kafkaAcks = result.kafkaAck
+
                 const context = mergeService.getContext()
-                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                await flushPersonStoreToKafka(hub, context.personStore)
 
                 // Should have called moveDistinctIds only once since batch size > total distinct IDs
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -3604,9 +3580,9 @@ describe('PersonState.processEvent()', () => {
                 }
 
                 const person = result.person
-                const kafkaAcks = result.kafkaAck
+
                 const context = mergeService.getContext()
-                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                await flushPersonStoreToKafka(hub, context.personStore)
 
                 // Should have called moveDistinctIds multiple times due to batching
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3) // 5 distinct IDs / 2 batch size = 3 calls (2+2+1)
@@ -3659,9 +3635,9 @@ describe('PersonState.processEvent()', () => {
                 }
 
                 const person = result.person
-                const kafkaAcks = result.kafkaAck
+
                 const context = mergeService.getContext()
-                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                await flushPersonStoreToKafka(hub, context.personStore)
 
                 // Once all for each distinct ID moved, then one more to make sure all distinct IDs were moved
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3)
@@ -3710,9 +3686,9 @@ describe('PersonState.processEvent()', () => {
                 }
 
                 const person = result.person
-                const kafkaAcks = result.kafkaAck
+
                 const context = mergeService.getContext()
-                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                await flushPersonStoreToKafka(hub, context.personStore)
 
                 // Should have called moveDistinctIds only once (unlimited batch size)
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -3790,9 +3766,9 @@ describe('PersonState.processEvent()', () => {
                     }
 
                     const person = result.person
-                    const kafkaAcks = result.kafkaAck
+
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(hub, context.personStore)
 
                     // Should have called moveDistinctIds only once (unlimited batch size)
                     expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -3847,9 +3823,9 @@ describe('PersonState.processEvent()', () => {
                     }
 
                     const person = result.person
-                    const kafkaAcks = result.kafkaAck
+
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(hub, context.personStore)
 
                     // Should have called moveDistinctIds 3 times: 3+3+2 = 8 distinct IDs
                     expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3)
@@ -3903,9 +3879,9 @@ describe('PersonState.processEvent()', () => {
                     }
 
                     const person = result.person
-                    const kafkaAcks = result.kafkaAck
+
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(hub, context.personStore)
 
                     // Should have called moveDistinctIds first for the 3 distinct IDs, then to check if anything remains
                     expect(repo.moveDistinctIds).toHaveBeenCalledTimes(2)
@@ -3959,9 +3935,9 @@ describe('PersonState.processEvent()', () => {
                     }
 
                     const person = result.person
-                    const kafkaAcks = result.kafkaAck
+
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(hub, context.personStore)
 
                     // Verify all distinct IDs were moved
                     const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
@@ -4063,9 +4039,9 @@ describe('PersonState.processEvent()', () => {
                     }
 
                     const person = result.person
-                    const kafkaAcks = result.kafkaAck
+
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(hub, context.personStore)
 
                     // Verify all distinct IDs were moved (exactly at limit)
                     const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
@@ -4115,9 +4091,9 @@ describe('PersonState.processEvent()', () => {
                     }
 
                     const person = result.person
-                    const kafkaAcks = result.kafkaAck
+
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(hub, context.personStore)
 
                     // Verify all distinct IDs were moved (same as SYNC when under limit)
                     const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
@@ -4218,9 +4194,9 @@ describe('PersonState.processEvent()', () => {
                     }
 
                     const person = result.person
-                    const kafkaAcks = result.kafkaAck
+
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(hub, context.personStore)
 
                     // Verify all distinct IDs were moved (exactly at limit, same as SYNC when under limit)
                     const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
@@ -4377,7 +4353,7 @@ describe('PersonState.processEvent()', () => {
                         jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                             success: true,
                             person: mockPerson,
-                            kafkaAck: Promise.resolve(),
+
                             needsPersonUpdate: true,
                         })
 

@@ -15,7 +15,7 @@ export class PersonPropertyService {
         this.personCreateService = new PersonCreateService(context)
     }
 
-    async handleUpdate(): Promise<[InternalPerson, Promise<void>]> {
+    async handleUpdate(): Promise<InternalPerson> {
         // There are various reasons why update can fail:
         // - another thread created the person during a race
         // - the person might have been merged between start of processing and now
@@ -30,10 +30,10 @@ export class PersonPropertyService {
         )
     }
 
-    async updateProperties(): Promise<[InternalPerson, Promise<void>]> {
+    async updateProperties(): Promise<InternalPerson> {
         const [person, propertiesHandled] = await this.createOrGetPerson()
         if (propertiesHandled) {
-            return [person, Promise.resolve()]
+            return person
         }
         return await this.updatePersonProperties(person)
     }
@@ -67,7 +67,7 @@ export class PersonPropertyService {
         )
     }
 
-    async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
+    async updatePersonProperties(person: InternalPerson): Promise<InternalPerson> {
         person.properties ||= {}
 
         // Compute property changes
@@ -95,7 +95,7 @@ export class PersonPropertyService {
         const hasChanges = propertyUpdates.hasChanges || Object.keys(otherUpdates).length > 0
         if (!hasChanges) {
             const [updatedPerson, _] = applyEventPropertyUpdates(propertyUpdates, person)
-            return [updatedPerson, Promise.resolve()]
+            return updatedPerson
         }
 
         const [updatedPerson, kafkaMessages] = await this.context.personStore.updatePersonWithPropertiesDiffForUpdate(
@@ -106,8 +106,8 @@ export class PersonPropertyService {
             this.context.distinctId,
             propertyUpdates.shouldForceUpdate
         )
-        const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
-        return [updatedPerson, kafkaAck]
+        this.context.kafkaProducer.enqueueMessages(kafkaMessages)
+        return updatedPerson
     }
 
     getContext(): PersonContext {

@@ -153,7 +153,7 @@ export class PersonMergeService {
             clearTimeout(timeout)
         }
         // For non-merge events or when no merge conditions are met, return success with no person
-        return mergeSuccess(undefined, Promise.resolve(), true)
+        return mergeSuccess(undefined, true)
     }
 
     public async merge(
@@ -165,10 +165,10 @@ export class PersonMergeService {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (mergeIntoDistinctId === otherPersonDistinctId) {
             // Create a success result with undefined person to indicate no merge was needed
-            return mergeSuccess(undefined, Promise.resolve(), true)
+            return mergeSuccess(undefined, true)
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            await captureIngestionWarning(
+            captureIngestionWarning(
                 this.context.kafkaProducer,
                 teamId,
                 'cannot_merge_with_illegal_distinct_id',
@@ -179,10 +179,10 @@ export class PersonMergeService {
                 },
                 { alwaysSend: true }
             )
-            return mergeSuccess(undefined, Promise.resolve(), true)
+            return mergeSuccess(undefined, true)
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            await captureIngestionWarning(
+            captureIngestionWarning(
                 this.context.kafkaProducer,
                 teamId,
                 'cannot_merge_with_illegal_distinct_id',
@@ -193,7 +193,7 @@ export class PersonMergeService {
                 },
                 { alwaysSend: true }
             )
-            return mergeSuccess(undefined, Promise.resolve(), true)
+            return mergeSuccess(undefined, true)
         }
 
         const result = await promiseRetry(
@@ -258,15 +258,15 @@ export class PersonMergeService {
                 const distinctIdVersion = insertedDistinctId ? 0 : 1
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
-                await this.context.kafkaProducer.queueMessages(kafkaMessages)
-                return mergeSuccess(existingPerson, Promise.resolve(), true)
+                this.context.kafkaProducer.enqueueMessages(kafkaMessages)
+                return mergeSuccess(existingPerson, true)
             })
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
             if (otherPerson.id == mergeIntoPerson.id) {
                 // Nothing to do, they are the same Person
-                return mergeSuccess(mergeIntoPerson, Promise.resolve(), true)
+                return mergeSuccess(mergeIntoPerson, true)
             }
 
             const result = await this.mergePeople({
@@ -333,7 +333,7 @@ export class PersonMergeService {
                 // If person was not created (creation conflict) and is not identified,
                 // we need to update it later
                 const needsPersonUpdate = !wasCreated && !person.is_identified
-                return mergeSuccess(person, Promise.resolve(), needsPersonUpdate)
+                return mergeSuccess(person, needsPersonUpdate)
             })
         }
     }
@@ -354,7 +354,7 @@ export class PersonMergeService {
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and return success with original person
         if (!mergeAllowed) {
-            await captureIngestionWarning(
+            captureIngestionWarning(
                 this.context.kafkaProducer,
                 this.context.team.id,
                 'cannot_merge_already_identified',
@@ -368,7 +368,7 @@ export class PersonMergeService {
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
             })
-            return mergeSuccess(mergeInto, Promise.resolve(), true)
+            return mergeSuccess(mergeInto, true)
         }
 
         // How the merge works:
@@ -412,7 +412,7 @@ export class PersonMergeService {
 
         // Handle specific error types
         if (result.error instanceof PersonMergeRaceConditionError) {
-            await captureIngestionWarning(
+            captureIngestionWarning(
                 this.context.kafkaProducer,
                 this.context.team.id,
                 'merge_race_condition',
@@ -426,7 +426,7 @@ export class PersonMergeService {
             logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
                 team_id: this.context.team.id,
             })
-            return mergeSuccess(mergeInto, Promise.resolve(), true)
+            return mergeSuccess(mergeInto, true)
         }
 
         // For other errors (PersonMergeLimitExceededError, etc.), return the error result
@@ -516,8 +516,8 @@ export class PersonMergeService {
                 })
                 .inc()
 
-            const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
-            return mergeSuccess(mergedPerson, kafkaAck, true)
+            this.context.kafkaProducer.enqueueMessages(kafkaMessages)
+            return mergeSuccess(mergedPerson, true)
         } catch (error) {
             // Map exceptions to result types - these will cause transaction rollback
             if (error instanceof SourcePersonNotFoundError) {
@@ -693,7 +693,7 @@ export class PersonMergeService {
                     )
 
                     if (!refreshedPerson) {
-                        return mergeSuccess(currentTargetPerson, Promise.resolve(), true)
+                        return mergeSuccess(currentTargetPerson, true)
                     }
 
                     currentSourcePerson = refreshedPerson
@@ -707,7 +707,7 @@ export class PersonMergeService {
                     )
 
                     if (!refreshedPerson) {
-                        return mergeSuccess(currentTargetPerson, Promise.resolve(), true)
+                        return mergeSuccess(currentTargetPerson, true)
                     }
 
                     currentTargetPerson = refreshedPerson
@@ -739,7 +739,7 @@ export class PersonMergeService {
         tx?: PersonsStoreTransaction
     ): Promise<void> {
         const kafkaMessages = await (tx || this.context.personStore).addDistinctId(person, distinctId, version)
-        await this.context.kafkaProducer.queueMessages(kafkaMessages)
+        this.context.kafkaProducer.enqueueMessages(kafkaMessages)
     }
 
     private async refreshPersonData(

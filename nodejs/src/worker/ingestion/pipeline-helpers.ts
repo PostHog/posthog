@@ -11,13 +11,13 @@ import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from './
 /**
  * Send an event to the dead letter queue with proper logging and metrics
  */
-export async function sendEventToDLQ(
+export function sendEventToDLQ(
     kafkaProducer: KafkaProducerWrapper,
     originalEvent: PipelineEvent,
     error: unknown,
     stepName: string,
     teamId?: number
-): Promise<void> {
+): void {
     const step = stepName
     const eventTeamId = teamId || originalEvent.team_id || 0
 
@@ -32,7 +32,7 @@ export async function sendEventToDLQ(
     pipelineStepDLQCounter.labels(step).inc()
 
     try {
-        await captureIngestionWarning(
+        captureIngestionWarning(
             kafkaProducer,
             eventTeamId,
             'pipeline_step_dlq',
@@ -53,7 +53,7 @@ export async function sendEventToDLQ(
             `plugin_server_ingest_event:${step}`
         )
 
-        await kafkaProducer.queueMessages(dlqMessage)
+        kafkaProducer.enqueueMessages(dlqMessage)
     } catch (dlqError) {
         logger.error('Failed to send event to DLQ', {
             step,
@@ -71,14 +71,13 @@ export async function sendEventToDLQ(
 /**
  * Redirect an event to a specified Kafka topic
  */
-export async function redirectEventToTopic(
+export function redirectEventToTopic(
     kafkaProducer: KafkaProducerWrapper,
     originalEvent: PipelineEvent,
     topic: string,
     stepName?: string,
-    preserveKey: boolean = true,
-    awaitAck: boolean = true
-): Promise<void> {
+    preserveKey: boolean = true
+): void {
     const step = stepName || 'unknown'
     const teamId = originalEvent.team_id || 0
 
@@ -90,40 +89,22 @@ export async function redirectEventToTopic(
         topic,
     })
 
-    try {
-        const producePromise = kafkaProducer.produce({
-            topic: topic,
-            key: preserveKey ? `${teamId}:${originalEvent.distinct_id}` : null,
-            value: Buffer.from(JSON.stringify(originalEvent)),
-            headers: {
-                distinct_id: originalEvent.distinct_id || 'unknown',
-                team_id: teamId.toString(),
-            },
-        })
+    kafkaProducer.enqueue({
+        topic: topic,
+        key: preserveKey ? `${teamId}:${originalEvent.distinct_id}` : null,
+        value: Buffer.from(JSON.stringify(originalEvent)),
+        headers: {
+            distinct_id: originalEvent.distinct_id || 'unknown',
+            team_id: teamId.toString(),
+        },
+    })
 
-        if (awaitAck) {
-            await producePromise
-        }
-
-        logger.info('Event successfully redirected to topic', {
-            team_id: teamId,
-            distinct_id: originalEvent.distinct_id,
-            event: originalEvent.event,
-            topic,
-        })
-    } catch (redirectError) {
-        logger.error('Failed to redirect event to topic', {
-            team_id: teamId,
-            distinct_id: originalEvent.distinct_id,
-            topic,
-            error: redirectError,
-        })
-        captureException(redirectError, {
-            tags: { team_id: teamId, pipeline_step: step },
-            extra: { originalEvent, topic, error: redirectError },
-        })
-        throw redirectError // Re-throw to ensure the pipeline handles the failure appropriately
-    }
+    logger.info('Event successfully redirected to topic', {
+        team_id: teamId,
+        distinct_id: originalEvent.distinct_id,
+        event: originalEvent.event,
+        topic,
+    })
 }
 
 // ============================================================================
@@ -195,13 +176,13 @@ function getEventMetadata(message: Message): { teamId?: string; distinctId?: str
 /**
  * Send a Kafka message to the dead letter queue with proper logging and metrics
  */
-export async function sendMessageToDLQ(
+export function sendMessageToDLQ(
     kafkaProducer: KafkaProducerWrapper,
     originalMessage: Message,
     error: unknown,
     stepName: string,
     dlqTopic: string
-): Promise<void> {
+): void {
     const step = stepName
     const messageInfo = getEventMetadata(originalMessage)
 
@@ -218,7 +199,7 @@ export async function sendMessageToDLQ(
 
     try {
         if (messageInfo.teamId) {
-            await captureIngestionWarning(
+            captureIngestionWarning(
                 kafkaProducer,
                 parseInt(messageInfo.teamId, 10),
                 'pipeline_step_dlq',
@@ -233,7 +214,7 @@ export async function sendMessageToDLQ(
             )
         }
 
-        await kafkaProducer.produce({
+        kafkaProducer.enqueue({
             topic: dlqTopic,
             value: originalMessage.value,
             key: originalMessage.key ?? null,
@@ -265,15 +246,14 @@ export async function sendMessageToDLQ(
 /**
  * Redirect a Kafka message to a specified Kafka topic
  */
-export async function redirectMessageToTopic(
+export function redirectMessageToTopic(
     kafkaProducer: KafkaProducerWrapper,
-    promiseScheduler: PromiseScheduler,
+    _promiseScheduler: PromiseScheduler,
     originalMessage: Message,
     topic: string,
     stepName?: string,
-    preserveKey: boolean = true,
-    awaitAck: boolean = true
-): Promise<void> {
+    preserveKey: boolean = true
+): void {
     const step = stepName || 'unknown'
 
     pipelineStepRedirectCounter.inc({
@@ -282,40 +262,17 @@ export async function redirectMessageToTopic(
         preserve_key: preserveKey.toString(),
     })
 
-    try {
-        const headers = copyAndExtendHeaders(originalMessage, {
-            'redirect-step': step,
-            'redirect-timestamp': new Date().toISOString(),
-        })
+    const headers = copyAndExtendHeaders(originalMessage, {
+        'redirect-step': step,
+        'redirect-timestamp': new Date().toISOString(),
+    })
 
-        const producePromise = kafkaProducer.produce({
-            topic: topic,
-            value: originalMessage.value,
-            key: preserveKey ? (originalMessage.key ?? null) : null,
-            headers: headers,
-        })
-
-        const promise = promiseScheduler.schedule(producePromise)
-
-        if (awaitAck) {
-            await promise
-        }
-    } catch (redirectError) {
-        const eventMetadata = getEventMetadata(originalMessage)
-        captureException(redirectError, {
-            tags: {
-                team_id: eventMetadata.teamId,
-                pipeline_step: step,
-            },
-            extra: {
-                topic,
-                distinct_id: eventMetadata.distinctId,
-                event: eventMetadata.event,
-                error: redirectError,
-            },
-        })
-        throw redirectError
-    }
+    kafkaProducer.enqueue({
+        topic: topic,
+        value: originalMessage.value,
+        key: preserveKey ? (originalMessage.key ?? null) : null,
+        headers: headers,
+    })
 }
 
 /**

@@ -25,12 +25,10 @@ export class PersonEventProcessor {
         const mergeResult = await this.mergeService.handleIdentifyOrAlias()
 
         let personFromMerge: InternalPerson | undefined = undefined
-        let identifyOrAliasKafkaAck: Promise<void> = Promise.resolve()
         let needsPersonUpdate = true
 
         if (mergeResult.success) {
             personFromMerge = mergeResult.person
-            identifyOrAliasKafkaAck = mergeResult.kafkaAck
             needsPersonUpdate = mergeResult.needsPersonUpdate
         } else {
             const errorResult = this.handleMergeError(mergeResult.error, this.context.event)
@@ -46,9 +44,8 @@ export class PersonEventProcessor {
         if (personFromMerge && needsPersonUpdate) {
             // Try to shortcut if we have the person from identify or alias
             try {
-                const [updatedPerson, updateKafkaAck] =
-                    await this.propertyService.updatePersonProperties(personFromMerge)
-                return ok(updatedPerson, [identifyOrAliasKafkaAck, updateKafkaAck])
+                const updatedPerson = await this.propertyService.updatePersonProperties(personFromMerge)
+                return ok(updatedPerson)
             } catch (error) {
                 // Shortcut didn't work, swallow the error and try normal retry loop below
                 logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
@@ -56,12 +53,12 @@ export class PersonEventProcessor {
         }
 
         if (personFromMerge && !needsPersonUpdate) {
-            return ok(personFromMerge, [identifyOrAliasKafkaAck])
+            return ok(personFromMerge)
         }
 
         // Handle regular property updates
-        const [updatedPerson, updateKafkaAck] = await this.propertyService.handleUpdate()
-        return ok(updatedPerson, [identifyOrAliasKafkaAck, updateKafkaAck])
+        const updatedPerson = await this.propertyService.handleUpdate()
+        return ok(updatedPerson)
     }
 
     getContext(): PersonContext {

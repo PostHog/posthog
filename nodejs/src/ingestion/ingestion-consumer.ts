@@ -360,7 +360,21 @@ export class IngestionConsumer {
 
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
-                await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
+                // Flush the producer to force rdkafka to send any remaining buffered
+                // messages immediately, and surface errors from fire-and-forget enqueue() calls.
+                const [enqueueErrors] = await Promise.all([
+                    this.kafkaProducer!.flushWithErrors(),
+                    this.promiseScheduler.waitForAll(),
+                    this.hogTransformer.processInvocationResults(),
+                ])
+
+                if (enqueueErrors.length > 0) {
+                    logger.error('⚠️', 'kafka_enqueue_errors_in_batch', {
+                        errorCount: enqueueErrors.length,
+                        topics: [...new Set(enqueueErrors.map((e) => e.topic))],
+                        firstError: enqueueErrors[0].error.message,
+                    })
+                }
             }),
         }
     }

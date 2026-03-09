@@ -27,7 +27,7 @@ export class IngestionWarningHandlingBatchPipeline<
 
         return results.map((resultWithContext) => {
             if (resultWithContext.context.warnings && resultWithContext.context.warnings.length > 0) {
-                const warningPromises = resultWithContext.context.warnings.map((warning) =>
+                for (const warning of resultWithContext.context.warnings) {
                     captureIngestionWarning(
                         this.kafkaProducer,
                         resultWithContext.context.team.id,
@@ -35,13 +35,12 @@ export class IngestionWarningHandlingBatchPipeline<
                         warning.details,
                         { key: warning.key, alwaysSend: warning.alwaysSend }
                     )
-                )
+                }
 
                 return {
                     result: resultWithContext.result,
                     context: {
                         ...resultWithContext.context,
-                        sideEffects: [...resultWithContext.context.sideEffects, ...warningPromises],
                         warnings: [],
                     },
                 }

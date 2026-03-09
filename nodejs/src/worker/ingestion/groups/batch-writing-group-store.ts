@@ -204,7 +204,7 @@ export class BatchWritingGroupStore implements GroupStore {
         distinctId: string
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await captureIngestionWarning(this.kafkaProducer, update.team_id, 'group_upsert_message_size_too_large', {
+            captureIngestionWarning(this.kafkaProducer, update.team_id, 'group_upsert_message_size_too_large', {
                 groupTypeIndex: update.group_type_index,
                 groupKey: update.group_key,
             })
@@ -318,7 +318,7 @@ export class BatchWritingGroupStore implements GroupStore {
         )
 
         if (propertiesUpdate.updated) {
-            await this.upsertToClickhouse(
+            this.upsertToClickhouse(
                 teamId,
                 groupTypeIndex,
                 groupKey,
@@ -330,7 +330,7 @@ export class BatchWritingGroupStore implements GroupStore {
         }
     }
 
-    private async upsertToClickhouse(
+    private upsertToClickhouse(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
@@ -338,9 +338,9 @@ export class BatchWritingGroupStore implements GroupStore {
         createdAt: DateTime,
         actualVersion: number,
         source: string
-    ): Promise<void> {
+    ): void {
         this.incrementDatabaseOperation('upsertClickhouse' + (source ? `-${source}` : ''))
-        await this.clickhouseGroupRepository.upsertGroup(
+        this.clickhouseGroupRepository.upsertGroup(
             teamId,
             groupTypeIndex,
             groupKey,
@@ -473,7 +473,7 @@ export class BatchWritingGroupStore implements GroupStore {
         )
 
         if (actualVersion !== undefined) {
-            await this.upsertToClickhouse(
+            this.upsertToClickhouse(
                 update.team_id,
                 update.group_type_index,
                 update.group_key,
@@ -556,7 +556,7 @@ export class BatchWritingGroupStore implements GroupStore {
         timestamp: DateTime
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await captureIngestionWarning(this.kafkaProducer, teamId, 'group_upsert_message_size_too_large', {
+            captureIngestionWarning(this.kafkaProducer, teamId, 'group_upsert_message_size_too_large', {
                 groupTypeIndex,
                 groupKey,
             })

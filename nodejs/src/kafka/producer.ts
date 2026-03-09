@@ -35,9 +35,16 @@ export type TopicMessage = {
     }[]
 }
 
+export type EnqueueError = {
+    topic: string
+    error: Error
+}
+
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     private producer: HighLevelProducer
+    /** Errors collected from fire-and-forget enqueue() calls, drained by flushWithErrors() */
+    private enqueueErrors: EnqueueError[] = []
 
     static async create(kafkaClientRack: string | undefined, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
@@ -152,6 +159,71 @@ export class KafkaProducerWrapper {
     }
 
     /**
+     * Fire-and-forget produce: enqueues the message into rdkafka's internal buffer
+     * without waiting for a delivery report. Errors are collected internally and
+     * surfaced when flushWithErrors() is called.
+     *
+     * Use this for high-throughput paths where individual delivery confirmation is
+     * not needed — instead call flushWithErrors() at the batch boundary to ensure
+     * all messages are sent and check for errors.
+     */
+    enqueue({
+        value,
+        key,
+        topic,
+        headers,
+    }: {
+        value: MessageValue
+        key: MessageKey
+        topic: string
+        headers?: Record<string, string>
+    }): void {
+        kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
+        logger.debug('📤', 'Enqueuing message', { topic })
+
+        const kafkaHeaders: MessageHeader[] =
+            Object.entries(headers ?? {}).map(([key, value]) => ({
+                [key]: value,
+            })) ?? []
+
+        const enqueueTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
+
+        this.producer.produce(
+            topic,
+            null,
+            value,
+            key,
+            Date.now(),
+            kafkaHeaders,
+            (error: any, _offset: NumberNullUndefined) => {
+                enqueueTimer()
+                if (error) {
+                    kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
+                    logger.error('⚠️', 'kafka_enqueue_delivery_error', {
+                        error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
+                        topic,
+                    })
+                    this.enqueueErrors.push({ topic, error })
+                } else {
+                    kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
+                }
+            }
+        )
+    }
+
+    /**
+     * Flush all buffered messages and return any errors from enqueue() calls.
+     * This should be called at batch boundaries to ensure all fire-and-forget
+     * messages have been delivered and to surface any delivery failures.
+     */
+    async flushWithErrors(): Promise<EnqueueError[]> {
+        await this.flush()
+        const errors = this.enqueueErrors
+        this.enqueueErrors = []
+        return errors
+    }
+
+    /**
      * Currently this produces messages in parallel.
      * If ordering is required then you should use the `produce` method instead in an awaited loop.
      */
@@ -172,6 +244,27 @@ export class KafkaProducerWrapper {
                 )
             })
         )
+    }
+
+    /**
+     * Fire-and-forget version of queueMessages: enqueues all messages from the
+     * given TopicMessage(s) into rdkafka's internal buffer without waiting for
+     * delivery reports. Errors are collected internally and surfaced when
+     * flushWithErrors() is called at the batch boundary.
+     */
+    enqueueMessages(topicMessages: TopicMessage | TopicMessage[]): void {
+        const messages = Array.isArray(topicMessages) ? topicMessages : [topicMessages]
+
+        for (const record of messages) {
+            for (const message of record.messages) {
+                this.enqueue({
+                    topic: record.topic,
+                    key: message.key ? Buffer.from(message.key) : null,
+                    value: message.value ? Buffer.from(message.value) : null,
+                    headers: message.headers,
+                })
+            }
+        }
     }
 
     public async flush() {

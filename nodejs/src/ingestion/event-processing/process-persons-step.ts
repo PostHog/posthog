@@ -73,6 +73,6 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             person.force_upgrade = true
         }
 
-        return ok({ ...input, person }, result.sideEffects)
+        return ok({ ...input, person })
     }
 }

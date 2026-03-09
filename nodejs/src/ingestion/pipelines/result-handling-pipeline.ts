@@ -54,52 +54,35 @@ export class ResultHandlingPipeline<
                 const result = resultWithContext.result
                 const originalMessage = resultWithContext.context.message
                 const stepName = resultWithContext.context.lastStep || 'unknown'
-                const sideEffects = this.handleNonSuccessResult(result, originalMessage, stepName)
+                this.handleNonSuccessResult(result, originalMessage, stepName)
 
-                processedResults.push({
-                    result: resultWithContext.result,
-                    context: {
-                        ...resultWithContext.context,
-                        sideEffects: [...resultWithContext.context.sideEffects, ...sideEffects],
-                    },
-                })
+                processedResults.push(resultWithContext)
             }
         }
 
         return processedResults
     }
 
-    private handleNonSuccessResult(
-        result: PipelineResult<TOutput>,
-        originalMessage: Message,
-        stepName: string
-    ): Promise<unknown>[] {
-        const sideEffects: Promise<unknown>[] = []
-
+    private handleNonSuccessResult(result: PipelineResult<TOutput>, originalMessage: Message, stepName: string): void {
         if (isDlqResult(result)) {
-            const dlqPromise = sendMessageToDLQ(
+            sendMessageToDLQ(
                 this.config.kafkaProducer,
                 originalMessage,
                 result.error || new Error(result.reason),
                 stepName,
                 this.config.dlqTopic
             )
-            sideEffects.push(dlqPromise)
         } else if (isDropResult(result)) {
             logDroppedMessage(originalMessage, result.reason, stepName)
         } else if (isRedirectResult(result)) {
-            const redirectPromise = redirectMessageToTopic(
+            redirectMessageToTopic(
                 this.config.kafkaProducer,
                 this.config.promiseScheduler,
                 originalMessage,
                 result.topic,
                 stepName,
-                result.preserveKey ?? true,
-                result.awaitAck ?? true
+                result.preserveKey ?? true
             )
-            sideEffects.push(redirectPromise)
         }
-
-        return sideEffects
     }
 }

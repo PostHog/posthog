@@ -56,7 +56,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             queueMessages: jest.fn(),
         } as any
 
-        mockCaptureIngestionWarning = jest.fn().mockResolvedValue(true)
+        mockCaptureIngestionWarning = jest.fn()
         ;(utils.captureIngestionWarning as any) = mockCaptureIngestionWarning
     })
 
@@ -114,7 +114,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
     })
 
     describe('warning handling', () => {
-        it('should convert warnings to side effects and clear warnings', async () => {
+        it('should send warnings directly and clear them from context', async () => {
             const message = createTestMessage()
             const team = createTestTeam()
 
@@ -137,8 +137,8 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
 
             expect(results).toHaveLength(1)
             expect(results![0].context.warnings).toEqual([])
-            expect(results![0].context.sideEffects).toHaveLength(2)
 
+            // Warnings are sent directly (fire-and-forget via enqueue), not as side effects
             expect(mockCaptureIngestionWarning).toHaveBeenCalledTimes(2)
             expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
                 mockKafkaProducer,
@@ -184,7 +184,7 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             expect(results![0].context.warnings).toEqual([])
         })
 
-        it('should preserve existing side effects while adding warning side effects', async () => {
+        it('should preserve existing side effects when handling warnings', async () => {
             const message = createTestMessage()
             const team = createTestTeam()
 
@@ -207,10 +207,13 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toHaveLength(1)
-            expect(results![0].context.sideEffects).toHaveLength(3)
+            // Existing side effects are preserved via context spread
+            expect(results![0].context.sideEffects).toHaveLength(2)
             expect(results![0].context.sideEffects[0]).toBe(existingSideEffect1)
             expect(results![0].context.sideEffects[1]).toBe(existingSideEffect2)
             expect(results![0].context.warnings).toEqual([])
+            // Warning is sent directly, not added as side effect
+            expect(mockCaptureIngestionWarning).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -252,18 +255,12 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
 
             expect(results).toHaveLength(3)
 
-            // First item: 1 warning converted to side effect
+            // All warnings cleared from context
             expect(results![0].context.warnings).toEqual([])
-            expect(results![0].context.sideEffects).toHaveLength(1)
-
-            // Second item: no warnings, no side effects
             expect(results![1].context.warnings).toEqual([])
-            expect(results![1].context.sideEffects).toHaveLength(0)
-
-            // Third item: 2 warnings converted to side effects
             expect(results![2].context.warnings).toEqual([])
-            expect(results![2].context.sideEffects).toHaveLength(2)
 
+            // Warnings sent directly, not as side effects
             expect(mockCaptureIngestionWarning).toHaveBeenCalledTimes(3)
         })
 

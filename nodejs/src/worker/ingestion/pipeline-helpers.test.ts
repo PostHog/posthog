@@ -42,6 +42,8 @@ describe('sendEventToDLQ', () => {
         mockKafkaProducer = {
             queueMessages: jest.fn() as any,
             produce: jest.fn() as any,
+            enqueue: jest.fn() as any,
+            enqueueMessages: jest.fn() as any,
         } as any
 
         mockEvent = {
@@ -55,17 +57,13 @@ describe('sendEventToDLQ', () => {
             site_url: 'https://example.com',
             now: '2023-01-01T00:00:00Z',
         } as PipelineEvent
-
-        jest.mocked(mockKafkaProducer.queueMessages).mockImplementation(() => Promise.resolve())
-        jest.mocked(mockKafkaProducer.produce).mockImplementation(() => Promise.resolve())
-        mockCaptureIngestionWarning.mockResolvedValue(true)
     })
 
-    it('should send event to DLQ with proper logging', async () => {
+    it('should send event to DLQ with proper logging', () => {
         const error = new Error('Test error')
         const stepName = 'test-step'
 
-        await sendEventToDLQ(mockKafkaProducer, mockEvent, error, stepName)
+        sendEventToDLQ(mockKafkaProducer, mockEvent, error, stepName)
 
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
@@ -89,14 +87,14 @@ describe('sendEventToDLQ', () => {
             { alwaysSend: true }
         )
 
-        expect(mockKafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
+        expect(mockKafkaProducer.enqueueMessages).toHaveBeenCalledTimes(1)
 
-        expect((mockKafkaProducer.queueMessages.mock.calls[0][0] as TopicMessage).topic).toEqual(
+        expect((mockKafkaProducer.enqueueMessages.mock.calls[0][0] as TopicMessage).topic).toEqual(
             'events_dead_letter_queue_test'
         )
 
         const dlqMessage = parseJSON(
-            (mockKafkaProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string
+            (mockKafkaProducer.enqueueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string
         )
         expect(dlqMessage).toMatchObject({
             event_uuid: 'test-uuid-123',
@@ -131,12 +129,12 @@ describe('sendEventToDLQ', () => {
         expect(dlqMessage.now).toBeDefined()
     })
 
-    it('should handle event without team_id', async () => {
+    it('should handle event without team_id', () => {
         const eventWithoutTeamId = { ...mockEvent, team_id: undefined } as PipelineEvent
         const error = new Error('Test error')
         const stepName = 'test-step'
 
-        await sendEventToDLQ(mockKafkaProducer, eventWithoutTeamId, error, stepName)
+        sendEventToDLQ(mockKafkaProducer, eventWithoutTeamId, error, stepName)
 
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
@@ -147,11 +145,11 @@ describe('sendEventToDLQ', () => {
         })
     })
 
-    it('should handle non-Error objects', async () => {
+    it('should handle non-Error objects', () => {
         const error = 'String error'
         const stepName = 'test-step'
 
-        await sendEventToDLQ(mockKafkaProducer, mockEvent, error, stepName)
+        sendEventToDLQ(mockKafkaProducer, mockEvent, error, stepName)
 
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
@@ -172,14 +170,16 @@ describe('sendEventToDLQ', () => {
         )
     })
 
-    it('should handle DLQ failures gracefully', async () => {
+    it('should handle DLQ failures gracefully', () => {
         const error = new Error('Test error')
         const stepName = 'test-step'
         const dlqError = new Error('DLQ failed')
 
-        mockKafkaProducer.queueMessages = jest.fn().mockRejectedValue(dlqError)
+        mockKafkaProducer.enqueueMessages = jest.fn().mockImplementation(() => {
+            throw dlqError
+        })
 
-        await sendEventToDLQ(mockKafkaProducer, mockEvent, error, stepName)
+        sendEventToDLQ(mockKafkaProducer, mockEvent, error, stepName)
 
         expect(mockLogger.error).toHaveBeenCalledWith('Failed to send event to DLQ', {
             step: stepName,
@@ -194,12 +194,12 @@ describe('sendEventToDLQ', () => {
         })
     })
 
-    it('should use provided teamId parameter', async () => {
+    it('should use provided teamId parameter', () => {
         const error = new Error('Test error')
         const stepName = 'test-step'
         const providedTeamId = 999
 
-        await sendEventToDLQ(mockKafkaProducer, mockEvent, error, stepName, providedTeamId)
+        sendEventToDLQ(mockKafkaProducer, mockEvent, error, stepName, providedTeamId)
 
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockKafkaProducer,
@@ -223,6 +223,8 @@ describe('redirectEventToTopic', () => {
         mockKafkaProducer = {
             queueMessages: jest.fn() as any,
             produce: jest.fn() as any,
+            enqueue: jest.fn() as any,
+            enqueueMessages: jest.fn() as any,
         } as any
 
         mockEvent = {
@@ -238,11 +240,11 @@ describe('redirectEventToTopic', () => {
         } as PipelineEvent
     })
 
-    it('should redirect event to topic with default parameters', async () => {
+    it('should redirect event to topic with default parameters', () => {
         const topic = 'overflow-topic'
         const stepName = 'test-step'
 
-        await redirectEventToTopic(mockKafkaProducer, mockEvent, topic, stepName)
+        redirectEventToTopic(mockKafkaProducer, mockEvent, topic, stepName)
 
         expect(mockLogger.info).toHaveBeenCalledWith('Event redirected to topic', {
             step: stepName,
@@ -252,7 +254,7 @@ describe('redirectEventToTopic', () => {
             topic,
         })
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith({
             topic: topic,
             key: '42:test-user',
             value: Buffer.from(JSON.stringify(mockEvent)),
@@ -270,13 +272,13 @@ describe('redirectEventToTopic', () => {
         })
     })
 
-    it('should handle preserveKey = false', async () => {
+    it('should handle preserveKey = false', () => {
         const topic = 'overflow-topic'
         const stepName = 'test-step'
 
-        await redirectEventToTopic(mockKafkaProducer, mockEvent, topic, stepName, false)
+        redirectEventToTopic(mockKafkaProducer, mockEvent, topic, stepName, false)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith({
             topic: topic,
             key: null,
             value: Buffer.from(JSON.stringify(mockEvent)),
@@ -287,34 +289,26 @@ describe('redirectEventToTopic', () => {
         })
     })
 
-    it('should handle awaitAck = false', async () => {
+    it('should use fire-and-forget enqueue', () => {
         const topic = 'overflow-topic'
         const stepName = 'test-step'
 
-        // Create a promise that never resolves to ensure we're not awaiting it
-        const neverResolvingPromise = new Promise(() => {})
-        let produceCalled = false
+        redirectEventToTopic(mockKafkaProducer, mockEvent, topic, stepName, true)
 
-        mockKafkaProducer.produce = jest.fn().mockImplementation(() => {
-            produceCalled = true
-            return neverResolvingPromise
-        })
-
-        // This should return quickly without waiting for the promise
-        await redirectEventToTopic(mockKafkaProducer, mockEvent, topic, stepName, true, false)
-
-        // Verify produce was called but we didn't wait for it
-        expect(produceCalled).toBe(true)
-        expect(mockKafkaProducer.produce).toHaveBeenCalled()
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                topic: 'overflow-topic',
+            })
+        )
     })
 
-    it('should handle events without team_id', async () => {
+    it('should handle events without team_id', () => {
         const eventWithoutTeamId = { ...mockEvent, team_id: undefined } as PipelineEvent
         const topic = 'overflow-topic'
 
-        await redirectEventToTopic(mockKafkaProducer, eventWithoutTeamId, topic)
+        redirectEventToTopic(mockKafkaProducer, eventWithoutTeamId, topic)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith({
             topic: topic,
             key: '0:test-user',
             value: Buffer.from(JSON.stringify(eventWithoutTeamId)),
@@ -325,34 +319,10 @@ describe('redirectEventToTopic', () => {
         })
     })
 
-    it('should handle redirect failures', async () => {
-        const topic = 'overflow-topic'
-        const stepName = 'test-step'
-        const redirectError = new Error('Redirect failed')
-
-        mockKafkaProducer.produce = jest.fn().mockRejectedValue(redirectError)
-
-        await expect(redirectEventToTopic(mockKafkaProducer, mockEvent, topic, stepName)).rejects.toThrow(
-            'Redirect failed'
-        )
-
-        expect(mockLogger.error).toHaveBeenCalledWith('Failed to redirect event to topic', {
-            team_id: 42,
-            distinct_id: 'test-user',
-            topic,
-            error: redirectError,
-        })
-
-        expect(mockCaptureException).toHaveBeenCalledWith(redirectError, {
-            tags: { team_id: 42, pipeline_step: stepName },
-            extra: { originalEvent: mockEvent, topic, error: redirectError },
-        })
-    })
-
-    it('should use default step name when not provided', async () => {
+    it('should use default step name when not provided', () => {
         const topic = 'overflow-topic'
 
-        await redirectEventToTopic(mockKafkaProducer, mockEvent, topic)
+        redirectEventToTopic(mockKafkaProducer, mockEvent, topic)
 
         expect(mockLogger.info).toHaveBeenCalledWith(
             'Event redirected to topic',
@@ -373,6 +343,8 @@ describe('sendMessageToDLQ', () => {
         mockKafkaProducer = {
             queueMessages: jest.fn() as any,
             produce: jest.fn() as any,
+            enqueue: jest.fn() as any,
+            enqueueMessages: jest.fn() as any,
         } as any
 
         mockMessage = {
@@ -389,16 +361,14 @@ describe('sendMessageToDLQ', () => {
                 { uuid: 'test-uuid-123' },
             ],
         } as Message
-
-        mockCaptureIngestionWarning.mockResolvedValue(true)
     })
 
-    it('should send message to DLQ with proper headers and logging', async () => {
+    it('should send message to DLQ with proper headers and logging', () => {
         const error = new Error('Test error')
         const stepName = 'test-step'
         const dlqTopic = 'test-dlq'
 
-        await sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
+        sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
 
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
@@ -423,7 +393,7 @@ describe('sendMessageToDLQ', () => {
             { alwaysSend: true }
         )
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith({
             topic: dlqTopic,
             value: mockMessage.value,
             key: mockMessage.key,
@@ -441,13 +411,13 @@ describe('sendMessageToDLQ', () => {
         })
     })
 
-    it('should handle message without headers', async () => {
+    it('should handle message without headers', () => {
         const messageWithoutHeaders = { ...mockMessage, headers: undefined } as Message
         const error = new Error('Test error')
         const stepName = 'test-step'
         const dlqTopic = 'test-dlq'
 
-        await sendMessageToDLQ(mockKafkaProducer, messageWithoutHeaders, error, stepName, dlqTopic)
+        sendMessageToDLQ(mockKafkaProducer, messageWithoutHeaders, error, stepName, dlqTopic)
 
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
@@ -460,7 +430,7 @@ describe('sendMessageToDLQ', () => {
         expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
     })
 
-    it('should handle different header value types', async () => {
+    it('should handle different header value types', () => {
         const messageWithMixedHeaders = {
             ...mockMessage,
             headers: [
@@ -476,9 +446,9 @@ describe('sendMessageToDLQ', () => {
         const stepName = 'test-step'
         const dlqTopic = 'test-dlq'
 
-        await sendMessageToDLQ(mockKafkaProducer, messageWithMixedHeaders, error, stepName, dlqTopic)
+        sendMessageToDLQ(mockKafkaProducer, messageWithMixedHeaders, error, stepName, dlqTopic)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith({
             topic: dlqTopic,
             value: messageWithMixedHeaders.value,
             key: messageWithMixedHeaders.key,
@@ -492,14 +462,14 @@ describe('sendMessageToDLQ', () => {
         })
     })
 
-    it('should handle non-Error objects', async () => {
+    it('should handle non-Error objects', () => {
         const error = 'String error'
         const stepName = 'test-step'
         const dlqTopic = 'test-dlq'
 
-        await sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
+        sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith(
             expect.objectContaining({
                 headers: expect.objectContaining({
                     dlq_reason: 'String error',
@@ -508,15 +478,17 @@ describe('sendMessageToDLQ', () => {
         )
     })
 
-    it('should handle DLQ failures gracefully', async () => {
+    it('should handle DLQ failures gracefully', () => {
         const error = new Error('Test error')
         const stepName = 'test-step'
         const dlqTopic = 'test-dlq'
         const dlqError = new Error('DLQ failed')
 
-        mockKafkaProducer.produce = jest.fn().mockRejectedValue(dlqError)
+        mockKafkaProducer.enqueue = jest.fn().mockImplementation(() => {
+            throw dlqError
+        })
 
-        await sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
+        sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
 
         expect(mockLogger.error).toHaveBeenCalledWith('Failed to send event to DLQ', {
             step: stepName,
@@ -545,6 +517,8 @@ describe('redirectMessageToTopic', () => {
         mockKafkaProducer = {
             queueMessages: jest.fn() as any,
             produce: jest.fn() as any,
+            enqueue: jest.fn() as any,
+            enqueueMessages: jest.fn() as any,
         } as any
 
         mockPromiseScheduler = {
@@ -562,13 +536,13 @@ describe('redirectMessageToTopic', () => {
         } as Message
     })
 
-    it('should redirect message to topic with default parameters', async () => {
+    it('should redirect message to topic with default parameters', () => {
         const topic = 'overflow-topic'
         const stepName = 'test-step'
 
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName)
+        redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith({
             topic: topic,
             value: mockMessage.value,
             key: mockMessage.key,
@@ -580,17 +554,15 @@ describe('redirectMessageToTopic', () => {
                 'redirect-timestamp': expect.any(String),
             }),
         })
-
-        expect(mockPromiseScheduler.schedule).toHaveBeenCalled()
     })
 
-    it('should handle preserveKey = false', async () => {
+    it('should handle preserveKey = false', () => {
         const topic = 'overflow-topic'
         const stepName = 'test-step'
 
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName, false)
+        redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName, false)
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith({
             topic: topic,
             value: mockMessage.value,
             key: null,
@@ -598,64 +570,23 @@ describe('redirectMessageToTopic', () => {
         })
     })
 
-    it('should handle awaitAck = false', async () => {
+    it('should use fire-and-forget enqueue', () => {
         const topic = 'overflow-topic'
         const stepName = 'test-step'
 
-        // Create a promise that never resolves to ensure we're not awaiting it
-        const neverResolvingPromise = new Promise(() => {})
-        let produceCalled = false
-        let scheduleCalled = false
+        redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName)
 
-        mockKafkaProducer.produce = jest.fn().mockImplementation(() => {
-            produceCalled = true
-            return neverResolvingPromise
-        })
-
-        mockPromiseScheduler.schedule = jest.fn().mockImplementation((promise) => {
-            scheduleCalled = true
-            return promise // Return the never-resolving promise
-        })
-
-        // This should return quickly without waiting for the promise
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName, true, false)
-
-        // Verify produce and schedule were called but we didn't wait for them
-        expect(produceCalled).toBe(true)
-        expect(scheduleCalled).toBe(true)
-        expect(mockKafkaProducer.produce).toHaveBeenCalled()
-        expect(mockPromiseScheduler.schedule).toHaveBeenCalled()
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                topic: 'overflow-topic',
+            })
+        )
     })
 
-    it('should handle redirect failures', async () => {
-        const topic = 'overflow-topic'
-        const stepName = 'test-step'
-        const redirectError = new Error('Redirect failed')
-
-        mockKafkaProducer.produce = jest.fn().mockRejectedValue(redirectError)
-
-        await expect(
-            redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic, stepName)
-        ).rejects.toThrow('Redirect failed')
-
-        expect(mockCaptureException).toHaveBeenCalledWith(redirectError, {
-            tags: {
-                team_id: '42',
-                pipeline_step: stepName,
-            },
-            extra: {
-                topic,
-                distinct_id: 'test-user',
-                event: 'pageview',
-                error: redirectError,
-            },
-        })
-    })
-
-    it('should use default step name when not provided', async () => {
+    it('should use default step name when not provided', () => {
         const topic = 'overflow-topic'
 
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic)
+        redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, topic)
     })
 })
 
@@ -742,14 +673,14 @@ describe('Header processing utilities', () => {
         } as Message
     })
 
-    it('should correctly process different header types in sendMessageToDLQ', async () => {
+    it('should correctly process different header types in sendMessageToDLQ', () => {
         const mockKafkaProducer = {
-            produce: jest.fn().mockResolvedValue(undefined),
+            enqueue: jest.fn(),
         } as unknown as KafkaProducerWrapper
 
-        await sendMessageToDLQ(mockKafkaProducer, mockMessage, new Error('test'), 'test-step', 'dlq-topic')
+        sendMessageToDLQ(mockKafkaProducer, mockMessage, new Error('test'), 'test-step', 'dlq-topic')
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith(
             expect.objectContaining({
                 headers: expect.objectContaining({
                     stringHeader: 'string-value',
@@ -762,18 +693,18 @@ describe('Header processing utilities', () => {
         )
     })
 
-    it('should correctly process different header types in redirectMessageToTopic', async () => {
+    it('should correctly process different header types in redirectMessageToTopic', () => {
         const mockKafkaProducer = {
-            produce: jest.fn().mockResolvedValue(undefined),
+            enqueue: jest.fn(),
         } as unknown as KafkaProducerWrapper
 
         const mockPromiseScheduler = {
             schedule: jest.fn().mockImplementation((promise) => promise),
         } as unknown as PromiseScheduler
 
-        await redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, 'test-topic', 'test-step')
+        redirectMessageToTopic(mockKafkaProducer, mockPromiseScheduler, mockMessage, 'test-topic', 'test-step')
 
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+        expect(mockKafkaProducer.enqueue).toHaveBeenCalledWith(
             expect.objectContaining({
                 headers: expect.objectContaining({
                     stringHeader: 'string-value',

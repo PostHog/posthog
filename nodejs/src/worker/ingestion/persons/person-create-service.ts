@@ -56,7 +56,7 @@ export class PersonCreateService {
             )
 
             if (result.success) {
-                await this.context.kafkaProducer.queueMessages(result.messages)
+                this.context.kafkaProducer.enqueueMessages(result.messages)
                 return [result.person, result.created]
             }
 
@@ -86,7 +86,7 @@ export class PersonCreateService {
             throw new Error('Unexpected CreatePersonResult state')
         } catch (error) {
             if (error instanceof PersonPropertiesSizeViolationError) {
-                await captureIngestionWarning(this.context.kafkaProducer, teamId, 'person_properties_size_violation', {
+                captureIngestionWarning(this.context.kafkaProducer, teamId, 'person_properties_size_violation', {
                     personId: error.personId,
                     distinctId: primaryDistinctId.distinctId,
                     teamId: teamId,

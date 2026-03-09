@@ -350,17 +350,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             } else {
                 // Handle specific error types
                 if (result?.error instanceof PersonPropertiesSizeViolationError) {
-                    await captureIngestionWarning(
-                        this.kafkaProducer,
-                        update.team_id,
-                        'person_properties_size_violation',
-                        {
-                            personId: update.id,
-                            distinctId: update.distinct_id,
-                            teamId: update.team_id,
-                            message: 'Person properties exceeds size limit and was rejected',
-                        }
-                    )
+                    captureIngestionWarning(this.kafkaProducer, update.team_id, 'person_properties_size_violation', {
+                        personId: update.id,
+                        distinctId: update.distinct_id,
+                        teamId: update.team_id,
+                        message: 'Person properties exceeds size limit and was rejected',
+                    })
                     personWriteMethodAttemptCounter.inc({
                         db_write_mode: this.options.dbWriteMode,
                         method: 'batch',
@@ -555,7 +550,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private async handleIndividualUpdateError(error: unknown, update: PersonUpdate): Promise<FlushResult[]> {
         // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
         if (error instanceof MessageSizeTooLarge) {
-            await captureIngestionWarning(this.kafkaProducer, update.team_id, 'person_upsert_message_size_too_large', {
+            captureIngestionWarning(this.kafkaProducer, update.team_id, 'person_upsert_message_size_too_large', {
                 personId: update.id,
                 distinctId: update.distinct_id,
             })
@@ -568,7 +563,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         if (error instanceof PersonPropertiesSizeViolationError) {
-            await captureIngestionWarning(this.kafkaProducer, update.team_id, 'person_properties_size_violation', {
+            captureIngestionWarning(this.kafkaProducer, update.team_id, 'person_properties_size_violation', {
                 personId: update.id,
                 distinctId: update.distinct_id,
                 teamId: update.team_id,

@@ -212,7 +212,7 @@ describe('createProcessPersonsStep', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
             expect(result.value.person.force_upgrade).toBe(true)
-            expect(result.sideEffects.length).toBeGreaterThan(0)
+            expect(result.sideEffects).toEqual([])
         }
 
         await personsStore.flush()

@@ -10,15 +10,15 @@ import { castTimestampOrNow } from '../../../../utils/utils'
 export class ClickhouseGroupRepository {
     constructor(private kafkaProducer: KafkaProducerWrapper) {}
 
-    public async upsertGroup(
+    public upsertGroup(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         properties: Properties,
         createdAt: DateTime,
         version: number
-    ): Promise<void> {
-        await this.kafkaProducer.queueMessages({
+    ): void {
+        this.kafkaProducer.enqueueMessages({
             topic: KAFKA_GROUPS,
             messages: [
                 {
