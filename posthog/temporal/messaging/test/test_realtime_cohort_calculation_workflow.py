@@ -1,3 +1,4 @@
+import os
 import statistics
 
 import pytest
@@ -259,8 +260,6 @@ class TestBatchFlushingBehavior:
 
     def test_flush_batch_size_env_var_configuration(self):
         """Verify FLUSH_BATCH_SIZE uses environment variable configuration."""
-        import os
-
         # Test default value (1000 when env var is not set)
         with patch.dict(os.environ, {}, clear=True):
             # Test the env parsing logic directly
