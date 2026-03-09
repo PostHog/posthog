@@ -51,6 +51,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -588,7 +589,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 size="small"
                                                 icon={<IconPencil fontSize="16" />}
                                             >
-                                                Edit layout
+                                                Edit <KeyboardShortcut className="ml-2" e />
                                             </LemonButton>
                                         )}
                                         <MaxTool
