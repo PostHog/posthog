@@ -155,13 +155,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
     selectors({
         querySource: [
-            (s) => [s.query],
-            (query) => {
-                if (!isNodeWithSource(query) || !isInsightQueryNode(query.source)) {
+            (s) => [s.query, (_, props) => props.query, (_, props) => props.setQuery],
+            (query, propsQuery, setQuery) => {
+                const effectiveQuery = setQuery ? propsQuery : query
+
+                if (!isNodeWithSource(effectiveQuery) || !isInsightQueryNode(effectiveQuery.source)) {
                     return null
                 }
 
-                const source = query.source
+                const source = effectiveQuery.source
 
                 // Clean up Web Analytics queries by removing invalid fields that might have been saved
                 if (isWebStatsTableQuery(source) || isWebOverviewQuery(source)) {
