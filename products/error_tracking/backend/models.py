@@ -55,20 +55,34 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
-    def split(self, fingerprints: list[str], exclusive: bool) -> None:
+    def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
+        own_fingerprints = set(
+            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=self.team.pk, issue_id=self.id).values_list(
+                "fingerprint", flat=True
+            )
+        )
+
         overrides: list[ErrorTrackingIssueFingerprintV2] = []
+        new_issues: list[ErrorTrackingIssue] = []
 
         with transaction.atomic():
-            common_issue = ErrorTrackingIssue.objects.create(team=self.team) if not exclusive else None
-            for fingerprint in fingerprints:
-                new_issue = common_issue if common_issue else ErrorTrackingIssue.objects.create(team=self.team)
+            for entry in fingerprints:
+                fp = entry["fingerprint"]
+                if fp not in own_fingerprints:
+                    continue
+                new_issue = ErrorTrackingIssue.objects.create(
+                    team=self.team,
+                    name=entry.get("name") or "Untitled issue",
+                    description=entry.get("description"),
+                )
+                new_issues.append(new_issue)
                 overrides.extend(
                     update_error_tracking_issue_fingerprints(
-                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fingerprint]
+                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
                     )
                 )
-
-        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+        return new_issues
 
 
 class ErrorTrackingExternalReference(UUIDTModel):

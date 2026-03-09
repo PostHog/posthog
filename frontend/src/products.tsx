@@ -622,10 +622,12 @@ export const productUrls = {
         type,
         sourceId,
         template,
+        intent,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
+        intent?: 'local-eval' | 'first-page-load'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -636,6 +638,9 @@ export const productUrls = {
         }
         if (template) {
             params.set('template', template)
+        }
+        if (intent) {
+            params.set('intent', intent)
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -1138,8 +1143,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_clusters' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsClusters(),
-        flag: FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB,
-        tags: ['beta'],
         sceneKey: 'LLMAnalyticsClusters',
         sceneKeys: [
             'LLMAnalytics',

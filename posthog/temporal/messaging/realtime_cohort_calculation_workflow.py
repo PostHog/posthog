@@ -1,3 +1,4 @@
+import os
 import time
 import asyncio
 import datetime as dt
@@ -26,6 +27,9 @@ from posthog.temporal.common.logger import get_logger
 
 if TYPE_CHECKING:
     from posthog.kafka_client.client import _KafkaProducer
+
+# Configuration
+FLUSH_BATCH_SIZE = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
 
 # Cohort calculation timing histograms
 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM = Histogram(
@@ -358,7 +362,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 ):
                     status_counts = {"entered": 0, "left": 0}
                     pending_kafka_messages = []
-                    FLUSH_BATCH_SIZE = 10_000  # Flush every 10k messages to allow heartbeats
                     # Count of messages successfully produced to Kafka (pending flush), excluding failed produce attempts
                     total_messages = 0
                     total_flushed = 0
