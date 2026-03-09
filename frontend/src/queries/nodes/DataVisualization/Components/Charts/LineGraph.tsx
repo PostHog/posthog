@@ -463,7 +463,7 @@ export const LineGraph = ({
                                     }
                                 })
 
-                                const tooltipTotalData = filteredSeriesData.filter(
+                                const tooltipTotalData = ySeriesData.filter(
                                     (n) => n.settings?.formatting?.style !== 'percent'
                                 )
 
