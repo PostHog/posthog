@@ -8,6 +8,7 @@ type TooltipInstance = {
     element: HTMLElement
     isMouseOver: boolean
     hideTimeout: NodeJS.Timeout | null
+    interactiveTimeout: NodeJS.Timeout | null
     mouseEnterHandler: () => void
     mouseLeaveHandler: () => void
 }
@@ -24,6 +25,27 @@ function initGlobalScrollEndListener(): void {
     document.addEventListener('scrollend', () => hideTooltip(), { capture: true, passive: true })
 }
 
+/** Time the tooltip must be stationary before it becomes interactive (ms) */
+const INTERACTIVE_DELAY = 500
+
+function disableInteractivity(instance: TooltipInstance): void {
+    instance.element.style.pointerEvents = 'none'
+    if (instance.interactiveTimeout) {
+        clearTimeout(instance.interactiveTimeout)
+        instance.interactiveTimeout = null
+    }
+}
+
+function scheduleInteractivity(instance: TooltipInstance): void {
+    if (instance.interactiveTimeout) {
+        clearTimeout(instance.interactiveTimeout)
+    }
+    instance.interactiveTimeout = setTimeout(() => {
+        instance.element.style.pointerEvents = 'auto'
+        instance.interactiveTimeout = null
+    }, INTERACTIVE_DELAY)
+}
+
 export function ensureTooltip(id: string): [Root, HTMLElement] {
     let instance = tooltipInstances.get(id)
 
@@ -32,6 +54,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
         tooltipEl.id = `InsightTooltipWrapper-${id}`
         tooltipEl.classList.add('InsightTooltipWrapper')
         tooltipEl.setAttribute('data-attr', 'insight-tooltip-wrapper')
+        tooltipEl.style.pointerEvents = 'none'
         document.body.appendChild(tooltipEl)
 
         const root = createRoot(tooltipEl)
@@ -51,6 +74,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
             const inst = tooltipInstances.get(id)
             if (inst) {
                 inst.isMouseOver = false
+                disableInteractivity(inst)
                 inst.hideTimeout = setTimeout(() => {
                     if (!inst.isMouseOver) {
                         inst.element.style.opacity = '0'
@@ -64,6 +88,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
             element: tooltipEl,
             isMouseOver: false,
             hideTimeout: null,
+            interactiveTimeout: null,
             mouseEnterHandler,
             mouseLeaveHandler,
         }
@@ -82,6 +107,7 @@ export function hideTooltip(id?: string): void {
         // Fallback to old behavior - hide all tooltips
         tooltipInstances.forEach((instance) => {
             instance.element.style.opacity = '0'
+            disableInteractivity(instance)
         })
         return
     }
@@ -103,6 +129,7 @@ export function hideTooltip(id?: string): void {
     instance.hideTimeout = setTimeout(() => {
         if (!instance.isMouseOver) {
             instance.element.style.opacity = '0'
+            disableInteractivity(instance)
         }
     }, 100)
 }
@@ -113,6 +140,7 @@ export function cleanupTooltip(id: string): void {
         if (instance.hideTimeout) {
             clearTimeout(instance.hideTimeout)
         }
+        disableInteractivity(instance)
         instance.element.removeEventListener('mouseenter', instance.mouseEnterHandler)
         instance.element.removeEventListener('mouseleave', instance.mouseLeaveHandler)
         tooltipInstances.delete(id)
@@ -161,6 +189,14 @@ export function positionTooltip(
 ): void {
     tooltipEl.style.position = 'absolute'
     tooltipEl.style.maxWidth = ''
+
+    // Each reposition means the mouse is still moving — reset interactivity timer
+    const id = tooltipEl.id.replace('InsightTooltipWrapper-', '')
+    const instance = tooltipInstances.get(id)
+    if (instance) {
+        disableInteractivity(instance)
+        scheduleInteractivity(instance)
+    }
 
     applyPosition(tooltipEl, canvasBounds, caretX, caretY, centerVertically)
 
