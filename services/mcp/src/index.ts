@@ -229,7 +229,10 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    Object.assign(ctx.props, { features, region: regionParam, version })
+    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
+
+    Object.assign(ctx.props, { features, region: regionParam, version, readOnly })
     log.extend({ features, version })
 
     if (url.pathname.startsWith('/mcp')) {
