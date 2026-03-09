@@ -589,7 +589,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                 size="small"
                                                 icon={<IconPencil fontSize="16" />}
                                             >
-                                                Edit <KeyboardShortcut className="ml-2" e />
+                                                Edit
+                                                <KeyboardShortcut className="ml-2" e />
                                             </LemonButton>
                                         )}
                                         <MaxTool
