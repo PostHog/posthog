@@ -7,7 +7,7 @@ Cloud runs are AI agents that execute code tasks in isolated sandboxes. A user c
 ```text
                                      PostHog API
                                     ┌─────────────┐
-                  POST /run         │ TaskViewSet  │
+                  POST /run (+branch) │ TaskViewSet  │
 User ─────────────────────────────►│   .run()     │
                                     │              │
                                     └──────┬───────┘
@@ -52,15 +52,15 @@ User ─────────────────────────
 
 ### PostHog API
 
-`backend/api.py` — `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and calls `execute_task_processing_workflow()` which starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `_signal_workflow_completion`.
+`backend/api.py` — `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and calls `execute_task_processing_workflow()` which starts the Temporal workflow. The run request accepts an optional `branch` parameter specifying which git branch to use in the sandbox. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `_signal_workflow_completion`.
 
 ### Temporal workflow
 
 `backend/temporal/process_task/workflow.py` — The `process-task` workflow orchestrates the full lifecycle:
 
 1. **get_task_processing_context** — Loads the TaskRun, validates GitHub integration and repository, builds a `TaskProcessingContext` with IDs and credentials
-2. **get_sandbox_for_repository** — Creates an OAuth token, provisions a sandbox (with snapshot if available), clones the repo, stores `sandbox_id`/`sandbox_url`/`sandbox_connect_token` in TaskRun.state
-3. **start_agent_server** — Runs `npx agent-server` inside the sandbox, waits for health check
+2. **get_sandbox_for_repository** — Creates an OAuth token, provisions a sandbox (with snapshot if available), clones the repo, fetches and checks out the specified branch (if provided), stores `sandbox_id`/`sandbox_url`/`sandbox_connect_token` in TaskRun.state
+3. **start_agent_server** — Runs `npx agent-server` inside the sandbox with `--baseBranch` flag when a branch is specified, waits for health check
 4. **wait_condition** — Blocks with a 5-minute inactivity timeout. The agent sends `heartbeat` signals to keep the workflow alive; each heartbeat resets the timer. The workflow exits when it receives a `complete_task` signal or when no heartbeat arrives within 5 minutes
 5. **cleanup_sandbox** — Destroys the sandbox container (always runs via `finally`)
 
@@ -91,12 +91,12 @@ Environment variables consumed inside the sandbox:
 
 ## End-to-end flow
 
-1. `POST /api/projects/{team_id}/tasks/{task_id}/run/` — Creates a TaskRun (QUEUED), triggers workflow
+1. `POST /api/projects/{team_id}/tasks/{task_id}/run/` — Creates a TaskRun (QUEUED) with optional `branch`, triggers workflow
 2. Temporal starts `process-task` workflow on the `tasks-task-queue` (or `development-task-queue` in DEBUG)
 3. **get_task_processing_context** — Loads task, validates state, returns `TaskProcessingContext`
 4. **update_task_run_status** — Sets status to IN_PROGRESS
-5. **get_sandbox_for_repository** — Gets GitHub token from integration, creates OAuth access token, provisions sandbox, clones repo (unless snapshot used), stores sandbox credentials in TaskRun.state
-6. **start_agent_server** — Starts `npx agent-server` in sandbox, polls `/health` until ready
+5. **get_sandbox_for_repository** — Gets GitHub token from integration, creates OAuth access token, provisions sandbox, clones repo (unless snapshot used). If a branch is specified, updates the remote URL (for snapshots with stale tokens), then fetches and checks out the branch (`git fetch --depth 1 origin -- <branch> && git checkout -B <branch> FETCH_HEAD`). Stores sandbox credentials in TaskRun.state
+6. **start_agent_server** — Starts `npx agent-server` in sandbox with `--baseBranch <branch>` when a branch is specified, polls `/health` until ready
 7. **wait_condition** — Workflow blocks with a 5-minute inactivity timeout, extended by `heartbeat` signals from the agent. Twig IDE or the agent server signals completion via the API
 8. Agent server calls `PATCH /api/projects/{team_id}/task_runs/{run_id}/` with terminal status
 9. API handler sends `complete_task(status, error_message)` signal to the Temporal workflow
@@ -110,7 +110,7 @@ Top-level entity representing a unit of work. Fields: `title`, `description`, `r
 
 ### TaskRun
 
-Execution record for a task. Status lifecycle: `QUEUED -> IN_PROGRESS -> COMPLETED | FAILED | CANCELLED`. The `state` JSON field stores runtime data (`sandbox_id`, `sandbox_url`, `sandbox_connect_token`, `mode`). Logs are stored in S3 as JSONL files.
+Execution record for a task. Status lifecycle: `QUEUED -> IN_PROGRESS -> COMPLETED | FAILED | CANCELLED`. The `branch` field stores the selected git branch for the run. The `state` JSON field stores runtime data (`sandbox_id`, `sandbox_url`, `sandbox_connect_token`, `mode`, `branch`). Logs are stored in S3 as JSONL files.
 
 ### SandboxSnapshot
 
