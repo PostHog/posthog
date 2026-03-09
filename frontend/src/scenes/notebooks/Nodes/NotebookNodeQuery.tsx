@@ -1,6 +1,6 @@
 import { JSONContent } from '@tiptap/core'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -165,8 +165,14 @@ export const Settings = ({
     const { notebookLogic } = useValues(nodeLogic)
     const { canvasFiltersOverride } = useValues(notebookLogic)
 
+    // We keep a local copy of the query to optimistically update the UI while the parent updates
+    const [localQuery, setLocalQuery] = useState(query)
+    useEffect(() => {
+        setLocalQuery(query)
+    }, [query])
+
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query, full: false }
+        const modifiedQuery = { ...localQuery, full: false }
 
         if (isDataTableNode(modifiedQuery) || isSavedInsightNode(modifiedQuery)) {
             modifiedQuery.showOpenEditorButton = false
@@ -211,7 +217,7 @@ export const Settings = ({
         }
 
         return modifiedQuery
-    }, [query, canvasFiltersOverride, isDefaultFilterApplied, attributes, updateAttributes])
+    }, [localQuery, canvasFiltersOverride, isDefaultFilterApplied, attributes, updateAttributes])
 
     const detachSavedInsight = (): void => {
         if (isSavedInsightNode(attributes.query)) {
@@ -261,10 +267,12 @@ export const Settings = ({
                 attachTo={notebookLogic}
                 query={modifiedQuery}
                 setQuery={(t) => {
+                    const newSource = (t as DataTableNode | InsightVizNode).source
+                    setLocalQuery({ ...localQuery, source: newSource } as QuerySchema)
                     updateAttributes({
                         query: {
                             ...attributes.query,
-                            source: (t as DataTableNode | InsightVizNode).source,
+                            source: newSource,
                         } as QuerySchema,
                     })
                 }}
