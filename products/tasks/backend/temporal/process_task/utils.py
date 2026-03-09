@@ -8,24 +8,35 @@ from posthog.models.integration import GitHubIntegration, Integration
 
 
 @dataclass(frozen=True)
-class StreamableHttpMcpConfig:
-    """Configuration for connecting to an MCP server over streamable HTTP."""
+class McpServerConfig:
+    """Configuration for a remote MCP server matching the ACP McpServer schema.
 
+    Matches the CLI --mcpServers JSON format:
+    - type: "http" (streamable HTTP) or "sse"
+    - name: server identifier
+    - url: server endpoint
+    - headers: list of {name, value} pairs
+    """
+
+    type: str
+    name: str
     url: str
-    headers: dict[str, str] = field(default_factory=dict)
+    headers: list[dict[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {"type": "streamable-http", "url": self.url}
-        if self.headers:
-            data["headers"] = self.headers
-        return data
+        return {
+            "type": self.type,
+            "name": self.name,
+            "url": self.url,
+            "headers": self.headers,
+        }
 
 
 def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
-def get_sandbox_mcp_configs() -> list[StreamableHttpMcpConfig]:
+def get_sandbox_mcp_configs() -> list[McpServerConfig]:
     """Return MCP server configurations for sandbox agents.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
@@ -36,7 +47,7 @@ def get_sandbox_mcp_configs() -> list[StreamableHttpMcpConfig]:
     url = _resolve_mcp_url()
     if not url:
         return []
-    return [StreamableHttpMcpConfig(url=url)]
+    return [McpServerConfig(type="http", name="posthog", url=url)]
 
 
 def _resolve_mcp_url() -> str | None:

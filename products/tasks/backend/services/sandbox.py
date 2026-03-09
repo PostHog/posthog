@@ -22,7 +22,7 @@ from django.conf import settings
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from products.tasks.backend.temporal.process_task.utils import StreamableHttpMcpConfig
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
 @dataclass
@@ -119,7 +119,7 @@ class SandboxProtocol(Protocol):
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
-        mcp_configs: list[StreamableHttpMcpConfig] | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 

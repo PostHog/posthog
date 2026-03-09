@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from products.tasks.backend.temporal.process_task.utils import StreamableHttpMcpConfig, get_sandbox_mcp_configs
+from products.tasks.backend.temporal.process_task.utils import McpServerConfig, get_sandbox_mcp_configs
 
 
 class TestGetSandboxMcpConfigs(TestCase):
@@ -20,14 +20,14 @@ class TestGetSandboxMcpConfigs(TestCase):
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = site_url
             configs = get_sandbox_mcp_configs()
-            assert configs == [StreamableHttpMcpConfig(url=expected_mcp_url)]
+            assert configs == [McpServerConfig(type="http", name="posthog", url=expected_mcp_url)]
 
     def test_explicit_sandbox_mcp_url_takes_precedence(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = "https://custom-mcp.example.com/mcp"
             mock_settings.SITE_URL = "https://app.posthog.com"
             configs = get_sandbox_mcp_configs()
-            assert configs == [StreamableHttpMcpConfig(url="https://custom-mcp.example.com/mcp")]
+            assert configs == [McpServerConfig(type="http", name="posthog", url="https://custom-mcp.example.com/mcp")]
 
     @parameterized.expand(
         [
@@ -48,15 +48,26 @@ class TestGetSandboxMcpConfigs(TestCase):
             assert get_sandbox_mcp_configs() == []
 
 
-class TestStreamableHttpMcpConfigToDict(TestCase):
+class TestMcpServerConfigToDict(TestCase):
     def test_minimal_config(self) -> None:
-        config = StreamableHttpMcpConfig(url="https://mcp.posthog.com/mcp")
-        assert config.to_dict() == {"type": "streamable-http", "url": "https://mcp.posthog.com/mcp"}
+        config = McpServerConfig(type="http", name="posthog", url="https://mcp.posthog.com/mcp")
+        assert config.to_dict() == {
+            "type": "http",
+            "name": "posthog",
+            "url": "https://mcp.posthog.com/mcp",
+            "headers": [],
+        }
 
     def test_config_with_headers(self) -> None:
-        config = StreamableHttpMcpConfig(url="https://mcp.example.com/mcp", headers={"Authorization": "Bearer token"})
+        config = McpServerConfig(
+            type="http",
+            name="posthog",
+            url="https://mcp.example.com/mcp",
+            headers=[{"name": "Authorization", "value": "Bearer token"}],
+        )
         assert config.to_dict() == {
-            "type": "streamable-http",
+            "type": "http",
+            "name": "posthog",
             "url": "https://mcp.example.com/mcp",
-            "headers": {"Authorization": "Bearer token"},
+            "headers": [{"name": "Authorization", "value": "Bearer token"}],
         }

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Optional
 from django.conf import settings
 
 if TYPE_CHECKING:
-    from products.tasks.backend.temporal.process_task.utils import StreamableHttpMcpConfig
+    from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
@@ -37,7 +37,6 @@ WORKING_DIR = "/tmp/workspace"
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
-MCP_CONFIG_PATH = "/tmp/mcp-config.json"
 
 
 class DockerSandbox:
@@ -555,7 +554,7 @@ class DockerSandbox:
         mode: str,
         interaction_origin: str | None = None,
         branch: str | None = None,
-        mcp_config_arg: str = "",
+        mcp_servers_arg: str = "",
     ) -> str:
         env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
@@ -563,7 +562,7 @@ class DockerSandbox:
             f"cd /scripts && "
             f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_config_arg} "
+            f"{branch_flag}{mcp_servers_arg} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 
@@ -586,7 +585,7 @@ class DockerSandbox:
         mode: str = "background",
         interaction_origin: str | None = None,
         branch: str | None = None,
-        mcp_configs: list[StreamableHttpMcpConfig] | None = None,
+        mcp_configs: list[McpServerConfig] | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -602,12 +601,12 @@ class DockerSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        mcp_config_arg = ""
+        mcp_servers_arg = ""
         if mcp_configs:
-            self._write_mcp_config(mcp_configs)
-            mcp_config_arg = f" --mcpConfigPath {MCP_CONFIG_PATH}"
+            mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
+            mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
-        command = self._build_agent_server_command(repo_path, task_id, run_id, mode, interaction_origin, branch, mcp_config_arg)
+        command = self._build_agent_server_command(repo_path, task_id, run_id, mode, interaction_origin, branch, mcp_servers_arg)
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
 
@@ -626,7 +625,7 @@ class DockerSandbox:
             self.execute("pkill -f agent-server || true", timeout_seconds=5)
 
             command = self._build_agent_server_command(
-                repo_path, task_id, run_id, mode, interaction_origin, branch=None, mcp_config_arg=mcp_config_arg
+                repo_path, task_id, run_id, mode, interaction_origin, branch=None, mcp_servers_arg=mcp_servers_arg
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
@@ -639,19 +638,6 @@ class DockerSandbox:
             {"sandbox_id": self.id, "log": log_result.stdout},
             cause=RuntimeError("Health check failed after retries"),
         )
-
-    def _write_mcp_config(self, mcp_configs: list[StreamableHttpMcpConfig]) -> None:
-        config_json = json.dumps([c.to_dict() for c in mcp_configs])
-        result = self.execute(
-            f"cat > {MCP_CONFIG_PATH} << 'MCPEOF'\n{config_json}\nMCPEOF",
-            timeout_seconds=5,
-        )
-        if result.exit_code != 0:
-            raise SandboxExecutionError(
-                "Failed to write MCP config",
-                {"sandbox_id": self.id, "stderr": result.stderr},
-                cause=RuntimeError(result.stderr),
-            )
 
     def _wait_for_health_check(self, max_attempts: int = 20, delay_seconds: float = 1.0) -> bool:
         """Poll health endpoint until server is ready."""

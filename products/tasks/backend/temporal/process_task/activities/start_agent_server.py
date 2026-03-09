@@ -9,7 +9,7 @@ from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.utils import StreamableHttpMcpConfig
+from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 from .get_task_processing_context import TaskProcessingContext
 
@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 class StartAgentServerInput:
     context: TaskProcessingContext
     sandbox_id: str
-    mcp_configs: list[StreamableHttpMcpConfig] = field(default_factory=list)
+    mcp_configs: list[McpServerConfig] = field(default_factory=list)
 
 
 @dataclass
