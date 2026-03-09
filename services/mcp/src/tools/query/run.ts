@@ -32,10 +32,14 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
     const queryInfo = analyzeQuery(query)
 
     // Format results based on the query type
-    // TrendsQuery and FunnelsQuery return results directly as an array
+    // TrendsQuery, FunnelsQuery, and PathsQuery return results directly as an array
     // HogQLQuery returns { results: [...], columns: [...] }
     // The UI app infers the visualization type from the data structure
-    if (queryInfo.visualization === 'trends' || queryInfo.visualization === 'funnel') {
+    if (
+        queryInfo.visualization === 'trends' ||
+        queryInfo.visualization === 'funnel' ||
+        queryInfo.visualization === 'paths'
+    ) {
         return {
             query: queryInfo.innerQuery || query,
             results: queryResult.data.results,
