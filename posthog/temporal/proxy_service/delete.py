@@ -138,6 +138,9 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
 
     errors: list[str] = []
 
+    # Worker route cleanup intentionally omitted: per-domain routes are no longer created (we
+    # now rely on a single wildcard */* route). Proxies created before this change may have
+    # orphaned per-domain routes; those should be cleaned up via a separate migration script.
     # Delete Custom Hostname
     try:
         hostname = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
