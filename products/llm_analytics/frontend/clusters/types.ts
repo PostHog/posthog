@@ -52,6 +52,26 @@ export interface ClusterItemInfo {
     generation_id?: string // Only set for generation-level clustering
 }
 
+// Aggregate sentiment for a cluster (baked into the event by the workflow)
+export interface ClusterSentiment {
+    label: string // "positive", "neutral", "negative"
+    score: number // 0-1
+    counts: Record<string, number> // {"positive": N, "neutral": N, "negative": N}
+    total: number
+}
+
+// Pre-computed aggregate metrics baked into the cluster event by the workflow
+export interface ClusterBakedMetrics {
+    avg_cost: number | null
+    avg_latency: number | null
+    avg_tokens: number | null
+    total_cost: number | null
+    error_rate: number | null
+    error_count: number
+    item_count: number
+    sentiment: ClusterSentiment | null
+}
+
 // Cluster data structure from the $ai_clusters property
 export interface Cluster {
     cluster_id: number
@@ -62,6 +82,7 @@ export interface Cluster {
     centroid: number[] // 384-dim vector, not used in UI but present in data
     centroid_x: number // UMAP 2D x coordinate for scatter plot
     centroid_y: number // UMAP 2D y coordinate for scatter plot
+    metrics?: ClusterBakedMetrics
 }
 
 // Parameters used for a clustering run
@@ -135,15 +156,4 @@ export function getJobIdFromRunId(runId: string): string | null {
         }
     }
     return null
-}
-
-// Aggregated metrics for a cluster (averages across all items in the cluster)
-export interface ClusterMetrics {
-    avgCost: number | null // Average cost in USD
-    avgLatency: number | null // Average latency in seconds
-    avgTokens: number | null // Average total tokens (input + output)
-    totalCost: number | null // Total cost across all items
-    errorRate: number | null // Proportion of items with at least one error (0-1)
-    errorCount: number // Number of items with at least one error
-    itemCount: number // Number of items with metrics data
 }

@@ -12,12 +12,13 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { SentimentBar } from '../components/SentimentTag'
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { TRACES_PER_PAGE } from './constants'
-import { ClusterItemInfo, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
+import { ClusterBakedMetrics, ClusterItemInfo, ClusteringLevel, TraceSummary } from './types'
 
 export const scene: SceneExport<ClusterDetailLogicProps> = {
     component: LLMAnalyticsClusterScene,
@@ -43,7 +44,6 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
         windowStart,
         windowEnd,
         clusterMetrics,
-        clusterMetricsLoading,
     } = useValues(clusterDetailLogic)
     const { setPage } = useActions(clusterDetailLogic)
 
@@ -103,11 +103,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                     )}
                 </div>
                 <ClusterDescription description={cluster.description} />
-                <ClusterMetricsChips
-                    metrics={clusterMetrics}
-                    metricsLoading={clusterMetricsLoading}
-                    clusteringLevel={clusteringLevel}
-                />
+                <ClusterMetricsChips metrics={clusterMetrics} clusteringLevel={clusteringLevel} />
             </div>
 
             {/* Cluster scatter plot */}
@@ -216,29 +212,18 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
 
 function ClusterMetricsChips({
     metrics,
-    metricsLoading,
     clusteringLevel,
 }: {
-    metrics: ClusterMetrics | null
-    metricsLoading: boolean
+    metrics: ClusterBakedMetrics | null
     clusteringLevel: ClusteringLevel
 }): JSX.Element | null {
     const hasMetrics =
         metrics &&
-        (metrics.avgCost !== null ||
-            metrics.avgLatency !== null ||
-            metrics.avgTokens !== null ||
-            metrics.errorRate !== null)
-
-    if (metricsLoading && !hasMetrics) {
-        return (
-            <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="h-5 w-24 bg-border-light rounded animate-pulse" />
-                ))}
-            </div>
-        )
-    }
+        (metrics.avg_cost !== null ||
+            metrics.avg_latency !== null ||
+            metrics.avg_tokens !== null ||
+            metrics.error_rate !== null ||
+            metrics.sentiment !== null)
 
     if (!hasMetrics) {
         return null
@@ -248,38 +233,47 @@ function ClusterMetricsChips({
 
     return (
         <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
-            {metrics.avgCost !== null && (
+            {metrics.sentiment && (
+                <Tooltip
+                    title={`Sentiment: ${metrics.sentiment.label} (${metrics.sentiment.total} ${itemLabel} classified)`}
+                >
+                    <span>
+                        <SentimentBar label={metrics.sentiment.label} score={metrics.sentiment.score} />
+                    </span>
+                </Tooltip>
+            )}
+            {metrics.avg_cost !== null && (
                 <Tooltip title={`Average cost per ${clusteringLevel}`}>
                     <LemonTag type="muted" size="small">
-                        Avg Cost: {formatLLMCost(metrics.avgCost)}
+                        Avg Cost: {formatLLMCost(metrics.avg_cost)}
                     </LemonTag>
                 </Tooltip>
             )}
-            {metrics.avgLatency !== null && (
+            {metrics.avg_latency !== null && (
                 <Tooltip title={`Average latency per ${clusteringLevel}`}>
                     <LemonTag type="muted" size="small">
-                        Avg Latency: {formatLLMLatency(metrics.avgLatency)}
+                        Avg Latency: {formatLLMLatency(metrics.avg_latency)}
                     </LemonTag>
                 </Tooltip>
             )}
-            {metrics.avgTokens !== null && (
+            {metrics.avg_tokens !== null && (
                 <Tooltip title={`Average tokens (input + output) per ${clusteringLevel}`}>
                     <LemonTag type="muted" size="small">
-                        Avg Tokens: {formatTokens(metrics.avgTokens)}
+                        Avg Tokens: {formatTokens(metrics.avg_tokens)}
                     </LemonTag>
                 </Tooltip>
             )}
-            {metrics.errorRate !== null && (
-                <Tooltip title={`Error rate: ${metrics.errorCount} errors out of ${metrics.itemCount} ${itemLabel}`}>
-                    <LemonTag type={metrics.errorRate > 0 ? 'danger' : 'muted'} size="small">
-                        Errors: {formatErrorRate(metrics.errorRate)}
+            {metrics.error_rate !== null && (
+                <Tooltip title={`Error rate: ${metrics.error_count} errors out of ${metrics.item_count} ${itemLabel}`}>
+                    <LemonTag type={metrics.error_rate > 0 ? 'danger' : 'muted'} size="small">
+                        Errors: {formatErrorRate(metrics.error_rate)}
                     </LemonTag>
                 </Tooltip>
             )}
-            {metrics.totalCost !== null && (
+            {metrics.total_cost !== null && (
                 <Tooltip title={`Total cost across all ${itemLabel} in this cluster`}>
                     <LemonTag type="muted" size="small">
-                        Total Cost: {formatLLMCost(metrics.totalCost)}
+                        Total Cost: {formatLLMCost(metrics.total_cost)}
                     </LemonTag>
                 </Tooltip>
             )}
