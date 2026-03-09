@@ -945,8 +945,8 @@ importers:
         specifier: ^3.5.1
         version: 3.5.1
       marked:
-        specifier: ^15.0.11
-        version: 15.0.11
+        specifier: ^17.0.4
+        version: 17.0.4
       mathjax-full:
         specifier: 3.2.2
         version: 3.2.2
@@ -16748,13 +16748,8 @@ packages:
     engines: {node: '>= 18'}
     hasBin: true
 
-  marked@15.0.11:
-    resolution: {integrity: sha512-1BEXAU2euRCG3xwgLVT1y0xbJEld1XOrmRJpUwRCcy7rxhSCwMrmEu9LXoPhHSCJG41V7YcQ2mjKRr5BA3ITIA==}
-    engines: {node: '>= 18'}
-    hasBin: true
-
-  marked@17.0.3:
-    resolution: {integrity: sha512-jt1v2ObpyOKR8p4XaUJVk3YWRJ5n+i4+rjQopxvV32rSndTJXvIzuUdWWIy/1pFQMkQmvTXawzDNqOH/CUmx6A==}
+  marked@17.0.4:
+    resolution: {integrity: sha512-NOmVMM+KAokHMvjWmC5N/ZOvgmSWuqJB8FoYI019j4ogb/PeRMKoKIjReZ2w3376kkA8dSJIP8uD993Kxc0iRQ==}
     engines: {node: '>= 20'}
     hasBin: true
 
@@ -32247,7 +32242,7 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.19.0(@tiptap/pm@3.19.0)
       '@tiptap/pm': 3.19.0
-      marked: 17.0.3
+      marked: 17.0.4
 
   '@tiptap/pm@3.19.0':
     dependencies:
@@ -40470,9 +40465,7 @@ snapshots:
 
   marked@14.0.0: {}
 
-  marked@15.0.11: {}
-
-  marked@17.0.3: {}
+  marked@17.0.4: {}
 
   math-intrinsics@1.1.0: {}
 

@@ -203,7 +203,7 @@
         "lodash.uniqby": "^4.7.0",
         "lowlight": "^3.3.0",
         "maplibre-gl": "^3.5.1",
-        "marked": "^15.0.11",
+        "marked": "^17.0.4",
         "mathjax-full": "3.2.2",
         "md5": "^2.3.0",
         "mdast-util-find-and-replace": "^3.0.2",
