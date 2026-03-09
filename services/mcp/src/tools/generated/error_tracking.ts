@@ -12,10 +12,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingIssuesListSchema = ErrorTrackingIssuesListQueryParams
 
-const errorTrackingIssuesList = (): ToolBase<
-    typeof ErrorTrackingIssuesListSchema,
-    Schemas.PaginatedErrorTrackingIssueFullList & { _posthogUrl: string }
-> => ({
+const errorTrackingIssuesList = (): ToolBase<typeof ErrorTrackingIssuesListSchema, unknown> => ({
     name: 'error-tracking-issues-list',
     schema: ErrorTrackingIssuesListSchema,
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesListSchema>) => {
@@ -49,7 +46,7 @@ const ErrorTrackingIssuesRetrieveSchema = ErrorTrackingIssuesRetrieveParams.omit
 
 const errorTrackingIssuesRetrieve = (): ToolBase<
     typeof ErrorTrackingIssuesRetrieveSchema,
-    Schemas.ErrorTrackingIssueFull
+    Schemas.ErrorTrackingIssueFull & { _posthogUrl: string }
 > => ({
     name: 'error-tracking-issues-retrieve',
     schema: ErrorTrackingIssuesRetrieveSchema,
@@ -77,7 +74,7 @@ const ErrorTrackingIssuesPartialUpdateSchema = ErrorTrackingIssuesPartialUpdateP
 
 const errorTrackingIssuesPartialUpdate = (): ToolBase<
     typeof ErrorTrackingIssuesPartialUpdateSchema,
-    Schemas.ErrorTrackingIssueFull
+    Schemas.ErrorTrackingIssueFull & { _posthogUrl: string }
 > => ({
     name: 'error-tracking-issues-partial-update',
     schema: ErrorTrackingIssuesPartialUpdateSchema,

@@ -95,7 +95,7 @@ describe('Error Tracking', { concurrent: false }, () => {
             })
             const errorDetails = parseToolResponse(result)
 
-            expect(Array.isArray(errorDetails)).toBe(true)
+            expect(Array.isArray(errorDetails.results)).toBe(true)
         })
 
         it('should get error details with custom date range', async () => {
@@ -110,7 +110,7 @@ describe('Error Tracking', { concurrent: false }, () => {
             })
             const errorDetails = parseToolResponse(result)
 
-            expect(Array.isArray(errorDetails)).toBe(true)
+            expect(Array.isArray(errorDetails.results)).toBe(true)
         })
     })
 
@@ -172,7 +172,7 @@ describe('Error Tracking', { concurrent: false }, () => {
                 })
                 const errorDetails = parseToolResponse(detailsResult)
 
-                expect(Array.isArray(errorDetails)).toBe(true)
+                expect(Array.isArray(errorDetails.results)).toBe(true)
             } else {
                 const testIssueId = '00000000-0000-0000-0000-000000000000'
                 const detailsResult = await detailsTool.handler(context, {
@@ -180,7 +180,7 @@ describe('Error Tracking', { concurrent: false }, () => {
                 })
                 const errorDetails = parseToolResponse(detailsResult)
 
-                expect(Array.isArray(errorDetails)).toBe(true)
+                expect(Array.isArray(errorDetails.results)).toBe(true)
             }
         })
 
