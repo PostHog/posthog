@@ -14,8 +14,9 @@ import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag, SDKTagOverride
 
 import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { useAdblockDetection } from './hooks/useAdblockDetection'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
-import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
+import { AdblockWarning, RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
@@ -91,6 +92,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const { currentTeam } = useValues(teamLogic)
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const adblockResult = useAdblockDetection()
     const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
     useEffect(() => {
@@ -119,6 +121,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             }
         >
             {header}
+            {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="flex flex-col gap-y-4 mt-6">
                 <div className="flex flex-col gap-y-2">
                     <div className="flex flex-col-reverse md:flex-row justify-between gap-4">

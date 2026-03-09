@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 export type AdblockDetectionResult = 'unknown' | 'blocked' | 'ok'
@@ -53,12 +54,14 @@ export function useAdblockDetection(delayMs: number = 20_000): AdblockDetectionR
                     if (!cancelled) {
                         detectionDone.current = true
                         setResult(r)
+                        posthog.capture('onboarding adblock detection completed', { status: r })
                     }
                 })
                 .catch(() => {
                     if (!cancelled) {
                         detectionDone.current = true
                         setResult('blocked')
+                        posthog.capture('onboarding adblock detection completed', { status: 'blocked' })
                     }
                 })
         }, delayMs)
