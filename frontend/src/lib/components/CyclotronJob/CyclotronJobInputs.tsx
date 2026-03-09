@@ -382,10 +382,13 @@ function BooleanField({
     const isTemplateMode = typeof input.value === 'string'
 
     if (isTemplateMode) {
+        // Boolean fields only support Hog templating - Liquid renders as strings
+        // which bypasses boolean type guarantees
+        const hogInput = input.templating === 'liquid' ? { ...input, templating: 'hog' as const } : input
         return (
             <CyclotronJobTemplateInput
-                input={input}
-                onChange={onChange}
+                input={hogInput}
+                onChange={(val) => onChange?.({ ...val, templating: 'hog' })}
                 templating={templating}
                 sampleGlobalsWithInputs={sampleGlobalsWithInputs}
             />

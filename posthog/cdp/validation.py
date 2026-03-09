@@ -208,8 +208,12 @@ class InputsItemSerializer(serializers.Serializer):
             templating_enabled = schema.get("templating", True)
             if templating_enabled:
                 if not isinstance(value, bool) and not isinstance(value, str):
+                    raise serializers.ValidationError({"input": f"Value must be a boolean or a template string."})
+                # Liquid templating always renders to strings, which bypasses boolean type guarantees.
+                # Only Hog templating is allowed for boolean fields as it preserves the actual boolean type.
+                if isinstance(value, str) and attrs.get("templating") == "liquid":
                     raise serializers.ValidationError(
-                        {"input": f"Value must be a boolean or a template string."}
+                        {"input": "Liquid templating is not supported for boolean fields. Use Hog templating instead."}
                     )
             else:
                 if not isinstance(value, bool):

@@ -524,6 +524,20 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             validate_inputs(inputs_schema, inputs)
         assert "boolean or a template string" in str(ctx.exception)
 
+    def test_validate_boolean_input_rejects_liquid_templating(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": "{{ event.properties.opt_out }}", "templating": "liquid"}}
+        with self.assertRaises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert "Liquid templating is not supported for boolean fields" in str(ctx.exception)
+
+    def test_validate_boolean_input_allows_hog_templating(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": "{event.properties.opt_out}", "templating": "hog"}}
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["opt_out"]["value"] == "{event.properties.opt_out}"
+        assert "bytecode" in validated["opt_out"]
+
     @parameterized.expand(
         [
             ("valid_code", "let x := person.properties.email", False),
