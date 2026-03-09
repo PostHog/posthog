@@ -1057,6 +1057,7 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.linkedSource).toEqual({
                 type: null,
                 promptName: null,
+                promptVersion: null,
                 evaluationId: null,
                 evaluationName: null,
             })
