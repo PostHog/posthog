@@ -127,6 +127,11 @@ export interface AlertCheckApi {
     readonly calculated_value: number | null
     readonly state: State66aEnumApi
     readonly targets_notified: boolean
+    readonly anomaly_scores: unknown | null
+    readonly triggered_points: unknown | null
+    readonly triggered_dates: unknown | null
+    /** @nullable */
+    readonly interval: string | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]

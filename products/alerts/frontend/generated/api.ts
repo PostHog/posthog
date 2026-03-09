@@ -128,3 +128,25 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
         method: 'DELETE',
     })
 }
+
+/**
+ * Run a detector on historical insight data and optionally save results.
+
+POST /api/projects/:team_id/alerts/backfill/
+ */
+export const getAlertsBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/alerts/backfill/`
+}
+
+export const alertsBackfillCreate = async (
+    projectId: string,
+    alertApi: NonReadonly<AlertApi>,
+    options?: RequestInit
+): Promise<AlertApi> => {
+    return apiMutator<AlertApi>(getAlertsBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertApi),
+    })
+}
