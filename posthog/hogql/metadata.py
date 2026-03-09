@@ -1,5 +1,4 @@
 from typing import Optional, Union, cast
-from uuid import UUID
 
 from django.conf import settings
 
@@ -25,29 +24,8 @@ from posthog.models import Team
 from posthog.models.user import User
 
 from products.data_warehouse.backend.models import ExternalDataSource
+from products.data_warehouse.backend.models.external_data_source import get_external_data_source_for_connection
 from products.data_warehouse.backend.models.table import DataWarehouseTable
-
-
-def _source_for_connection(team: Team, connection_id: str | None) -> ExternalDataSource | None:
-    if not connection_id:
-        return None
-
-    sources = ExternalDataSource.objects.filter(team_id=team.pk)
-
-    source = sources.filter(connection_id=connection_id).first()
-    if source:
-        return source
-
-    source = sources.filter(source_id=connection_id).first()
-    if source:
-        return source
-
-    try:
-        source_uuid = UUID(connection_id)
-    except ValueError:
-        return None
-
-    return sources.filter(id=source_uuid).first()
 
 
 def _prune_database_for_direct_metadata(database: Database, allowed_table_names: set[str]) -> None:
@@ -87,7 +65,12 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
-    source = _source_for_connection(team, query.connectionId)
+    source = get_external_data_source_for_connection(team_id=team.pk, connection_id=query.connectionId)
+    if query.connectionId and source is None:
+        response.isValid = False
+        response.errors = [HogQLNotice(message="Invalid connectionId for this team")]
+        return response
+
     database = None
     if source and source.source_id:
         database = Database.create_for(

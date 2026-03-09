@@ -15,6 +15,9 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
 
 class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
@@ -182,6 +185,26 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             HogQLQuery(
                 query="select 1",
                 connectionId=str(UUIDT()),
+            )
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            runner.calculate()
+
+    def test_soft_deleted_connection_id_raises_exposed_hogql_error(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            deleted=True,
+        )
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select 1",
+                connectionId=str(source.id),
             )
         )
 

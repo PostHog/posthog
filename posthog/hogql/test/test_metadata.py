@@ -214,6 +214,32 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_create_for.call_args.kwargs["direct_query_source_id"], str(source.id))
         self.assertIn("modifiers", mock_create_for.call_args.kwargs)
 
+    def test_metadata_rejects_soft_deleted_connection_id(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            deleted=True,
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT 1",
+                response=None,
+                connectionId=source.connection_id,
+            ),
+            team=self.team,
+        )
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual([error.message for error in metadata.errors], ["Invalid connectionId for this team"])
+
     def test_metadata_with_direct_connection_does_not_allow_posthog_tables(self):
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",

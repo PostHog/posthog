@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.db import models
+from django.db.models import QuerySet
 
 import structlog
 import temporalio
@@ -133,3 +134,25 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 @database_sync_to_async
 def get_external_data_source(source_id: UUID) -> ExternalDataSource:
     return ExternalDataSource.objects.get(pk=source_id)
+
+
+def get_external_data_source_for_connection(team_id: int, connection_id: str | None) -> ExternalDataSource | None:
+    if not connection_id:
+        return None
+
+    sources: QuerySet[ExternalDataSource] = ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True)
+
+    source = sources.filter(connection_id=connection_id).first()
+    if source:
+        return source
+
+    source = sources.filter(source_id=connection_id).first()
+    if source:
+        return source
+
+    try:
+        source_uuid = UUID(connection_id)
+    except ValueError:
+        return None
+
+    return sources.filter(id=source_uuid).first()

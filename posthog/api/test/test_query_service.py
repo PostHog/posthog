@@ -4,6 +4,9 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaPostHogTable,
@@ -59,6 +62,27 @@ class TestQueryService(APIBaseTest):
         result = _source_id_for_connection(self.team, str(source.id))
 
         self.assertEqual(result, source.source_id)
+
+    @parameterized.expand(
+        [
+            ("connection_id", "selected-connection"),
+            ("source_id", "upstream-source"),
+        ]
+    )
+    def test_source_id_for_connection_ignores_soft_deleted_sources(self, _label: str, connection_identifier: str):
+        ExternalDataSource.objects.create(
+            source_id="upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            deleted=True,
+        )
+
+        result = _source_id_for_connection(self.team, connection_identifier)
+
+        self.assertIsNone(result)
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
@@ -160,19 +184,11 @@ class TestQueryService(APIBaseTest):
             configuration={},
             created_at=selected_source.created_at,
         )
-        join_for_other_source = SimpleNamespace(
-            id="2",
-            source_table_name="selected_table",
-            source_table_key="selected_table.id",
-            joining_table_name="other_table",
-            joining_table_key="other_table.id",
-            field_name="cross_source_join",
-            configuration={},
-            created_at=other_source.created_at,
-        )
-        mock_joins = [join_for_selected_source, join_for_other_source]
         mock_join_queryset = MagicMock()
-        mock_join_queryset.exclude.return_value = mock_joins
+        mock_filtered_join_queryset = MagicMock()
+        mock_join_queryset.exclude.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.filter.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.iterator.return_value = iter([join_for_selected_source])
         mock_join_filter.return_value = mock_join_queryset
 
         mock_database.serialize.return_value["selected_table_2"] = DatabaseSchemaDataWarehouseTable(
@@ -210,6 +226,10 @@ class TestQueryService(APIBaseTest):
         )
         self.assertEqual(len(response.joins), 1)
         self.assertEqual(response.joins[0].field_name, "selected_join")
+        mock_filtered_join_queryset.filter.assert_called_once_with(
+            source_table_name__in={"selected_table", "selected_table_legacy_uuid", "selected_table_2"},
+            joining_table_name__in={"selected_table", "selected_table_legacy_uuid", "selected_table_2"},
+        )
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
@@ -273,7 +293,10 @@ class TestQueryService(APIBaseTest):
         }
         mock_create_for.return_value = mock_database
         mock_join_queryset = MagicMock()
-        mock_join_queryset.exclude.return_value = []
+        mock_filtered_join_queryset = MagicMock()
+        mock_join_queryset.exclude.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.filter.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.iterator.return_value = iter([])
         mock_join_filter.return_value = mock_join_queryset
 
         response = cast(
@@ -285,6 +308,10 @@ class TestQueryService(APIBaseTest):
         )
 
         self.assertEqual(set(response.tables.keys()), {"queriable_table"})
+        mock_filtered_join_queryset.filter.assert_called_once_with(
+            source_table_name__in={"queriable_table"},
+            joining_table_name__in={"queriable_table"},
+        )
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.Database.create_for")
@@ -335,6 +362,8 @@ class TestQueryService(APIBaseTest):
         )
 
         self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+        self.assertEqual(mock_create_for.call_args.kwargs["user"], None)
+        self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], None)
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.Database.create_for")
@@ -456,6 +485,82 @@ class TestQueryService(APIBaseTest):
 
             self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
             mock_prune_database.assert_called_once_with(database, {"selected_table"})
+            self.assertEqual(mock_create_for.call_args.kwargs["user"], None)
+            self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], None)
+
+    @patch("posthog.api.services.query.get_hogql_autocomplete")
+    @patch("posthog.api.services.query.Database.create_for")
+    def test_hogql_autocomplete_passes_user_context(
+        self,
+        mock_create_for: MagicMock,
+        mock_get_hogql_autocomplete: MagicMock,
+    ):
+        ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        database = Database()
+        mock_create_for.return_value = database
+        mock_get_hogql_autocomplete.return_value = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+
+        with (
+            patch("posthog.api.services.query.Database.serialize", return_value={}),
+            patch("posthog.api.services.query._prune_database_for_direct_connection"),
+        ):
+            process_query_model(
+                self.team,
+                HogQLAutocomplete(
+                    kind="HogQLAutocomplete",
+                    query="SELECT * FROM ",
+                    language=HogLanguage.HOG_QL,
+                    startPosition=14,
+                    endPosition=14,
+                    connectionId="selected-connection",
+                ),
+                user=self.user,
+            )
+
+        self.assertEqual(mock_create_for.call_args.kwargs["user"], self.user)
+        self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], self.user)
+
+    @parameterized.expand(
+        [
+            ("autocomplete", HogQLAutocomplete),
+            ("schema", DatabaseSchemaQuery),
+        ]
+    )
+    def test_query_service_rejects_soft_deleted_connection_ids(self, _label: str, query_cls):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            deleted=True,
+        )
+
+        if query_cls is HogQLAutocomplete:
+            query = HogQLAutocomplete(
+                kind="HogQLAutocomplete",
+                query="SELECT * FROM ",
+                language=HogLanguage.HOG_QL,
+                startPosition=14,
+                endPosition=14,
+                connectionId=source.connection_id,
+            )
+        else:
+            query = DatabaseSchemaQuery(connectionId=source.connection_id)
+
+        with self.assertRaises(ValidationError) as error:
+            process_query_model(self.team, query)
+
+        self.assertEqual(error.exception.detail[0], "Invalid connectionId for this team")
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
@@ -498,9 +603,12 @@ class TestQueryService(APIBaseTest):
         }
         mock_create_for.return_value = mock_database
         mock_join_queryset = MagicMock()
-        mock_join_queryset.exclude.return_value = []
+        mock_filtered_join_queryset = MagicMock()
+        mock_join_queryset.exclude.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.iterator.return_value = iter([])
         mock_join_filter.return_value = mock_join_queryset
 
         response = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
 
         self.assertEqual(set(response.tables.keys()), {"warehouse_table", "events"})
+        mock_filtered_join_queryset.filter.assert_not_called()

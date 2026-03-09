@@ -1,5 +1,4 @@
 from typing import TYPE_CHECKING, Optional
-from uuid import UUID
 
 import structlog
 import pydantic_core
@@ -39,36 +38,22 @@ from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.data_warehouse.backend.models import DataWarehouseJoin, ExternalDataSource
+from products.data_warehouse.backend.models.external_data_source import get_external_data_source_for_connection
 
 from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
 
 
-def _source_for_connection(team: Team, connection_id: str | None) -> ExternalDataSource | None:
-    if not connection_id:
-        return None
-
-    sources = ExternalDataSource.objects.filter(team_id=team.pk)
-
-    source = sources.filter(connection_id=connection_id).first()
-    if source:
-        return source
-
-    source = sources.filter(source_id=connection_id).first()
-    if source:
-        return source
-
-    try:
-        source_uuid = UUID(connection_id)
-    except ValueError:
-        return None
-
-    return sources.filter(id=source_uuid).first()
+def _validated_source_for_connection(team: Team, connection_id: str | None) -> ExternalDataSource | None:
+    source = get_external_data_source_for_connection(team_id=team.pk, connection_id=connection_id)
+    if connection_id and source is None:
+        raise ValidationError("Invalid connectionId for this team")
+    return source
 
 
 def _source_id_for_connection(team: Team, connection_id: str | None) -> str | None:
-    source = _source_for_connection(team, connection_id)
+    source = get_external_data_source_for_connection(team_id=team.pk, connection_id=connection_id)
     return source.source_id if source else None
 
 
@@ -110,15 +95,6 @@ def _filter_schema_tables_for_connection(tables: dict, source_ids: set[str] | No
         and str(getattr(getattr(table, "source", None), "id", "")) in source_ids
         and _is_queriable(table)
     }
-
-
-def _filter_schema_joins_for_connection(
-    joins: list[DataWarehouseJoin], table_names: set[str] | None
-) -> list[DataWarehouseJoin]:
-    if table_names is None:
-        return joins
-
-    return [join for join in joins if join.source_table_name in table_names and join.joining_table_name in table_names]
 
 
 def _prune_database_for_direct_connection(database: Database, allowed_table_names: set[str]) -> None:
@@ -230,12 +206,13 @@ def process_query_model(
     result: dict | BaseModel
 
     if isinstance(query, HogQLAutocomplete):
-        source = _source_for_connection(team, query.connectionId)
+        source = _validated_source_for_connection(team, query.connectionId)
         database = None
         if source:
             database = Database.create_for(
                 team=team,
                 modifiers=create_default_modifiers_for_team(team),
+                user=user,
                 direct_query_source_id=str(source.id)
                 if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
                 else None,
@@ -246,15 +223,14 @@ def process_query_model(
             source_ids = _connection_source_identifiers(source)
             filtered_tables = _filter_schema_tables_for_connection(serialized_tables, source_ids)
             _prune_database_for_direct_connection(database, set(filtered_tables.keys()))
-        return get_hogql_autocomplete(query=query, team=team, database_arg=database)
+        return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
         metadata_query = HogQLMetadata.model_validate(query)
         return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
-        joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
-        source = _source_for_connection(team, query.connectionId)
+        source = _validated_source_for_connection(team, query.connectionId)
         source_ids = _connection_source_identifiers(source)
         database = Database.create_for(
             team=team,
@@ -270,6 +246,9 @@ def process_query_model(
             source_ids,
         )
         table_names = set(filtered_tables.keys()) if source_ids else None
+        joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+        if table_names is not None:
+            joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
 
         return DatabaseSchemaQueryResponse(
             tables=filtered_tables,
@@ -285,7 +264,7 @@ def process_query_model(
                         "created_at": join.created_at.isoformat(),
                     }
                 )
-                for join in _filter_schema_joins_for_connection(joins, table_names)
+                for join in joins.iterator()
             ],
         )
 
