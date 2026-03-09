@@ -578,6 +578,7 @@ class TestTable(BaseTest):
             credential=credential,
         )
         definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
         assert definition.structure == "`id` String, `deal_details` Array(Tuple( String,  String,  Nullable(String)))"
 
     def assert_raises_with_invalid_hog_column_type(self, column_type):
