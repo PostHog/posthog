@@ -1,5 +1,7 @@
 import typing
 
+from temporalio.worker import Interceptor
+
 
 class AllTaskQueues:
     """Sentinel type indicating all task queues are supported."""
@@ -16,13 +18,19 @@ class _HasTaskQueue(typing.Protocol):
     task_queue: typing.ClassVar[str | tuple[str, ...] | AllTaskQueues]
 
 
+def _is_has_task_queue(interceptor: Interceptor | type[Interceptor]) -> typing.TypeGuard[_HasTaskQueue]:
+    return hasattr(interceptor, "task_queue")
+
+
 def is_task_queue_supported(
     task_queue: str,
-    interceptor: _HasTaskQueue,
+    interceptor: Interceptor | type[Interceptor],
 ) -> bool:
     """Return whether the ``task_queue`` is supported by ``interceptor``."""
     # TODO: Should support also checking activities and workflows.
     # For when the queue is shared among many products.
+    if not _is_has_task_queue(interceptor):
+        raise ValueError("Interceptor does not have a defined task queue")
 
     match interceptor.task_queue:
         case AllTaskQueues():

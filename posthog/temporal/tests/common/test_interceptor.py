@@ -1,5 +1,7 @@
 import pytest
 
+from temporalio.worker import Interceptor
+
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES, is_task_queue_supported
 
 
@@ -15,7 +17,7 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES, is_task_queue_s
     ),
 )
 def test_is_task_queue_supported(task_queue, interceptor_task_queue, supported):
-    class MockInterceptor:
+    class MockInterceptor(Interceptor):
         task_queue = interceptor_task_queue
 
     result = is_task_queue_supported(task_queue, MockInterceptor)
