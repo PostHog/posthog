@@ -19,7 +19,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     path(['scenes', 'project-homepage', 'ai-first', 'aiFirstHomepageLogic']),
 
     connect(() => ({
-        values: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['threadLogicKey']],
+        values: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['threadLogicKey', 'conversationId']],
         actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation', 'startNewConversation', 'setQuestion']],
     })),
 
@@ -90,7 +90,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     listeners(({ actions, values }) => ({
         submitQuery: async ({ mode }, breakpoint) => {
-            if (mode === 'ai') {
+            if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
             }
 
