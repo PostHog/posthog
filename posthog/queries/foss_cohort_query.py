@@ -206,7 +206,7 @@ class FOSSCohortQuery(EventQuery):
                         if prop.type in ["cohort", "precalculated-cohort"]:
                             try:
                                 # Use passed cohort object if it matches the requested cohort ID
-                                if cohort is not None and cohort.pk == prop.value:
+                                if cohort is not None and cohort.pk == int(prop.value):
                                     prop_cohort = cohort
                                 else:
                                     # Use passed team object if available, otherwise fetch from database
