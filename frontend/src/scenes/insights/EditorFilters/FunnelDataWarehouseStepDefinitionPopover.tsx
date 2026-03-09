@@ -87,9 +87,40 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
             />
 
             <span className="label-text font-semibold mt-3 mb-1">{activeField?.label}</span>
-            <div className="text-secondary text-xs mb-3">{EDITABLE_FIELD_EXPLANATIONS[activeFieldKey]}</div>
+            <div className="text-secondary text-xs">{EDITABLE_FIELD_EXPLANATIONS[activeFieldKey]}</div>
+
+            {activeFieldKey === 'distinct_id_field' && (
+                <div className="text-secondary text-xs mt-1">
+                    {isAggregatingByHogQL ? (
+                        <span>
+                            Current aggregation target is custom. The selected field needs to match the custom
+                            aggregation value.
+                        </span>
+                    ) : (
+                        <>
+                            <div>
+                                Current aggregation target is set to <b>{isAggregatingByGroup ? 'group' : 'person'}</b>,
+                                so the selected field needs to match the{' '}
+                                <b>{isAggregatingByGroup ? 'Group ID' : 'Person ID'}</b>.
+                            </div>
+                            <div className="mt-1">
+                                If this field is not directly available on the table, add it by joining in{' '}
+                                <Link to={urls.sqlEditor()} target="_blank">
+                                    SQL editor
+                                </Link>{' '}
+                                using fields like <code>distinct_id</code> or <code>email</code>.{' '}
+                                <Link to="https://posthog.com/docs/data-warehouse/join#table-joins" target="_blank">
+                                    For more help
+                                </Link>
+                                .
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
 
             <LemonSelect
+                className="mt-2"
                 fullWidth
                 value={activeFieldValue}
                 options={activeFieldOptions}
@@ -116,36 +147,6 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                         } as Partial<DataWarehouseTableForInsight>)
                     }
                 />
-            )}
-
-            {activeFieldKey === 'distinct_id_field' && (
-                <div className="text-secondary text-xs mt-2">
-                    {isAggregatingByHogQL ? (
-                        <span>
-                            Current aggregation target is custom. The selected field needs to match the custom
-                            aggregation value.
-                        </span>
-                    ) : (
-                        <>
-                            <div>
-                                Current aggregation target is set to <b>{isAggregatingByGroup ? 'group' : 'person'}</b>,
-                                so the selected field needs to match the{' '}
-                                <b>{isAggregatingByGroup ? 'group ID' : 'person ID'}</b>.
-                            </div>
-                            <div className="mt-1">
-                                If this field is not directly available on the table, add it by joining in{' '}
-                                <Link to={urls.sqlEditor()} target="_blank">
-                                    SQL editor
-                                </Link>{' '}
-                                using fields like <code>distinct_id</code> or <code>email</code>.{' '}
-                                <Link to="https://posthog.com/docs/data-warehouse/views#joining-tables" target="_blank">
-                                    For more help
-                                </Link>
-                                .
-                            </div>
-                        </>
-                    )}
-                </div>
             )}
 
             <div className="flex justify-end mt-4">
