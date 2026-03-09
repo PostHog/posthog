@@ -456,7 +456,7 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <LemonDivider />
 
-                        {!experiment.end_date &&
+                        {isExperimentRunning &&
                             experiment.feature_flag &&
                             (experiment.feature_flag.active ? (
                                 <ButtonPrimitive

@@ -174,15 +174,15 @@ describe('createXAxisTickCallback', () => {
     })
 
     describe('non-UTC timezone', () => {
-        it('shifts hour labels according to timezone offset', () => {
+        it('does not shift hour labels because datetime strings are already in project timezone', () => {
             const callback = createXAxisTickCallback({
                 interval: 'hour',
                 allDays: ['2025-04-01 00:00:00', '2025-04-01 01:00:00', '2025-04-01 02:00:00'],
                 timezone: 'America/New_York',
             })
-            expect(callback('ignored', 0)).toBe('20:00')
-            expect(callback('ignored', 1)).toBe('21:00')
-            expect(callback('ignored', 2)).toBe('22:00')
+            expect(callback('ignored', 0)).toBe('00:00')
+            expect(callback('ignored', 1)).toBe('01:00')
+            expect(callback('ignored', 2)).toBe('02:00')
         })
 
         it.each([

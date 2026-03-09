@@ -109,7 +109,7 @@ impl FromStr for TeamIdCollection {
 }
 
 /// Flag definitions rate limits configuration
-/// Parses JSON from FLAG_DEFINITIONS_RATE_LIMITS environment variable
+/// Parses JSON from LOCAL_EVAL_RATE_LIMITS environment variable
 /// Format: {"team_id": "rate_string", ...}
 /// Example: {"123": "1200/minute", "456": "2400/hour"}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -128,7 +128,7 @@ impl FromStr for FlagDefinitionsRateLimits {
 
         // Parse JSON into HashMap<String, String>
         let parsed: HashMap<String, String> = serde_json::from_str(s)
-            .map_err(|e| format!("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS as JSON: {e}"))?;
+            .map_err(|e| format!("Failed to parse rate limits as JSON: {e}"))?;
 
         // Convert string keys to TeamId
         let mut rate_limits = HashMap::new();
@@ -383,14 +383,14 @@ pub struct Config {
 
     // Flag definitions rate limiting
     // Default rate limit for all teams (requests per minute)
-    // Can be overridden per-team using FLAG_DEFINITIONS_RATE_LIMITS
+    // Can be overridden per-team using LOCAL_EVAL_RATE_LIMITS
     #[envconfig(from = "FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE", default = "600")]
     pub flag_definitions_default_rate_per_minute: u32,
 
-    // Per-team rate limit overrides for flag definitions endpoint
+    // Per-team rate limit overrides for flag definitions endpoint (shared with Django)
     // JSON format: {"team_id": "rate_string", ...}
     // Example: {"123": "1200/minute", "456": "2400/hour"}
-    #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
+    #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
     // OpenTelemetry configuration
@@ -485,6 +485,13 @@ pub struct Config {
     // 0 = auto (derived from rayon thread count).
     #[envconfig(from = "MAX_CONCURRENT_BATCH_EVALS", default = "0")]
     pub max_concurrent_batch_evals: usize,
+
+    // Maximum time (ms) to wait for a Rayon semaphore permit before failing fast.
+    // When the wait exceeds this threshold, the request returns 504 so that
+    // ingress can retry it on a less-loaded pod.
+    // 0 = no timeout (await indefinitely, backwards-compatible).
+    #[envconfig(from = "RAYON_SEMAPHORE_TIMEOUT_MS", default = "0")]
+    pub rayon_semaphore_timeout_ms: u64,
 
     // When true, skip all writes to PostgreSQL and Redis.
     // Used to safely deploy and test the personhog migration path
@@ -695,6 +702,7 @@ impl Config {
             optimize_experience_continuity_lookups: FlexBool(true),
             parallel_eval_threshold: 100,
             max_concurrent_batch_evals: 0,
+            rayon_semaphore_timeout_ms: 0,
             skip_writes: FlexBool(false),
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
@@ -980,9 +988,7 @@ mod tests {
     fn test_flag_definitions_rate_limits_invalid_json() {
         let result: Result<FlagDefinitionsRateLimits, _> = "not json".parse();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS"));
+        assert!(result.unwrap_err().contains("Failed to parse rate limits"));
     }
 
     #[test]
