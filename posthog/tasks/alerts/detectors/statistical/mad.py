@@ -18,13 +18,16 @@ class MADDetector(BaseDetector):
     More robust than z-score because it uses median instead of mean,
     making it resistant to outliers skewing the baseline.
 
+    Scores are normalized to [0, 1] probabilities using pyod's
+    predict_proba (erf-based conversion).
+
     Config:
-        threshold: float - Modified z-score threshold (default: 3.5)
+        threshold: float - Anomaly probability threshold (default: 0.9)
         window: int - Rolling window size (default: 30)
     """
 
     def detect(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", 3.5)
+        threshold = self.config.get("threshold", 0.9)
         window = self.config.get("window", 30)
 
         if not self._validate_data(data, min_length=window + 1):
@@ -37,27 +40,29 @@ class MADDetector(BaseDetector):
         window_data = values[-(window + 1) : -1]
         current_value = values[-1]
 
-        clf = MAD(threshold=threshold)
+        clf = MAD()
         clf.fit(window_data.reshape(-1, 1))
 
-        # Score the current point against the fitted model
-        score = clf.decision_function(np.array([[current_value]]))[0]
-        is_anomaly = score > threshold
+        # Get normalized probability score via pyod's erf-based conversion
+        test_point = np.array([[current_value]])
+        prob = float(clf.predict_proba(test_point)[0, 1])
+        is_anomaly = prob > threshold
 
         return DetectionResult(
             is_anomaly=is_anomaly,
-            score=float(score),
+            score=prob,
             triggered_indices=[len(values) - 1] if is_anomaly else [],
-            all_scores=[float(score)],
+            all_scores=[prob],
             metadata={
                 "median": float(clf.median_),
                 "median_abs_deviation": float(clf.median_diff_),
                 "value": float(current_value),
+                "raw_score": float(clf.decision_function(test_point)[0]),
             },
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", 3.5)
+        threshold = self.config.get("threshold", 0.9)
         window = self.config.get("window", 30)
 
         if not self._validate_data(data, min_length=window + 1):
@@ -73,13 +78,14 @@ class MADDetector(BaseDetector):
             window_data = values[i - window : i]
             current_val = values[i]
 
-            clf = MAD(threshold=threshold)
+            clf = MAD()
             clf.fit(window_data.reshape(-1, 1))
 
-            score = clf.decision_function(np.array([[current_val]]))[0]
-            scores.append(float(score))
+            test_point = np.array([[current_val]])
+            prob = float(clf.predict_proba(test_point)[0, 1])
+            scores.append(prob)
 
-            if score > threshold:
+            if prob > threshold:
                 triggered.append(i)
 
         return DetectionResult(
@@ -94,6 +100,6 @@ class MADDetector(BaseDetector):
     def get_default_config(cls) -> dict:
         return {
             "type": DetectorType.MAD.value,
-            "threshold": 3.5,
+            "threshold": 0.9,
             "window": 30,
         }
