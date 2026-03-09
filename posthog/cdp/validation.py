@@ -205,8 +205,15 @@ class InputsItemSerializer(serializers.Serializer):
             if not isinstance(value, int | float):
                 raise serializers.ValidationError({"input": f"Value must be a number."})
         elif item_type == "boolean":
-            if not isinstance(value, bool) and not isinstance(value, str):
-                raise serializers.ValidationError({"input": f"Value must be a boolean or a template string."})
+            templating_enabled = schema.get("templating", True)
+            if templating_enabled:
+                if not isinstance(value, bool) and not isinstance(value, str):
+                    raise serializers.ValidationError(
+                        {"input": f"Value must be a boolean or a template string."}
+                    )
+            else:
+                if not isinstance(value, bool):
+                    raise serializers.ValidationError({"input": f"Value must be a boolean."})
         elif item_type == "dictionary":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
