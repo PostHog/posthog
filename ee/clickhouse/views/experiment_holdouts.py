@@ -99,6 +99,7 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
                     )
                     existing_flag_serializer.is_valid(raise_exception=True)
                     existing_flag_serializer.save()
+                return super().update(instance, validated_data)
 
         return super().update(instance, validated_data)
 
@@ -130,7 +131,7 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
 
-        return super().destroy(request, *args, **kwargs)
+            return super().destroy(request, *args, **kwargs)
 
 
 @mutable_receiver(model_activity_signal, sender=ExperimentHoldout)

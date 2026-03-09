@@ -152,7 +152,7 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Filters are required to create an holdout group")
+        self.assertEqual(response.json()["detail"], "Filters must not be empty.")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_holdouts",
