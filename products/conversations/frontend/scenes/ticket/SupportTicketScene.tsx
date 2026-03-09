@@ -26,6 +26,7 @@ import { ChatView } from '../../components/Chat/ChatView'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import { AIConversationsPanel } from './AIConversationsPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
@@ -77,6 +78,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         suggestReply,
     } = useActions(logic)
 
+    const aiConversationsEnabled = useFeatureFlag('CONVERSATIONS_AI_SESSIONS')
     const aiSuggestionEnabled = useFeatureFlag('PRODUCT_SUPPORT_AI_SUGGESTION')
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { preflight } = useValues(preflightLogic)
@@ -354,6 +356,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 sessionContext={ticket?.session_context}
                                 distinctId={ticket?.distinct_id}
                             />
+
+                            {/* AI Conversations Panel */}
+                            {aiConversationsEnabled && ticket?.person?.id && ticket?.created_at && (
+                                <AIConversationsPanel personId={ticket.person.id} ticketCreatedAt={ticket.created_at} />
+                            )}
 
                             {/* Recent Events Panel */}
                             <RecentEventsPanel
