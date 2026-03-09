@@ -1092,7 +1092,7 @@ class TestBytecodeExecute:
 
     def test_boolean_template_preserves_type(self):
         """Boolean template expressions like {true} or {event.properties.flag} should produce actual booleans, not strings."""
-        cases = [
+        cases: list[tuple[str, dict[str, Any], bool]] = [
             ("{true}", {}, True),
             ("{false}", {}, False),
             ("{event.properties.opt_out}", {"event": {"properties": {"opt_out": True}}}, True),
