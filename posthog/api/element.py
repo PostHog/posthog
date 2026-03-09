@@ -1,3 +1,4 @@
+import os
 from typing import Literal
 
 from drf_spectacular.utils import extend_schema
@@ -17,9 +18,18 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
 
+ELEMENT_STATS_DEFAULT_LIMIT = int(os.environ.get("ELEMENT_STATS_DEFAULT_LIMIT", 50_000))
+
 ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "element_stats_time_seconds",
     "How long does it take to get element stats?",
+)
+
+ELEMENT_STATS_RESULT_COUNT_HISTOGRAM = Histogram(
+    "element_stats_result_count",
+    "Number of results returned by element stats endpoint",
+    labelnames=["limit"],
+    buckets=[100, 500, 1000, 5000, 10000, 25000, 50000, 100000],
 )
 
 
@@ -77,7 +87,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 date_params.update(date_to_params)
 
                 try:
-                    limit = int(request.query_params.get("limit", 100_000))
+                    limit = int(request.query_params.get("limit", ELEMENT_STATS_DEFAULT_LIMIT))
                 except ValueError:
                     raise ValidationError("Limit must be an integer")
 
@@ -135,6 +145,8 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             with timer("serialize_elements"):
                 serialized_elements = ElementStatsSerializer(elements_data, many=True).data
+
+            ELEMENT_STATS_RESULT_COUNT_HISTOGRAM.labels(limit=limit).observe(len(serialized_elements))
 
             has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
