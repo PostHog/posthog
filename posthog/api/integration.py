@@ -62,6 +62,14 @@ class GitHubReposResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True)
 
 
+class GitHubBranchesQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="Repository in owner/repo format")
+
+
+class GitHubBranchesResponseSerializer(serializers.Serializer):
+    branches = serializers.ListField(child=serializers.CharField(), help_text="List of branch names")
+
+
 class IntegrationSerializer(serializers.ModelSerializer):
     """Standard Integration serializer."""
 
@@ -490,12 +498,23 @@ class IntegrationViewSet(
         github = GitHubIntegration(self.get_object())
         return Response({"repositories": github.list_repositories()})
 
+    @extend_schema(
+        parameters=[GitHubBranchesQuerySerializer],
+        responses={200: GitHubBranchesResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, url_path="github_branches")
     def github_branches(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         repo = request.query_params.get("repo")
         if not repo:
             raise ValidationError("repo query parameter is required")
-        if not re.fullmatch(r"[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+", repo):
+        parts = repo.split("/")
+        if (
+            len(parts) != 2
+            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[0])
+            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[1])
+            or parts[0] in (".", "..")
+            or parts[1] in (".", "..")
+        ):
             raise ValidationError("repo must be in owner/repo format")
         github = GitHubIntegration(self.get_object())
         return Response({"branches": github.list_branches(repo)})

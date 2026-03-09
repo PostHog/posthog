@@ -220,8 +220,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
-        extra_state = {"branch": branch} if branch else None
-        task_run = task.create_run(mode=mode, extra_state=extra_state)
+        task_run = task.create_run(mode=mode, branch=branch)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 

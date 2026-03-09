@@ -32,6 +32,7 @@ class TaskProcessingContext:
     distinct_id: str
     create_pr: bool = True
     state: dict | None = None
+    _branch: str | None = None
 
     @property
     def mode(self) -> str:
@@ -44,7 +45,11 @@ class TaskProcessingContext:
 
     @property
     def branch(self) -> str | None:
-        return (self.state or {}).get("branch")
+        # Prefer the dedicated model field; fall back to state for backward compatibility
+        if self._branch:
+            return self._branch
+        value = (self.state or {}).get("branch")
+        return value if isinstance(value, str) else None
 
     def to_log_context(self) -> dict:
         """Return a dict suitable for structured logging."""
@@ -125,4 +130,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         create_pr=input.create_pr,
         state=task_run.state,
+        _branch=task_run.branch,
     )

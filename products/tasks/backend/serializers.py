@@ -347,6 +347,7 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
+        max_length=255,
         help_text="Git branch to checkout in the sandbox",
     )
 

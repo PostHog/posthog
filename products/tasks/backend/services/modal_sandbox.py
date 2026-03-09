@@ -446,12 +446,12 @@ class ModalSandbox:
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
-        branch_flag = f"--baseBranch {shlex.quote(branch)} " if branch else ""
+        branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         command = (
             f"cd /scripts && "
             f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
-            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)} "
-            f"{branch_flag}"
+            f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
+            f"{branch_flag} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 

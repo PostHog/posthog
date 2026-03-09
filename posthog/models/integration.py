@@ -2011,9 +2011,14 @@ class GitHubIntegration:
                     "Authorization": f"Bearer {access_token}",
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
+                timeout=10,
             )
 
-        response = fetch()
+        try:
+            response = fetch()
+        except requests.RequestException:
+            logger.warning("GitHubIntegration: list_branches network error", repo=repo, exc_info=True)
+            return []
 
         if response.status_code == 401:
             try:
@@ -2022,7 +2027,11 @@ class GitHubIntegration:
                 logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
                 return []
             else:
-                response = fetch()
+                try:
+                    response = fetch()
+                except requests.RequestException:
+                    logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
+                    return []
 
         if response.status_code != 200:
             logger.warning(
