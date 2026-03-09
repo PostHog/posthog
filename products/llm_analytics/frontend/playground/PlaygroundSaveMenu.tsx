@@ -139,13 +139,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
             </LemonButton>
         )
         loadActions.push(
-            <LemonButton
-                key="load-prompt"
-                type="tertiary"
-                size="small"
-                fullWidth
-                onClick={() => router.actions.push(urls.llmAnalyticsPrompts())}
-            >
+            <LemonButton key="load-prompt" type="tertiary" size="small" fullWidth to={urls.llmAnalyticsPrompts()}>
                 Load prompt
             </LemonButton>
         )
@@ -169,7 +163,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
                 type="tertiary"
                 size="small"
                 fullWidth
-                onClick={() => router.actions.push(urls.llmAnalyticsEvaluations())}
+                to={urls.llmAnalyticsEvaluations()}
             >
                 Load evaluation
             </LemonButton>

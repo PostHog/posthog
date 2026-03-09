@@ -8,6 +8,7 @@ import { isObject, uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { EvaluationConfig } from '../evaluations/types'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { normalizeRole } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
@@ -600,18 +601,18 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             lemonToast.error('Could not determine team')
                             return
                         }
-                        const fetchedEvaluation = await api.get(
+                        const fetchedEvaluation = await api.get<EvaluationConfig>(
                             `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
                         )
-                        actions.setSourceNames(null, fetchedEvaluation?.name ?? null, promptId)
-                        if (fetchedEvaluation?.evaluation_type === 'llm_judge') {
+                        actions.setSourceNames(null, fetchedEvaluation.name ?? null, promptId)
+                        if (fetchedEvaluation.evaluation_type === 'llm_judge') {
                             actions.setSystemPrompt(
-                                fetchedEvaluation.evaluation_config?.prompt || DEFAULT_SYSTEM_PROMPT,
+                                fetchedEvaluation.evaluation_config.prompt || DEFAULT_SYSTEM_PROMPT,
                                 promptId
                             )
                             const model = fetchedEvaluation.model_configuration?.model
                             const providerKeyId = fetchedEvaluation.model_configuration?.provider_key_id
-                            if (typeof model === 'string' && model.length > 0) {
+                            if (model) {
                                 actions.setModel(model, providerKeyId ?? undefined, promptId)
                             }
                         }
@@ -700,7 +701,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     prompt: prompt.systemPrompt,
                     base_version: current.latest_version,
                 })
-                lemonToast.success(`${label[0].toUpperCase()}${label.slice(1)} updated`)
+                lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`)
             } catch {
                 lemonToast.error('Failed to update prompt')
             } finally {
@@ -733,7 +734,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     ...(modelConfig ? { model_configuration: modelConfig } : {}),
                 })
                 const label = getLinkedSourceLabel(linkedSource) ?? 'linked evaluation'
-                lemonToast.success(`${label[0].toUpperCase()}${label.slice(1)} updated`)
+                lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`)
             } catch {
                 lemonToast.error('Failed to update evaluation')
             } finally {
@@ -750,6 +751,20 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
             try {
                 await api.llmPrompts.create({ name, prompt: prompt.systemPrompt })
+                // Link the playground to the newly created prompt
+                actions.setPromptConfigs(
+                    updatePromptConfigs(values.promptConfigs, prompt.id, (p) => ({
+                        ...p,
+                        sourceType: 'prompt',
+                        sourcePromptName: name,
+                        sourceEvaluationId: null,
+                        sourceEvaluationName: null,
+                    }))
+                )
+                const { source_evaluation_id: _, ...cleanParams } = router.values.searchParams
+                router.actions.replace(
+                    combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, source_prompt_name: name }).url
+                )
                 lemonToast.success('Prompt saved')
             } catch {
                 lemonToast.error('Failed to save prompt')
@@ -772,7 +787,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
-                await api.create(`/api/environments/${teamId}/evaluations/`, {
+                const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
                     name,
                     evaluation_type: 'llm_judge',
                     evaluation_config: { prompt: prompt.systemPrompt },
@@ -781,6 +796,23 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     conditions: [],
                     enabled: false,
                 })
+                // Link the playground to the newly created evaluation
+                actions.setPromptConfigs(
+                    updatePromptConfigs(values.promptConfigs, prompt.id, (p) => ({
+                        ...p,
+                        sourceType: 'evaluation',
+                        sourcePromptName: null,
+                        sourceEvaluationId: created.id,
+                        sourceEvaluationName: created.name,
+                    }))
+                )
+                const { source_prompt_name: _, ...cleanParams } = router.values.searchParams
+                router.actions.replace(
+                    combineUrl(urls.llmAnalyticsPlayground(), {
+                        ...cleanParams,
+                        source_evaluation_id: created.id,
+                    }).url
+                )
                 lemonToast.success('Evaluation saved')
             } catch {
                 lemonToast.error('Failed to save evaluation')
