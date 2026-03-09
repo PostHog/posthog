@@ -7,6 +7,8 @@ Tests cover:
 - Tasks skip when FLAGS_REDIS_URL not configured
 """
 
+from collections.abc import Callable
+
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
@@ -160,7 +162,14 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
     @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verifies_correct_cache_type(
-        self, _name, task_fn, _include_cohorts, cache_type, _other, _metric, mock_run_verification: MagicMock
+        self,
+        _name: str,
+        task_fn: Callable[[], None],
+        _include_cohorts: bool,
+        cache_type: str,
+        _other: str,
+        _metric: str,
+        mock_run_verification: MagicMock,
     ) -> None:
         mock_run_verification.return_value = MagicMock()
 
@@ -173,7 +182,14 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
     @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_verify_fn_passes_correct_include_cohorts(
-        self, _name, task_fn, include_cohorts, _cache_type, _other, _metric, mock_run_verification: MagicMock
+        self,
+        _name: str,
+        task_fn: Callable[[], None],
+        include_cohorts: bool,
+        _cache_type: str,
+        _other: str,
+        _metric: str,
+        mock_run_verification: MagicMock,
     ) -> None:
         from posthog.models.feature_flag.local_evaluation import verify_team_flag_definitions
 
@@ -190,12 +206,12 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_captures_and_reraises_error(
         self,
-        _name,
-        task_fn,
-        _include_cohorts,
-        _cache_type,
-        _other,
-        _metric,
+        _name: str,
+        task_fn: Callable[[], None],
+        _include_cohorts: bool,
+        _cache_type: str,
+        _other: str,
+        _metric: str,
         mock_run_verification: MagicMock,
         mock_capture: MagicMock,
     ) -> None:
@@ -211,7 +227,14 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
     @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_releases_lock_after_error(
-        self, _name, task_fn, _include_cohorts, cache_type, _other, _metric, mock_run_verification: MagicMock
+        self,
+        _name: str,
+        task_fn: Callable[[], None],
+        _include_cohorts: bool,
+        cache_type: str,
+        _other: str,
+        _metric: str,
+        mock_run_verification: MagicMock,
     ) -> None:
         from django.core.cache import cache as django_cache
 
@@ -227,7 +250,14 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
     @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_does_not_interfere_with_other_variant_lock(
-        self, _name, task_fn, _include_cohorts, _cache_type, other_cache_type, _metric, mock_run_verification: MagicMock
+        self,
+        _name: str,
+        task_fn: Callable[[], None],
+        _include_cohorts: bool,
+        _cache_type: str,
+        other_cache_type: str,
+        _metric: str,
+        mock_run_verification: MagicMock,
     ) -> None:
         """Each variant uses its own lock key, so locking one doesn't block the other."""
         from django.core.cache import cache as django_cache
@@ -244,7 +274,14 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
     @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_pushgateway_metrics_recorded_on_success(
-        self, _name, task_fn, _include_cohorts, _cache_type, _other, metric_name, mock_run_verification: MagicMock
+        self,
+        _name: str,
+        task_fn: Callable[[], None],
+        _include_cohorts: bool,
+        _cache_type: str,
+        _other: str,
+        metric_name: str,
+        mock_run_verification: MagicMock,
     ) -> None:
         mock_run_verification.return_value = MagicMock()
 
@@ -258,7 +295,14 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
     @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_skips_when_lock_already_held(
-        self, _name, task_fn, _include_cohorts, cache_type, _other, _metric, mock_run_verification: MagicMock
+        self,
+        _name: str,
+        task_fn: Callable[[], None],
+        _include_cohorts: bool,
+        cache_type: str,
+        _other: str,
+        _metric: str,
+        mock_run_verification: MagicMock,
     ) -> None:
         from django.core.cache import cache as django_cache
 
