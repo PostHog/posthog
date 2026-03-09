@@ -2,8 +2,7 @@ import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { compactNumber, humanFriendlyCurrency, humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { formatCurrency } from 'lib/utils/geography/currency'
 
-import { TrendsFilter } from '~/queries/schema/schema-general'
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled', 'currency', 'short'] as const
