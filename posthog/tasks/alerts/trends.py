@@ -521,7 +521,7 @@ def check_trends_alert_with_detector(
     if result.is_anomaly:
         label = selected_series_result.get("label", "Series")
         current_value = float(data[-1])
-        score_str = f" (score: {result.score:.2f})" if result.score is not None else ""
+        score_str = f" (anomaly probability: {result.score:.0%})" if result.score is not None else ""
         breaches.append(
             f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type.value} detector"
         )
