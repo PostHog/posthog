@@ -108,7 +108,7 @@ const SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN = new Set([
 ])
 
 const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
-    <span className="ActionFilterRowDragHandle" key="drag-handle" {...props}>
+    <span className="ActionFilterRowDragHandle" {...props}>
         <SortableDragIcon />
     </span>
 )
@@ -599,7 +599,7 @@ export function ActionFilterRow({
     )
 
     const rowStartElements = [
-        sortable && filterCount > 1 ? <DragHandle {...listeners} /> : null,
+        sortable && filterCount > 1 ? <DragHandle key="drag-handle" {...listeners} /> : null,
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
