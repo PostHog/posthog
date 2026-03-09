@@ -9,6 +9,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.team.team import Team
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsAlertConfiguration
@@ -109,7 +110,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = self.context["request"].user
 
         with transaction.atomic():
-            count = LogsAlertConfiguration.objects.select_for_update().filter(team_id=validated_data["team_id"]).count()
+            # select_for_update().count() doesn't acquire row locks because
+            # Django optimises count() to SELECT COUNT(*). Locking the team
+            # row instead serialises concurrent creates for this team.
+            Team.objects.select_for_update().get(id=validated_data["team_id"])
+            count = LogsAlertConfiguration.objects.filter(team_id=validated_data["team_id"]).count()
             if count >= MAX_ALERTS_PER_TEAM:
                 raise ValidationError(f"Maximum number of alerts ({MAX_ALERTS_PER_TEAM}) reached for this team.")
             return super().create(validated_data)
