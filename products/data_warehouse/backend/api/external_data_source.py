@@ -45,6 +45,11 @@ from products.data_warehouse.backend.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
+from products.data_warehouse.backend.direct_postgres import (
+    postgres_schema_metadata,
+    reconcile_direct_postgres_schemas,
+    upsert_direct_postgres_table,
+)
 from products.data_warehouse.backend.models import (
     DataWarehouseManagedViewSet,
     ExternalDataJob,
@@ -53,7 +58,7 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.models.util import validate_source_prefix
+from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
@@ -131,11 +136,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
         source="revenue_analytics_config_safe", read_only=True
     )
-    access_method = serializers.ChoiceField(
-        choices=ExternalDataSource.AccessMethod.choices,
-        required=False,
-        default=ExternalDataSource.AccessMethod.WAREHOUSE,
-    )
+    access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
 
     class Meta:
         model = ExternalDataSource
@@ -168,6 +169,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "schemas",
             "revenue_analytics_config",
             "user_access_level",
+            "access_method",
         ]
 
     """
@@ -302,15 +304,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
-        incoming_access_method = validated_data.get("access_method", instance.access_method)
-        incoming_prefix = validated_data.get("prefix", instance.prefix)
-        is_direct_postgres = (
-            incoming_access_method == ExternalDataSource.AccessMethod.DIRECT
-            and instance.source_type == ExternalDataSourceType.POSTGRES
-        )
+        request = self.context.get("request")
+        requested_access_method = request.data.get("access_method") if request is not None else None
+        if requested_access_method is not None and requested_access_method != instance.access_method:
+            raise ValidationError("Access method cannot be changed. Create a new source instead.")
 
-        if is_direct_postgres:
-            # we use the "prefix" field for the source's name for direct queries
+        validated_data.pop("access_method", None)
+        incoming_prefix = validated_data.get("prefix", instance.prefix)
+
+        if instance.is_direct_postgres:
+            # For direct Postgres sources the prefix acts as the user-facing source name.
             normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
             if not normalized_prefix:
                 raise ValidationError("Name is required for direct query sources")
@@ -563,24 +566,47 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     data={"message": "Incremental schemas given do not have an incremental field type set"},
                 )
 
+            schema_name = schema.get("name")
+            source_schema = next(
+                (source_schema for source_schema in source_schemas if source_schema.name == schema_name), None
+            )
+            schema_metadata = (
+                postgres_schema_metadata(
+                    source_schema.columns if source_schema else [],
+                    source_schema.foreign_keys if source_schema else [],
+                )
+                if source_type_model == ExternalDataSourceType.POSTGRES
+                else {}
+            )
+
             schema_model = ExternalDataSchema.objects.create(
-                name=schema.get("name"),
+                name=schema_name,
                 team=self.team,
                 source=new_source_model,
                 should_sync=should_sync,
-                sync_type=sync_type,
-                sync_time_of_day=sync_time_of_day,
+                sync_type=sync_type if new_source_model.supports_scheduled_sync else None,
+                sync_time_of_day=sync_time_of_day if new_source_model.supports_scheduled_sync else None,
                 sync_type_config=(
                     {
                         "incremental_field": incremental_field,
                         "incremental_field_type": incremental_field_type,
+                        "schema_metadata": schema_metadata,
                     }
-                    if requires_incremental_fields
-                    else {}
+                    if requires_incremental_fields and new_source_model.supports_scheduled_sync
+                    else {"schema_metadata": schema_metadata}
                 ),
             )
 
-            if should_sync:
+            if new_source_model.is_direct_postgres and should_sync:
+                schema_model.table = upsert_direct_postgres_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                )
+                schema_model.save(update_fields=["table"])
+
+            if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
 
         try:
@@ -665,6 +691,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
 
+        if instance.is_direct_query:
+            return self.refresh_schemas(request, *args, **kwargs)
+
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -727,8 +756,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
-                schema_names, source_id=str(instance.id), team_id=self.team_id
+                schema_names,
+                source_id=str(instance.id),
+                team_id=self.team_id,
             )
+
+            if instance.is_direct_postgres:
+                reconciled_deleted_schemas = reconcile_direct_postgres_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
