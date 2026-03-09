@@ -4,11 +4,15 @@ import type { ToolBase, ZodObjectAny } from '@/tools/types'
 import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
+import { GENERATED_TOOLS as hog_function_templates } from './hog_function_templates'
+import { GENERATED_TOOLS as hog_functions } from './hog_functions'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     ...actions,
     ...cohorts,
+    ...hog_function_templates,
+    ...hog_functions,
     ...error_tracking,
     ...workflows,
 }
