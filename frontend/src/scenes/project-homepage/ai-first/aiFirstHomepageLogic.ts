@@ -145,8 +145,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             } else if (urlMode === 'ai' && values.mode !== 'ai') {
                 if (urlChat) {
                     actions.openConversation(urlChat)
+                    actions.submitQuery('ai')
+                } else {
+                    actions.enterAiMode('')
                 }
-                actions.submitQuery('ai')
             } else if (urlMode === 'search' && values.mode !== 'search') {
                 actions.setQuery(urlQuery)
                 actions.submitQuery('search')
@@ -165,8 +167,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         if (urlMode === 'ai') {
             if (urlChat) {
                 actions.openConversation(urlChat)
+                actions.submitQuery('ai')
+            } else {
+                actions.enterAiMode('')
             }
-            actions.submitQuery('ai')
         } else if (urlMode === 'search' && urlQuery) {
             actions.setQuery(urlQuery)
             actions.submitQuery('search')

@@ -1,15 +1,25 @@
 import { Menu } from '@base-ui/react/menu'
 import { Menubar } from '@base-ui/react/menubar'
-import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronRight, IconLightBulb, IconNotification, IconRocket, IconSearch } from '@posthog/icons'
+import {
+    IconArrowRight,
+    IconChevronRight,
+    IconLightBulb,
+    IconLock,
+    IconNotification,
+    IconRocket,
+    IconSearch,
+} from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { uuid } from 'lib/utils'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { Intro } from 'scenes/max/Intro'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -99,11 +109,41 @@ function IdleInput(): JSX.Element {
 
 function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
 
+    const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
         tabId: HOMEPAGE_TAB_ID,
-        conversationId: threadLogicKey || uuid(),
+        conversationId: threadLogicKey || fallbackConversationId,
         conversation,
+    }
+
+    if (!dataProcessingAccepted) {
+        const isAdmin = !dataProcessingApprovalDisabledReason
+        return (
+            <div className="border border-primary rounded-lg bg-surface-primary p-4 flex flex-col gap-2">
+                <p className="font-medium text-pretty m-0">
+                    PostHog AI needs your approval to potentially process identifying user data with external AI
+                    providers.
+                </p>
+                <p className="text-muted text-xs m-0">Your data won't be used for training models.</p>
+                {isAdmin ? (
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={() => void acceptDataProcessing().catch(console.error)}
+                        sideIcon={<IconArrowRight />}
+                    >
+                        I allow AI analysis in this organization
+                    </LemonButton>
+                ) : (
+                    <LemonButton type="secondary" size="small" disabled sideIcon={<IconLock />}>
+                        {dataProcessingApprovalDisabledReason}
+                    </LemonButton>
+                )}
+            </div>
+        )
     }
 
     return (
