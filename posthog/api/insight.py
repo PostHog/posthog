@@ -1254,6 +1254,13 @@ class InsightViewSet(
                             .values_list("insight__id", flat=True)
                             .all()
                         )
+            elif key == "no_dashboard":
+                if str_to_bool(request.GET["no_dashboard"]):
+                    # Only show insights that are not on any dashboard
+                    queryset = queryset.exclude(
+                        id__in=DashboardTile.objects.filter(dashboard__deleted=False)
+                        .values_list("insight__id", flat=True)
+                    )
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:
