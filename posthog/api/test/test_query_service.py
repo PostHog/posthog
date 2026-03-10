@@ -263,7 +263,7 @@ class TestQueryService(APIBaseTest):
         join_field = source_table.fields["selected_join"]
         assert join_field.type == DatabaseSerializedFieldType.LAZY_TABLE
         assert join_field.table == "selected_table_2"
-        assert join_field.fields == ["id", "email"]
+        assert join_field.fields is None
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
