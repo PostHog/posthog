@@ -265,6 +265,7 @@ export interface ErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key: number
+    disabled_data?: unknown | null
 }
 
 export interface PaginatedErrorTrackingSuppressionRuleListApi {
@@ -284,6 +285,7 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
+    disabled_data?: unknown | null
 }
 
 export interface ErrorTrackingSymbolSetApi {
