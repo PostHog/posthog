@@ -31,11 +31,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.source_scoping import (
-    connection_source_identifiers,
-    filter_schema_tables_for_connection,
-    prune_database_for_connection,
-)
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -64,7 +59,7 @@ def _database_for_connection_source(team: Team, user: User | None, source: Exter
         team=team,
         modifiers=create_default_modifiers_for_team(team),
         user=user,
-        direct_query_source_id=str(source.id) if source else None,
+        connection_id=str(source.id) if source else None,
     )
 
 
@@ -74,11 +69,10 @@ def _connection_context(
     user: User | None,
     *,
     require_database: bool,
-) -> tuple[ExternalDataSource | None, set[str] | None, Database | None]:
+) -> tuple[ExternalDataSource | None, Database | None]:
     source = _validated_source_for_connection(team, connection_id)
-    source_ids = connection_source_identifiers(source)
     database = _database_for_connection_source(team, user, source) if require_database or source else None
-    return source, source_ids, database
+    return source, database
 
 
 def _inline_join_field(tables: Mapping[str, object], join: object) -> None:
@@ -223,13 +217,8 @@ def process_query_model(
     result: dict | BaseModel
 
     if isinstance(query, HogQLAutocomplete):
-        _, source_ids, database = _connection_context(team, query.connectionId, user, require_database=True)
+        _, database = _connection_context(team, query.connectionId, user, require_database=True)
         assert database is not None
-        serialized_tables = database.serialize(HogQLContext(team_id=team.pk, team=team, database=database, user=user))
-        filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
-        allowed_table_names = set(filtered_tables.keys())
-        if source_ids or allowed_table_names != set(serialized_tables.keys()):
-            prune_database_for_connection(database, allowed_table_names)
         return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
@@ -237,15 +226,15 @@ def process_query_model(
         return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
-        _, source_ids, database = _connection_context(team, query.connectionId, user, require_database=True)
+        _, database = _connection_context(team, query.connectionId, user, require_database=True)
         assert database is not None
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
-        filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
+        filtered_tables = serialized_tables
         _streamline_join_fields(filtered_tables)
-        table_names = (
-            set(filtered_tables.keys()) if source_ids or set(filtered_tables.keys()) != set(serialized_tables) else None
-        )
+        table_names = set(filtered_tables.keys()) if database.has_schema_scope() else None
+        if table_names is None and set(filtered_tables.keys()) != set(serialized_tables):
+            table_names = set(filtered_tables.keys())
         joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
         if table_names is not None:
             joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)

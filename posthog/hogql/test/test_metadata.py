@@ -213,7 +213,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_create_for.call_count, 1)
         self.assertEqual(mock_create_for.call_args.kwargs["team"], self.team)
         self.assertEqual(mock_create_for.call_args.kwargs["user"], self.user)
-        self.assertEqual(mock_create_for.call_args.kwargs["direct_query_source_id"], str(source.id))
+        self.assertEqual(mock_create_for.call_args.kwargs["connection_id"], str(source.id))
         self.assertIn("modifiers", mock_create_for.call_args.kwargs)
 
     def test_metadata_rejects_soft_deleted_connection_id(self):
