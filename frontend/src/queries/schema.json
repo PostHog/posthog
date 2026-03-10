@@ -13097,6 +13097,46 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingNewExceptionSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "fingerprint": {
+                    "type": "string"
+                },
+                "issue_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["issue_id", "fingerprint"],
+            "type": "object"
+        },
+        "ErrorTrackingNewExceptionSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ErrorTrackingNewExceptionSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "error_tracking",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "new_exception",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -16988,7 +17028,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "GoalLine": {
@@ -19286,7 +19326,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LinkedinAdsDefaultSources": {
@@ -19350,7 +19390,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LoadingBlock": {
@@ -31179,7 +31219,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "SessionsQuery": {
@@ -31464,6 +31504,9 @@
                 },
                 {
                     "$ref": "#/definitions/LinearIssueSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingNewExceptionSignalInput"
                 }
             ],
             "required": ["source_product"],
@@ -35879,7 +35922,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "integer": {
