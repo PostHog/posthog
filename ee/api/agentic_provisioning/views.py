@@ -554,35 +554,18 @@ def provisioning_resources_create(request: Request) -> Response:
 
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
-        return Response(
-            {
-                "status": "error",
-                "id": "",
-                "error": {"code": "unknown_service", "message": f"Unknown service_id: {service_id}"},
-            },
-            status=400,
-        )
+        return _error_response("unknown_service", f"Unknown service_id: {service_id}")
 
     scoped_teams = access_token.scoped_teams or []
 
     if not scoped_teams:
-        return Response(
-            {
-                "status": "error",
-                "id": "",
-                "error": {"code": "no_team", "message": "No team associated with this token"},
-            },
-            status=400,
-        )
+        return _error_response("no_team", "No team associated with this token")
 
     team_id = scoped_teams[0]
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        return Response(
-            {"status": "error", "id": str(team_id), "error": {"code": "team_not_found", "message": "Team not found"}},
-            status=404,
-        )
+        return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
     resolved_service_id = service_id or "product_analytics"
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
@@ -639,32 +622,17 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     try:
         team_id = int(resource_id)
     except (ValueError, TypeError):
-        return Response(
-            {
-                "status": "error",
-                "id": resource_id,
-                "error": {"code": "invalid_resource_id", "message": "Invalid resource ID"},
-            },
-            status=400,
-        )
+        return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
 
     if team_id not in scoped_teams:
-        return Response(
-            {
-                "status": "error",
-                "id": resource_id,
-                "error": {"code": "forbidden", "message": "Resource not accessible with this token"},
-            },
-            status=403,
+        return _error_response(
+            "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
         )
 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        return Response(
-            {"status": "error", "id": resource_id, "error": {"code": "not_found", "message": "Resource not found"}},
-            status=404,
-        )
+        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
     team.reset_token_and_save(user=user, is_impersonated_session=False)
 
@@ -803,6 +771,11 @@ def deep_links(request: Request) -> Response:
 # ---------------------------------------------------------------------------
 
 
+def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
+    return Response({"status": "error", "id": resource_id, "error": {"code": code, "message": message}}, status=status)
+
+
+
 def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     """Authenticate via Bearer token. Returns (error_response, user, access_token)."""
     from .authentication import StripeProvisioningBearerAuthentication
@@ -810,20 +783,10 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     auth = StripeProvisioningBearerAuthentication()
     try:
         result = auth.authenticate(request)
-    except AuthenticationFailed as e:
-        return (
-            Response({"status": "error", "error": {"code": "unauthorized", "message": str(e)}}, status=401),
-            None,
-            None,
-        )
+    except AuthenticationFailed:
+        return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
     if result is None:
-        return (
-            Response(
-                {"status": "error", "error": {"code": "unauthorized", "message": "Missing bearer token"}}, status=401
-            ),
-            None,
-            None,
-        )
+        return (_error_response("unauthorized", "Missing bearer token", status=401), None, None)
     return None, result[0], result[1]
 
 
