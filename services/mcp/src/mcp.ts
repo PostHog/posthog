@@ -445,7 +445,7 @@ export class MCP extends McpAgent<Env> {
 
         // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
         // so update the ApiClient with the verified OAuth client name for header forwarding.
-        const oauthClientName = sanitizeHeaderValue(await this.cache.get('clientName'))
+        const oauthClientName = (await this.cache.get('clientName')) || undefined
         if (oauthClientName && this._api) {
             this._api.config.oauthClientName = oauthClientName
         }
