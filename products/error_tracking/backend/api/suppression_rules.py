@@ -21,8 +21,8 @@ logger = structlog.get_logger(__name__)
 class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSuppressionRule
-        fields = ["id", "filters", "order_key", "disabled_data"]
-        read_only_fields = ["team_id"]
+        fields = ["id", "filters", "order_key", "disabled_data", "created_at", "updated_at"]
+        read_only_fields = ["team_id", "created_at", "updated_at"]
 
 
 class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
@@ -91,5 +91,26 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-def get_suppression_rules(team: Team):
-    return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))
+NEGATIVE_OPERATORS = frozenset({"is_not", "not_regex", "not_icontains"})
+
+
+def _has_negative_operator(filters: dict) -> bool:
+    """Check if a filter group contains any negative operator.
+
+    Negative operators (is_not, not_regex, not_icontains) can produce false
+    positives on unresolved exception data (e.g. minified types/values), so
+    rules using them must only be evaluated server-side after symbol resolution.
+    """
+    for value in filters.get("values", []):
+        if "operator" in value:
+            if value["operator"] in NEGATIVE_OPERATORS:
+                return True
+        elif "values" in value:
+            if _has_negative_operator(value):
+                return True
+    return False
+
+
+def get_client_safe_suppression_rules(team: Team) -> list[dict]:
+    rules = list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))
+    return [r for r in rules if not _has_negative_operator(r)]

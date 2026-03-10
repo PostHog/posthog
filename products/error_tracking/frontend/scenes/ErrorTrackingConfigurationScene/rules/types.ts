@@ -5,6 +5,8 @@ type ErrorTrackingBaseRule = {
     id: string
     filters: UniversalFiltersGroup
     order_key: number
+    created_at?: string
+    updated_at?: string
 }
 
 export type ErrorTrackingSuppressionRule = ErrorTrackingBaseRule
