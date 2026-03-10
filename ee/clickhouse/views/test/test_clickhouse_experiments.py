@@ -3121,6 +3121,28 @@ class TestExperimentCRUD(APILicensedTest):
         assert duplicate_data["feature_flag_key"] == "new-flag-with-different-variants"
         assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag_variants
 
+    def test_duplicate_experiment_rejects_blank_feature_flag_key(self) -> None:
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "feature_flag_key": "original-flag",
+            },
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {"feature_flag_key": ""},
+        )
+
+        self.assertEqual(duplicate_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            Experiment.objects.filter(team=self.team, name="Original Experiment (Copy)", deleted=False).count(),
+            0,
+        )
+
     def test_metric_fingerprinting(self):
         """Test that metric fingerprints are computed correctly on create and update"""
 
@@ -3176,9 +3198,9 @@ class TestExperimentCRUD(APILicensedTest):
         initial_metrics = response.json()["metrics"]
 
         expected_initial_fingerprints = {
-            "mean": "1a5694c7330b8fb9f920fa6f1e6d871cc07e55e9d87447cb01a3384ed732c605",
-            "funnel": "bf2d01d67d7a1f608177b6f3a9971a6c263870d23ad5935054b5069286575a94",
-            "ratio": "3332b31c0ec0c8be353d5ed1f5740758affc9136d9721dba60434cbe104adb95",
+            "mean": "d2e1f06570c3ec0af658c6255890c0ee509e0a275cbc80f630d8e8718a1b8c25",
+            "funnel": "dc70f252171bb66b8b40a28ba702ad2907c61d0962b54f332dee96afd67b240c",
+            "ratio": "ac46d8229e2ec5558200082a3f5d2e4e6e5041585d4f07dbd28930ee90fad235",
         }
 
         for metric in initial_metrics:

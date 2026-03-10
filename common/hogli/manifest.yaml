@@ -517,6 +517,9 @@ quality:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format Markdown files
+    format:mcp:
+        cmd: pnpm run --filter @posthog/mcp format
+        description: Format MCP files
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker

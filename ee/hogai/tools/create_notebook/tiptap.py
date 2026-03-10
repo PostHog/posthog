@@ -3,13 +3,15 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
+from pydantic import BaseModel
+
 from posthog.schema import MarkdownBlock, SessionReplayBlock
 
-from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
+from ee.hogai.artifacts.types import VisualizationRefBlock
 
 
 def blocks_to_tiptap_doc(
-    blocks: Sequence[StoredBlock],
+    blocks: Sequence[BaseModel],
     title: str | None = None,
     resolve_visualization: Any | None = None,
 ) -> dict:
@@ -47,7 +49,7 @@ def blocks_to_tiptap_doc(
 
 
 def _block_to_tiptap_nodes(
-    block: StoredBlock,
+    block: BaseModel,
     resolve_visualization: Any | None = None,
 ) -> list[dict]:
     if isinstance(block, MarkdownBlock):

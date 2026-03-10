@@ -17,13 +17,10 @@ export class SqlInsight {
         const editorArea = this.page.getByTestId('hogql-query-editor')
         await editorArea.waitFor({ state: 'visible' })
         await editorArea.click()
-        // Use Control+A (not Meta+A) because Meta maps to Super on Linux CI
-        await this.page.keyboard.press('Control+A')
-        await this.page.keyboard.type(query)
-        // Dismiss any autocomplete popup that may have been triggered.
-        // Monaco's HogQL autocomplete fires on space/comma/period/{ characters,
-        // and the suggestion widget can intercept the next keystroke (e.g. the
-        // Run button click) if left open.
+        await this.page.keyboard.press('ControlOrMeta+a')
+        // Use insertText() to avoid Monaco autocomplete intercepting keystrokes
+        // during character-by-character typing (space is a trigger character).
+        await this.page.keyboard.insertText(query)
         await this.page.keyboard.press('Escape')
     }
 

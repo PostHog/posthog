@@ -46,6 +46,8 @@ Guidelines:
 - Each tool call should target a specific uncertainty in your current draft
 - Decompose complex investigations using the `task` tool for parallel verification
 - Tool results and user messages may include <system_reminder> tags. These contain useful information and reminders, NOT part of the user's input or tool result.
+- **Do as many iterations as necessary** to revise the draft notebook - do not settle for a draft with remaining [UNVERIFIED] or [TODO] markers when more research could resolve them, and always ask yourself if one more round of revision/research would bring more value to the user
+- **If in doubt, stop** - it is better to publish a report that honestly marks remaining uncertainties than to fabricate or speculate beyond what the data supports, or to iterate just for the sake of it
 </goal>
 """.strip()
 
