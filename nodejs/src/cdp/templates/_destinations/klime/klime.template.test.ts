@@ -68,7 +68,7 @@ describe('klime template', () => {
         ['$pageview', 'track'],
     ])('automatic action maps %s to %s', async (eventName, expectedType) => {
         const response = await tester.invoke(
-            { ...defaultInputs, groupId: 'group-123' },
+            defaultInputs,
             {
                 event: {
                     uuid: 'uuid-1',
