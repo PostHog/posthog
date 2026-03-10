@@ -1,9 +1,10 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
 from products.data_warehouse.backend.models import ExternalDataSource
@@ -11,6 +12,8 @@ from products.data_warehouse.backend.models.external_data_source import get_dire
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+    from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+    from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 
 INVALID_CONNECTION_ID_ERROR = "Invalid connectionId for this team"
@@ -50,3 +53,30 @@ def resolve_database_for_connection(
         connection_id=str(source.id) if source else None,
     )
     return source, database
+
+
+def validate_direct_postgres_source_config(
+    source: ExternalDataSource, team: "Team"
+) -> tuple["PostgresSource", "PostgresSourceConfig"]:
+    from posthog.temporal.data_imports.sources import SourceRegistry
+    from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+    from products.data_warehouse.backend.types import ExternalDataSourceType
+
+    if not source.is_direct_postgres:
+        raise ExposedHogQLError("Invalid direct Postgres connection.")
+
+    postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
+    config = postgres_source.parse_config(source.job_inputs or {})
+
+    is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)
+    if not is_ssh_valid:
+        raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
+
+    valid_host, host_errors = postgres_source.is_database_host_valid(
+        config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+    )
+    if not valid_host:
+        raise ExposedHogQLError(host_errors or "Invalid Postgres host.")
+
+    return postgres_source, config

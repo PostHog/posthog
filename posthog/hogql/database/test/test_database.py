@@ -977,7 +977,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
         DataWarehouseTable.objects.create(
-            name="postgres_direct_table",
+            name="direct_table",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1006,7 +1006,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         team_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_team",
+            name="posthog_team",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1018,7 +1018,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
         activitylog_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_activitylog",
+            name="posthog_activitylog",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1069,7 +1069,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         team_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_team",
+            name="posthog_team",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1078,7 +1078,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
         )
         activitylog_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_activitylog",
+            name="posthog_activitylog",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1135,7 +1135,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         activitylog_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_activitylog",
+            name="posthog_activitylog",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1173,7 +1173,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         activitylog_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_activitylog",
+            name="posthog_activitylog",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1197,7 +1197,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert activitylog.fields.get("person") is None
 
-    def test_direct_postgres_foreign_key_fallback_uses_generic_table_names_only(self):
+    def test_direct_postgres_foreign_key_uses_table_names_only(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
@@ -1210,7 +1210,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="public",
         )
         customer_table = DataWarehouseTable.objects.create(
-            name="public_postgres_customers",
+            name="customers",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1222,7 +1222,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
         order_table = DataWarehouseTable.objects.create(
-            name="public_postgres_orders",
+            name="orders",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1257,7 +1257,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         user_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_user",
+            name="posthog_user",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1269,7 +1269,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
         team_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_team",
+            name="posthog_team",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1317,7 +1317,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         team_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_team",
+            name="posthog_team",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1329,7 +1329,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
         activitylog_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_activitylog",
+            name="posthog_activitylog",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1380,7 +1380,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         only_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_activitylog",
+            name="activitylog",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1428,7 +1428,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         broken_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_activitylog",
+            name="posthog_activitylog",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1476,7 +1476,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_analytics_platform_preaggregationjob",
+            name="analytics_platform_preaggregationjob",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1488,10 +1488,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
-        assert "postgres.ph3.analytics_platform_preaggregationjob" not in serialized
-        assert "ph3_postgres_analytics_platform_preaggregationjob" not in serialized
+        assert "analytics_platform_preaggregationjob" not in serialized
 
-    def test_serialize_direct_postgres_table_uses_raw_name_in_direct_mode(self) -> None:
+    def test_serialize_direct_postgres_table_uses_table_name_in_direct_mode(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
@@ -1505,7 +1504,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_analytics_platform_preaggregationjob",
+            name="analytics_platform_preaggregationjob",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1522,8 +1521,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert not database.has_table("events")
         assert "analytics_platform_preaggregationjob" in serialized
         assert "events" not in serialized
-        assert "postgres.ph3.analytics_platform_preaggregationjob" not in serialized
-        assert "ph3_postgres_analytics_platform_preaggregationjob" not in serialized
 
     def test_serialize_direct_postgres_direct_mode_skips_disabled_tables_without_errors(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
@@ -1539,7 +1536,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         enabled_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_enabled_table",
+            name="enabled_table",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1548,7 +1545,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
         disabled_table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_disabled_table",
+            name="disabled_table",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1588,7 +1585,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1616,35 +1613,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert not database.has_table("posthog_dashboard")
 
-    def test_serialize_direct_postgres_table_uses_raw_name_in_direct_mode_with_source_scoped_prefix(self) -> None:
-        credentials = DataWarehouseCredential.objects.create(
-            access_key="test_key", access_secret="test_secret", team=self.team
-        )
-        source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="source_id",
-            connection_id="connection_id",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.POSTGRES,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-            prefix="ph3",
-        )
-        DataWarehouseTable.objects.create(
-            name=f"postgres_{source.pk.hex}_analytics_platform_preaggregationjob",
-            format="Parquet",
-            team=self.team,
-            credential=credentials,
-            external_data_source=source,
-            url_pattern="direct://postgres",
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
-        )
-
-        database = Database.create_for(team=self.team, connection_id=str(source.id))
-        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
-
-        assert "analytics_platform_preaggregationjob" in serialized
-        assert f"postgres_{source.pk.hex}_analytics_platform_preaggregationjob" not in serialized
-
     def test_get_all_table_names_hides_direct_postgres_names_without_connection(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
@@ -1659,7 +1627,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_analytics_platform_preaggregationjob",
+            name="analytics_platform_preaggregationjob",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1671,10 +1639,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         all_table_names = database.get_all_table_names()
 
-        assert "postgres.ph3.analytics_platform_preaggregationjob" not in all_table_names
-        assert "ph3_postgres_analytics_platform_preaggregationjob" not in all_table_names
+        assert "analytics_platform_preaggregationjob" not in all_table_names
 
-    def test_get_all_table_names_uses_raw_direct_postgres_names_in_direct_mode(self) -> None:
+    def test_get_all_table_names_uses_table_names_in_direct_mode(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
@@ -1688,7 +1655,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             prefix="ph3",
         )
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_analytics_platform_preaggregationjob",
+            name="analytics_platform_preaggregationjob",
             format="Parquet",
             team=self.team,
             credential=credentials,
@@ -1702,8 +1669,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert "analytics_platform_preaggregationjob" in all_table_names
         assert "events" not in all_table_names
-        assert "postgres.ph3.analytics_platform_preaggregationjob" not in all_table_names
-        assert "ph3_postgres_analytics_platform_preaggregationjob" not in all_table_names
 
     def test_get_all_table_names_ignores_missing_warehouse_tables(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
@@ -2072,20 +2037,20 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "postgres.analytics_platform_preaggregationjob",
             ),
             (
-                "direct_source_with_prefix",
+                "direct_source_canonical_with_prefix",
                 ExternalDataSource.AccessMethod.DIRECT,
                 "Postgres",
                 "ph3",
-                "ph3_postgres_analytics_platform_preaggregationjob",
-                "ph3_postgres_analytics_platform_preaggregationjob",
+                "analytics_platform_preaggregationjob",
+                "analytics_platform_preaggregationjob",
             ),
             (
-                "direct_source_without_prefix",
+                "direct_source_canonical_without_prefix",
                 ExternalDataSource.AccessMethod.DIRECT,
                 "Postgres",
                 None,
-                "postgres_analytics_platform_preaggregationjob",
-                "postgres_analytics_platform_preaggregationjob",
+                "analytics_platform_preaggregationjob",
+                "analytics_platform_preaggregationjob",
             ),
         ]
     )

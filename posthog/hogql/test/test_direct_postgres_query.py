@@ -39,10 +39,10 @@ class TestDirectPostgresQuery(APIBaseTest):
     def _build_direct_table_type(self) -> ast.TableType:
         return ast.TableType(
             table=DirectPostgresTable(
-                name="postgres.ph3.ph3_postgres_posthog_activitylog",
+                name="posthog_activitylog",
                 fields={},
                 postgres_schema="ph3",
-                postgres_table_name="ph3_postgres_posthog_activitylog",
+                postgres_table_name="posthog_activitylog",
                 external_data_source_id="source-id",
             )
         )
@@ -67,9 +67,7 @@ class TestDirectPostgresQuery(APIBaseTest):
                     cte_table_type=ast.CTETableType(
                         name="activitylog_cte",
                         select_query_type=ast.SelectQueryType(
-                            tables={
-                                "postgres.ph3.ph3_postgres_posthog_activitylog": test_case._build_direct_table_type()
-                            }
+                            tables={"posthog_activitylog": test_case._build_direct_table_type()}
                         ),
                     ),
                 ),
@@ -79,7 +77,7 @@ class TestDirectPostgresQuery(APIBaseTest):
     def test_extract_direct_postgres_source_ids(self, _name: str, table_type_factory):
         executor = HogQLQueryExecutor(query="SELECT 1", team=self.team)
         table_type = table_type_factory(self)
-        query_type = ast.SelectQueryType(tables={"postgres.ph3.ph3_postgres_posthog_activitylog": table_type})
+        query_type = ast.SelectQueryType(tables={"posthog_activitylog": table_type})
 
         source_ids = executor._extract_direct_postgres_sources_from_type(query_type)
 
@@ -105,7 +103,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_without_team_id",
+            name="without_team_id",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -145,7 +143,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -192,7 +190,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_without_team_id",
+            name="without_team_id",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -227,7 +225,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -282,7 +280,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="first_postgres_posthog_team",
+            name="posthog_team",
             format="Parquet",
             team=self.team,
             external_data_source=first_source,
@@ -290,7 +288,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
         )
         DataWarehouseTable.objects.create(
-            name="second_postgres_posthog_team",
+            name="posthog_team",
             format="Parquet",
             team=self.team,
             external_data_source=second_source,
@@ -402,7 +400,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -470,7 +468,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -513,7 +511,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -569,7 +567,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -623,7 +621,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -673,7 +671,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -724,7 +722,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         source.save(update_fields=["created_at"])
 
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_dashboard",
+            name="posthog_dashboard",
             format="Parquet",
             team=self.team,
             external_data_source=source,

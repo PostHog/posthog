@@ -254,7 +254,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             prefix="ph3",
         )
         DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_user",
+            name="posthog_user",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -288,7 +288,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             prefix="ph3",
         )
         table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_user",
+            name="posthog_user",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -328,7 +328,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             prefix="ph3",
         )
         table = DataWarehouseTable.objects.create(
-            name="ph3_postgres_posthog_user",
+            name="posthog_user",
             format="Parquet",
             team=self.team,
             external_data_source=source,

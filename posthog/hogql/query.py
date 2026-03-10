@@ -19,7 +19,10 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_defau
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
-from posthog.hogql.direct_connection import get_direct_connection_source_none_or_raise
+from posthog.hogql.direct_connection import (
+    get_direct_connection_source_none_or_raise,
+    validate_direct_postgres_source_config,
+)
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
@@ -41,7 +44,6 @@ from posthog.errors import ExposedCHQueryError
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 tracer = trace.get_tracer(__name__)
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
@@ -107,30 +109,6 @@ def postgres_error_to_message(error: Exception) -> str:
     if not message:
         return "Postgres query failed."
     return message.splitlines()[0]
-
-
-def validate_direct_postgres_source_config(source, team: Team):
-    from posthog.temporal.data_imports.sources import SourceRegistry
-
-    from products.data_warehouse.backend.types import ExternalDataSourceType
-
-    if not source.is_direct_postgres:
-        raise ExposedHogQLError("Invalid direct Postgres connection.")
-
-    postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
-    config = postgres_source.parse_config(source.job_inputs or {})
-
-    is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)
-    if not is_ssh_valid:
-        raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
-
-    valid_host, host_errors = postgres_source.is_database_host_valid(
-        config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
-    )
-    if not valid_host:
-        raise ExposedHogQLError(host_errors or "Invalid Postgres host.")
-
-    return postgres_source, config
 
 
 @dataclasses.dataclass

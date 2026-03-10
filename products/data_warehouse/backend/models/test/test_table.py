@@ -47,39 +47,6 @@ class TestTable(BaseTest):
         assert isinstance(definition, DirectPostgresTable)
         assert definition.postgres_table_name == table_name
 
-    @parameterized.expand(
-        [
-            ("legacy_prefix_with_separator", "ph3_postgres_accounts"),
-            ("legacy_prefix_without_separator", "ph3postgres_accounts"),
-            ("source_scoped_prefix", "postgres_{source_hex}_accounts"),
-            ("raw_schema_name", "posthog_dashboard"),
-        ]
-    )
-    def test_direct_postgres_table_uses_stored_name(self, _name: str, table_name: str):
-        source = ExternalDataSource.objects.create(
-            source_id="source-id",
-            connection_id="connection-id",
-            destination_id="destination-id",
-            team=self.team,
-            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.POSTGRES,
-            prefix="ph3",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-        )
-        table = DataWarehouseTable.objects.create(
-            name=table_name.format(source_hex=source.pk.hex),
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            external_data_source=source,
-            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
-        )
-
-        definition = table.hogql_definition()
-
-        assert isinstance(definition, DirectPostgresTable)
-        assert definition.postgres_table_name == table_name.format(source_hex=source.pk.hex)
-
     def test_direct_postgres_table_cannot_be_printed_to_clickhouse(self):
         source = ExternalDataSource.objects.create(
             source_id="source-id",

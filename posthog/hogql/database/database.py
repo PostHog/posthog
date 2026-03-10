@@ -619,46 +619,41 @@ class Database(BaseModel):
                     last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
                 )
 
-            table_key = get_data_warehouse_table_name(
-                warehouse_table.external_data_source,
-                warehouse_table.name,
-            )
+            for table_key in _get_warehouse_table_keys(warehouse_table, direct_query=self._is_direct_query()):
+                if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
+                    continue
 
-            if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
-                continue
+                if include_only and table_key not in include_only:
+                    continue
 
-            if include_only and table_key not in include_only:
-                continue
+                try:
+                    field_input = {}
+                    table = self.get_table(table_key)
+                    if isinstance(table, Table):
+                        field_input = table.fields
 
-            try:
-                field_input = {}
-                table = self.get_table(table_key)
-                if isinstance(table, Table):
-                    field_input = table.fields
+                    fields = serialize_fields(
+                        field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+                    )
+                    fields_dict = {field.name: field for field in fields}
 
-                fields = serialize_fields(
-                    field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-                )
-                fields_dict = {field.name: field for field in fields}
-
-                tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                    fields=fields_dict,
-                    id=str(warehouse_table.id),
-                    name=table_key,
-                    format=warehouse_table.format,
-                    url_pattern=warehouse_table.url_pattern,
-                    schema=schema,
-                    source=source,
-                    row_count=warehouse_table.row_count,
-                )
-            except (QueryError, ResolutionError) as e:
-                # Log error but continue processing other tables
-                logger.warning(
-                    f"Failed to serialize data warehouse table '{table_key}': {str(e)}",
-                    exc_info=True,
-                )
-                self._serialization_errors[table_key] = str(e)
-                continue  # Skip this table but process others
+                    tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                        fields=fields_dict,
+                        id=str(warehouse_table.id),
+                        name=table_key,
+                        format=warehouse_table.format,
+                        url_pattern=warehouse_table.url_pattern,
+                        schema=schema,
+                        source=source,
+                        row_count=warehouse_table.row_count,
+                    )
+                except (QueryError, ResolutionError) as e:
+                    logger.warning(
+                        f"Failed to serialize data warehouse table '{table_key}': {str(e)}",
+                        exc_info=True,
+                    )
+                    self._serialization_errors[table_key] = str(e)
+                    continue
 
         # Fetch all views in a single query
         all_views = (
@@ -1017,6 +1012,7 @@ class Database(BaseModel):
 
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
+                    primary_table = s3_table
 
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
                     if s3_table.fields.get("properties") is None:
@@ -1032,26 +1028,27 @@ class Database(BaseModel):
                     else:
                         self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
 
-                    # Add warehouse table using dot notation
                     if table.external_data_source:
-                        table_key = get_data_warehouse_table_name(
-                            table.external_data_source,
-                            table.name,
-                        )
-                        table_chain = table_key.split(".")
+                        for index, table_key in enumerate(
+                            _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
+                        ):
+                            table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
+                            table_chain = table_key.split(".")
 
-                        # For a chain of type a.b.c, we want to create a nested table node
-                        # where a is the parent, b is the child of a, and c is the child of b
-                        # where a.b.c will contain the s3_table
-                        warehouse_tables.add_child(TableNode.create_nested_for_chain(table_chain, s3_table))
+                            # For a chain of type a.b.c, we want to create a nested table node
+                            # where a is the parent, b is the child of a, and c is the child of b
+                            # where a.b.c will contain the table
+                            warehouse_tables.add_child(TableNode.create_nested_for_chain(table_chain, table_for_key))
 
-                        joined_table_chain = ".".join(table_chain)
-                        s3_table.name = joined_table_chain
-                        warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-                        if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-                            database._direct_access_warehouse_table_names.add(joined_table_chain)
+                            joined_table_chain = ".".join(table_chain)
+                            table_for_key.name = joined_table_chain
+                            warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+                            if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                                database._direct_access_warehouse_table_names.add(joined_table_chain)
+                            if index == 0:
+                                primary_table = table_for_key
 
-                    warehouse_tables_to_process.append((s3_table, table))
+                    warehouse_tables_to_process.append((primary_table, table))
 
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None
@@ -1289,19 +1286,7 @@ def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name:
 
     source_type = source.source_type.lower()
     prefix = (source.prefix or "").strip("_").lower()
-
-    table_name_stripped = table_name
-    known_prefixes = [
-        f"{source_type}_{source.pk.hex}_",
-        f"{prefix}_{source_type}_" if prefix else None,
-        f"{prefix}{source_type}_" if prefix else None,
-        f"{source_type}_",
-    ]
-
-    for known_prefix in filter(None, known_prefixes):
-        if table_name_stripped.lower().startswith(known_prefix):
-            table_name_stripped = table_name_stripped[len(known_prefix) :]
-            break
+    table_name_stripped = _strip_external_source_prefix(source, table_name)
 
     if prefix:
         return f"{source_type}.{prefix}.{table_name_stripped}".lower()
@@ -1476,6 +1461,34 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
         return []
 
     return [schema for schema in warehouse_table.externaldataschema_set.all() if schema.deleted is not True]
+
+
+def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:
+    source_type = source.source_type.lower()
+    prefix = (source.prefix or "").strip("_").lower()
+
+    table_name_stripped = table_name
+    known_prefixes = [
+        f"{source_type}_{source.pk.hex}_",
+        f"{prefix}_{source_type}_" if prefix else None,
+        f"{prefix}{source_type}_" if prefix else None,
+        f"{source_type}_",
+    ]
+
+    for known_prefix in filter(None, known_prefixes):
+        if table_name_stripped.lower().startswith(known_prefix):
+            table_name_stripped = table_name_stripped[len(known_prefix) :]
+            break
+
+    return table_name_stripped
+
+
+def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
+    source = warehouse_table.external_data_source
+    if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT and direct_query:
+        return [warehouse_table.name]
+
+    return [get_data_warehouse_table_name(source, warehouse_table.name)]
 
 
 def _should_include_connection_table(
