@@ -79,6 +79,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'error_tracking:write',
     'event_definition:read',
     'event_definition:write',
+    'evaluation:read',
+    'evaluation:write',
     'experiment:read',
     'experiment:write',
     'feature_flag:read',
