@@ -481,14 +481,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # auth_method is a nested config - deep-merge to preserve sensitive fields (stripe_secret_key)
         existing_auth_method = existing_job_inputs.get("auth_method")
         incoming_auth_method = incoming_job_inputs.get("auth_method")
-        if existing_auth_method and incoming_auth_method is not None:
+        if incoming_auth_method is not None and not isinstance(incoming_auth_method, dict):
+            raise ValidationError({"job_inputs": {"auth_method": "Must be an object."}})
+        if isinstance(existing_auth_method, dict) and isinstance(incoming_auth_method, dict):
             selection_changed = existing_auth_method.get("selection") != incoming_auth_method.get("selection")
             if selection_changed:
                 # Auth method switched (e.g. api_key→oauth) — use only incoming, don't carry over old secrets
                 new_job_inputs["auth_method"] = incoming_auth_method
             else:
                 merged_auth_method = {**existing_auth_method, **incoming_auth_method}
-                for key in ("stripe_secret_key",):
+                for key in password_fields:
                     if existing_auth_method.get(key) and not incoming_auth_method.get(key):
                         merged_auth_method[key] = existing_auth_method[key]
                 new_job_inputs["auth_method"] = merged_auth_method

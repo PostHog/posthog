@@ -19,6 +19,12 @@ def migrate_stripe_job_inputs(apps, schema_editor):
                 "selection": "api_key",
                 "stripe_secret_key": secret_key,
             }
+        elif "stripe_integration_id" in job_inputs:
+            integration_id = job_inputs.pop("stripe_integration_id")
+            job_inputs["auth_method"] = {
+                "selection": "oauth",
+                "stripe_integration_id": integration_id,
+            }
 
         source.job_inputs = job_inputs
         source.save(update_fields=["job_inputs"])
@@ -39,6 +45,10 @@ def reverse_migrate_stripe_job_inputs(apps, schema_editor):
 
         if auth_method.get("selection") == "api_key":
             job_inputs["stripe_secret_key"] = auth_method.get("stripe_secret_key", "")
+        elif auth_method.get("selection") == "oauth":
+            integration_id = auth_method.get("stripe_integration_id")
+            if integration_id:
+                job_inputs["stripe_integration_id"] = integration_id
 
         job_inputs.pop("auth_method", None)
         source.job_inputs = job_inputs
