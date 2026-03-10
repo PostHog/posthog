@@ -207,7 +207,6 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
 
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
-    tabId?: string
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -330,8 +329,6 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     }
 }
 
-const CLEAN_NEW_FLAG = cleanFlag(NEW_FLAG) as FeatureFlagType
-
 // Strip out sort_key from groups before saving. The sort_key is here for React to be able to
 // render the release conditions in the correct order.
 function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupType[] | undefined {
@@ -342,9 +339,9 @@ function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupTyp
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([
-    path((key) => ['scenes', 'feature-flags', 'featureFlagLogic', key]),
+    path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
-    key(({ id, tabId }) => (tabId ? `${id ?? 'unknown'}-${tabId}` : String(id ?? 'unknown'))),
+    key(({ id }) => id ?? 'unknown'),
     connect(() => ({
         values: [
             teamLogic,
@@ -2005,7 +2002,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     // When pushing to `/new`, preserve any draft edits instead of reloading defaults
                     if (props.id === 'new' && values.featureFlag.id == null) {
-                        const hasDraftChanges = !equal(cleanFlag(values.featureFlag), CLEAN_NEW_FLAG)
+                        const cleanedFlag = indexToVariantKeyFeatureFlagPayloads(
+                            cleanFlag(values.featureFlag)
+                        ) as FeatureFlagType
+                        const hasDraftChanges = values.originalFeatureFlag
+                            ? !equal(cleanedFlag, values.originalFeatureFlag)
+                            : values.featureFlagChanged
                         if (hasDraftChanges) {
                             return
                         }

@@ -73,34 +73,9 @@ describe('featureFlagLogic', () => {
         jest.useRealTimers()
     })
 
-    describe('tab isolation', () => {
-        it('keeps new-flag drafts separate per tab', async () => {
-            const logicA = featureFlagLogic({ id: 'new', tabId: 'tab-a' })
-            const logicB = featureFlagLogic({ id: 'new', tabId: 'tab-b' })
-
-            logicA.mount()
-            logicB.mount()
-
-            await expectLogic(logicA).toFinishAllListeners()
-            await expectLogic(logicB).toFinishAllListeners()
-
-            const updatedFlag = { ...NEW_FLAG, key: 'flag-a', name: 'Flag A' }
-
-            await expectLogic(logicA, () => {
-                logicA.actions.setFeatureFlag(updatedFlag)
-            }).toMatchValues({
-                featureFlag: partial({ key: 'flag-a', name: 'Flag A' }),
-            })
-
-            expect(logicB.values.featureFlag.key).toEqual('')
-            expect(logicB.values.featureFlag.name).toEqual('')
-
-            logicA.unmount()
-            logicB.unmount()
-        })
-
+    describe('draft preservation', () => {
         it('preserves new-flag drafts when the URL is pushed', async () => {
-            const logicNew = featureFlagLogic({ id: 'new', tabId: 'tab-a' })
+            const logicNew = featureFlagLogic({ id: 'new' })
 
             logicNew.mount()
 
