@@ -484,8 +484,11 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     api_response_bytes: 0,
                 })
             } catch (e) {
+                // Bail if a newer listener invocation has superseded this one
+                breakpoint()
+
                 // Don't show error for aborted requests (user typed new search query)
-                if (e instanceof DOMException && e.name === 'AbortError') {
+                if ((e as any)?.name === 'AbortError') {
                     return
                 }
                 cache.abortController = null
