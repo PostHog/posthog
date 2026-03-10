@@ -1,6 +1,9 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+import posthoganalytics
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -60,6 +63,36 @@ PERMISSIONS = [
     "rak_payment_method_read",
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
+
+
+def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
+    from posthog.models import Team
+
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            WAREHOUSE_WEBHOOK_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        return bool(enabled)
+    except Exception as e:
+        capture_exception(e)
+        return False
 
 
 @SourceRegistry.register
@@ -149,7 +182,8 @@ These permissions are automatically pre-filled in the API key creation form if y
         return [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                supports_incremental=_is_webhook_feature_flag_enabled(team_id)
+                and STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_INCREMENTAL_FIELDS
                 supports_append=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_INCREMENTAL_FIELDS.get(endpoint, []),
