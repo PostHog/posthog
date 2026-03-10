@@ -222,7 +222,8 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
 
         // trends like
         payload.has_formula = !!getFormula(querySource)
-        payload.display = getDisplay(querySource) ?? (isTrendsQuery(querySource) ? ChartDisplayType.ActionsLineGraph : undefined)
+        payload.display =
+            getDisplay(querySource) ?? (isTrendsQuery(querySource) ? ChartDisplayType.ActionsLineGraph : undefined)
         payload.compare = getCompareFilter(querySource)?.compare
         payload.compare_to = getCompareFilter(querySource)?.compare_to
 
