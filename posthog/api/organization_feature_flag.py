@@ -43,7 +43,6 @@ class OrganizationFeatureFlagView(
         flags = FeatureFlag.objects.filter(
             key=feature_flag_key,
             team_id__in=team_ids,
-            deleted=False,
         )
         flags_data = [
             {
@@ -74,7 +73,11 @@ class OrganizationFeatureFlagView(
 
         # Fetch the flag to copy
         try:
-            flag_to_copy = FeatureFlag.objects.get(key=feature_flag_key, team__project_id=from_project)
+            flag_to_copy = FeatureFlag.objects.get(
+                key=feature_flag_key,
+                team__project_id=from_project,
+                team__organization_id=self.organization_id,
+            )
         except FeatureFlag.DoesNotExist:
             return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -226,9 +229,7 @@ class OrganizationFeatureFlagView(
                 "is_remote_configuration": flag_to_copy.is_remote_configuration,
                 "has_encrypted_payloads": flag_to_copy.has_encrypted_payloads,
             }
-            existing_flag = FeatureFlag.objects.filter(
-                key=feature_flag_key, team__project_id=target_project_id, deleted=False
-            ).first()
+            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team__project_id=target_project_id).first()
 
             context = {
                 "request": request,

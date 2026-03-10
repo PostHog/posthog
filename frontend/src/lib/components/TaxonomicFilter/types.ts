@@ -4,6 +4,7 @@ import { ReactNode } from 'react'
 
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+// eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
@@ -97,6 +98,8 @@ export interface TaxonomicFilterProps {
     hogQLGlobals?: Record<string, any>
     /** Optionally customize definition popover contents for selected items. */
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    /** Override the group-level minSearchQueryLength for all groups in this instance. */
+    minSearchQueryLength?: number
 }
 
 export interface DataWarehousePopoverField {
@@ -217,6 +220,7 @@ export enum TaxonomicFilterGroupType {
     LogResourceAttributes = 'log_resource_attributes',
     // Misc
     Replay = 'replay',
+    ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',

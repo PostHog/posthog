@@ -7,6 +7,16 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface CodeInviteRedeemRequestApi {
+    /** @maxLength 50 */
+    code: string
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 /**
  * Serializer for extracted tasks
  */
@@ -30,6 +40,7 @@ export interface PaginatedTaskListApi {
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
  * `user_created` - User Created
+ * `slack` - Slack
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
  */
@@ -39,6 +50,7 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
+    Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
 } as const
@@ -109,6 +121,7 @@ export interface PatchedTaskApi {
     readonly slug?: string
     /** @maxLength 255 */
     title?: string
+    title_manually_set?: boolean
     description?: string
     origin_product?: OriginProductEnumApi
     /**
@@ -150,6 +163,12 @@ export interface TaskRunCreateRequestApi {
 * `interactive` - interactive
 * `background` - background */
     mode?: TaskRunCreateRequestModeEnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
 }
 
 /**
@@ -296,11 +315,6 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
-}
-
-export interface ErrorResponseApi {
-    /** Error message */
-    error: string
 }
 
 export type TaskRunAppendLogRequestApiEntriesItem = { [key: string]: unknown }
@@ -453,6 +467,11 @@ export interface TaskRunCommandResponseApi {
 export interface ConnectionTokenResponseApi {
     /** JWT token for authenticating with the sandbox */
     token: string
+}
+
+export interface TaskRunRelayMessageRequestApi {
+    /** @maxLength 10000 */
+    text: string
 }
 
 /**

@@ -359,9 +359,9 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         <LemonTag type="default" className="uppercase">
                             Concept
                         </LemonTag>{' '}
-                        stage assigns the feature flag to the user. Gate your code behind a different feature flag if
-                        you'd like to keep it hidden, and then switch your code to this feature flag when you're ready
-                        to release to your early access users.
+                        stage is for gathering interest. Users can opt in, but the feature flag will not be enabled
+                        until you promote this feature to Alpha or later. This lets you gauge demand before releasing
+                        any functionality.
                     </LemonBanner>
                 )}
                 <div className="flex-1 min-w-[20rem] max-w-prose">

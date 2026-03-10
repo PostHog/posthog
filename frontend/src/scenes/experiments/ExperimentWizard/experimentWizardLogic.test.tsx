@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -9,13 +11,13 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import type { Experiment, FeatureFlagType } from '~/types'
+import type { FeatureFlagType } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
 import { experimentsLogic } from '../experimentsLogic'
-import { experimentWizardLogic } from './experimentWizardLogic'
+import { experimentWizardLogic, stepStorageKey } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
 import { VariantsStep } from './steps/VariantsStep'
 
@@ -293,6 +295,116 @@ describe('experimentWizardLogic', () => {
                 departedSteps: { about: true },
             })
         })
+
+        it('preserves current step across unmount/remount', async () => {
+            logic.actions.nextStep()
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+        })
+
+        it('two tabs maintain independent step state', async () => {
+            const createLogic1 = createExperimentLogic({ tabId: 'tab-1' })
+            createLogic1.mount()
+            const wizardLogic1 = experimentWizardLogic({ tabId: 'tab-1' })
+            wizardLogic1.mount()
+
+            const createLogic2 = createExperimentLogic({ tabId: 'tab-2' })
+            createLogic2.mount()
+            const wizardLogic2 = experimentWizardLogic({ tabId: 'tab-2' })
+            wizardLogic2.mount()
+
+            // Advance tab 1 to variants, tab 2 to analytics
+            wizardLogic1.actions.setStep('variants')
+            wizardLogic2.actions.setStep('analytics')
+
+            await expectLogic(wizardLogic1).toMatchValues({ currentStep: 'variants' })
+            await expectLogic(wizardLogic2).toMatchValues({ currentStep: 'analytics' })
+
+            // Advancing tab 2 does not affect tab 1
+            wizardLogic2.actions.setStep('about')
+
+            await expectLogic(wizardLogic1).toMatchValues({ currentStep: 'variants' })
+            await expectLogic(wizardLogic2).toMatchValues({ currentStep: 'about' })
+
+            wizardLogic1.unmount()
+            createLogic1.unmount()
+            wizardLogic2.unmount()
+            createLogic2.unmount()
+        })
+
+        it('resets step to about on saveExperimentSuccess', async () => {
+            logic.actions.setStep('analytics')
+            await expectLogic(logic).toMatchValues({ currentStep: 'analytics' })
+
+            logic.actions.saveExperimentSuccess()
+
+            await expectLogic(logic).toMatchValues({
+                currentStep: 'about',
+                linkedFeatureFlag: null,
+                departedSteps: {},
+            })
+            expect(sessionStorage.getItem(stepStorageKey(TAB_ID))).toBeNull()
+        })
+
+        it('clears sessionStorage step on saveExperimentSuccess so remount starts fresh', async () => {
+            logic.actions.setStep('analytics')
+            expect(sessionStorage.getItem(stepStorageKey(TAB_ID))).toBe('analytics')
+
+            logic.actions.saveExperimentSuccess()
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'about' })
+        })
+
+        it('stale sessionStorage from previous session is cleared on fresh navigation', () => {
+            // Simulate stale state: step saved from a previous experiment session
+            sessionStorage.setItem(stepStorageKey(TAB_ID), 'analytics')
+
+            // Simulate what experimentSceneLogic does on fresh navigation to /experiments/new
+            sessionStorage.removeItem(stepStorageKey(TAB_ID))
+
+            // Now mount the wizard — should start on 'about'
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            expect(logic.values.currentStep).toBe('about')
+        })
+
+        it('tab switch preserves step when sessionStorage is not cleared', async () => {
+            logic.actions.setStep('variants')
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            // Simulate tab switch: unmount and remount without clearing sessionStorage
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+        })
     })
 
     describe('validation', () => {
@@ -441,7 +553,7 @@ describe('experimentWizardLogic', () => {
             useMocks({
                 ...apiMocks,
                 post: {
-                    '/api/projects/@current/experiments/': async (req: any) => {
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/`]: async (req: any) => {
                         capturedPayload = await req.json()
                         return [
                             200,
@@ -612,139 +724,6 @@ describe('experimentWizardLogic', () => {
             renderVariantsStep()
 
             expect(screen.queryByText(/For linked feature flags, this step is read-only/)).not.toBeInTheDocument()
-        })
-    })
-
-    describe('navigation between experiments', () => {
-        const incompleteDraft: Experiment = {
-            ...NEW_EXPERIMENT,
-            id: 100,
-            name: 'Incomplete Draft',
-            description: 'Saved without metrics',
-            feature_flag_key: 'incomplete-draft',
-        }
-
-        const anotherDraft: Experiment = {
-            ...NEW_EXPERIMENT,
-            id: 200,
-            name: 'Another Draft',
-            description: 'A different experiment',
-            feature_flag_key: 'another-draft',
-        }
-
-        beforeEach(() => {
-            localStorage.clear()
-            sessionStorage.clear()
-            useMocks(apiMocks)
-            initKeaTests()
-
-            featureFlagsLogic.mount()
-            experimentsLogic.mount()
-        })
-
-        afterEach(() => {
-            experimentsLogic.unmount()
-            featureFlagsLogic.unmount()
-        })
-
-        it('navigating from a draft to new experiment shows a clean form', async () => {
-            // Step 1: visit an incomplete draft (ExperimentView path)
-            const draftCreateLogic = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
-            draftCreateLogic.mount()
-
-            const draftWizardLogic = experimentWizardLogic({ experiment: incompleteDraft, tabId: TAB_ID })
-            draftWizardLogic.mount()
-
-            await expectLogic(draftWizardLogic).toMatchValues({
-                experiment: partial({ id: 100, name: 'Incomplete Draft' }),
-            })
-
-            draftWizardLogic.unmount()
-            draftCreateLogic.unmount()
-
-            // Step 2: navigate to new experiment (ExperimentCreateMode path)
-            const newCreateLogic = createExperimentLogic({ tabId: TAB_ID })
-            newCreateLogic.mount()
-
-            const newWizardLogic = experimentWizardLogic({ tabId: TAB_ID })
-            newWizardLogic.mount()
-
-            await expectLogic(newWizardLogic).toMatchValues({
-                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
-            })
-
-            newWizardLogic.unmount()
-            newCreateLogic.unmount()
-        })
-
-        it('navigating from new experiment to a draft shows the draft data', async () => {
-            // Step 1: create a new experiment
-            const newCreateLogic = createExperimentLogic({ tabId: TAB_ID })
-            newCreateLogic.mount()
-
-            const newWizardLogic = experimentWizardLogic({ tabId: TAB_ID })
-            newWizardLogic.mount()
-
-            newCreateLogic.actions.setExperimentValue('name', 'Typed Name')
-
-            await expectLogic(newWizardLogic).toMatchValues({
-                experiment: partial({ id: 'new', name: 'Typed Name' }),
-            })
-
-            newWizardLogic.unmount()
-            newCreateLogic.unmount()
-
-            // Step 2: navigate to an incomplete draft
-            const draftCreateLogic = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
-            draftCreateLogic.mount()
-
-            const draftWizardLogic = experimentWizardLogic({ experiment: incompleteDraft, tabId: TAB_ID })
-            draftWizardLogic.mount()
-
-            await expectLogic(draftWizardLogic).toMatchValues({
-                experiment: partial({
-                    id: 100,
-                    name: 'Incomplete Draft',
-                    feature_flag_key: 'incomplete-draft',
-                }),
-            })
-
-            draftWizardLogic.unmount()
-            draftCreateLogic.unmount()
-        })
-
-        it('navigating between two different drafts shows the correct data', async () => {
-            // Step 1: visit first draft
-            const firstCreateLogic = createExperimentLogic({ experiment: incompleteDraft, tabId: TAB_ID })
-            firstCreateLogic.mount()
-
-            const firstWizardLogic = experimentWizardLogic({ experiment: incompleteDraft, tabId: TAB_ID })
-            firstWizardLogic.mount()
-
-            await expectLogic(firstWizardLogic).toMatchValues({
-                experiment: partial({ id: 100, name: 'Incomplete Draft' }),
-            })
-
-            firstWizardLogic.unmount()
-            firstCreateLogic.unmount()
-
-            // Step 2: visit second draft
-            const secondCreateLogic = createExperimentLogic({ experiment: anotherDraft, tabId: TAB_ID })
-            secondCreateLogic.mount()
-
-            const secondWizardLogic = experimentWizardLogic({ experiment: anotherDraft, tabId: TAB_ID })
-            secondWizardLogic.mount()
-
-            await expectLogic(secondWizardLogic).toMatchValues({
-                experiment: partial({
-                    id: 200,
-                    name: 'Another Draft',
-                    feature_flag_key: 'another-draft',
-                }),
-            })
-
-            secondWizardLogic.unmount()
-            secondCreateLogic.unmount()
         })
     })
 })

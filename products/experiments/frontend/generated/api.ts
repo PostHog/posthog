@@ -291,13 +291,6 @@ export const experimentsDuplicateCreate = async (
     })
 }
 
-/**
- * Create a recalculation request for experiment timeseries data.
-
-Request body:
-- metric (required): The full metric object to recalculate
-- fingerprint (required): The fingerprint of the metric configuration
- */
 export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/recalculate_timeseries/`
 }
@@ -316,14 +309,6 @@ export const experimentsRecalculateTimeseriesCreate = async (
     })
 }
 
-/**
- * Retrieve timeseries results for a specific experiment-metric combination.
-Aggregates daily results into a timeseries format for frontend compatibility.
-
-Query parameters:
-- metric_uuid (required): The UUID of the metric to retrieve results for
-- fingerprint (required): The fingerprint of the metric configuration
- */
 export const getExperimentsTimeseriesResultsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
 }
@@ -384,9 +369,6 @@ export const experimentsRequiresFlagImplementationRetrieve = async (
     })
 }
 
-/**
- * Get experimentation velocity statistics.
- */
 export const getExperimentsStatsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/stats/`
 }

@@ -94,9 +94,31 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.errors.age).toBe('Value must be a number')
             })
 
-            it('should validate boolean type', () => {
-                const inputs = { active: { value: 'true' } }
+            it('should validate boolean type rejects non-boolean non-string values', () => {
+                const inputs = { active: { value: 123 } }
                 const schema: CyclotronJobInputSchemaType[] = [{ key: 'active', type: 'boolean', label: 'Active' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(false)
+                expect(result.errors.active).toBe('Value must be a boolean')
+            })
+
+            it('should accept string value for boolean type when templating is enabled (default)', () => {
+                const inputs = { active: { value: '{true}' } }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'active', type: 'boolean', label: 'Active' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+            })
+
+            it('should reject string value for boolean type when templating is disabled', () => {
+                const inputs = { active: { value: '{true}' } }
+                const schema: CyclotronJobInputSchemaType[] = [
+                    { key: 'active', type: 'boolean', label: 'Active', templating: false },
+                ]
 
                 const result = CyclotronJobInputsValidation.validate(inputs, schema)
 

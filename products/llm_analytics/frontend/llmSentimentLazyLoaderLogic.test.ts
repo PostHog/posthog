@@ -2,12 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import {
-    GenerationSentiment,
-    MessageSentiment,
-    SentimentResult,
-    llmSentimentLazyLoaderLogic,
-} from './llmSentimentLazyLoaderLogic'
+import { SentimentResult, llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 
 describe('llmSentimentLazyLoaderLogic', () => {
     let logic: ReturnType<typeof llmSentimentLazyLoaderLogic.build>
@@ -61,12 +56,10 @@ describe('llmSentimentLazyLoaderLogic', () => {
     describe('loadSentimentBatchSuccess action', () => {
         it('should store sentiment results', async () => {
             const mockResult: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'positive',
                 score: 0.95,
                 scores: { positive: 0.95, negative: 0.03, neutral: 0.02 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 2,
             }
 
@@ -84,12 +77,10 @@ describe('llmSentimentLazyLoaderLogic', () => {
             logic.actions.ensureSentimentLoaded('trace-2')
 
             const mockResult: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'positive',
                 score: 0.8,
                 scores: { positive: 0.8, negative: 0.1, neutral: 0.1 },
-                generations: {},
-                generation_count: 0,
+                messages: {},
                 message_count: 1,
             }
 
@@ -113,22 +104,18 @@ describe('llmSentimentLazyLoaderLogic', () => {
 
         it('should handle multiple results in batch', async () => {
             const result1: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'positive',
                 score: 0.9,
                 scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 
             const result2: SentimentResult = {
-                trace_id: 'trace-2',
                 label: 'negative',
                 score: 0.85,
                 scores: { positive: 0.1, negative: 0.85, neutral: 0.05 },
-                generations: {},
-                generation_count: 2,
+                messages: {},
                 message_count: 3,
             }
 
@@ -147,22 +134,18 @@ describe('llmSentimentLazyLoaderLogic', () => {
 
         it('should preserve existing results when adding new ones', async () => {
             const result1: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'positive',
                 score: 0.9,
                 scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 
             const result2: SentimentResult = {
-                trace_id: 'trace-2',
                 label: 'negative',
                 score: 0.8,
                 scores: { positive: 0.1, negative: 0.8, neutral: 0.1 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 
@@ -202,12 +185,10 @@ describe('llmSentimentLazyLoaderLogic', () => {
 
         it('should preserve existing results when failing new ones', async () => {
             const existingResult: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'positive',
                 score: 0.9,
                 scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 
@@ -236,12 +217,10 @@ describe('llmSentimentLazyLoaderLogic', () => {
             logic.actions.ensureSentimentLoaded('trace-1')
 
             const mockResult: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'positive',
                 score: 0.9,
                 scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 
@@ -276,12 +255,10 @@ describe('llmSentimentLazyLoaderLogic', () => {
 
         it('should return cached sentiment result', () => {
             const mockResult: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'positive',
                 score: 0.9,
                 scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 
@@ -305,12 +282,10 @@ describe('llmSentimentLazyLoaderLogic', () => {
             ['neutral', 0.75, { positive: 0.15, negative: 0.1, neutral: 0.75 }],
         ])('should handle different sentiment labels (%s)', (label, score, scores) => {
             const mockResult: SentimentResult = {
-                trace_id: 'trace-1',
                 label,
                 score,
                 scores,
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 
@@ -319,140 +294,6 @@ describe('llmSentimentLazyLoaderLogic', () => {
             expect(result?.label).toBe(label)
             expect(result?.score).toBe(score)
             expect(result?.scores).toEqual(scores)
-        })
-    })
-
-    describe('getGenerationSentiment selector', () => {
-        it('should return undefined when trace has no sentiment', () => {
-            expect(logic.values.getGenerationSentiment('trace-1', 'gen-1')).toBeUndefined()
-        })
-
-        it('should return undefined when trace sentiment is null', () => {
-            logic.actions.loadSentimentBatchFailure(['trace-1'])
-            expect(logic.values.getGenerationSentiment('trace-1', 'gen-1')).toBeUndefined()
-        })
-
-        it('should return undefined when generation does not exist', () => {
-            const mockResult: SentimentResult = {
-                trace_id: 'trace-1',
-                label: 'positive',
-                score: 0.9,
-                scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                generations: {},
-                generation_count: 0,
-                message_count: 1,
-            }
-
-            logic.actions.loadSentimentBatchSuccess({ 'trace-1': mockResult }, ['trace-1'])
-            expect(logic.values.getGenerationSentiment('trace-1', 'gen-1')).toBeUndefined()
-        })
-
-        it('should return generation sentiment when it exists', () => {
-            const messageSentiment: MessageSentiment = {
-                label: 'positive',
-                score: 0.92,
-                scores: { positive: 0.92, negative: 0.04, neutral: 0.04 },
-            }
-
-            const generationSentiment: GenerationSentiment = {
-                label: 'positive',
-                score: 0.9,
-                scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                messages: {
-                    0: messageSentiment,
-                },
-            }
-
-            const mockResult: SentimentResult = {
-                trace_id: 'trace-1',
-                label: 'positive',
-                score: 0.9,
-                scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                generations: {
-                    'gen-1': generationSentiment,
-                },
-                generation_count: 1,
-                message_count: 1,
-            }
-
-            logic.actions.loadSentimentBatchSuccess({ 'trace-1': mockResult }, ['trace-1'])
-            expect(logic.values.getGenerationSentiment('trace-1', 'gen-1')).toEqual(generationSentiment)
-        })
-
-        it('should handle multiple generations in a trace', () => {
-            const gen1Sentiment: GenerationSentiment = {
-                label: 'positive',
-                score: 0.9,
-                scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                messages: {},
-            }
-
-            const gen2Sentiment: GenerationSentiment = {
-                label: 'negative',
-                score: 0.85,
-                scores: { positive: 0.1, negative: 0.85, neutral: 0.05 },
-                messages: {},
-            }
-
-            const mockResult: SentimentResult = {
-                trace_id: 'trace-1',
-                label: 'positive',
-                score: 0.88,
-                scores: { positive: 0.88, negative: 0.08, neutral: 0.04 },
-                generations: {
-                    'gen-1': gen1Sentiment,
-                    'gen-2': gen2Sentiment,
-                },
-                generation_count: 2,
-                message_count: 0,
-            }
-
-            logic.actions.loadSentimentBatchSuccess({ 'trace-1': mockResult }, ['trace-1'])
-            expect(logic.values.getGenerationSentiment('trace-1', 'gen-1')).toEqual(gen1Sentiment)
-            expect(logic.values.getGenerationSentiment('trace-1', 'gen-2')).toEqual(gen2Sentiment)
-            expect(logic.values.getGenerationSentiment('trace-1', 'gen-3')).toBeUndefined()
-        })
-
-        it('should handle message-level sentiment within generations', () => {
-            const message0: MessageSentiment = {
-                label: 'positive',
-                score: 0.95,
-                scores: { positive: 0.95, negative: 0.03, neutral: 0.02 },
-            }
-
-            const message1: MessageSentiment = {
-                label: 'neutral',
-                score: 0.7,
-                scores: { positive: 0.2, negative: 0.1, neutral: 0.7 },
-            }
-
-            const generationSentiment: GenerationSentiment = {
-                label: 'positive',
-                score: 0.85,
-                scores: { positive: 0.85, negative: 0.08, neutral: 0.07 },
-                messages: {
-                    0: message0,
-                    1: message1,
-                },
-            }
-
-            const mockResult: SentimentResult = {
-                trace_id: 'trace-1',
-                label: 'positive',
-                score: 0.85,
-                scores: { positive: 0.85, negative: 0.08, neutral: 0.07 },
-                generations: {
-                    'gen-1': generationSentiment,
-                },
-                generation_count: 1,
-                message_count: 2,
-            }
-
-            logic.actions.loadSentimentBatchSuccess({ 'trace-1': mockResult }, ['trace-1'])
-            const result = logic.values.getGenerationSentiment('trace-1', 'gen-1')
-            expect(result?.messages[0]).toEqual(message0)
-            expect(result?.messages[1]).toEqual(message1)
-            expect(result?.messages[2]).toBeUndefined()
         })
     })
 
@@ -477,22 +318,18 @@ describe('llmSentimentLazyLoaderLogic', () => {
 
         it('should overwrite existing sentiment when loading same trace again', () => {
             const result1: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'positive',
                 score: 0.8,
                 scores: { positive: 0.8, negative: 0.1, neutral: 0.1 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 
             const result2: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'negative',
                 score: 0.9,
                 scores: { positive: 0.05, negative: 0.9, neutral: 0.05 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 
@@ -505,12 +342,10 @@ describe('llmSentimentLazyLoaderLogic', () => {
 
         it('should handle partial batch success with some nulls', () => {
             const result1: SentimentResult = {
-                trace_id: 'trace-1',
                 label: 'positive',
                 score: 0.9,
                 scores: { positive: 0.9, negative: 0.05, neutral: 0.05 },
-                generations: {},
-                generation_count: 1,
+                messages: {},
                 message_count: 1,
             }
 

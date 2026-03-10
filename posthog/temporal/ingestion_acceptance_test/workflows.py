@@ -33,7 +33,7 @@ class IngestionAcceptanceTestWorkflow(PostHogWorkflow):
         """
         result = await temporalio.workflow.execute_activity(
             run_ingestion_acceptance_tests,
-            start_to_close_timeout=timedelta(minutes=11),
+            start_to_close_timeout=timedelta(hours=1, minutes=5),
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
             ),

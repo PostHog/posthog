@@ -288,6 +288,40 @@ describe('LemonInputSelect', () => {
         expect(addTestButtons.length).toBe(0)
     })
 
+    it('multiple-select mode: selecting an option freezes the displayed results until user types again', async () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                options={[
+                    { key: 'apple', label: 'Apple' },
+                    { key: 'apricot', label: 'Apricot' },
+                    { key: 'zucchini', label: 'Zucchini' },
+                ]}
+                value={[]}
+                onChange={onChange}
+            />
+        )
+
+        const input = await openDropdown(container)
+
+        // Type to filter — "app" should match Apple and Apricot but not Zucchini
+        await userEvent.type(input, 'app')
+
+        const appleButton = await findDropdownButtonByText('Apple')
+        expect(appleButton).toBeInTheDocument()
+        expect(screen.queryByText('Zucchini')).not.toBeInTheDocument()
+
+        // Select "Apple" — input clears but results should stay frozen
+        await userEvent.click(appleButton!)
+
+        expect(input.value).toBe('')
+
+        // Zucchini should still not appear — the frozen filtered results persist
+        expect(screen.queryByText('Zucchini')).not.toBeInTheDocument()
+    })
+
     it('multiple-select mode: clicking option matching search text does not toggle it off', async () => {
         const onChange = jest.fn()
 

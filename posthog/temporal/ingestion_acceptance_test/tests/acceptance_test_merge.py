@@ -1,9 +1,12 @@
 """Merge test - verifies that $merge_dangerously merges two persons into one."""
 
-import time
 import uuid
 
+import structlog
+
 from ..runner import AcceptanceTest
+
+logger = structlog.get_logger(__name__)
 
 
 class TestMergeDangerously(AcceptanceTest):
@@ -16,45 +19,58 @@ class TestMergeDangerously(AcceptanceTest):
         distinct_id_b = str(uuid.uuid4())  # Person B - will be merged into A
 
         # Capture both events before polling to reduce wall-clock time
-        timestamp_a = time.time()
+        logger.info("test_merge: capturing event for Person A", distinct_id=distinct_id_a)
         event_uuid_a = self.client.capture_event(
-            event_name, distinct_id_a, {"$set": {"name": "Person A", "$test_timestamp": timestamp_a}}
+            event_name, distinct_id_a, {"$set": {"name": "Person A", "$test_version": 1}}
         )
-        timestamp_b = time.time()
+
+        logger.info("test_merge: capturing event for Person B", distinct_id=distinct_id_b)
         event_uuid_b = self.client.capture_event(
             event_name,
             distinct_id_b,
-            {"$set": {"name": "Person B", "extra_prop": "from_b", "$test_timestamp": timestamp_b}},
+            {"$set": {"name": "Person B", "extra_prop": "from_b", "$test_version": 2}},
         )
 
         # Poll for both events
+        logger.info("test_merge: querying for Person A event", event_uuid=event_uuid_a)
         found_a = self.client.query_event_by_uuid(event_uuid_a)
         self.assert_event(found_a, event_uuid_a, event_name, distinct_id_a)
+
+        logger.info("test_merge: querying for Person B event", event_uuid=event_uuid_b)
         found_b = self.client.query_event_by_uuid(event_uuid_b)
         self.assert_event(found_b, event_uuid_b, event_name, distinct_id_b)
 
         # Verify both persons exist
+        logger.info("test_merge: querying for Person A", distinct_id=distinct_id_a)
         person_a = self.client.query_person_by_distinct_id(distinct_id_a)
         assert person_a is not None, "Person A not found within time budget"
+
+        logger.info("test_merge: querying for Person B", distinct_id=distinct_id_b)
         person_b = self.client.query_person_by_distinct_id(distinct_id_b)
         assert person_b is not None, "Person B not found within time budget"
 
         # Merge Person B into Person A
+        logger.info("test_merge: merging Person B into Person A", merge_into=distinct_id_a, merge_from=distinct_id_b)
         merge_event_uuid = self.client.merge_dangerously(distinct_id_a, distinct_id_b)
+
+        logger.info("test_merge: querying for merge event", event_uuid=merge_event_uuid)
         found_merge = self.client.query_event_by_uuid(merge_event_uuid)
         assert found_merge is not None, "Merge event not found within time budget"
 
         # Wait for merge to propagate - Person A should have updated timestamp
         # We need to set a new timestamp on Person A to detect when merge completes
-        post_merge_timestamp = time.time()
+        logger.info("test_merge: capturing post-merge event", distinct_id=distinct_id_a)
         post_merge_event_uuid = self.client.capture_event(
-            "$test_post_merge", distinct_id_a, {"$set": {"$test_timestamp": post_merge_timestamp}}
+            "$test_post_merge", distinct_id_a, {"$set": {"$test_version": 3}}
         )
+
+        logger.info("test_merge: querying for post-merge event", event_uuid=post_merge_event_uuid)
         found_post_merge = self.client.query_event_by_uuid(post_merge_event_uuid)
         assert found_post_merge is not None, "Post-merge event not found within time budget"
 
         # Query Person A with the post-merge timestamp to ensure merge has propagated
-        merged_person = self.client.query_person_by_distinct_id(distinct_id_a, min_timestamp=post_merge_timestamp)
+        logger.info("test_merge: querying for merged person", distinct_id=distinct_id_a)
+        merged_person = self.client.query_person_by_distinct_id(distinct_id_a, min_version=3)
         assert merged_person is not None, "Person not updated after merge within time budget"
 
         # After merge, Person A should have Person B's extra_prop (properties merge)
@@ -63,6 +79,7 @@ class TestMergeDangerously(AcceptanceTest):
         assert merged_person.properties.get("extra_prop") == "from_b", "Person B's extra_prop should be merged"
 
         # Query all events for the merged person - should have events from both A and B
+        logger.info("test_merge: querying events for merged person", person_id=merged_person.id)
         expected_uuids = {event_uuid_a, event_uuid_b, merge_event_uuid, post_merge_event_uuid}
         events = self.client.query_events_by_person_id(merged_person.id, expected_event_uuids=expected_uuids)
         assert events is not None, "Expected events not found for merged person after merge within time budget"

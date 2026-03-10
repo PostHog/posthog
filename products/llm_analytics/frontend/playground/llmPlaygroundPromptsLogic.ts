@@ -1,13 +1,33 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { isObject, uuid } from 'lib/utils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
+import type { EvaluationConfig } from '../evaluations/types'
+import { getApiErrorDetail, llmPromptLogic } from '../prompts/llmPromptLogic'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { normalizeRole } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
 import { isTraceLikeSelection } from './playgroundModelMatching'
+
+const SOURCE_PARAM_KEYS = ['source_prompt_name', 'source_prompt_version', 'source_evaluation_id'] as const
+
+/** Strip all source-linking URL params, returning only the unrelated params. */
+export function cleanSourceSearchParams(searchParams: Record<string, any>): Record<string, any> {
+    const clean = { ...searchParams }
+    for (const key of SOURCE_PARAM_KEYS) {
+        delete clean[key]
+    }
+    return clean
+}
 
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type ReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | null
@@ -23,20 +43,62 @@ export interface PromptConfig {
     selectedProviderKeyId: string | null
     systemPrompt: string
     maxTokens: number | null
+    temperature: number | null
+    topP: number | null
     thinking: boolean
     reasoningLevel: ReasoningLevel
     tools: Record<string, unknown>[] | null
+    sourceType: 'prompt' | 'evaluation' | null
+    sourcePromptName: string | null
+    sourcePromptVersion: number | null
+    sourceEvaluationId: string | null
+    sourceEvaluationName: string | null
     messages: Message[]
 }
 
 export interface PlaygroundSetupPayload {
     model?: string
     provider?: string
+    providerKeyId?: string
+    systemPrompt?: string
+    sourceType?: 'prompt' | 'evaluation'
+    sourcePromptName?: string
+    sourcePromptVersion?: number
+    sourceEvaluationId?: string
     input?: unknown
     tools?: Record<string, unknown>[]
 }
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
+
+/**
+ * Returns a human-readable label for the linked source, e.g. `prompt "my-prompt"` or `evaluation "my-eval"`.
+ * Returns null when no source is linked.
+ */
+export function getLinkedSourceLabel(source: {
+    type: 'prompt' | 'evaluation' | null
+    promptName: string | null
+    promptVersion?: number | null
+    evaluationId: string | null
+    evaluationName: string | null
+}): string | null {
+    if (source.type === 'prompt') {
+        if (!source.promptName) {
+            return null
+        }
+        const versionSuffix = source.promptVersion ? ` v${source.promptVersion}` : ''
+        return `prompt "${source.promptName}"${versionSuffix}`
+    }
+    if (source.type === 'evaluation') {
+        if (source.evaluationName) {
+            return `evaluation "${source.evaluationName}"`
+        }
+        if (source.evaluationId) {
+            return `evaluation ${source.evaluationId.slice(0, 8)}`
+        }
+    }
+    return null
+}
 
 export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptConfig {
     return {
@@ -45,9 +107,16 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         selectedProviderKeyId: partial.selectedProviderKeyId ?? null,
         systemPrompt: partial.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
         maxTokens: partial.maxTokens ?? null,
+        temperature: partial.temperature ?? null,
+        topP: partial.topP ?? null,
         thinking: partial.thinking ?? false,
         reasoningLevel: partial.reasoningLevel ?? 'medium',
         tools: partial.tools ?? null,
+        sourceType: partial.sourceType ?? null,
+        sourcePromptName: partial.sourcePromptName ?? null,
+        sourcePromptVersion: partial.sourcePromptVersion ?? null,
+        sourceEvaluationId: partial.sourceEvaluationId ?? null,
+        sourceEvaluationName: partial.sourceEvaluationName ?? null,
         messages: partial.messages ?? [],
     }
 }
@@ -145,8 +214,14 @@ function extractConversationMessage(rawMessage: RawMessage): { role: Conversatio
     }
 }
 
+export interface LLMPlaygroundPromptsLogicProps {
+    tabId?: string
+}
+
 export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'playground', 'llmPlaygroundPromptsLogic']),
+    props({} as LLMPlaygroundPromptsLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
     actions({
         addPromptConfig: (sourcePromptId?: string) => ({ sourcePromptId, newPromptId: uuid() }),
@@ -156,6 +231,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setModel: (model: string, providerKeyId?: string, promptId?: string) => ({ model, providerKeyId, promptId }),
         setSystemPrompt: (systemPrompt: string, promptId?: string) => ({ systemPrompt, promptId }),
         setMaxTokens: (maxTokens: number | null, promptId?: string) => ({ maxTokens, promptId }),
+        setTemperature: (temperature: number | null, promptId?: string) => ({ temperature, promptId }),
+        setTopP: (topP: number | null, promptId?: string) => ({ topP, promptId }),
         setThinking: (thinking: boolean, promptId?: string) => ({ thinking, promptId }),
         setReasoningLevel: (reasoningLevel: ReasoningLevel, promptId?: string) => ({ reasoningLevel, promptId }),
         setTools: (tools: Record<string, unknown>[] | null, promptId?: string) => ({ tools, promptId }),
@@ -164,6 +241,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
+        clearLinkedSource: true,
+        setSourceNames: (promptName: string | null, evaluationName: string | null, promptId?: string) => ({
+            promptName,
+            evaluationName,
+            promptId,
+        }),
         setupPlaygroundFromEvent: (payload: PlaygroundSetupPayload) => ({ payload }),
         setLocalToolsJson: (json: string | null, promptId?: string) => ({ json, promptId }),
         clearPendingTargetModel: true,
@@ -172,12 +255,27 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         ) => ({ target }),
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
+        setSourceSetupLoading: (isLoading: boolean) => ({ isLoading }),
+        saveToLinkedPrompt: (promptId: string) => ({ promptId }),
+        saveToLinkedEvaluation: (
+            promptId: string,
+            modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
+        ) => ({ promptId, modelConfig }),
+        saveAsNewPrompt: (promptId: string, name: string) => ({ promptId, name }),
+        saveAsNewEvaluation: (
+            promptId: string,
+            name: string,
+            modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
+        ) => ({ promptId, name, modelConfig }),
+        saveComplete: true,
+        resetPlayground: true,
     }),
 
     reducers({
         promptConfigs: [
             [INITIAL_PROMPT] as PromptConfig[],
             {
+                resetPlayground: () => [createPromptConfig()],
                 setPromptConfigs: (_: PromptConfig[], { promptConfigs }: { promptConfigs: PromptConfig[] }) =>
                     promptConfigs.length > 0 ? promptConfigs : [createPromptConfig({ id: INITIAL_PROMPT.id })],
                 addPromptConfig: (
@@ -211,6 +309,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     state: PromptConfig[],
                     { maxTokens, promptId }: { maxTokens: number | null; promptId?: string }
                 ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, maxTokens })),
+                setTemperature: (
+                    state: PromptConfig[],
+                    { temperature, promptId }: { temperature: number | null; promptId?: string }
+                ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, temperature })),
+                setTopP: (state: PromptConfig[], { topP, promptId }: { topP: number | null; promptId?: string }) =>
+                    updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, topP })),
                 setThinking: (
                     state: PromptConfig[],
                     { thinking, promptId }: { thinking: boolean; promptId?: string }
@@ -256,6 +360,28 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         newMessages[index] = { ...newMessages[index], ...payload }
                         return { ...prompt, messages: newMessages }
                     }),
+                clearLinkedSource: (state: PromptConfig[]) =>
+                    updatePromptConfigs(state, state[0]?.id, (prompt) => ({
+                        ...prompt,
+                        sourceType: null,
+                        sourcePromptName: null,
+                        sourcePromptVersion: null,
+                        sourceEvaluationId: null,
+                        sourceEvaluationName: null,
+                    })),
+                setSourceNames: (
+                    state: PromptConfig[],
+                    {
+                        promptName,
+                        evaluationName,
+                        promptId,
+                    }: { promptName: string | null; evaluationName: string | null; promptId?: string }
+                ) =>
+                    updatePromptConfigs(state, promptId, (prompt) => ({
+                        ...prompt,
+                        sourcePromptName: promptName,
+                        sourceEvaluationName: evaluationName,
+                    })),
                 setupPlaygroundFromEvent: (state: PromptConfig[], { payload }: { payload: PlaygroundSetupPayload }) => {
                     const targetPrompt = state[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
                     const normalizedModel = payload.model ?? targetPrompt.model
@@ -263,6 +389,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         {
                             ...targetPrompt,
                             model: normalizedModel,
+                            selectedProviderKeyId: payload.providerKeyId ?? null,
+                            sourceType: payload.sourceType ?? null,
+                            sourcePromptName: payload.sourcePromptName ?? null,
+                            sourcePromptVersion: payload.sourcePromptVersion ?? null,
+                            sourceEvaluationId: payload.sourceEvaluationId ?? null,
+                            sourceEvaluationName: null,
                         },
                     ]
                 },
@@ -271,6 +403,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         activePromptId: [
             INITIAL_PROMPT.id as string | null,
             {
+                resetPlayground: () => null,
                 addPromptConfig: (_: string | null, { newPromptId }: { newPromptId: string }) => newPromptId,
                 setActivePromptId: (_: string | null, { promptId }: { promptId: string | null }) => promptId,
                 removePromptConfig: (state: string | null, { promptId }: { promptId: string }) =>
@@ -281,6 +414,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         localToolsJsonByPromptId: [
             {} as Record<string, string | null>,
             {
+                resetPlayground: () => ({}),
                 setLocalToolsJson: (
                     state: Record<string, string | null>,
                     { json, promptId }: { json: string | null; promptId?: string }
@@ -305,6 +439,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         pendingTargetModel: [
             null as string | null,
             {
+                resetPlayground: () => null,
                 setupPlaygroundFromEvent: (_: string | null, { payload }: { payload: { model?: string } }) =>
                     payload.model ?? null,
                 clearPendingTargetModel: () => null,
@@ -313,6 +448,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         pendingTargetProvider: [
             null as string | null,
             {
+                resetPlayground: () => null,
                 setupPlaygroundFromEvent: (_: string | null, { payload }: { payload: { provider?: string } }) =>
                     normalizeLLMProvider(payload.provider),
                 clearPendingTargetModel: () => null,
@@ -321,6 +457,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         pendingTargetIsTrace: [
             false as boolean,
             {
+                resetPlayground: () => false,
                 setupPlaygroundFromEvent: (
                     _: boolean,
                     { payload }: { payload: { model?: string; provider?: string } }
@@ -331,6 +468,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         editModal: [
             null as { type: 'tools' | 'system' | 'message'; promptId: string; messageIndex?: number } | null,
             {
+                resetPlayground: () => null,
                 setEditModal: (
                     _: { type: string; promptId: string; messageIndex?: number } | null,
                     {
@@ -344,6 +482,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         collapsedSections: [
             {} as Record<string, boolean>,
             {
+                resetPlayground: () => ({}),
                 toggleCollapsed: (state: Record<string, boolean>, { key }: { key: string }) => ({
                     ...state,
                     [key]: !state[key],
@@ -353,6 +492,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         toolsJsonErrorByPromptId: [
             {} as Record<string, string | null>,
             {
+                resetPlayground: () => ({}),
                 setToolsJsonError: (
                     state: Record<string, string | null>,
                     { promptId, error }: { promptId: string; error: string | null }
@@ -361,6 +501,22 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     const { [promptId]: _, ...rest } = state
                     return rest
                 },
+            },
+        ],
+        sourceSetupLoading: [
+            false as boolean,
+            {
+                setSourceSetupLoading: (_: boolean, { isLoading }: { isLoading: boolean }) => isLoading,
+            },
+        ],
+        saving: [
+            false as boolean,
+            {
+                saveToLinkedPrompt: () => true,
+                saveToLinkedEvaluation: () => true,
+                saveAsNewPrompt: () => true,
+                saveAsNewEvaluation: () => true,
+                saveComplete: () => false,
             },
         ],
     }),
@@ -393,6 +549,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             (s) => [s.activePromptConfig],
             (activePromptConfig: PromptConfig): boolean => activePromptConfig.thinking,
         ],
+        temperature: [
+            (s) => [s.activePromptConfig],
+            (activePromptConfig: PromptConfig): number | null => activePromptConfig.temperature,
+        ],
+        topP: [
+            (s) => [s.activePromptConfig],
+            (activePromptConfig: PromptConfig): number | null => activePromptConfig.topP,
+        ],
         reasoningLevel: [
             (s) => [s.activePromptConfig],
             (activePromptConfig: PromptConfig): ReasoningLevel => activePromptConfig.reasoningLevel,
@@ -405,6 +569,36 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             (s) => [s.activePromptConfig],
             (activePromptConfig: PromptConfig): Message[] => activePromptConfig.messages,
         ],
+        linkedSource: [
+            (s) => [s.promptConfigs],
+            (
+                promptConfigs: PromptConfig[]
+            ): {
+                type: 'prompt' | 'evaluation' | null
+                promptName: string | null
+                promptVersion: number | null
+                evaluationId: string | null
+                evaluationName: string | null
+            } => {
+                const first = promptConfigs[0]
+                if (!first) {
+                    return {
+                        type: null,
+                        promptName: null,
+                        promptVersion: null,
+                        evaluationId: null,
+                        evaluationName: null,
+                    }
+                }
+                return {
+                    type: first.sourceType,
+                    promptName: first.sourcePromptName,
+                    promptVersion: first.sourcePromptVersion,
+                    evaluationId: first.sourceEvaluationId,
+                    evaluationName: first.sourceEvaluationName,
+                }
+            },
+        ],
         hasRunnablePrompts: [
             (s) => [s.promptConfigs],
             (promptConfigs: PromptConfig[]): boolean =>
@@ -412,8 +606,27 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        resetPlayground: () => {
+            posthog.capture('llma playground reset')
+            const activeTabId = sceneLogic.findMounted()?.values.activeTabId
+            const isActiveTab = !activeTabId || activeTabId === props.tabId
+            if (isActiveTab) {
+                router.actions.replace(
+                    combineUrl(urls.llmAnalyticsPlayground(), cleanSourceSearchParams(router.values.searchParams)).url
+                )
+            }
+        },
+        addPromptConfig: () => {
+            // New total after adding — listeners run post-reducer
+            posthog.capture('llma playground prompt config added', {
+                prompt_count: values.promptConfigs.length,
+            })
+        },
         removePromptConfig: ({ promptId }) => {
+            posthog.capture('llma playground prompt config removed', {
+                prompt_count: values.promptConfigs.length,
+            })
             if (values.promptConfigs.length === 0) {
                 actions.setPromptConfigs([createPromptConfig({ id: INITIAL_PROMPT.id })])
                 actions.setActivePromptId(INITIAL_PROMPT.id)
@@ -425,63 +638,403 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        setupPlaygroundFromEvent: ({ payload }) => {
-            const { input, tools } = payload
+        addMessage: () => {
+            posthog.capture('llma playground message added', {
+                message_count: values.activePromptConfig?.messages.length ?? 0,
+            })
+        },
+        deleteMessage: () => {
+            posthog.capture('llma playground message removed', {
+                message_count: values.activePromptConfig?.messages.length ?? 0,
+            })
+        },
+        setTools: ({ tools }) => {
+            posthog.capture('llma playground tools configured', {
+                action: tools ? 'set' : 'clear',
+                tool_count: tools?.length ?? 0,
+            })
+        },
+
+        setupPlaygroundFromEvent: async ({ payload }) => {
+            const sourceType = payload.sourceType ?? (payload.input ? 'trace' : null)
+            posthog.capture('llma playground opened from source', {
+                source_type: sourceType ?? 'unknown',
+            })
+            actions.setSourceSetupLoading(true)
+            const { input, tools, systemPrompt } = payload
             const currentPrompt = values.promptConfigs[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
             const promptId = currentPrompt.id
 
-            if (tools) {
-                actions.setTools(tools, promptId)
+            const finishSourceSetup = (sourceParam: Record<string, string>): void => {
+                actions.setMessages([], promptId)
+                actions.setActivePromptId(promptId)
+                const cleanParams = cleanSourceSearchParams(router.values.searchParams)
+                router.actions.push(combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, ...sourceParam }).url)
             }
 
-            let systemPromptContent: string | undefined = undefined
-            let conversationMessages: Message[] = []
-            let initialUserPrompt: string | undefined = undefined
-
-            if (input) {
-                try {
-                    if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
-                        const systemContents = input
-                            .filter((msg) => msg.role === 'system')
-                            .map((msg) => msg.content)
-                            .filter(
-                                (content): content is string => typeof content === 'string' && content.trim().length > 0
-                            )
-
-                        if (systemContents.length > 0) {
-                            systemPromptContent = systemContents.join('\n\n')
+            try {
+                if (payload.sourcePromptName) {
+                    try {
+                        const versionParam = payload.sourcePromptVersion
+                            ? { version: payload.sourcePromptVersion }
+                            : undefined
+                        const fetchedPrompt = await api.llmPrompts.getByName(payload.sourcePromptName, versionParam)
+                        actions.setSystemPrompt(fetchedPrompt.prompt || DEFAULT_SYSTEM_PROMPT, promptId)
+                        actions.setSourceNames(fetchedPrompt.name ?? null, null, promptId)
+                        const sourceParams: Record<string, string> = {
+                            source_prompt_name: payload.sourcePromptName,
                         }
-
-                        conversationMessages = input
-                            .filter((msg: RawMessage) => msg.role !== 'system')
-                            .map((msg: RawMessage) => extractConversationMessage(msg))
-                    } else if (typeof input === 'string') {
-                        initialUserPrompt = input
-                    } else if (isObject(input)) {
-                        if (typeof input.content === 'string') {
-                            initialUserPrompt = input.content
-                        } else if (input.content && typeof input.content !== 'string') {
-                            initialUserPrompt = JSON.stringify(input.content, null, 2)
-                        } else {
-                            initialUserPrompt = JSON.stringify(input, null, 2)
+                        if (payload.sourcePromptVersion) {
+                            sourceParams.source_prompt_version = String(payload.sourcePromptVersion)
                         }
+                        finishSourceSetup(sourceParams)
+                    } catch {
+                        lemonToast.error('Error loading prompt for playground')
                     }
-                } catch (e) {
-                    console.error('Error processing input for playground:', e)
-                    initialUserPrompt = String(input)
-                    conversationMessages = []
+                    return
+                }
+
+                if (payload.sourceEvaluationId) {
+                    try {
+                        const teamId = teamLogic.values.currentTeamId
+                        if (!teamId) {
+                            lemonToast.error('Could not determine team')
+                            return
+                        }
+                        const fetchedEvaluation = await api.get<EvaluationConfig>(
+                            `/api/environments/${teamId}/evaluations/${payload.sourceEvaluationId}/`
+                        )
+                        actions.setSourceNames(null, fetchedEvaluation.name ?? null, promptId)
+                        if (fetchedEvaluation.evaluation_type === 'llm_judge') {
+                            actions.setSystemPrompt(
+                                fetchedEvaluation.evaluation_config.prompt || DEFAULT_SYSTEM_PROMPT,
+                                promptId
+                            )
+                            const model = fetchedEvaluation.model_configuration?.model
+                            const providerKeyId = fetchedEvaluation.model_configuration?.provider_key_id
+                            if (model) {
+                                actions.setModel(model, providerKeyId ?? undefined, promptId)
+                            }
+                        }
+                        finishSourceSetup({ source_evaluation_id: payload.sourceEvaluationId })
+                    } catch {
+                        lemonToast.error('Error loading evaluation for playground')
+                    }
+                    return
+                }
+
+                if (tools) {
+                    actions.setTools(tools, promptId)
+                }
+
+                let systemPromptContent: string | undefined = undefined
+                let conversationMessages: Message[] = []
+                let initialUserPrompt: string | undefined = undefined
+
+                if (input) {
+                    try {
+                        if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
+                            const systemContents = input
+                                .filter((msg) => msg.role === 'system')
+                                .map((msg) => msg.content)
+                                .filter(
+                                    (content): content is string =>
+                                        typeof content === 'string' && content.trim().length > 0
+                                )
+
+                            if (systemContents.length > 0) {
+                                systemPromptContent = systemContents.join('\n\n')
+                            }
+
+                            conversationMessages = input
+                                .filter((msg: RawMessage) => msg.role !== 'system')
+                                .map((msg: RawMessage) => extractConversationMessage(msg))
+                        } else if (typeof input === 'string') {
+                            initialUserPrompt = input
+                        } else if (isObject(input)) {
+                            if (typeof input.content === 'string') {
+                                initialUserPrompt = input.content
+                            } else if (input.content && typeof input.content !== 'string') {
+                                initialUserPrompt = JSON.stringify(input.content, null, 2)
+                            } else {
+                                initialUserPrompt = JSON.stringify(input, null, 2)
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error processing input for playground:', e)
+                        initialUserPrompt = String(input)
+                        conversationMessages = []
+                    }
+                }
+
+                actions.setSystemPrompt(systemPrompt ?? systemPromptContent ?? DEFAULT_SYSTEM_PROMPT, promptId)
+
+                if (initialUserPrompt) {
+                    conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
+                }
+
+                actions.setMessages(conversationMessages, promptId)
+                actions.setActivePromptId(promptId)
+                router.actions.push(urls.llmAnalyticsPlayground())
+            } finally {
+                actions.setSourceSetupLoading(false)
+            }
+        },
+
+        saveToLinkedPrompt: async ({ promptId }) => {
+            posthog.capture('llma playground saved to source', { action: 'save_to_linked_prompt' })
+            const { linkedSource, promptConfigs } = values
+            if (!linkedSource.promptName) {
+                lemonToast.error('No linked prompt to save to')
+                actions.saveComplete()
+                return
+            }
+            const prompt = promptConfigs.find((p) => p.id === promptId)
+            if (!prompt) {
+                lemonToast.error('No prompt configuration to save')
+                actions.saveComplete()
+                return
+            }
+            try {
+                const current = await api.llmPrompts.getByName(linkedSource.promptName)
+                await api.llmPrompts.update(linkedSource.promptName, {
+                    prompt: prompt.systemPrompt,
+                    base_version: current.latest_version,
+                })
+                const promptName = linkedSource.promptName
+                // After saving, the playground is linked to the latest version
+                if (linkedSource.promptVersion) {
+                    actions.setPromptConfigs(
+                        updatePromptConfigs(values.promptConfigs, prompt.id, (p) => ({
+                            ...p,
+                            sourcePromptVersion: null,
+                        }))
+                    )
+                    const { source_prompt_version: _, ...cleanParams } = router.values.searchParams
+                    router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanParams).url)
+                }
+                const label = getLinkedSourceLabel(values.linkedSource) ?? 'linked prompt'
+                lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`, {
+                    button: {
+                        label: 'View',
+                        action: () => router.actions.push(urls.llmAnalyticsPrompt(promptName)),
+                    },
+                })
+                for (const logic of llmPromptLogic.findAllMounted()) {
+                    if (logic.props.promptName === promptName) {
+                        logic.actions.loadPrompt()
+                    }
+                }
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to update prompt')
+            } finally {
+                actions.saveComplete()
+            }
+        },
+
+        saveToLinkedEvaluation: async ({ promptId, modelConfig }) => {
+            posthog.capture('llma playground saved to source', { action: 'save_to_linked_evaluation' })
+            const { linkedSource, promptConfigs } = values
+            if (!linkedSource.evaluationId) {
+                lemonToast.error('No linked evaluation to save to')
+                actions.saveComplete()
+                return
+            }
+            const prompt = promptConfigs.find((p) => p.id === promptId)
+            if (!prompt) {
+                lemonToast.error('No prompt configuration to save')
+                actions.saveComplete()
+                return
+            }
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                lemonToast.error('Could not determine team')
+                actions.saveComplete()
+                return
+            }
+            try {
+                await api.update(`/api/environments/${teamId}/evaluations/${linkedSource.evaluationId}/`, {
+                    evaluation_config: { prompt: prompt.systemPrompt },
+                    ...(modelConfig ? { model_configuration: modelConfig } : {}),
+                })
+                const label = getLinkedSourceLabel(linkedSource) ?? 'linked evaluation'
+                const evalId = linkedSource.evaluationId
+                lemonToast.success(`${label.charAt(0).toUpperCase()}${label.slice(1)} updated`, {
+                    button: {
+                        label: 'View',
+                        action: () => router.actions.push(urls.llmAnalyticsEvaluation(evalId)),
+                    },
+                })
+                for (const logic of llmEvaluationLogic.findAllMounted()) {
+                    if (logic.props.evaluationId === evalId) {
+                        logic.actions.loadEvaluation()
+                    }
+                }
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to update evaluation')
+            } finally {
+                actions.saveComplete()
+            }
+        },
+
+        saveAsNewPrompt: async ({ promptId, name }) => {
+            posthog.capture('llma playground saved to source', { action: 'save_as_new_prompt' })
+            const prompt = values.promptConfigs.find((p) => p.id === promptId)
+            if (!prompt) {
+                lemonToast.error('No prompt configuration to save')
+                actions.saveComplete()
+                return
+            }
+            try {
+                await api.llmPrompts.create({ name, prompt: prompt.systemPrompt })
+                // Link the playground to the newly created prompt
+                actions.setPromptConfigs(
+                    updatePromptConfigs(values.promptConfigs, prompt.id, (p) => ({
+                        ...p,
+                        sourceType: 'prompt',
+                        sourcePromptName: name,
+                        sourcePromptVersion: null,
+                        sourceEvaluationId: null,
+                        sourceEvaluationName: null,
+                    }))
+                )
+                router.actions.replace(
+                    combineUrl(urls.llmAnalyticsPlayground(), {
+                        ...cleanSourceSearchParams(router.values.searchParams),
+                        source_prompt_name: name,
+                    }).url
+                )
+                lemonToast.success('Prompt saved', {
+                    button: {
+                        label: 'View',
+                        action: () => router.actions.push(urls.llmAnalyticsPrompt(name)),
+                    },
+                })
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to save prompt')
+            } finally {
+                actions.saveComplete()
+            }
+        },
+
+        saveAsNewEvaluation: async ({ promptId, name, modelConfig }) => {
+            posthog.capture('llma playground saved to source', { action: 'save_as_new_evaluation' })
+            const prompt = values.promptConfigs.find((p) => p.id === promptId)
+            if (!prompt) {
+                lemonToast.error('No prompt configuration to save')
+                actions.saveComplete()
+                return
+            }
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                lemonToast.error('Could not determine team')
+                actions.saveComplete()
+                return
+            }
+            try {
+                const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
+                    name,
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: { prompt: prompt.systemPrompt },
+                    model_configuration: modelConfig,
+                    output_type: 'boolean',
+                    conditions: [],
+                    enabled: false,
+                })
+                // Link the playground to the newly created evaluation
+                actions.setPromptConfigs(
+                    updatePromptConfigs(values.promptConfigs, prompt.id, (p) => ({
+                        ...p,
+                        sourceType: 'evaluation',
+                        sourcePromptName: null,
+                        sourceEvaluationId: created.id,
+                        sourceEvaluationName: created.name,
+                    }))
+                )
+                router.actions.replace(
+                    combineUrl(urls.llmAnalyticsPlayground(), {
+                        ...cleanSourceSearchParams(router.values.searchParams),
+                        source_evaluation_id: created.id,
+                    }).url
+                )
+                lemonToast.success('Evaluation saved', {
+                    button: {
+                        label: 'View',
+                        action: () => router.actions.push(urls.llmAnalyticsEvaluation(created.id)),
+                    },
+                })
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to save evaluation')
+            } finally {
+                actions.saveComplete()
+            }
+        },
+    })),
+
+    urlToAction(({ actions, values, props }) => ({
+        [urls.llmAnalyticsPlayground()]: (_, searchParams) => {
+            // urlToAction fires on ALL mounted instances for the matching URL.
+            // Only process for the active tab to avoid cross-tab state interference.
+            if (props.tabId && sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
+                return
+            }
+
+            // External callers (trace scene, conversation display) dispatch
+            // setupPlaygroundFromEvent on the default-keyed instance (no tabId).
+            // Transfer that state to this tab-keyed instance.
+            if (props.tabId) {
+                const defaultLogic = llmPlaygroundPromptsLogic.findMounted({})
+                if (defaultLogic) {
+                    const defaultConfigs = defaultLogic.values.promptConfigs
+                    const hasContent =
+                        defaultConfigs.length > 1 ||
+                        defaultConfigs[0]?.messages.length > 0 ||
+                        defaultConfigs[0]?.systemPrompt !== DEFAULT_SYSTEM_PROMPT
+                    if (hasContent) {
+                        actions.setPromptConfigs(defaultConfigs)
+                        actions.setActivePromptId(defaultLogic.values.activePromptId)
+                        // Reset the default instance without triggering its resetPlayground
+                        // listener, which would modify the current tab's URL params.
+                        defaultLogic.actions.setPromptConfigs([createPromptConfig()])
+                        return
+                    }
                 }
             }
 
-            actions.setSystemPrompt(systemPromptContent ?? DEFAULT_SYSTEM_PROMPT, promptId)
+            const sourcePromptName =
+                typeof searchParams?.source_prompt_name === 'string' ? searchParams.source_prompt_name : null
+            const sourcePromptVersion = searchParams?.source_prompt_version
+                ? Number(searchParams.source_prompt_version) || null
+                : null
+            const sourceEvaluationId =
+                typeof searchParams?.source_evaluation_id === 'string' ? searchParams.source_evaluation_id : null
 
-            if (initialUserPrompt) {
-                conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
+            if (sourcePromptName) {
+                const currentSource = values.linkedSource
+                if (
+                    currentSource.type === 'prompt' &&
+                    currentSource.promptName === sourcePromptName &&
+                    currentSource.promptVersion === sourcePromptVersion
+                ) {
+                    return
+                }
+                actions.setupPlaygroundFromEvent({
+                    sourceType: 'prompt',
+                    sourcePromptName,
+                    sourcePromptVersion: sourcePromptVersion ?? undefined,
+                })
+            } else if (sourceEvaluationId) {
+                const currentSource = values.linkedSource
+                if (currentSource.type === 'evaluation' && currentSource.evaluationId === sourceEvaluationId) {
+                    return
+                }
+                actions.setupPlaygroundFromEvent({
+                    sourceType: 'evaluation',
+                    sourceEvaluationId,
+                })
+            } else {
+                actions.clearLinkedSource()
             }
-
-            actions.setMessages(conversationMessages, promptId)
-            actions.setActivePromptId(promptId)
-            router.actions.push(urls.llmAnalyticsPlayground())
         },
     })),
 ])

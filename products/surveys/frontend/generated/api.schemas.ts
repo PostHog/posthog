@@ -750,6 +750,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
 }
 
 export type SurveysListParams = {
+    archived?: boolean
     /**
      * Number of results to return per page.
      */

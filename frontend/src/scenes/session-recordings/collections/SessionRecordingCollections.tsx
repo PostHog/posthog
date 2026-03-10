@@ -173,6 +173,7 @@ export function SessionRecordingCollections(): JSX.Element {
         {
             title: 'Last modified',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_modified_at',
             width: 0,
             render: function Render(last_modified_at) {

@@ -9,6 +9,9 @@
         "kea-router": "catalog:",
         "posthog-js": "catalog:"
     },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",

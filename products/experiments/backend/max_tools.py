@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import MaxExperimentMetricResult
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Experiment, FeatureFlag
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
@@ -122,7 +123,7 @@ class CreateExperimentTool(MaxTool):
                 raise ValueError(f"An experiment with name '{name}' already exists")
 
             try:
-                feature_flag = FeatureFlag.objects.get(team=self._team, key=feature_flag_key, deleted=False)
+                feature_flag = FeatureFlag.objects.get(team=self._team, key=feature_flag_key)
             except FeatureFlag.DoesNotExist:
                 raise ValueError(f"Feature flag '{feature_flag_key}' does not exist")
 
@@ -168,6 +169,7 @@ class CreateExperimentTool(MaxTool):
                     "feature_flag_variants": feature_flag_variants,
                     "minimum_detectable_effect": 30,
                 },
+                event_source=EventSource.POSTHOG_AI,
             )
 
         try:
@@ -442,13 +444,15 @@ class SessionReplaySummaryTool(MaxTool):
 
             experiment = await get_experiment()
 
-            if not experiment.start_date:
+            if experiment.is_draft:
                 output = SessionReplaySummaryOutput(
                     experiment_id=experiment_id,
                     experiment_name=experiment.name,
                     error="not_started",
                 )
                 return "❌ Experiment has not started yet. No session replays available.", output.model_dump()
+            if not experiment.start_date:
+                raise ValueError(f"Experiment {experiment_id} has no start date")
 
             # Get variants from feature flag
             feature_flag = experiment.feature_flag

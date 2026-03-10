@@ -1,9 +1,12 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import structlog
 import pydantic_core
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 from posthog.schema import (
     DashboardFilter,
@@ -53,6 +56,8 @@ def process_query_dict(
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
+    request: Optional["Request"] = None,
+    pagination_cursor: Optional[str] = None,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
     try:
@@ -101,6 +106,8 @@ def process_query_dict(
         insight_id=insight_id,
         dashboard_id=dashboard_id,
         is_query_service=is_query_service,
+        request=request,
+        pagination_cursor=pagination_cursor,
     )
 
 
@@ -118,6 +125,8 @@ def process_query_model(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
     cache_age_seconds: Optional[int] = None,
+    request: Optional["Request"] = None,
+    pagination_cursor: Optional[str] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -143,7 +152,6 @@ def process_query_model(
                         "joining_table_name": join.joining_table_name,
                         "joining_table_key": join.joining_table_key,
                         "field_name": join.field_name,
-                        "configuration": join.configuration,
                         "created_at": join.created_at.isoformat(),
                     }
                 )
@@ -152,7 +160,7 @@ def process_query_model(
         )
 
     try:
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
+        query_runner = get_query_runner(query, team, limit_context=limit_context, request=request)
     except ValueError:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
@@ -168,6 +176,7 @@ def process_query_model(
                 dashboard_id=dashboard_id,
                 is_query_service=is_query_service,
                 cache_age_seconds=cache_age_seconds,
+                request=request,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -194,6 +203,8 @@ def process_query_model(
             query_runner.apply_dashboard_filters(dashboard_filters)
         if variables_override:
             query_runner.apply_variable_overrides(variables_override)
+        if pagination_cursor:
+            query_runner.apply_pagination_cursor(pagination_cursor)
         query_runner.is_query_service = is_query_service
 
         result = query_runner.run(

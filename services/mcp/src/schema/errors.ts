@@ -47,7 +47,7 @@ export const ListErrorsSchema = z.object({
 })
 
 export const ErrorDetailsSchema = z.object({
-    issueId: z.string().uuid(),
+    issueId: z.string(),
     dateFrom: z.string().datetime().optional(),
     dateTo: z.string().datetime().optional(),
 })
