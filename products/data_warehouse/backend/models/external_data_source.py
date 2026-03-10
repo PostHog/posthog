@@ -135,7 +135,9 @@ def get_external_data_source(source_id: UUID) -> ExternalDataSource:
     return ExternalDataSource.objects.get(pk=source_id)
 
 
-def get_external_data_source_for_connection(team_id: int, connection_id: str | None) -> ExternalDataSource | None:
+def get_direct_external_data_source_for_connection(
+    team_id: int, connection_id: str | None
+) -> ExternalDataSource | None:
     if not connection_id:
         return None
 
@@ -144,14 +146,12 @@ def get_external_data_source_for_connection(team_id: int, connection_id: str | N
     except ValueError:
         return None
 
-    return ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True).filter(id=source_uuid).first()
-
-
-def get_direct_external_data_source_for_connection(
-    team_id: int, connection_id: str | None
-) -> ExternalDataSource | None:
-    source = get_external_data_source_for_connection(team_id=team_id, connection_id=connection_id)
-    if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
-        return None
-
-    return source
+    return (
+        ExternalDataSource.objects.filter(
+            team_id=team_id,
+            id=source_uuid,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        .exclude(deleted=True)
+        .first()
+    )
