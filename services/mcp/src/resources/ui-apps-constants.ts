@@ -25,3 +25,16 @@ export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
  * Displays SDK events, tool result data, and Mosaic component showcase.
  */
 export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
+
+/**
+
+ * Action detail visualization.
+ * Used by: action-get, action-create, action-update
+ */
+export const ACTION_RESOURCE_URI = 'ui://posthog/action.html'
+
+/**
+ * Action list visualization.
+ * Used by: actions-get-all
+ */
+export const ACTION_LIST_RESOURCE_URI = 'ui://posthog/action-list.html'
