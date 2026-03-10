@@ -142,16 +142,22 @@ export class EmailTrackingService {
         return `${REPUTATION_REDIS_PREFIX}/${hogFlowId}/${counter}`
     }
 
+
     private async incrementWithTtl(key: string): Promise<number> {
         const count = await this.redis.useClient({ name: 'email-reputation-incr', failOpen: true }, async (client) => {
-            const newVal = await client.incr(key)
-            if (newVal === 1) {
-                await client.expire(key, REPUTATION_TTL_SECONDS)
-            }
-            return newVal
+            // Use Lua script to atomically incr and set expire on first write
+            const script = `
+                local val = redis.call('INCR', KEYS[1])
+                if val == 1 then
+                    redis.call('EXPIRE', KEYS[1], ARGV[1])
+                end
+                return val
+            `
+            return await client.eval(script, 1, key, REPUTATION_TTL_SECONDS)
         })
         return count ?? 0
     }
+
 
     private async checkAndMaybeDisableWorkflow(hogFlowId: string, teamId: number): Promise<void> {
         const [sendsRaw, bouncesRaw, complaintsRaw] = (await this.redis.useClient(
