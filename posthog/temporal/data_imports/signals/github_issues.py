@@ -8,10 +8,13 @@ logger = get_logger(__name__)
 
 GITHUB_IGNORED_STATES = ("closed",)
 
-GITHUB_SUMMARIZATION_PROMPT = """Summarize this GitHub issue into a concise description for semantic search.
-Capture the core problem or request, the product area affected, and key context like error messages or what the user was doing when the issue occurred.
+GITHUB_SUMMARIZATION_PROMPT = """Summarize this GitHub issue for semantic search.
+Output exactly two parts separated by a newline:
+1. A short title (under 100 characters) that captures the core issue
+2. A concise summary capturing the problem or request, the product area affected, and key context like error messages or what the user was doing when the issue occurred
+
 Strip raw logs, full stack traces, and large code blocks — but keep specific error messages and high-level reproduction context if they clarify the issue.
-Keep the summary under {max_length} characters. Respond with only the summary text.
+Keep the total output under {max_length} characters. Respond with only the title and summary, nothing else.
 
 <issue>
 {description}
