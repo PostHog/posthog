@@ -118,17 +118,17 @@ class TestWebhookSourceManager:
 
     @parameterized.expand(
         [
-            ("no_hog_function", None, True, True, False, False),
-            ("not_incremental", "func-123", False, True, False, False),
-            ("initial_sync_not_complete", "func-123", True, False, False, False),
-            ("reset_pipeline_true", "func-123", True, True, True, False),
-            ("all_conditions_met", "func-123", True, True, False, True),
+            ("no_hog_function", False, True, True, False, False),
+            ("not_incremental", True, False, True, False, False),
+            ("initial_sync_not_complete", True, True, False, False, False),
+            ("reset_pipeline_true", True, True, True, True, False),
+            ("all_conditions_met", True, True, True, False, True),
         ]
     )
     async def test_webhook_enabled_conditions(
         self,
         _name,
-        webhook_hog_function_id,
+        has_webhook_function,
         is_incremental,
         initial_sync_complete,
         reset_pipeline,
@@ -137,15 +137,23 @@ class TestWebhookSourceManager:
         manager = _make_manager(reset_pipeline=reset_pipeline)
 
         mock_schema = MagicMock()
-        mock_schema.webhook_hog_function_id = webhook_hog_function_id
         mock_schema.is_incremental = is_incremental
         mock_schema.initial_sync_complete = initial_sync_complete
+
+        call_count = 0
+
+        def mock_db_sync_to_async(fn):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return AsyncMock(return_value=mock_schema)
+            return AsyncMock(return_value=has_webhook_function)
 
         with (
             patch.object(manager, "_is_webhook_feature_flag_enabled", return_value=True),
             patch(
                 "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
-                return_value=AsyncMock(return_value=mock_schema),
+                side_effect=mock_db_sync_to_async,
             ),
         ):
             assert await manager.webhook_enabled() is expected
@@ -197,7 +205,7 @@ class TestWebhookSourceManager:
 
         assert result == ["s3://bucket/path/file1.parquet"]
 
-    def test_validate_webhook_table_keeps_matching_rows(self):
+    async def test_validate_webhook_table_keeps_matching_rows(self):
         manager = _make_manager(team_id=1, schema_id="schema-abc")
         table = pa.table(
             {
@@ -207,7 +215,7 @@ class TestWebhookSourceManager:
             }
         )
 
-        result = manager._validate_webhook_table(table)
+        result = await manager._validate_webhook_table(table)
 
         assert result.num_rows == 2
 
@@ -218,7 +226,7 @@ class TestWebhookSourceManager:
             ("both_wrong", 999, "wrong-schema"),
         ]
     )
-    def test_validate_webhook_table_filters_mismatched_rows(self, _name, row_team_id, row_schema_id):
+    async def test_validate_webhook_table_filters_mismatched_rows(self, _name, row_team_id, row_schema_id):
         manager = _make_manager(team_id=1, schema_id="schema-abc")
         table = pa.table(
             {
@@ -228,11 +236,11 @@ class TestWebhookSourceManager:
             }
         )
 
-        result = manager._validate_webhook_table(table)
+        result = await manager._validate_webhook_table(table)
 
         assert result.num_rows == 0
 
-    def test_validate_webhook_table_partial_match(self):
+    async def test_validate_webhook_table_partial_match(self):
         manager = _make_manager(team_id=1, schema_id="schema-abc")
         table = pa.table(
             {
@@ -242,7 +250,7 @@ class TestWebhookSourceManager:
             }
         )
 
-        result = manager._validate_webhook_table(table)
+        result = await manager._validate_webhook_table(table)
 
         assert result.num_rows == 1
         assert result.column("payload_json").to_pylist() == ['{"id": "1"}']

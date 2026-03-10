@@ -37,6 +37,8 @@ class WebhookSourceManager:
         return s3_path.replace("s3://", "")
 
     async def webhook_enabled(self) -> bool:
+        from posthog.models.hog_functions.hog_function import HogFunction
+
         from products.data_warehouse.backend.models import ExternalDataSchema
 
         flag_enabled = await self._is_webhook_feature_flag_enabled()
@@ -48,14 +50,22 @@ class WebhookSourceManager:
             id=self._inputs.schema_id, team_id=self._inputs.team_id
         )
 
-        use_webhook = (
-            schema.webhook_hog_function_id is not None
-            and schema.is_incremental
-            and schema.initial_sync_complete
-            and not self._inputs.reset_pipeline
-        )
+        if not schema.is_incremental or not schema.initial_sync_complete or self._inputs.reset_pipeline:
+            return False
 
-        return use_webhook
+        has_webhook_function = await database_sync_to_async_pool(
+            HogFunction.objects.filter(
+                team_id=self._inputs.team_id,
+                type="warehouse_source_webhook",
+                enabled=True,
+                deleted=False,
+                inputs__contains={
+                    "schema_id": {"value": str(self._inputs.schema_id)},
+                },
+            ).exists
+        )()
+
+        return has_webhook_function
 
     async def _list_webhook_parquet_files(self) -> list[str]:
         prefix = self._get_webhook_s3_prefix()

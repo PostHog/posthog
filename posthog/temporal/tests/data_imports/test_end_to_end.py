@@ -3339,12 +3339,6 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client, minio_client):
-    hog_function = await sync_to_async(HogFunction.objects.create)(
-        team=team,
-        enabled=True,
-        type="warehouse_source_webhook",
-    )
-
     # Initial sync to create delta table and mark initial_sync_complete
     _, inputs = await _run(
         team=team,
@@ -3359,10 +3353,16 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     res = await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_charge", team)
     assert len(res.results) == 1
 
-    # Enable webhook mode on the schema
+    # Create a webhook HogFunction linked to this schema via inputs
     schema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
-    schema.webhook_hog_function = hog_function
-    await sync_to_async(schema.save)()
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        deleted=False,
+        type="warehouse_source_webhook",
+        inputs_schema=[{"key": "schema_id", "type": "string"}],
+        inputs={"schema_id": {"value": str(schema.id)}},
+    )
 
     assert schema.initial_sync_complete is True
 

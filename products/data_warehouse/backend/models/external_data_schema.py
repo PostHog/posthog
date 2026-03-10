@@ -66,7 +66,6 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
     initial_sync_complete = models.BooleanField(default=False)
-    webhook_hog_function = models.ForeignKey("posthog.HogFunction", on_delete=models.SET_NULL, null=True, blank=True)
 
     __repr__ = sane_repr("name")
 
