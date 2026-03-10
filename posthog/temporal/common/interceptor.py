@@ -2,6 +2,10 @@ import typing
 
 from temporalio.worker import Interceptor
 
+from posthog.temporal.common.logger import get_write_only_logger
+
+LOGGER = get_write_only_logger(__name__)
+
 
 class AllTaskQueues:
     """Sentinel type indicating all task queues are supported."""
@@ -30,7 +34,8 @@ def is_task_queue_supported(
     # TODO: Should support also checking activities and workflows.
     # For when the queue is shared among many products.
     if not _is_has_task_queue(interceptor):
-        raise ValueError("Interceptor does not have a defined task queue")
+        LOGGER.warning("Interceptor '%s' missing task queue", interceptor)
+        return False
 
     match interceptor.task_queue:
         case AllTaskQueues():
