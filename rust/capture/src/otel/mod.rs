@@ -115,7 +115,7 @@ pub async fn otel_handler(
 
         let data = serde_json::to_string(&event_data).map_err(|e| {
             warn!("Failed to serialize OTel event data: {}", e);
-            CaptureError::NonRetryableSinkError
+            CaptureError::InternalError(format!("failed to serialize event data: {e}"))
         })?;
 
         let timestamp = span_event.timestamp.unwrap_or(received_at);
