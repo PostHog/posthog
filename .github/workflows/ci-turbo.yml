@@ -69,14 +69,6 @@ jobs:
                   node-version: 18
                   cache: 'pnpm'
 
-            - name: Restore node-gyp cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ~/.cache/node-gyp
-                  key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-
-
             - name: Run Python and Node setup in parallel
               env:
                   UV_CACHE_HIT: ${{ steps.setup-uv.outputs.cache-hit }}
@@ -98,7 +90,7 @@ jobs:
 
                   (
                     echo ">>> [Node] Installing dependencies..."
-                    pnpm install --frozen-lockfile
+                    pnpm install --frozen-lockfile --filter=@posthog/root
                   ) &
                   NODE_PID=$!
 
@@ -113,9 +105,3 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=8192
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}
-
-            - name: Save node-gyp cache
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ~/.cache/node-gyp
-                  key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-${{ hashFiles('**/pnpm-lock.yaml') }}

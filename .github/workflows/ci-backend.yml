@@ -231,7 +231,7 @@ jobs:
                   cache: pnpm
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Check contract changes
               id: contract-check
@@ -336,7 +336,7 @@ jobs:
                   cache: pnpm
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Set up Python
               uses: actions/setup-python@v6
