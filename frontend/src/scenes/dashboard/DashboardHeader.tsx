@@ -571,7 +571,9 @@ export function DashboardHeader(): JSX.Element | null {
                                                     tooltipPlacement="top"
                                                     icon={<IconPlusSmall />}
                                                 >
-                                                    Text card
+                                                    <div>
+                                                        Text <span className="hidden md:inline-flex"> card</span>
+                                                    </div>
                                                 </LemonButton>
                                             </AppShortcut>
                                         </AccessControlAction>
@@ -597,7 +599,9 @@ export function DashboardHeader(): JSX.Element | null {
                                                     tooltip="Edit layout"
                                                     tooltipPlacement="top"
                                                 >
-                                                    Edit layout
+                                                    <div>
+                                                        Edit <span className="hidden md:inline-flex"> layout</span>
+                                                    </div>
                                                 </LemonButton>
                                             </AppShortcut>
                                         )}
