@@ -1,7 +1,5 @@
 import uuid
-import asyncio
 import datetime as dt
-import dataclasses
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -9,17 +7,13 @@ from unittest import mock
 
 from django.conf import settings
 
-import temporalio
 import pytest_asyncio
 import temporalio.client
 import temporalio.common
-import temporalio.worker
-import temporalio.testing
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
 from posthog.batch_exports.models import BatchExportBackfill
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -30,154 +24,11 @@ from posthog.temporal.tests.utils.models import (
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
-    BackfillScheduleInputs,
-    HeartbeatDetailsParseError,
-    backfill_range,
-    backfill_schedule,
 )
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events
 from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
 
-
-async def wait_for_workflows(
-    temporal_client: temporalio.client.Client,
-    schedule_id: str,
-    expected_count: int,
-    timeout: int = 30,
-) -> list[temporalio.client.WorkflowExecution]:
-    """Wait for workflows to be queryable and return them.
-
-    Args:
-        temporal_client: The Temporal client to query workflows from.
-        schedule_id: The Temporal schedule ID to filter workflows.
-        expected_count: The expected number of workflows to wait for.
-        timeout: Maximum number of seconds to wait before raising TimeoutError.
-
-    Returns:
-        List of workflow executions matching the query.
-
-    Raises:
-        TimeoutError: If the expected number of workflows is not found within the timeout.
-    """
-    query = f'TemporalScheduledById="{schedule_id}" order by StartTime asc'
-    workflows: list[temporalio.client.WorkflowExecution] = []
-    waited = 0
-
-    while len(workflows) < expected_count:
-        waited += 1
-        if waited > timeout:
-            raise TimeoutError(
-                f"Timed-out waiting for workflows for schedule {schedule_id} to be query-able. "
-                f"Found {len(workflows)} workflows, expected {expected_count}"
-            )
-
-        await asyncio.sleep(1)
-        workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
-
-    assert len(workflows) == expected_count
-    return workflows
-
-
-async def assert_backfill_details_in_workflow_events(
-    temporal_client: temporalio.client.Client,
-    workflows: list[temporalio.client.WorkflowExecution],
-    expected_backfill_id: str | None = None,
-    expected_start_at: str | None = None,
-    expected_end_at: str | None = None,
-    expected_is_earliest_backfill: bool | None = None,
-) -> list[str]:
-    """Assert backfill details are correctly set in workflow events.
-
-    Checks both EVENT_TYPE_WORKFLOW_EXECUTION_STARTED (type 1) and
-    EVENT_TYPE_ACTIVITY_TASK_SCHEDULED (type 10) events.
-
-    Args:
-        temporal_client: The Temporal client to get workflow handles.
-        workflows: List of workflow executions to check.
-        expected_backfill_id: Expected backfill ID (if None, not checked).
-        expected_start_at: Expected start_at ISO string (if None, not checked).
-        expected_end_at: Expected end_at ISO string (if None, not checked).
-        expected_is_earliest_backfill: Expected is_earliest_backfill value (if None, not checked).
-
-    Returns:
-        List of backfill IDs found in the events.
-    """
-    backfill_ids = []
-    for workflow in workflows:
-        handle = temporal_client.get_workflow_handle(workflow.id)
-        history = await handle.fetch_history()
-
-        for event in history.events:
-            if event.event_type == 1:  # EVENT_TYPE_WORKFLOW_EXECUTION_STARTED
-                args = await workflow.data_converter.decode(
-                    event.workflow_execution_started_event_attributes.input.payloads
-                )
-                backfill_details = args[0]["backfill_details"]
-                if expected_backfill_id is not None:
-                    assert backfill_details["backfill_id"] == expected_backfill_id
-                if expected_start_at is not None:
-                    assert backfill_details["start_at"] == expected_start_at
-                elif "start_at" in backfill_details:
-                    assert backfill_details["start_at"] is None
-                if expected_end_at is not None:
-                    assert backfill_details["end_at"] == expected_end_at
-                elif "end_at" in backfill_details:
-                    assert backfill_details["end_at"] is None
-                if expected_is_earliest_backfill is not None:
-                    assert backfill_details["is_earliest_backfill"] == expected_is_earliest_backfill
-                backfill_ids.append(backfill_details["backfill_id"])
-            elif event.event_type == 10:  # EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
-                args = await workflow.data_converter.decode(
-                    event.activity_task_scheduled_event_attributes.input.payloads
-                )
-                backfill_details = args[0]["backfill_details"]
-                if expected_backfill_id is not None:
-                    assert backfill_details["backfill_id"] == expected_backfill_id
-                if expected_start_at is not None:
-                    assert backfill_details["start_at"] == expected_start_at
-                elif "start_at" in backfill_details:
-                    assert backfill_details["start_at"] is None
-                if expected_end_at is not None:
-                    assert backfill_details["end_at"] == expected_end_at
-                elif "end_at" in backfill_details:
-                    assert backfill_details["end_at"] is None
-                if expected_is_earliest_backfill is not None:
-                    assert backfill_details["is_earliest_backfill"] == expected_is_earliest_backfill
-                backfill_ids.append(backfill_details["backfill_id"])
-
-    return backfill_ids
-
-
-async def assert_backfill_completed(
-    batch_export_id: str | uuid.UUID,
-    expected_status: str = "Completed",
-) -> None:
-    """Assert that a backfill was created and completed with the expected status.
-
-    Args:
-        batch_export_id: The batch export ID (UUID or string) to fetch backfills for.
-        expected_status: The expected status of the backfill (default: "Completed").
-    """
-    backfill = await fetch_backfill(batch_export_id)
-    assert backfill.status == expected_status
-    assert backfill.finished_at is not None
-
-
-async def fetch_backfill(batch_export_id: str | uuid.UUID) -> BatchExportBackfill:
-    if isinstance(batch_export_id, str):
-        batch_export_id = uuid.UUID(batch_export_id)
-    backfills = await afetch_batch_export_backfills(batch_export_id=batch_export_id)
-    assert len(backfills) == 1, "Expected one backfill to have been created"
-    return backfills.pop()
-
-
-@pytest.fixture
-def timezone(request) -> ZoneInfo:
-    try:
-        timezone = ZoneInfo(request.param)
-    except AttributeError:
-        timezone = ZoneInfo("UTC")
-    return timezone
+from .conftest import assert_backfill_details_in_workflow_events, wait_for_workflows
 
 
 @pytest.fixture
@@ -200,24 +51,64 @@ async def temporal_schedule_every_5_minutes(temporal_client, ateam):
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.fixture
-async def temporal_schedule_hourly(temporal_client, ateam):
-    """Manage a test Temporal Schedule with interval 'hour'."""
-    batch_export = await acreate_batch_export(
-        team_id=ateam.pk,
-        name="no-op-export-hourly",
-        destination_data={
-            "type": "NoOp",
-            "config": {},
-        },
-        interval="hour",
-        paused=True,
+async def assert_backfill_completed(
+    batch_export_id: str | uuid.UUID,
+    expected_status: str = "Completed",
+) -> None:
+    """Assert that a backfill was created and completed with the expected status."""
+    backfill = await fetch_backfill(batch_export_id)
+    assert backfill.status == expected_status
+    assert backfill.finished_at is not None
+
+
+async def fetch_backfill(batch_export_id: str | uuid.UUID) -> BatchExportBackfill:
+    if isinstance(batch_export_id, str):
+        batch_export_id = uuid.UUID(batch_export_id)
+    backfills = await afetch_batch_export_backfills(batch_export_id=batch_export_id)
+    assert len(backfills) == 1, "Expected one backfill to have been created"
+    return backfills.pop()
+
+
+async def run_backfill_workflow(
+    temporal_client: temporalio.client.Client,
+    *,
+    team_id: int,
+    batch_export_id: str | uuid.UUID,
+    start_at: dt.datetime | None = None,
+    end_at: dt.datetime | None = None,
+) -> BatchExportBackfill:
+    """Run a backfill workflow and return the resulting backfill model."""
+    batch_export_id_str = str(batch_export_id)
+    inputs = BackfillBatchExportInputs(
+        team_id=team_id,
+        batch_export_id=batch_export_id_str,
+        start_at=start_at.isoformat() if start_at else None,
+        end_at=end_at.isoformat() if end_at else None,
+        start_delay=0.1,
     )
 
-    handle = temporal_client.get_schedule_handle(str(batch_export.id))
-    yield handle
+    handle = await temporal_client.start_workflow(
+        BackfillBatchExportWorkflow.run,
+        inputs,
+        id=str(uuid.uuid4()),
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+        execution_timeout=dt.timedelta(minutes=1),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+    )
+    await handle.result()
 
-    await adelete_batch_export(batch_export, temporal_client)
+    backfills = await afetch_batch_export_backfills(batch_export_id=uuid.UUID(batch_export_id_str))
+    assert len(backfills) == 1
+    return backfills[0]
+
+
+@pytest.fixture
+def timezone(request) -> ZoneInfo:
+    try:
+        timezone = ZoneInfo(request.param)
+    except AttributeError:
+        timezone = ZoneInfo("UTC")
+    return timezone
 
 
 @pytest.fixture(
@@ -264,197 +155,88 @@ async def temporal_schedule_with_tz_and_offset(temporal_client, ateam, schedule_
     await adelete_batch_export(batch_export, temporal_client)
 
 
+@pytest_asyncio.fixture
+async def failing_s3_batch_export(ateam, temporal_client):
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "this-bucket-doesn't-exist",
+            "region": "us-east-1",
+            "prefix": "/",
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "file_format": "invalid",
+        },
+    }
+
+    failing_batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "every 5 minutes",
+    }
+
+    batch_export = await acreate_batch_export(
+        team_id=ateam.pk,
+        name=failing_batch_export_data["name"],  # type: ignore
+        destination_data=failing_batch_export_data["destination"],  # type: ignore
+        interval=failing_batch_export_data["interval"],  # type: ignore
+    )
+
+    yield batch_export
+
+    await adelete_batch_export(batch_export, temporal_client)
+
+
 @pytest.fixture
-def generate_events(clickhouse_client, ateam):
-    """Factory fixture to generate test events in ClickHouse with sensible defaults.
-
-    Returns a coroutine function that can be awaited with custom parameters.
-    Defaults: table="sharded_events", end_time=start_time+1h, inserted_at=start_time.
-    """
-
-    async def _generate(
-        start_time: dt.datetime,
-        end_time: dt.datetime | None = None,
-        inserted_at: dt.datetime | None = None,
-        count: int = 10,
-        event_name: str = "test-event",
-        count_outside_range: int = 0,
-        count_other_team: int = 0,
-    ):
-        await generate_test_events_in_clickhouse(
-            client=clickhouse_client,
-            team_id=ateam.pk,
-            start_time=start_time,
-            end_time=end_time or start_time + dt.timedelta(hours=1),
-            count=count,
-            inserted_at=inserted_at or start_time,
-            table="sharded_events",
-            event_name=event_name,
-            count_outside_range=count_outside_range,
-            count_other_team=count_other_team,
-        )
-
-    return _generate
+def bucket_name() -> str:
+    """Name for a test S3 bucket."""
+    return f"test-batch-exports-{str(uuid.uuid4())}"
 
 
-@pytest.mark.parametrize(
-    "start_at,end_at,step,expected",
-    [
-        (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-            dt.timedelta(days=1),
-            [
-                (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-                )
-            ],
-        ),
-        (
-            dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.UTC),
-            dt.datetime(2023, 1, 1, 12, 20, 0, tzinfo=dt.UTC),
-            dt.timedelta(hours=1),
-            [
-                (
-                    dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.UTC),
-                ),
-            ],
-        ),
-        (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-            dt.timedelta(hours=12),
-            [
-                (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-                ),
-            ],
-        ),
-        (
-            dt.datetime(2023, 1, 1, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-            dt.datetime(2023, 1, 5, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-            dt.timedelta(days=1),
-            [
-                (
-                    dt.datetime(2023, 1, 1, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-                    dt.datetime(2023, 1, 2, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-                ),
-                (
-                    dt.datetime(2023, 1, 2, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-                    dt.datetime(2023, 1, 3, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-                ),
-                (
-                    dt.datetime(2023, 1, 3, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-                    dt.datetime(2023, 1, 4, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-                ),
-                (
-                    dt.datetime(2023, 1, 4, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-                    dt.datetime(2023, 1, 5, 6, 0, 0, tzinfo=ZoneInfo("US/Pacific")),
-                ),
-            ],
-        ),
-        (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-            None,
-            dt.timedelta(days=1),
-            [
-                (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
-                ),
-                (
-                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
-                ),
-            ],
-        ),
-        (
-            None,
-            dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
-            dt.timedelta(days=1),
-            [
-                (
-                    None,
-                    dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
-                ),
-            ],
-        ),
-        (
-            dt.datetime(2023, 1, 1, 6, 0, 0, tzinfo=ZoneInfo("Europe/Berlin")),
-            dt.datetime(2023, 1, 15, 6, 0, 0, tzinfo=ZoneInfo("Europe/Berlin")),
-            dt.timedelta(days=7),
-            [
-                (
-                    dt.datetime(2023, 1, 1, 6, 0, 0, tzinfo=ZoneInfo("Europe/Berlin")),
-                    dt.datetime(2023, 1, 8, 6, 0, 0, tzinfo=ZoneInfo("Europe/Berlin")),
-                ),
-                (
-                    dt.datetime(2023, 1, 8, 6, 0, 0, tzinfo=ZoneInfo("Europe/Berlin")),
-                    dt.datetime(2023, 1, 15, 6, 0, 0, tzinfo=ZoneInfo("Europe/Berlin")),
-                ),
-            ],
-        ),
-    ],
-)
-def test_backfill_range(start_at, end_at, step, expected):
-    """Test the backfill_range function yields expected ranges of dates."""
-    generator = backfill_range(start_at, end_at, step)
-    result = []
-    for _ in range(len(expected)):
-        result.append(next(generator))
+@pytest_asyncio.fixture
+async def minio_client(bucket_name):
+    """Manage a MinIO S3 client, creating and cleaning up a test bucket."""
+    async with create_test_client(
+        "s3",
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+    ) as client:
+        await client.create_bucket(Bucket=bucket_name)
 
-    assert result == expected
+        yield client
+
+        await delete_all_from_s3(client, bucket_name, key_prefix="")
+        await client.delete_bucket(Bucket=bucket_name)
 
 
-async def test_backfill_schedule_activity(
-    activity_environment, temporal_worker, temporal_client, temporal_schedule_hourly
-):
-    """Test backfill_schedule activity schedules all backfill runs."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-    end_at = dt.datetime(2023, 1, 1, 5, 0, 0, tzinfo=dt.UTC)
-    backfill_id = str(uuid.uuid4())
+@pytest_asyncio.fixture
+async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_name, minio_client):
+    """Create a batch export for testing backfill info (defaults to events model)."""
+    await truncate_events(clickhouse_client)
 
-    desc = await temporal_schedule_hourly.describe()
-    inputs = BackfillScheduleInputs(
-        schedule_id=desc.id,
-        start_at=start_at.isoformat(),
-        end_at=end_at.isoformat(),
-        start_delay=0.1,
-        frequency_seconds=desc.schedule.spec.intervals[0].every.total_seconds(),
-        backfill_id=backfill_id,
+    batch_export = await acreate_batch_export(
+        team_id=ateam.pk,
+        name="events-export-for-backfill-info",
+        destination_data={
+            "type": "S3",
+            "config": {
+                "bucket_name": bucket_name,
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "aws_access_key_id": "object_storage_root_user",
+                "aws_secret_access_key": "object_storage_root_password",
+                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            },
+        },
+        interval="hour",
+        paused=True,
+        model="events",
     )
 
-    await activity_environment.run(backfill_schedule, inputs)
+    yield batch_export
 
-    workflows = await wait_for_workflows(temporal_client, desc.id, expected_count=5)
-
-    await assert_backfill_details_in_workflow_events(
-        temporal_client,
-        workflows,
-        expected_backfill_id=backfill_id,
-        expected_start_at=start_at.isoformat(),
-        expected_end_at=end_at.isoformat(),
-        expected_is_earliest_backfill=False,
-    )
+    await adelete_batch_export(batch_export, temporal_client)
 
 
 @pytest.mark.parametrize(
@@ -756,41 +538,6 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     assert err.__cause__.__cause__.type == "TemporalScheduleNotFoundError"
 
 
-@pytest_asyncio.fixture
-async def failing_s3_batch_export(ateam, temporal_client):
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": "this-bucket-doesn't-exist",
-            "region": "us-east-1",
-            "prefix": "/",
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "file_format": "invalid",
-        },
-    }
-
-    failing_batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "every 5 minutes",
-    }
-
-    batch_export = await acreate_batch_export(
-        team_id=ateam.pk,
-        # I don't know what is mypy's problem with all these parameters.
-        # The types are correct, the values are hardcoded just above.
-        name=failing_batch_export_data["name"],  # type: ignore
-        destination_data=failing_batch_export_data["destination"],  # type: ignore
-        interval=failing_batch_export_data["interval"],  # type: ignore
-    )
-
-    yield batch_export
-
-    await adelete_batch_export(batch_export, temporal_client)
-
-
 async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
     temporal_worker, failing_s3_batch_export, temporal_client, ateam, generate_events
 ):
@@ -884,101 +631,6 @@ async def test_backfill_batch_export_workflow_no_start_at(
         assert backfill_id == str(backfill.id)
 
 
-@pytest.fixture
-def bucket_name() -> str:
-    """Name for a test S3 bucket."""
-    return f"test-batch-exports-{str(uuid.uuid4())}"
-
-
-@pytest_asyncio.fixture
-async def minio_client(bucket_name):
-    """Manage a MinIO S3 client, creating and cleaning up a test bucket."""
-    async with create_test_client(
-        "s3",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-    ) as client:
-        await client.create_bucket(Bucket=bucket_name)
-
-        yield client
-
-        await delete_all_from_s3(client, bucket_name, key_prefix="")
-        await client.delete_bucket(Bucket=bucket_name)
-
-
-@pytest_asyncio.fixture
-async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_name, minio_client):
-    """Create a batch export for testing backfill info (defaults to events model)."""
-    await truncate_events(clickhouse_client)
-
-    batch_export = await acreate_batch_export(
-        team_id=ateam.pk,
-        name="events-export-for-backfill-info",
-        destination_data={
-            "type": "S3",
-            "config": {
-                "bucket_name": bucket_name,
-                "region": "us-east-1",
-                "prefix": "posthog-events/",
-                "aws_access_key_id": "object_storage_root_user",
-                "aws_secret_access_key": "object_storage_root_password",
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            },
-        },
-        interval="hour",
-        paused=True,
-        model="events",
-    )
-
-    yield batch_export
-
-    await adelete_batch_export(batch_export, temporal_client)
-
-
-async def run_backfill_workflow(
-    temporal_client: temporalio.client.Client,
-    *,
-    team_id: int,
-    batch_export_id: str | uuid.UUID,
-    start_at: dt.datetime | None = None,
-    end_at: dt.datetime | None = None,
-) -> BatchExportBackfill:
-    """Run a backfill workflow and return the resulting backfill model.
-
-    Args:
-        temporal_client: The Temporal client to use.
-        team_id: The team ID for the backfill.
-        batch_export_id: The batch export ID (string or UUID).
-        start_at: Optional start datetime for the backfill.
-        end_at: Optional end datetime for the backfill.
-
-    Returns:
-        The created BatchExportBackfill model after the workflow completes.
-    """
-    batch_export_id_str = str(batch_export_id)
-    inputs = BackfillBatchExportInputs(
-        team_id=team_id,
-        batch_export_id=batch_export_id_str,
-        start_at=start_at.isoformat() if start_at else None,
-        end_at=end_at.isoformat() if end_at else None,
-        start_delay=0.1,
-    )
-
-    handle = await temporal_client.start_workflow(
-        BackfillBatchExportWorkflow.run,
-        inputs,
-        id=str(uuid.uuid4()),
-        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-        execution_timeout=dt.timedelta(minutes=1),
-        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-    )
-    await handle.result()
-
-    backfills = await afetch_batch_export_backfills(batch_export_id=uuid.UUID(batch_export_id_str))
-    assert len(backfills) == 1
-    return backfills[0]
-
-
 async def test_backfill_workflow_adjusts_start_at_when_before_earliest_data(
     temporal_worker, temporal_client, ateam, generate_events, events_batch_export
 ):
@@ -1058,38 +710,3 @@ async def test_backfill_workflow_populates_estimated_record_count(
 
     assert backfill.status == BatchExportBackfill.Status.COMPLETED
     assert backfill.total_records_count == 50
-
-
-@pytest.mark.parametrize(
-    "corrupted_details",
-    [
-        ("", "", "", ""),  # one extra item should fail parsing
-        ("", ""),  # one less item should fail parsing
-    ],
-)
-async def test_backfill_schedule_activity_fails_with_corrupted_details(
-    activity_environment,
-    temporal_worker,
-    temporal_client,
-    temporal_schedule_hourly,
-    corrupted_details,
-):
-    """Test backfill_schedule activity fails when details are corrupted."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-    end_at = dt.datetime(2023, 1, 1, 5, 0, 0, tzinfo=dt.UTC)
-    backfill_id = str(uuid.uuid4())
-
-    desc = await temporal_schedule_hourly.describe()
-    inputs = BackfillScheduleInputs(
-        schedule_id=desc.id,
-        start_at=start_at.isoformat(),
-        end_at=end_at.isoformat(),
-        start_delay=0.1,
-        frequency_seconds=desc.schedule.spec.intervals[0].every.total_seconds(),
-        backfill_id=backfill_id,
-    )
-
-    activity_environment.info = dataclasses.replace(activity_environment.info, heartbeat_details=corrupted_details)
-
-    with pytest.raises(HeartbeatDetailsParseError):
-        await activity_environment.run(backfill_schedule, inputs)
