@@ -27,6 +27,8 @@ import {
     HogQLQuery,
     HogQLVariable,
     InsightQueryNode,
+    DataWarehouseNode,
+    LifecycleDataWarehouseNode,
     LifecycleQuery,
     Node,
     NodeKind,
@@ -78,7 +80,11 @@ export function InsightDetailSectionDisplay({
     )
 }
 
-function EntityDisplay({ entity }: { entity: AnyEntityNode }): JSX.Element {
+function EntityDisplay({
+    entity,
+}: {
+    entity: AnyEntityNode<DataWarehouseNode | LifecycleDataWarehouseNode>
+}): JSX.Element {
     return (
         <>
             {entity.custom_name && <b> "{entity.custom_name}"</b>}

@@ -626,6 +626,32 @@
                 }
             ]
         },
+        "AnyEntityNode<DataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<LifecycleDataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                }
+            ]
+        },
         "AnyFilterLike": {
             "anyOf": [
                 {
@@ -17092,7 +17118,7 @@
                 "nodes": {
                     "description": "Entities to combine in this group",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/AnyEntityNode%3CDataWarehouseNode%3E"
                     },
                     "type": "array"
                 },
@@ -19225,17 +19251,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/LifecycleDataWarehouseNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode%3CLifecycleDataWarehouseNode%3E"
                     },
                     "type": "array"
                 },

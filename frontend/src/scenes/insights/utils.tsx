@@ -27,6 +27,7 @@ import {
     HogQLQuery,
     HogQLVariable,
     InsightVizNode,
+    LifecycleDataWarehouseNode,
     Node,
     NodeKind,
     PathsFilter,
@@ -38,7 +39,7 @@ import {
 import {
     containsHogQLQuery,
     isDataTableNode,
-    isDataWarehouseNode,
+    isAnyDataWarehouseNode,
     isEventsNode,
     isGroupNode,
     isInsightVizNode,
@@ -113,7 +114,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
+    node: EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -135,7 +136,7 @@ export const getDisplayNameFromEntityNode = (
         name = 'All events'
     }
 
-    const id = isDataWarehouseNode(node)
+    const id = isAnyDataWarehouseNode(node)
         ? node.table_name
         : isEventsNode(node)
           ? node.event

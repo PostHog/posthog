@@ -36,6 +36,7 @@ import {
     InsightFilterProperty,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleDataWarehouseNode,
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
@@ -119,6 +120,16 @@ export function isActionsNode(node?: Record<string, any> | null): node is Action
 
 export function isDataWarehouseNode(node?: Record<string, any> | null): node is DataWarehouseNode {
     return node?.kind === NodeKind.DataWarehouseNode
+}
+
+export function isLifecycleDataWarehouseNode(node?: Record<string, any> | null): node is LifecycleDataWarehouseNode {
+    return node?.kind === NodeKind.LifecycleDataWarehouseNode
+}
+
+export function isAnyDataWarehouseNode(
+    node?: Record<string, any> | null
+): node is DataWarehouseNode | LifecycleDataWarehouseNode {
+    return isDataWarehouseNode(node) || isLifecycleDataWarehouseNode(node)
 }
 
 /** @deprecated `ActorsQuery` is now used instead of `PersonsNode`. */
@@ -473,7 +484,7 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
 
 export const getSeries = (
     query: InsightQueryNode
-): (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[] | undefined => {
+): (EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }

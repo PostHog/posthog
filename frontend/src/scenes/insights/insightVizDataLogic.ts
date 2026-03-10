@@ -26,6 +26,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
+    AnyDataWarehouseNode,
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
@@ -34,6 +35,7 @@ import {
     FunnelExclusionSteps,
     FunnelsFilter,
     FunnelsQuery,
+    GroupNode,
     InsightFilter,
     InsightFilterProperty,
     InsightQueryNode,
@@ -66,6 +68,7 @@ import {
     getShowValuesOnSeries,
     getYAxisScaleType,
     isActionsNode,
+    isAnyDataWarehouseNode,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
@@ -363,12 +366,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         hasDataWarehouseSeries: [
             (s) => [s.series],
-            (series): boolean => (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node)),
+            (series): boolean => (series || []).length > 0 && !!series?.some((node) => isAnyDataWarehouseNode(node)),
         ],
         hasOnlyDataWarehouseSeries: [
             (s) => [s.series],
             (series): boolean => {
-                return !!series && series.length > 0 && series.every((node) => isDataWarehouseNode(node))
+                return !!series && series.length > 0 && series.every((node) => isAnyDataWarehouseNode(node))
             },
         ],
 
@@ -393,7 +396,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return []
                 }
 
-                const dataWarehouseSeries = series!.filter(isDataWarehouseNode)
+                const dataWarehouseSeries = series!.filter(isAnyDataWarehouseNode)
                 const dataWarehouseTableNames = Array.from(new Set(dataWarehouseSeries.map((node) => node.table_name)))
                 return dataWarehouseTableNames.flatMap((tableName) =>
                     Object.values(dataWarehouseTablesMap[tableName]?.fields ?? {})
@@ -725,7 +728,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 ])
 
 const getActiveUsersMath = (
-    series: TrendsQuery['series'] | null | undefined
+    series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] | null | undefined
 ): BaseMathType.WeeklyActiveUsers | BaseMathType.MonthlyActiveUsers | null => {
     for (const seriesItem of series || []) {
         if (seriesItem.math === BaseMathType.WeeklyActiveUsers) {
