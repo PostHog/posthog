@@ -1,6 +1,6 @@
 import uuid
 import dataclasses
-from typing import Any, Protocol, cast
+from typing import Any
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
@@ -74,16 +74,6 @@ logger = structlog.get_logger(__name__)
 CREDENTIAL_LIKE_FIELD_NAMES = {"connection_string"}
 
 
-class _SSHConnectionPolicySource(Protocol):
-    def ssh_tunnel_is_valid(self, config: Config, team_id: int) -> tuple[bool, str | None]: ...
-
-
-class _HostConnectionPolicySource(Protocol):
-    def is_database_host_valid(
-        self, host: str, team_id: int, using_ssh_tunnel: bool = False
-    ) -> tuple[bool, str | None]: ...
-
-
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that have PASSWORD type from a source config's fields."""
     password_fields: set[str] = set()
@@ -150,7 +140,7 @@ def credentials_touched(data: dict[str, Any], fields: list[FieldType]) -> bool:
 
 
 def validate_connection_policy_changes(
-    source: object, source_config: Config, team_id: int, incoming_job_inputs: dict[str, Any]
+    source: Any, source_config: Config, team_id: int, incoming_job_inputs: dict[str, Any]
 ) -> None:
     if not {"host", "ssh_tunnel"} & set(incoming_job_inputs.keys()):
         return
@@ -159,7 +149,7 @@ def validate_connection_policy_changes(
     # This avoids turning a PATCH into a live connectivity check unless the user actually changed
     # a secret that requires re-authentication.
     if hasattr(source, "ssh_tunnel_is_valid"):
-        ssh_valid, ssh_error = cast(_SSHConnectionPolicySource, source).ssh_tunnel_is_valid(source_config, team_id)
+        ssh_valid, ssh_error = source.ssh_tunnel_is_valid(source_config, team_id)
         if not ssh_valid:
             raise ValidationError(ssh_error or "Invalid SSH tunnel configuration")
 
@@ -168,9 +158,7 @@ def validate_connection_policy_changes(
 
     ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
     using_ssh_tunnel = bool(getattr(ssh_tunnel, "enabled", False))
-    host_valid, host_error = cast(_HostConnectionPolicySource, source).is_database_host_valid(
-        source_config.host, team_id, using_ssh_tunnel
-    )
+    host_valid, host_error = source.is_database_host_valid(source_config.host, team_id, using_ssh_tunnel)
     if not host_valid:
         raise ValidationError(host_error or "Invalid host")
 
