@@ -51,13 +51,18 @@ export function createXAxisTickCallback({
 
 /** Parse a date string as a wall-clock time in the given timezone.
  *
- * Uses dayjs.utc() then .tz(keepLocalTime: true) instead of dayjs.tz(string, tz)
- * because the latter internally parses via new Date() which uses the browser's
- * local timezone — during DST transitions this can shift the date by a day. */
+ * All strings from ClickHouse — both datetime ("2026-03-08 14:00:00") and
+ * date-only ("2026-03-08") — already have wall-clock digits in the project
+ * timezone because ClickHouse applies toTimeZone before truncation. */
 export function parseDateForAxis(dateStr: string, timezone: string): Dayjs {
     const hasTime = dateStr.includes(' ') || dateStr.includes('T')
     try {
+        // Parse as UTC so the result is browser-timezone-independent.
+        // (dayjs.tz(string, tz) goes through new Date() which uses the
+        // browser's local timezone and can shift dates during DST.)
         const utc = hasTime ? dayjs.utc(dateStr) : dayjs.utc(dateStr + ' 00:00:00')
+        // keepLocalTime: true preserves the wall-clock digits while
+        // attaching the project timezone — no conversion arithmetic.
         return utc.isValid() ? utc.tz(timezone, true) : dayjs(null)
     } catch {
         return dayjs(null)
