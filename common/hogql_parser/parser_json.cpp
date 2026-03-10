@@ -2,7 +2,6 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
-#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -2753,7 +2752,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       try {
         json["value"] = Json(stod(text));  // Float
       } catch (const std::out_of_range&) {
-        json["value"] = (text[0] == '-') ? -std::numeric_limits<double>::infinity() : std::numeric_limits<double>::infinity();
+        json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
+        json["value_type"] = "number";
       }
       return json;
     } else {
@@ -2763,7 +2763,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         try {
           json["value"] = Json(stod(text));  // Too large for int64, use float
         } catch (const std::out_of_range&) {
-          json["value"] = (text[0] == '-') ? -std::numeric_limits<double>::infinity() : std::numeric_limits<double>::infinity();
+          json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
+          json["value_type"] = "number";
         }
       }
       return json;
