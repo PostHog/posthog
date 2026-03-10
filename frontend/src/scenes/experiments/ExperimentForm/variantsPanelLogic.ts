@@ -11,14 +11,16 @@ import type { Experiment, FeatureFlagType } from '~/types'
 import type { variantsPanelLogicType } from './variantsPanelLogicType'
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
-    key: (props) => props.experiment?.id || 'new',
+    key: (props) => props.tabId || props.experiment?.id || 'new',
     path: (key) => ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic', key],
     props: {
         experiment: {} as Experiment,
         disabled: false as boolean,
+        tabId: undefined as string | undefined,
     } as {
         experiment: Experiment
         disabled: boolean
+        tabId?: string
     },
     connect: {
         values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
