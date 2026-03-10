@@ -25,8 +25,11 @@ CACHED_SESSION_DATA = {
 }
 
 
-def _seed_session(session_key: str = "test-session", data: dict | None = None) -> str:
-    cache.set(_get_connect_cache_key(session_key), data or CACHED_SESSION_DATA, timeout=600)
+def _seed_session(session_key: str = "test-session", data: dict | None = None, bound_user_id: int | None = None) -> str:
+    session_data = dict(data or CACHED_SESSION_DATA)
+    if bound_user_id is not None:
+        session_data["bound_user_id"] = bound_user_id
+    cache.set(_get_connect_cache_key(session_key), session_data, timeout=600)
     return session_key
 
 
@@ -91,7 +94,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert location.startswith("/connect/vercel/link?")
         parsed = parse_qs(urlparse(location).query)
         assert "session" in parsed
-        assert parsed["next"] == ["https://vercel.com/done"]
+        assert "next" not in parsed
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
@@ -189,6 +192,21 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         org_names = [o["name"] for o in response.json()["organizations"]]
         assert "Other Org" not in org_names
 
+    def test_session_info_binds_user(self):
+        session_key = _seed_session()
+
+        self.client.get(self.url, {"session": session_key})
+
+        cached_data = cache.get(_get_connect_cache_key(session_key))
+        assert cached_data["bound_user_id"] == self.user.pk
+
+    def test_session_info_rejects_different_user(self):
+        session_key = _seed_session(bound_user_id=999)
+
+        response = self.client.get(self.url, {"session": session_key})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_unauthenticated_returns_403(self):
         self.client.logout()
         session_key = _seed_session()
@@ -213,7 +231,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_successful_link_creates_integration(self):
-        session_key = _seed_session()
+        session_key = _seed_session(bound_user_id=self.user.pk)
 
         response = self.client.post(
             self.url,
@@ -235,7 +253,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert integration.integration_id == "icfg_connect_test"
 
     def test_session_deleted_after_linking(self):
-        session_key = _seed_session()
+        session_key = _seed_session(bound_user_id=self.user.pk)
 
         self.client.post(
             self.url,
@@ -247,7 +265,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
     def test_non_member_returns_403(self):
         other_org = Organization.objects.create(name="Not My Org")
-        session_key = _seed_session()
+        session_key = _seed_session(bound_user_id=self.user.pk)
 
         response = self.client.post(
             self.url,
@@ -264,7 +282,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             organization=other_org,
             level=OrganizationMembership.Level.MEMBER,
         )
-        session_key = _seed_session()
+        session_key = _seed_session(bound_user_id=self.user.pk)
 
         response = self.client.post(
             self.url,
@@ -282,7 +300,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             config={},
             created_by=self.user,
         )
-        session_key = _seed_session()
+        session_key = _seed_session(bound_user_id=self.user.pk)
 
         response = self.client.post(
             self.url,
@@ -292,6 +310,19 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already has a Vercel integration" in response.json()["detail"]
+
+    def test_complete_rejects_different_user(self):
+        other_user = self._create_user("other@posthog.com")
+        session_key = _seed_session(bound_user_id=other_user.pk)
+
+        response = self.client.post(
+            self.url,
+            {"session": session_key, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "different user" in response.json()["detail"]
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()

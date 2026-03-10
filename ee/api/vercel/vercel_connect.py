@@ -108,11 +108,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             timeout=CONNECT_SESSION_TIMEOUT,
         )
 
-        link_params = {"session": session_key}
-        if next_url:
-            link_params["next"] = next_url
-
-        link_url = f"/connect/vercel/link?{urlencode(link_params)}"
+        link_url = f"/connect/vercel/link?{urlencode({'session': session_key})}"
 
         if not request.user.is_authenticated:
             login_url = f"/login?next={quote(link_url)}"
@@ -144,6 +140,10 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         cached_data = cache.get(_get_connect_cache_key(session_key))
         if not cached_data:
             raise exceptions.ValidationError("Session expired. Please try linking again from Vercel.")
+
+        bound_user_id = cached_data.get("bound_user_id")
+        if bound_user_id and bound_user_id != user.pk:
+            raise exceptions.PermissionDenied("This session belongs to a different user.")
 
         try:
             membership = OrganizationMembership.objects.get(
@@ -224,6 +224,15 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             raise exceptions.ValidationError("Session expired. Please try linking again from Vercel.")
 
         user = cast(User, request.user)
+
+        # Bind session to the first authenticated user who accesses it
+        if "bound_user_id" not in cached_data:
+            cached_data["bound_user_id"] = user.pk
+            cache_key = _get_connect_cache_key(session_key)
+            cache.set(cache_key, cached_data, timeout=CONNECT_SESSION_TIMEOUT)
+        elif cached_data["bound_user_id"] != user.pk:
+            raise exceptions.PermissionDenied("This session belongs to a different user.")
+
         memberships = OrganizationMembership.objects.filter(
             user=user,
             level__gte=OrganizationMembership.Level.ADMIN,
