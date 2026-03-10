@@ -161,13 +161,13 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | undefined>
+        query?: Record<string, string | number | boolean | string[] | undefined>
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
             for (const [k, v] of Object.entries(opts.query)) {
                 if (v !== undefined) {
-                    searchParams.append(k, String(v))
+                    searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
                 }
             }
         }
