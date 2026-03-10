@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { Node } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, InsightShortId, InsightModel, ItemMode } from '~/types'
+import { AccessControlLevel, InsightShortId, QueryBasedInsightModel, ItemMode } from '~/types'
 
 import { insightLogic } from './insightLogic'
 import { InsightPageHeader } from './InsightPageHeader'
@@ -105,7 +105,7 @@ describe('InsightPageHeader', () => {
         const insightLogicProps = { dashboardItemId, doNotLoad: true }
         const iLogic = insightLogic(insightLogicProps)
         iLogic.mount()
-        iLogic.actions.loadInsightSuccess(insightData as InsightModel)
+        iLogic.actions.loadInsightSuccess(insightData as QueryBasedInsightModel)
 
         mountedLogics.push(iLogic, sceneLogic)
 
