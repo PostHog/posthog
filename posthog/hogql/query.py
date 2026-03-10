@@ -295,49 +295,6 @@ class HogQLQueryExecutor:
                         )
                     )
 
-    def _extract_direct_postgres_sources_from_type(
-        self, query_type: ast.SelectQueryType | ast.SelectSetQueryType
-    ) -> set[str]:
-        return {
-            table_type.table.external_data_source_id
-            for table_type in self._extract_base_table_types_from_type(query_type)
-            if isinstance(table_type.table, DirectPostgresTable)
-        }
-
-    def _extract_base_table_types_from_type(
-        self, query_type: ast.SelectQueryType | ast.SelectSetQueryType
-    ) -> list[ast.TableType]:
-        table_types: list[ast.TableType] = []
-
-        def visit_query(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
-            if isinstance(select_type, ast.SelectSetQueryType):
-                for sub_type in select_type.types:
-                    visit_query(sub_type)
-                return
-
-            for table_type in select_type.tables.values():
-                visit_table_type(table_type)
-
-            for anonymous_table in select_type.anonymous_tables:
-                visit_query(anonymous_table)
-
-        def visit_table_type(table_type: ast.TableOrSelectType) -> None:
-            if isinstance(table_type, ast.TableType):
-                table_types.append(table_type)
-            elif isinstance(table_type, ast.TableAliasType):
-                visit_table_type(table_type.table_type)
-            elif isinstance(table_type, ast.CTETableType):
-                visit_query(table_type.select_query_type)
-            elif isinstance(table_type, ast.CTETableAliasType):
-                visit_table_type(table_type.cte_table_type)
-            elif isinstance(table_type, ast.SelectQueryAliasType):
-                visit_query(table_type.select_query_type)
-            elif isinstance(table_type, ast.SelectViewType):
-                visit_query(table_type.select_query_type)
-
-        visit_query(query_type)
-        return table_types
-
     def _effective_direct_postgres_settings(self) -> HogQLGlobalSettings:
         settings = self.settings.model_copy(deep=True) if self.settings is not None else HogQLGlobalSettings()
 
@@ -364,7 +321,35 @@ class HogQLQueryExecutor:
         if query_type is None:
             return None
 
-        base_table_types = self._extract_base_table_types_from_type(query_type)
+        base_table_types: list[ast.TableType] = []
+
+        def visit_query(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
+            if isinstance(select_type, ast.SelectSetQueryType):
+                for sub_type in select_type.types:
+                    visit_query(sub_type)
+                return
+
+            for table_type in select_type.tables.values():
+                visit_table_type(table_type)
+
+            for anonymous_table in select_type.anonymous_tables:
+                visit_query(anonymous_table)
+
+        def visit_table_type(table_type: ast.TableOrSelectType) -> None:
+            if isinstance(table_type, ast.TableType):
+                base_table_types.append(table_type)
+            elif isinstance(table_type, ast.TableAliasType):
+                visit_table_type(table_type.table_type)
+            elif isinstance(table_type, ast.CTETableType):
+                visit_query(table_type.select_query_type)
+            elif isinstance(table_type, ast.CTETableAliasType):
+                visit_table_type(table_type.cte_table_type)
+            elif isinstance(table_type, ast.SelectQueryAliasType):
+                visit_query(table_type.select_query_type)
+            elif isinstance(table_type, ast.SelectViewType):
+                visit_query(table_type.select_query_type)
+
+        visit_query(query_type)
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
