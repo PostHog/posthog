@@ -2,12 +2,15 @@ import re
 import hmac
 import time
 import hashlib
+import logging
 
 from django.conf import settings
 from django.http.request import RawPostDataException
 
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_VERSIONS = ["0.1d"]
 API_VERSION = SUPPORTED_VERSIONS[0]
@@ -97,6 +100,7 @@ def _get_raw_body(request: Request) -> bytes:
     try:
         return django_request.body
     except RawPostDataException:
+        logger.warning("agentic_provisioning.signature.stream_consumed: request body unavailable for HMAC verification")
         return b""
 
 
