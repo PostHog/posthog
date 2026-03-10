@@ -203,6 +203,73 @@ describe('experimentWizardLogic', () => {
             })
         })
 
+        it('shows "Use this flag" button when feature flag key already exists', async () => {
+            // Set validation result with existingFlag BEFORE rendering
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            vpLogic.actions.validateFeatureFlagKeySuccess({
+                valid: false,
+                error: 'A feature flag with this key already exists.',
+                existingFlag: mockEligibleFlags[0] as FeatureFlagType,
+            })
+
+            // Wait for the value to propagate through the kea connection chain
+            await expectLogic(logic).toMatchValues({
+                featureFlagKeyValidation: partial({
+                    valid: false,
+                    existingFlag: partial({ id: 10 }),
+                }),
+            })
+
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{ tabId: TAB_ID }}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            await waitFor(() => {
+                expect(screen.getByText('A feature flag with this key already exists.')).toBeInTheDocument()
+                expect(screen.getByText('Use this flag')).toBeInTheDocument()
+            })
+        })
+
+        it('clicking "Use this flag" links the existing flag', async () => {
+            const flag = mockEligibleFlags[0] as FeatureFlagType
+
+            // Set validation result with existingFlag BEFORE rendering
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            vpLogic.actions.validateFeatureFlagKeySuccess({
+                valid: false,
+                error: 'A feature flag with this key already exists.',
+                existingFlag: flag,
+            })
+
+            await expectLogic(logic).toMatchValues({
+                featureFlagKeyValidation: partial({
+                    valid: false,
+                    existingFlag: partial({ id: 10 }),
+                }),
+            })
+
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{ tabId: TAB_ID }}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            await waitFor(() => {
+                expect(screen.getByText('Use this flag')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByText('Use this flag'))
+
+            await expectLogic(logic).toMatchValues({
+                linkedFeatureFlag: partial({ id: 10, key: 'existing-flag' }),
+                experiment: partial({
+                    feature_flag_key: 'existing-flag',
+                }),
+            })
+        })
+
         it('removing a linked flag clears the key', async () => {
             logic.actions.setLinkedFeatureFlag(mockEligibleFlags[0] as FeatureFlagType)
             logic.actions.setFeatureFlagConfig({

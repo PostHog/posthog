@@ -70,7 +70,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
     }),
     loaders: ({ values }) => ({
         featureFlagKeyValidation: [
-            null as { valid: boolean; error: string | null } | null,
+            null as { valid: boolean; error: string | null; existingFlag?: FeatureFlagType } | null,
             {
                 validateFeatureFlagKey: async ({ key }) => {
                     // First do client-side validation
@@ -81,7 +81,14 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
 
                     // Check if key already exists in our unavailable keys set
                     if (values.unavailableFeatureFlagKeys.has(key)) {
-                        return { valid: false, error: 'A feature flag with this key already exists.' }
+                        const existingFlag = values.featureFlags.results.find(
+                            (flag: FeatureFlagType) => flag.key === key
+                        )
+                        return {
+                            valid: false,
+                            error: 'A feature flag with this key already exists.',
+                            existingFlag,
+                        }
                     }
 
                     // Double-check with API for recently created flags
@@ -90,7 +97,11 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                     if (response.results.length > 0) {
                         const exactMatch = response.results.find((flag: FeatureFlagType) => flag.key === key)
                         if (exactMatch) {
-                            return { valid: false, error: 'A feature flag with this key already exists.' }
+                            return {
+                                valid: false,
+                                error: 'A feature flag with this key already exists.',
+                                existingFlag: exactMatch,
+                            }
                         }
                     }
 

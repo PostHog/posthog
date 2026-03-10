@@ -1,4 +1,4 @@
-import type { MultivariateFlagVariant } from '~/types'
+import type { FeatureFlagType, MultivariateFlagVariant } from '~/types'
 
 export type VariantValidationRules = {
     hasFlagKey: boolean
@@ -24,7 +24,7 @@ export const validateVariants = ({
 }: {
     flagKey: string | null
     variants: MultivariateFlagVariant[]
-    featureFlagKeyValidation: { valid: boolean; error: string | null } | null
+    featureFlagKeyValidation: { valid: boolean; error: string | null; existingFlag?: FeatureFlagType } | null
     mode?: 'create' | 'link'
 }): VariantValidationResult => {
     const hasFlagKey = !!flagKey
@@ -78,7 +78,7 @@ export const getVariantValidationErrors = ({
 }: {
     flagKey: string | null
     variants: MultivariateFlagVariant[]
-    featureFlagKeyValidation: { valid: boolean; error: string | null } | null
+    featureFlagKeyValidation: { valid: boolean; error: string | null; existingFlag?: FeatureFlagType } | null
     mode?: 'create' | 'link'
 }): string[] => {
     const errors: string[] = []

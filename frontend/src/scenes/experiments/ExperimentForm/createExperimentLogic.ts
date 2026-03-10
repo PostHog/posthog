@@ -195,7 +195,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
                 experiment: Experiment,
-                featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+                featureFlagKeyValidation: {
+                    valid: boolean
+                    error: string | null
+                    existingFlag?: FeatureFlagType
+                } | null,
                 mode: 'create' | 'link',
                 experimentErrors: Record<string, string>
             ) => {
@@ -212,7 +216,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
                 experiment: Experiment,
-                featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+                featureFlagKeyValidation: {
+                    valid: boolean
+                    error: string | null
+                    existingFlag?: FeatureFlagType
+                } | null,
                 mode: 'create' | 'link',
                 experimentErrors: Record<string, string>
             ): string | undefined => {

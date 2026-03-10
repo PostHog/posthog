@@ -151,7 +151,11 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             (s) => [s.experiment, s.featureFlagKeyValidation, s.linkedFeatureFlag, s.departedSteps],
             (
                 experiment: Experiment,
-                featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+                featureFlagKeyValidation: {
+                    valid: boolean
+                    error: string | null
+                    existingFlag?: FeatureFlagType
+                } | null,
                 linkedFeatureFlag: FeatureFlagType | null,
                 departedSteps: Record<string, boolean>
             ): Record<ExperimentWizardStep, string[]> => {
