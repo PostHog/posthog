@@ -688,11 +688,13 @@ class TestExperimentService(APIBaseTest):
 
     def test_update_experiment_recalculates_fingerprints(self):
         experiment = self._create_draft_experiment()
+        assert experiment.metrics is not None
         original_fingerprint = experiment.metrics[0]["fingerprint"]
 
         service = self._service()
         updated = service.update_experiment(experiment, {"start_date": timezone.now()})
 
+        assert updated.metrics is not None
         assert updated.metrics[0]["fingerprint"] != original_fingerprint
 
     def test_update_experiment_syncs_ordering_on_metric_add(self):
@@ -709,6 +711,7 @@ class TestExperimentService(APIBaseTest):
             },
         )
 
+        assert updated.primary_metrics_ordered_uuids is not None
         assert "m1" in updated.primary_metrics_ordered_uuids
         assert "m2" in updated.primary_metrics_ordered_uuids
 
@@ -758,7 +761,9 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert experiment.experimenttosavedmetric_set.count() == 1
-        assert experiment.experimenttosavedmetric_set.first().saved_metric_id == sm1.id
+        first_link = experiment.experimenttosavedmetric_set.first()
+        assert first_link is not None
+        assert first_link.saved_metric_id == sm1.id
 
         service.update_experiment(
             experiment,
@@ -768,7 +773,9 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert experiment.experimenttosavedmetric_set.count() == 1
-        assert experiment.experimenttosavedmetric_set.first().saved_metric_id == sm2.id
+        second_link = experiment.experimenttosavedmetric_set.first()
+        assert second_link is not None
+        assert second_link.saved_metric_id == sm2.id
 
     def test_update_experiment_restore_with_deleted_flag_raises(self):
         experiment = self._create_draft_experiment()
