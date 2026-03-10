@@ -43,7 +43,7 @@ from ee.hogai.chat_agent.prompts import (
 from ee.hogai.chat_agent.toolkit import ChatAgentPlanToolkit, ChatAgentToolkit, ChatAgentToolkitManager
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.presets.product_analytics import ReadOnlyProductAnalyticsAgentToolkit
-from ee.hogai.core.agent_modes.presets.survey import SubagentSurveyAgentToolkit
+from ee.hogai.core.agent_modes.presets.survey import ReadOnlySurveyAgentToolkit
 from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
@@ -786,7 +786,7 @@ class TestChatAgentModeManagerSubagent(BaseTest):
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
         )
-        toolkit = SubagentSurveyAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
+        toolkit = ReadOnlySurveyAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
         self.assertIn(SurveyAnalysisTool, toolkit.tools)
         self.assertNotIn(CreateSurveyTool, toolkit.tools)
         self.assertNotIn(EditSurveyTool, toolkit.tools)
