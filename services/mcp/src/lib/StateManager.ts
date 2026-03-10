@@ -162,4 +162,30 @@ export class StateManager {
 
         return projectId
     }
+
+    async getAiConsentGiven(): Promise<boolean | undefined> {
+        const cached = await this._cache.get('aiConsentGiven')
+        if (cached !== undefined) {
+            return cached
+        }
+
+        try {
+            const orgId = await this.getOrgID()
+            if (!orgId) {
+                return undefined
+            }
+
+            const orgResult = await this._api.organizations().get({ orgId })
+            if (orgResult.success) {
+                const org = orgResult.data as { is_ai_data_processing_approved?: boolean | null }
+                const consent = org.is_ai_data_processing_approved !== false
+                await this._cache.set('aiConsentGiven', consent)
+                return consent
+            }
+        } catch {
+            // Default to allowing tools if we can't determine consent
+        }
+
+        return undefined
+    }
 }

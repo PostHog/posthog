@@ -107,6 +107,7 @@ const createMockContext = (scopes: string[]): Context => ({
     },
     stateManager: {
         getApiKey: async () => ({ scopes }),
+        getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),
 })
@@ -308,14 +309,7 @@ describe('Tool Filtering - AI Consent', () => {
 
     it('should filter AI consent tools via getToolsFromContext when org denies consent', async () => {
         const context: Context = {
-            api: {
-                organizations: () => ({
-                    get: async () => ({
-                        success: true,
-                        data: { is_ai_data_processing_approved: false },
-                    }),
-                }),
-            } as any,
+            api: {} as any,
             cache: {} as any,
             env: {
                 INKEEP_API_KEY: undefined,
@@ -327,7 +321,7 @@ describe('Tool Filtering - AI Consent', () => {
             },
             stateManager: {
                 getApiKey: async () => ({ scopes: ['*'] }),
-                getOrgID: async () => 'org-123',
+                getAiConsentGiven: async () => false,
             } as any,
             sessionManager: new SessionManager({} as any),
         }
@@ -339,14 +333,7 @@ describe('Tool Filtering - AI Consent', () => {
 
     it('should include AI consent tools via getToolsFromContext when org approves consent', async () => {
         const context: Context = {
-            api: {
-                organizations: () => ({
-                    get: async () => ({
-                        success: true,
-                        data: { is_ai_data_processing_approved: true },
-                    }),
-                }),
-            } as any,
+            api: {} as any,
             cache: {} as any,
             env: {
                 INKEEP_API_KEY: undefined,
@@ -358,7 +345,7 @@ describe('Tool Filtering - AI Consent', () => {
             },
             stateManager: {
                 getApiKey: async () => ({ scopes: ['*'] }),
-                getOrgID: async () => 'org-123',
+                getAiConsentGiven: async () => true,
             } as any,
             sessionManager: new SessionManager({} as any),
         }
