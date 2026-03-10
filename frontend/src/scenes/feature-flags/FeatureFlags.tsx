@@ -35,6 +35,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -347,6 +348,7 @@ export function OverViewTab({
     nouns?: [string, string]
 }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
+    const { user } = useValues(userLogic)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
@@ -355,6 +357,7 @@ export function OverViewTab({
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
     const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
     const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
+    const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const {
         selectedCount,
@@ -551,7 +554,7 @@ export function OverViewTab({
                 customHog={FeatureFlagHog}
                 className={cn('my-0')}
             />
-            <ApprovalsPromoBanner />
+            {!isProductIntroVisible && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
