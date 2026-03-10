@@ -112,11 +112,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
         # attacks where an attacker starts OAuth and tricks a victim into completing it.
         request.session["vercel_connect_session"] = session_key
 
-        link_params = {"session": session_key}
-        if next_url:
-            link_params["next"] = next_url
-
-        link_url = f"/connect/vercel/link?{urlencode(link_params)}"
+        link_url = f"/connect/vercel/link?{urlencode({'session': session_key})}"
 
         if not request.user.is_authenticated:
             login_url = f"/login?next={quote(link_url)}"

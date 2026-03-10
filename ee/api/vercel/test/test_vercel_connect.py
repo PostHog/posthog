@@ -98,7 +98,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert location.startswith("/connect/vercel/link?")
         parsed = parse_qs(urlparse(location).query)
         assert "session" in parsed
-        assert parsed["next"] == ["https://vercel.com/done"]
+        assert "next" not in parsed
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
@@ -119,6 +119,50 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert "evil.com" not in location
         parsed = parse_qs(urlparse(location).query)
         assert "next" not in parsed
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_javascript_uri_is_stripped(self, mock_client_class):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
+            access_token="tok_123",
+            token_type="Bearer",
+            installation_id="icfg_new",
+            user_id="usr_1",
+        )
+
+        response = self.client.get(self.url, {"code": "good_code", "next": "javascript:alert(document.cookie)"})
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "javascript" not in location
+        parsed = parse_qs(urlparse(location).query)
+        session_key = parsed["session"][0]
+        cached_data = cache.get(_get_connect_cache_key(session_key))
+        assert cached_data["next_url"] == ""
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_data_uri_is_stripped(self, mock_client_class):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
+            access_token="tok_123",
+            token_type="Bearer",
+            installation_id="icfg_new",
+            user_id="usr_1",
+        )
+
+        response = self.client.get(self.url, {"code": "good_code", "next": "data:text/html,<script>alert(1)</script>"})
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "data:" not in location
+        parsed = parse_qs(urlparse(location).query)
+        session_key = parsed["session"][0]
+        cached_data = cache.get(_get_connect_cache_key(session_key))
+        assert cached_data["next_url"] == ""
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
