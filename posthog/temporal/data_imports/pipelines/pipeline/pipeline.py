@@ -144,7 +144,23 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._resumable_source_manager = resumable_source_manager
         self._batcher = Batcher(self._logger)
-        self._internal_schema = HogQLSchema()
+
+        existing_hogql_schema = None
+        if table and table.columns:
+            existing_hogql_schema = {
+                col_name: col_data.get("hogql") if isinstance(col_data, dict) else None
+                for col_name, col_data in table.columns.items()
+                if (isinstance(col_data, dict) and col_data.get("hogql")) or isinstance(col_data, str)
+            }
+
+        postgres_type_map = None
+        if schema.schema_metadata and isinstance(schema.schema_metadata, dict):
+            columns_metadata = schema.schema_metadata.get("columns")
+            if isinstance(columns_metadata, list):
+                postgres_type_map = {col["name"]: col["data_type"] for col in columns_metadata if isinstance(col, dict)}
+
+        self._internal_schema = HogQLSchema(existing_schema=existing_hogql_schema, postgres_type_map=postgres_type_map)
+
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
         )

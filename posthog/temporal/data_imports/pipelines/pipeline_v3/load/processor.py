@@ -185,7 +185,22 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             return
 
         pa_table = read_parquet(export_signal.s3_path)
-        internal_schema = HogQLSchema()
+
+        existing_hogql_schema = None
+        if schema.table and schema.table.columns:
+            existing_hogql_schema = {
+                col_name: col_data.get("hogql") if isinstance(col_data, dict) else None
+                for col_name, col_data in schema.table.columns.items()
+                if (isinstance(col_data, dict) and col_data.get("hogql")) or isinstance(col_data, str)
+            }
+
+        postgres_type_map = None
+        if schema.schema_metadata and isinstance(schema.schema_metadata, dict):
+            columns_metadata = schema.schema_metadata.get("columns")
+            if isinstance(columns_metadata, list):
+                postgres_type_map = {col["name"]: col["data_type"] for col in columns_metadata if isinstance(col, dict)}
+
+        internal_schema = HogQLSchema(existing_schema=existing_hogql_schema, postgres_type_map=postgres_type_map)
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
 
@@ -349,7 +364,21 @@ def process_message(message: Any) -> None:
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
-        internal_schema = HogQLSchema()
+        existing_hogql_schema = None
+        if schema.table and schema.table.columns:
+            existing_hogql_schema = {
+                col_name: col_data.get("hogql") if isinstance(col_data, dict) else None
+                for col_name, col_data in schema.table.columns.items()
+                if (isinstance(col_data, dict) and col_data.get("hogql")) or isinstance(col_data, str)
+            }
+
+        postgres_type_map = None
+        if schema.schema_metadata and isinstance(schema.schema_metadata, dict):
+            columns_metadata = schema.schema_metadata.get("columns")
+            if isinstance(columns_metadata, list):
+                postgres_type_map = {col["name"]: col["data_type"] for col in columns_metadata if isinstance(col, dict)}
+
+        internal_schema = HogQLSchema(existing_schema=existing_hogql_schema, postgres_type_map=postgres_type_map)
         internal_schema.add_pyarrow_table(pa_table)
 
         logger.debug(

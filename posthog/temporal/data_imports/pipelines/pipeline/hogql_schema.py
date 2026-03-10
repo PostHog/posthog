@@ -13,11 +13,45 @@ from posthog.hogql.database.models import (
 )
 
 
+def postgres_type_to_hogql_field(postgres_type: str) -> str:
+    """Map Postgres data types to HogQL field type names.
+
+    This uses the authoritative Postgres schema metadata instead of guessing from data.
+    """
+    postgres_type_lower = postgres_type.lower()
+
+    if postgres_type_lower in ("json", "jsonb"):
+        return StringJSONDatabaseField.__name__
+    elif postgres_type_lower in ("bigint",):
+        return IntegerDatabaseField.__name__
+    elif postgres_type_lower in ("integer", "smallint", "int", "int2", "int4", "int8"):
+        return IntegerDatabaseField.__name__
+    elif postgres_type_lower in ("numeric", "decimal", "real", "double precision", "float", "float4", "float8"):
+        return FloatDatabaseField.__name__
+    elif postgres_type_lower == "boolean" or postgres_type_lower == "bool":
+        return BooleanDatabaseField.__name__
+    elif postgres_type_lower == "date":
+        return DateDatabaseField.__name__
+    elif postgres_type_lower.startswith("timestamp") or postgres_type_lower.startswith("time"):
+        return DateTimeDatabaseField.__name__
+    else:
+        # Default to string for text, varchar, uuid, arrays, etc.
+        return StringDatabaseField.__name__
+
+
 class HogQLSchema:
     schema: dict[str, str]
+    postgres_type_map: dict[str, str] | None
 
-    def __init__(self):
-        self.schema = {}
+    def __init__(self, existing_schema: dict[str, str] | None = None, postgres_type_map: dict[str, str] | None = None):
+        """Initialize HogQL schema with optional existing types and Postgres type metadata.
+
+        Args:
+            existing_schema: Previously detected HogQL types (for backwards compatibility)
+            postgres_type_map: Map of column_name -> postgres_type from schema metadata
+        """
+        self.schema = existing_schema.copy() if existing_schema else {}
+        self.postgres_type_map = postgres_type_map
 
     def add_pyarrow_table(self, table: pa.Table) -> None:
         for field in table.schema:
@@ -25,7 +59,13 @@ class HogQLSchema:
 
     def add_field(self, field: pa.Field, column: pa.ChunkedArray) -> None:
         existing_type = self.schema.get(field.name)
-        if existing_type is not None and existing_type != StringDatabaseField.__name__:
+        if existing_type is not None:
+            return
+
+        # First, try using Postgres schema metadata if available
+        if self.postgres_type_map and field.name in self.postgres_type_map:
+            postgres_type = self.postgres_type_map[field.name]
+            self.schema[field.name] = postgres_type_to_hogql_field(postgres_type)
             return
 
         if pa.types.is_binary(field.type):
