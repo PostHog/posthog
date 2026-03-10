@@ -9,7 +9,7 @@ from unittest import TestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import EndpointLastExecutionTimesRequest
+from posthog.schema import EndpointLastExecutionTimesRequest, HogQLQuery
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight_variable import InsightVariable
@@ -33,19 +33,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             label="Test API Key",
             secure_value=hash_key_value(self.api_key),
         )
-        self.sample_hogql_query = {
-            "explain": None,
-            "filters": None,
-            "kind": "HogQLQuery",
-            "modifiers": None,
-            "name": None,
-            "query": "SELECT count(1) FROM query_log",
-            "response": None,
-            "tags": None,
-            "values": None,
-            "variables": None,
-            "version": None,
-        }
+        self.sample_hogql_query = HogQLQuery(query="SELECT count(1) FROM query_log").model_dump()
         self.sample_insight_query = {
             "kind": "TrendsQuery",
             "series": [{"kind": "EventsNode"}],
@@ -328,19 +316,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("update_test", response_data["name"])
         self.assertEqual("Updated description", response_data["description"])
         self.assertFalse(response_data["is_active"])
-        want_query = {
-            "explain": None,
-            "filters": None,
-            "kind": "HogQLQuery",
-            "modifiers": None,
-            "name": None,
-            "query": "SELECT 1",
-            "response": None,
-            "tags": None,
-            "values": None,
-            "variables": None,
-            "version": None,
-        }
+        want_query = HogQLQuery(query="SELECT 1").model_dump()
         self.assertEqual(want_query, response_data["query"])
 
         # Verify database was updated
