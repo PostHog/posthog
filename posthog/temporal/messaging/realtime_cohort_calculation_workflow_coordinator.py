@@ -6,6 +6,7 @@ import dataclasses
 from typing import Any, Optional, TypedDict
 
 from django.conf import settings
+from django.db.models import F
 from django.utils import timezone
 
 import temporalio.common
@@ -279,7 +280,9 @@ async def get_realtime_cohort_selection_activity(
                         is_p100=(inputs.duration_percentile_max is not None and inputs.duration_percentile_max >= 99.9),
                     )
                 team_cohort_ids = list(
-                    team_cohort_queryset.order_by("last_calculation_duration_ms", "id").values_list("id", flat=True)
+                    team_cohort_queryset.order_by(
+                        F("last_calculation_duration_ms").asc(nulls_last=True), "id"
+                    ).values_list("id", flat=True)
                 )
 
                 selected_cohort_ids.extend(team_cohort_ids)
@@ -304,7 +307,9 @@ async def get_realtime_cohort_selection_activity(
                     is_p100=(inputs.duration_percentile_max is not None and inputs.duration_percentile_max >= 99.9),
                 )
             other_teams_cohort_ids = list(
-                other_teams_queryset.order_by("last_calculation_duration_ms", "id").values_list("id", flat=True)
+                other_teams_queryset.order_by(F("last_calculation_duration_ms").asc(nulls_last=True), "id").values_list(
+                    "id", flat=True
+                )
             )
 
             if other_teams_cohort_ids:
