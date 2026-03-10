@@ -1224,18 +1224,11 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             const flagId = values.experiment.feature_flag.id
-            try {
-                await featureFlagsLogic.asyncActions.updateFeatureFlag({
-                    id: flagId,
-                    payload: { active: isActive },
-                })
-                lemonToast.success(`Experiment ${isActive ? 'resumed' : 'paused'} successfully`)
-                actions.loadExperiment({ triggeredBy: 'config_change' })
-            } catch (e: any) {
-                if (e.status !== 409) {
-                    throw e
-                }
-            }
+            await featureFlagsLogic.asyncActions.updateFeatureFlag({
+                id: flagId,
+                payload: { active: isActive },
+            })
+            actions.loadExperiment({ triggeredBy: 'config_change' })
         },
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
