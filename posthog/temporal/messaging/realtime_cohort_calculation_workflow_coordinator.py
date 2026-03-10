@@ -1,4 +1,5 @@
 import math
+import time
 import random
 import asyncio
 import datetime as dt
@@ -11,18 +12,32 @@ from django.utils import timezone
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
+from temporalio.common import MetricHistogramFloat
 
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.messaging.constants import get_child_workflow_id
+from posthog.temporal.messaging.constants import get_child_workflow_id, get_percentile_bucket_label
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     RealtimeCohortCalculationWorkflow,
     RealtimeCohortCalculationWorkflowInputs,
 )
 
 LOGGER = get_logger(__name__)
+
+
+def get_coordinator_duration_histogram(percentile_bucket: str) -> MetricHistogramFloat:
+    """Histogram for coordinator workflow total duration by percentile bucket."""
+    return (
+        temporalio.workflow.metric_meter()
+        .with_additional_attributes({"percentile_bucket": percentile_bucket})
+        .create_histogram_float(
+            "realtime_cohort_coordinator_duration_seconds",
+            "Total duration of coordinator workflow execution in seconds",
+            "s",
+        )
+    )
 
 
 @dataclasses.dataclass
@@ -333,6 +348,9 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: RealtimeCohortCalculationCoordinatorWorkflowInputs) -> None:
         """Run the coordinator workflow that spawns child workflows."""
+        coordinator_start_time = time.monotonic()
+        percentile_bucket = get_percentile_bucket_label(inputs.duration_percentile_min, inputs.duration_percentile_max)
+
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info("Starting realtime cohort calculation coordinator", parallelism=inputs.parallelism)
         workflow_logger.info(
@@ -524,5 +542,13 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                     f"Child workflow failed ({completed_count + failed_count}/{workflows_scheduled}): {e}"
                 )
 
-        workflow_logger.info("Coordinator completed", succeeded=completed_count, failed=failed_count)
+        coordinator_duration = time.monotonic() - coordinator_start_time
+        get_coordinator_duration_histogram(percentile_bucket).record(coordinator_duration)
+
+        workflow_logger.info(
+            f"Coordinator completed in {coordinator_duration:.1f}s",
+            succeeded=completed_count,
+            failed=failed_count,
+            total_duration_seconds=coordinator_duration,
+        )
         return
