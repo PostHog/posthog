@@ -7,6 +7,8 @@ import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/de
 import {
     ActionsNode,
     ActorsQuery,
+    AnyDataWarehouseNode,
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
     DataTableNode,
@@ -126,9 +128,7 @@ export function isLifecycleDataWarehouseNode(node?: Record<string, any> | null):
     return node?.kind === NodeKind.LifecycleDataWarehouseNode
 }
 
-export function isAnyDataWarehouseNode(
-    node?: Record<string, any> | null
-): node is DataWarehouseNode | LifecycleDataWarehouseNode {
+export function isAnyDataWarehouseNode(node?: Record<string, any> | null): node is AnyDataWarehouseNode {
     return isDataWarehouseNode(node) || isLifecycleDataWarehouseNode(node)
 }
 
@@ -482,9 +482,7 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (
-    query: InsightQueryNode
-): (EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode | GroupNode)[] | undefined => {
+export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }

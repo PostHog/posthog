@@ -18,6 +18,8 @@ import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefiniti
 import { examples } from '~/queries/examples'
 import {
     ActionsNode,
+    AnyDataWarehouseNode,
+    AnyEntityNode,
     BreakdownFilter,
     DashboardFilter,
     DataWarehouseNode,
@@ -114,7 +116,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode | GroupNode,
+    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings

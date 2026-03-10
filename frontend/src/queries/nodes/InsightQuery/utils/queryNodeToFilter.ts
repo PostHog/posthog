@@ -3,15 +3,13 @@ import { objectClean } from 'lib/utils'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
-    ActionsNode,
+    AnyDataWarehouseNode,
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
-    DataWarehouseNode,
-    EventsNode,
     FunnelsFilterLegacy,
     GroupNode,
     InsightQueryNode,
-    LifecycleDataWarehouseNode,
     LifecycleFilterLegacy,
     NodeKind,
     PathsFilterLegacy,
@@ -44,9 +42,7 @@ type FilterTypeActionsAndEvents = {
     groups?: ActionFilter[]
 }
 
-const getFilterId = (
-    node: EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode | GroupNode
-): any => {
+const getFilterId = (node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode): any => {
     if (isGroupNode(node)) {
         return undefined
     }
@@ -63,7 +59,7 @@ const getFilterId = (
 }
 
 export const seriesNodeToFilter = (
-    node: EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode | GroupNode,
+    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     index?: number
 ): ActionFilter => {
     const entity: ActionFilter = objectClean({
@@ -114,7 +110,7 @@ export const seriesNodeToFilter = (
 }
 
 export const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode | GroupNode)[]
+    series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
