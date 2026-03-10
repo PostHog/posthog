@@ -60,13 +60,7 @@ async fn relay_with_reconnect<F>(
     let mut backoff = INITIAL_BACKOFF;
 
     loop {
-        match relay_fn(
-            Arc::clone(store),
-            Arc::clone(registry),
-            cancel.clone(),
-        )
-        .await
-        {
+        match relay_fn(Arc::clone(store), Arc::clone(registry), cancel.clone()).await {
             Ok(()) => return, // Clean shutdown via cancellation
             Err(e) => {
                 if cancel.is_cancelled() {
