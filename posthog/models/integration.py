@@ -3025,7 +3025,7 @@ class StripeIntegration:
             application=oauth_app,
             token=access_token_value,
             user=created_by,
-            expires=timezone.now() + timedelta(days=365),
+            expires=timezone.now() + timedelta(days=14),
             scope=self.SCOPES,
             scoped_teams=[team_id],
         )
