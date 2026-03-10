@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM posthog_featureflaghashkeyoverride\n            WHERE team_id = ANY($1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "63a64bc183593388f5040f77fed89ce08ec9f55d3dca9ab871a844feb558836b"
+}
