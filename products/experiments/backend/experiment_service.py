@@ -513,6 +513,8 @@ class ExperimentService:
         if extra_keys:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
+        update_data.pop("get_feature_flag_key", None)
+
         # --- draft-only restrictions (variants / holdout) ------------------
         if not experiment.is_draft:
             if "feature_flag_variants" in update_data.get("parameters", {}):

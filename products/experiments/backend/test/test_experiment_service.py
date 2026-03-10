@@ -583,6 +583,7 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert updated.name == "Same Key OK"
+        assert updated.get_feature_flag_key() == experiment.feature_flag.key
 
     def test_update_experiment_rejects_different_feature_flag_key(self):
         experiment = self._create_draft_experiment()
