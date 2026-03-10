@@ -25,7 +25,7 @@ jest.mock('scenes/max/useMaxTool', () => ({
 const TAB_ID = 'test-tab'
 const SAVED_INSIGHT_ID = 'abc123' as InsightShortId
 
-const MOCK_INSIGHT_BASE = {
+const MOCK_INSIGHT_BASE: QueryBasedInsightModel = {
     id: 1,
     short_id: SAVED_INSIGHT_ID,
     name: 'Test Insight',
@@ -36,9 +36,19 @@ const MOCK_INSIGHT_BASE = {
     result: [],
     saved: true,
     tags: [],
+    order: null,
+    deleted: false,
+    created_at: '2024-01-01T00:00:00.000Z',
+    created_by: null,
+    is_sample: false,
+    updated_at: '2024-01-01T00:00:00.000Z',
+    last_modified_at: '2024-01-01T00:00:00.000Z',
+    last_modified_by: null,
+    last_refresh: null,
+    user_access_level: AccessControlLevel.Editor,
 }
 
-function makeInsight(overrides: Partial<InsightModel> = {}): Partial<InsightModel> {
+function makeInsight(overrides: Partial<QueryBasedInsightModel> = {}): QueryBasedInsightModel {
     return { ...MOCK_INSIGHT_BASE, ...overrides }
 }
 
@@ -79,7 +89,7 @@ describe('InsightPageHeader', () => {
     function renderHeader(opts: {
         insightMode: ItemMode
         dashboardItemId: InsightShortId | 'new'
-        insight?: Partial<InsightModel>
+        insight?: QueryBasedInsightModel
     }): {
         sceneLogic: ReturnType<typeof insightSceneLogic.build>
         iLogic: ReturnType<typeof insightLogic.build>
@@ -105,7 +115,7 @@ describe('InsightPageHeader', () => {
         const insightLogicProps = { dashboardItemId, doNotLoad: true }
         const iLogic = insightLogic(insightLogicProps)
         iLogic.mount()
-        iLogic.actions.loadInsightSuccess(insightData as QueryBasedInsightModel)
+        iLogic.actions.loadInsightSuccess(insightData)
 
         mountedLogics.push(iLogic, sceneLogic)
 
