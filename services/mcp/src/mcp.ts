@@ -173,7 +173,6 @@ export class MCP extends McpAgent<Env> {
         if (!this._api) {
             const baseUrl = await this.getBaseUrl()
             await this.resolveClientInfo()
-            const oauthClientName = (await this.cache.get('clientName')) || undefined
             this._api = new ApiClient({
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
@@ -181,7 +180,6 @@ export class MCP extends McpAgent<Env> {
                 mcpClientName: this._mcpClientName,
                 mcpClientVersion: this._mcpClientVersion,
                 mcpProtocolVersion: this._mcpProtocolVersion,
-                oauthClientName,
             })
         }
 
@@ -222,7 +220,7 @@ export class MCP extends McpAgent<Env> {
                               $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
                           }
                         : {}),
-                    ...(clientName ? { client_name: clientName } : {}),
+                    ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
                     ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
@@ -444,6 +442,13 @@ export class MCP extends McpAgent<Env> {
             excludeTools,
             readOnly,
         })
+
+        // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
+        // so update the ApiClient with the verified OAuth client name for header forwarding.
+        const oauthClientName = sanitizeHeaderValue(await this.cache.get('clientName'))
+        if (oauthClientName && this._api) {
+            this._api.config.oauthClientName = oauthClientName
+        }
 
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>
