@@ -3978,6 +3978,11 @@ export namespace Schemas {
     export type HogQLQueryVariables = {[key: string]: HogQLVariable} | null | null;
 
     export interface HogQLQuery {
+      /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
       /** @nullable */
       explain?: boolean | null;
       filters?: HogQLFilters | null;
@@ -10840,6 +10845,8 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaSource {
+      /** @nullable */
+      access_method?: string | null;
       id: string;
       /** @nullable */
       last_synced_at?: string | null;
@@ -11009,6 +11016,11 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaQuery {
+      /**
+       * Optional direct external data source id for schema introspection
+       * @nullable
+       */
+      connectionId?: string | null;
       kind?: DatabaseSchemaQueryKind;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -15694,6 +15706,11 @@ export namespace Schemas {
 
     export interface HogQLMetadata {
       /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
+      /**
        * Enable more verbose output, usually run from the /debug page
        * @nullable
        */
@@ -15729,6 +15746,11 @@ export namespace Schemas {
     }
 
     export interface HogQLAutocomplete {
+      /**
+       * Optional direct external data source id for running against a specific source
+       * @nullable
+       */
+      connectionId?: string | null;
       /** End position of the editor word */
       endPosition: number;
       /** Table to validate the expression against */
@@ -18165,6 +18187,8 @@ export namespace Schemas {
       readonly summary: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
+      /** @nullable */
+      integration_id?: number | null;
       /** @nullable */
       invite_message?: string | null;
     }
@@ -21304,6 +21328,8 @@ export namespace Schemas {
       readonly summary?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
+      /** @nullable */
+      integration_id?: number | null;
       /** @nullable */
       invite_message?: string | null;
     }
