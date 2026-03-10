@@ -24,19 +24,18 @@ export function createXAxisTickCallback({
         return (value) => String(value)
     }
 
-    // Datetime strings (with time component) are already in the project timezone
-    // (ClickHouse applies toTimeZone before truncation), so parse them directly in
-    // that timezone. Date-only strings are calendar bucket labels — parse as midnight
-    // in the project timezone so that e.g. "2023-07-01" stays July and doesn't drift
-    // to June in behind-UTC timezones.
+    // Both datetime and date-only strings represent wall-clock times in the project
+    // timezone. We must avoid `dayjs.tz(string, tz)` because it internally parses the
+    // string in the *browser's* local timezone first, then converts — during DST
+    // transitions this intermediate step can shift the date by a day.
+    // Instead, parse as UTC (browser-independent) then reinterpret in the target
+    // timezone with `keepLocalTime: true` so the wall-clock time stays unchanged.
     const parsedDates = allDays.map((d) => {
         const s = String(d)
         const hasTime = s.includes(' ') || s.includes('T')
-        if (hasTime) {
-            return dayjs.tz(s, timezone)
-        }
         try {
-            return dayjs.tz(s + ' 00:00:00', timezone)
+            const utc = hasTime ? dayjs.utc(s) : dayjs.utc(s + ' 00:00:00')
+            return utc.isValid() ? utc.tz(timezone, true) : dayjs(null)
         } catch {
             return dayjs(null)
         }
