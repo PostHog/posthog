@@ -101,12 +101,10 @@ export class RecordingService {
                 sessionState,
             })
 
-            RecordingApiMetrics.observeGetBlock('success', (performance.now() - startTime) / 1000, sessionState)
-
+            let result = data
             if (decompress) {
                 try {
-                    const decompressed = (await snappy.uncompress(data, { asBuffer: true })) as Buffer
-                    return { ok: true, data: decompressed }
+                    result = (await snappy.uncompress(data, { asBuffer: true })) as Buffer
                 } catch (decompressError) {
                     logger.error('[RecordingService] Failed to decompress block', {
                         sessionId,
@@ -118,7 +116,14 @@ export class RecordingService {
                     throw decompressError
                 }
             }
-            return { ok: true, data }
+
+            RecordingApiMetrics.observeGetBlock(
+                'success',
+                (performance.now() - startTime) / 1000,
+                sessionState,
+                !!decompress
+            )
+            return { ok: true, data: result }
         } catch (error) {
             if (error instanceof NoSuchKey) {
                 logger.warn('[RecordingService] S3 object not found (NoSuchKey)', {
