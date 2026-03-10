@@ -1,0 +1,96 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Feature flags
+feature: flags
+url_prefix: /feature_flags
+tools:
+    feature-flag-get-all:
+        operation: feature_flags_list
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        param_overrides:
+            search:
+                description: Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.
+        list: true
+        enrich_url: '{id}'
+        title: Get all feature flags
+        description: >
+            Get feature flags in the current project. Supports list filters including search by feature flag key or
+            name (case-insensitive), then use the returned ID for get/update/delete tools.
+        mcp_version: 1
+    feature-flag-get-definition:
+        operation: feature_flags_retrieve_2
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get feature flag definition
+        description: >
+            Get a feature flag by ID.
+        mcp_version: 1
+    create-feature-flag:
+        operation: feature_flags_create
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        include_params:
+            - key
+            - name
+            - filters
+            - active
+            - tags
+            - evaluation_tags
+        enrich_url: '{id}'
+        title: Create feature flag
+        description: >
+            Create a feature flag in the current project.
+    update-feature-flag:
+        operation: feature_flags_partial_update
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        include_params:
+            - key
+            - name
+            - filters
+            - active
+            - tags
+            - evaluation_tags
+        enrich_url: '{id}'
+        title: Update feature flag
+        description: >
+            Update a feature flag by ID in the current project.
+    delete-feature-flag:
+        operation: feature_flags_destroy
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete feature flag
+        description: >
+            Soft-delete a feature flag by ID in the current project.
+        soft_delete: true
