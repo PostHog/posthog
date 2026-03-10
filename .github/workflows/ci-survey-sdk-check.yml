@@ -58,3 +58,4 @@ jobs:
             build_command: pnpm --filter=@posthog/frontend build:survey-sdk-docs
             output_file: docs/published/docs/surveys/sdk-feature-support.mdx
             fail_on_outdated: true
+            pnpm_filter: '@posthog/frontend...'

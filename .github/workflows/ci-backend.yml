@@ -235,7 +235,7 @@ jobs:
                   cache: pnpm
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/root install --frozen-lockfile
 
             - name: Check contract changes
               id: contract-check
@@ -340,7 +340,7 @@ jobs:
                   cache: pnpm
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/root install --frozen-lockfile
 
             - name: Set up Python
               uses: actions/setup-python@v6
@@ -802,7 +802,7 @@ jobs:
                   npm_config_fetch_retries: 3
                   npm_config_fetch_retry_mintimeout: 10000
                   npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
 
             - name: Check and update OpenAPI types
               env:

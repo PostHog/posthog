@@ -20,6 +20,11 @@ on:
                 required: false
                 type: boolean
                 default: false
+            pnpm_filter:
+                description: 'Optional pnpm --filter scope for install (e.g., "@posthog/frontend...")'
+                required: false
+                type: string
+                default: ''
 
 permissions:
     contents: read
@@ -60,7 +65,14 @@ jobs:
 
             - name: Install dependencies
               if: steps.source-check.outputs.changed == 'true'
-              run: pnpm install --frozen-lockfile
+              env:
+                  PNPM_FILTER: ${{ inputs.pnpm_filter }}
+              run: |
+                  if [ -n "$PNPM_FILTER" ]; then
+                      pnpm --filter="$PNPM_FILTER" install --frozen-lockfile
+                  else
+                      pnpm install --frozen-lockfile
+                  fi
 
             - name: Generate docs
               if: steps.source-check.outputs.changed == 'true'
