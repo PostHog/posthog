@@ -15,7 +15,7 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 // eslint-disable-next-line import/no-cycle
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 
-import { EmailTemplaterType } from './EmailTemplater'
+import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailMetaField, EmailMetaFieldKey, EmailTemplaterType } from './EmailTemplater'
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
@@ -60,6 +60,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
         setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
+        revealAdvancedField: (key: EmailMetaFieldKey) => ({ key }),
+        hideAdvancedField: (key: EmailMetaFieldKey) => ({ key }),
     }),
     reducers({
         emailEditorRef: [
@@ -99,6 +101,15 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setTemplatingEngine: (_, { templating }) => {
                     return templating
                 },
+            },
+        ],
+        revealedAdvancedFields: [
+            [] as EmailMetaFieldKey[],
+            {
+                revealAdvancedField: (state: EmailMetaFieldKey[], { key }: { key: EmailMetaFieldKey }) =>
+                    state.includes(key) ? state : [...state, key],
+                hideAdvancedField: (state: EmailMetaFieldKey[], { key }: { key: EmailMetaFieldKey }) =>
+                    state.filter((k) => k !== key),
             },
         ],
         activeContentTab: [
@@ -174,6 +185,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return 275430
                 }
             },
+        ],
+        visibleFields: [
+            (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.revealedAdvancedFields],
+            (type: EmailTemplaterType, revealedAdvancedFields: EmailMetaFieldKey[]): EmailMetaField[] =>
+                EMAIL_TYPE_SUPPORTED_FIELDS[type].filter(
+                    (field) => !field.isAdvancedField || revealedAdvancedFields.includes(field.key)
+                ),
+        ],
+        hiddenAdvancedFields: [
+            (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.visibleFields],
+            (type: EmailTemplaterType, visibleFields: EmailMetaField[]): EmailMetaField[] =>
+                EMAIL_TYPE_SUPPORTED_FIELDS[type].filter((f) => f.isAdvancedField && !visibleFields.includes(f)),
         ],
     }),
 
@@ -354,6 +377,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     afterMount(({ actions, props }) => {
         if (props.value) {
             actions.resetEmailTemplate(props.value)
+
+            // Auto-reveal advanced fields that already have values
+            for (const field of EMAIL_TYPE_SUPPORTED_FIELDS[props.type]) {
+                if (field.isAdvancedField) {
+                    const value = (props.value as Record<string, any>)[field.key]
+                    if (value !== undefined && value !== null && value !== '') {
+                        actions.revealAdvancedField(field.key as EmailMetaFieldKey)
+                    }
+                }
+            }
         }
 
         actions.loadTemplates()
