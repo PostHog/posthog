@@ -145,6 +145,10 @@ export class KafkaProducerWrapper {
                 throw new DependencyUnavailableError(error.message, 'Kafka', error)
             } else if ((error as LibrdKafkaError).code === 10) {
                 throw new MessageSizeTooLarge(error.message, error)
+            } else if (error?.message === 'Producer not connected') {
+                // Producer was disconnected during shutdown — treat as a transient dependency error
+                // so callers handle it gracefully rather than crashing the process.
+                throw new DependencyUnavailableError(error.message, 'Kafka', error)
             }
 
             throw error
