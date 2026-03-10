@@ -62,11 +62,7 @@ func main() {
 	if err != nil || statsRedis == nil {
 		log.Printf("WARNING: Redis connection failed, continuing without Redis: %v", err)
 	} else {
-		defer func() {
-			if err := statsRedis.Close(); err != nil {
-				log.Printf("ERROR: Failed to close Redis store: %v", err)
-			}
-		}()
+		defer statsRedis.Close()
 		stats.RedisStore = statsRedis
 		sessionStats.RedisStore = statsRedis
 		log.Printf("Redis stats store enabled (address: %s:%s)", config.Redis.Address, config.Redis.Port)
@@ -78,8 +74,9 @@ func main() {
 	subChan := make(chan events.Subscription, 10000)
 	unSubChan := make(chan events.Subscription, 10000)
 
-	go stats.KeepStats(statsChan)
-	go sessionStats.KeepStats(ctx, sessionStatsChan)
+	flushInterval := time.Duration(config.Redis.FlushIntervalMs) * time.Millisecond
+	go stats.KeepStats(statsChan, flushInterval)
+	go sessionStats.KeepStats(ctx, sessionStatsChan, flushInterval)
 
 	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka, geolocator, phEventChan, statsChan, config.Parallelism)
 	if err != nil {

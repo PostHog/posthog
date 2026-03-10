@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useState } from 'react'
 
 import {
     IconCode2,
@@ -19,8 +18,6 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
-import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
@@ -31,18 +28,13 @@ import { ScenePin } from 'lib/components/Scenes/ScenePin'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -51,6 +43,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
@@ -66,10 +59,9 @@ import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
-import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
-import { DashboardTemplateEditor } from './DashboardTemplateEditor'
+import { DashboardModals } from './DashboardModals'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 const RESOURCE_TYPE = 'dashboard'
@@ -83,17 +75,19 @@ export function DashboardHeader(): JSX.Element | null {
         dashboardLoading,
         dashboardMode,
         canEditDashboard,
-        showSubscriptions,
-        subscriptionId,
         apiUrl,
-        showTextTileModal,
-        textTileId,
         isSavingTags,
+        currentLayoutSize,
+        isPinned,
+        isNewDashboard,
+        asDashboardTemplate,
+        effectiveEditBarFilters,
+        effectiveDashboardVariableOverrides,
+        tiles,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, loadDashboard, updateDashboardTags } = useActions(dashboardLogic)
-    const { asDashboardTemplate, effectiveEditBarFilters, effectiveDashboardVariableOverrides, tiles } =
-        useValues(dashboardLogic)
-    const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
+    const { setDashboardMode, loadDashboard, updateDashboardTags, togglePinned, setTerraformModalOpen } =
+        useActions(dashboardLogic)
+    const { updateDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
 
@@ -101,6 +95,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { newTab } = useActions(sceneLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
 
     const { user } = useValues(userLogic)
 
@@ -115,98 +110,15 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { push } = useActions(router)
 
-    const [isPinned, setIsPinned] = useState(dashboard?.pinned)
-
-    const [terraformModalOpen, setTerraformModalOpen] = useState(false)
-
-    const isNewDashboard = useMemo(() => {
-        if (!dashboard || dashboardLoading) {
-            return false
-        }
-
-        // A dashboard is considered new if:
-        // 1. It's a fresh duplicate (has _highlight set), OR
-        // 2. It's a blank dashboard with default name, OR
-        // 3. It was created recently (within last 30 seconds) - catches templates, OR
-        // 4. It has no tiles yet (completely empty)
-        const now = new Date()
-        const createdAt = new Date(dashboard.created_at)
-        const isRecentlyCreated = now.getTime() - createdAt.getTime() < 30000 // 30 seconds
-
-        return (
-            Boolean(dashboard._highlight) ||
-            dashboard.name === 'New Dashboard' ||
-            isRecentlyCreated ||
-            !dashboard.tiles ||
-            dashboard.tiles.length === 0
-        )
-    }, [dashboard, dashboardLoading])
-
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
-
-    const exportOptions: ExportButtonItem[] = [
-        {
-            export_format: ExporterFormat.PNG,
-            dashboard: dashboard?.id,
-            export_context: {
-                path: apiUrl(),
-            },
-        },
-    ]
-    if (user?.is_staff) {
-        exportOptions.push({
-            export_format: ExporterFormat.JSON,
-            export_context: {
-                localData: JSON.stringify(asDashboardTemplate),
-                filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
-                mediaType: ExporterFormat.JSON,
-            },
-        })
-    }
-    useEffect(() => {
-        setIsPinned(dashboard?.pinned)
-    }, [dashboard?.pinned])
 
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
                 <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
             )}
-            {dashboard && (
-                <>
-                    <SubscriptionsModal
-                        isOpen={showSubscriptions}
-                        closeModal={() => push(urls.dashboard(dashboard.id))}
-                        dashboardId={dashboard.id}
-                        subscriptionId={subscriptionId}
-                    />
-                    <SharingModal
-                        title="Dashboard permissions & sharing"
-                        isOpen={dashboardMode === DashboardMode.Sharing}
-                        closeModal={() => push(urls.dashboard(dashboard.id))}
-                        dashboardId={dashboard.id}
-                        userAccessLevel={dashboard.user_access_level}
-                    />
-                    {canEditDashboard && (
-                        <TextCardModal
-                            isOpen={showTextTileModal}
-                            onClose={() => push(urls.dashboard(dashboard.id))}
-                            dashboard={dashboard}
-                            textTileId={textTileId}
-                        />
-                    )}
-                    {canEditDashboard && <DeleteDashboardModal />}
-                    {canEditDashboard && <DuplicateDashboardModal />}
 
-                    {canEditDashboard && <DashboardInsightColorsModal />}
-                    {user?.is_staff && <DashboardTemplateEditor />}
-                    <TerraformExportModal
-                        isOpen={terraformModalOpen}
-                        onClose={() => setTerraformModalOpen(false)}
-                        resource={{ type: 'dashboard', data: dashboard }}
-                    />
-                </>
-            )}
+            {dashboard && <DashboardModals dashboard={dashboard} />}
 
             <ScenePanel>
                 <ScenePanelInfoSection>
@@ -245,19 +157,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     Copy to another project
                                 </ButtonPrimitive>
                             )}
-                            <ScenePin
-                                dataAttrKey={RESOURCE_TYPE}
-                                onClick={() => {
-                                    if (isPinned) {
-                                        unpinDashboard(dashboard.id, DashboardEventSource.SceneCommonButtons)
-                                        setIsPinned(false)
-                                    } else {
-                                        pinDashboard(dashboard.id, DashboardEventSource.SceneCommonButtons)
-                                        setIsPinned(true)
-                                    }
-                                }}
-                                isPinned={isPinned ?? false}
-                            />
+                            <ScenePin dataAttrKey={RESOURCE_TYPE} onClick={togglePinned} isPinned={isPinned} />
                             <SceneFullscreen
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => {
@@ -275,87 +175,84 @@ export function DashboardHeader(): JSX.Element | null {
                         </>
                     )}
 
-                    {dashboard && canEditDashboard && hasDashboardColors && (
-                        <ButtonPrimitive
-                            onClick={() => showInsightColorsModal(dashboard.id)}
-                            menuItem
-                            data-attr={`${RESOURCE_TYPE}-customize-colors`}
-                        >
-                            <IconPalette />
-                            Customize colors
-                        </ButtonPrimitive>
-                    )}
                     {dashboard && canEditDashboard && (
-                        <AppShortcut
-                            name="ToggleEditMode"
-                            scope={Scene.Dashboard}
-                            keybind={[keyBinds.edit]}
-                            intent="Toggle edit mode"
-                            interaction="click"
-                        >
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    if (dashboardMode === DashboardMode.Edit) {
-                                        setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
-                                    } else {
-                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                                    }
-                                }}
-                                menuItem
-                                active={dashboardMode === DashboardMode.Edit}
-                                data-attr={`${RESOURCE_TYPE}-edit-layout`}
-                                tooltip="Toggle edit mode"
-                                tooltipPlacement="left"
+                        <>
+                            {hasDashboardColors && (
+                                <ButtonPrimitive
+                                    onClick={() => showInsightColorsModal(dashboard.id)}
+                                    menuItem
+                                    data-attr={`${RESOURCE_TYPE}-customize-colors`}
+                                >
+                                    <IconPalette />
+                                    Customize colors
+                                </ButtonPrimitive>
+                            )}
+                            <AppShortcut
+                                name="ToggleEditMode"
+                                scope={Scene.Dashboard}
+                                keybind={[keyBinds.edit]}
+                                intent="Toggle edit mode"
+                                interaction="click"
                             >
-                                <IconGridMasonry />
-                                Edit layout
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        if (dashboardMode === DashboardMode.Edit) {
+                                            setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
+                                        } else {
+                                            setDashboardMode(
+                                                DashboardMode.Edit,
+                                                DashboardEventSource.SceneCommonButtons
+                                            )
+                                            closeSidePanel()
+                                        }
+                                    }}
+                                    menuItem
+                                    active={dashboardMode === DashboardMode.Edit}
+                                    data-attr={`${RESOURCE_TYPE}-edit-layout`}
+                                    tooltip="Toggle edit mode"
+                                    tooltipPlacement="left"
+                                >
+                                    <IconGridMasonry />
+                                    {currentLayoutSize === 'xs' ? 'Edit dashboard' : 'Edit layout'}
+                                </ButtonPrimitive>
+                            </AppShortcut>
+                            <ButtonPrimitive
+                                onClick={() => createNotebookFromDashboard(dashboard)}
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-create-notebook-from-dashboard`}
+                            >
+                                <IconNotebook />
+                                Create notebook from dashboard
                             </ButtonPrimitive>
-                        </AppShortcut>
-                    )}
-
-                    {dashboard && canEditDashboard && (
-                        <ButtonPrimitive
-                            onClick={() => createNotebookFromDashboard(dashboard)}
-                            menuItem
-                            data-attr={`${RESOURCE_TYPE}-create-notebook-from-dashboard`}
-                        >
-                            <IconNotebook />
-                            Create notebook from dashboard
-                        </ButtonPrimitive>
-                    )}
-
-                    {dashboard && canEditDashboard && (
-                        <SceneSubscribeButton dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
-                    )}
-
-                    {dashboard && canEditDashboard && (
-                        <SceneExportDropdownMenu
-                            dropdownMenuItems={[
-                                {
-                                    format: ExporterFormat.PNG,
-                                    dashboard: dashboard.id,
-                                    context: {
-                                        path: apiUrl(),
+                            <SceneSubscribeButton dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
+                            <SceneExportDropdownMenu
+                                dropdownMenuItems={[
+                                    {
+                                        format: ExporterFormat.PNG,
+                                        dashboard: dashboard.id,
+                                        context: {
+                                            path: apiUrl(),
+                                        },
+                                        dataAttr: `${RESOURCE_TYPE}-export-png`,
                                     },
-                                    dataAttr: `${RESOURCE_TYPE}-export-png`,
-                                },
-                                ...(user?.is_staff
-                                    ? [
-                                          {
-                                              format: ExporterFormat.JSON,
-                                              context: {
-                                                  localData: JSON.stringify(asDashboardTemplate),
-                                                  filename: `dashboard-${slugify(
-                                                      dashboard?.name || 'nameless dashboard'
-                                                  )}.json`,
-                                                  mediaType: ExporterFormat.JSON,
+                                    ...(user?.is_staff
+                                        ? [
+                                              {
+                                                  format: ExporterFormat.JSON,
+                                                  context: {
+                                                      localData: JSON.stringify(asDashboardTemplate),
+                                                      filename: `dashboard-${slugify(
+                                                          dashboard?.name || 'nameless dashboard'
+                                                      )}.json`,
+                                                      mediaType: ExporterFormat.JSON,
+                                                  },
+                                                  dataAttr: `${RESOURCE_TYPE}-export-json`,
                                               },
-                                              dataAttr: `${RESOURCE_TYPE}-export-json`,
-                                          },
-                                      ]
-                                    : []),
-                            ]}
-                        />
+                                          ]
+                                        : []),
+                                ]}
+                            />
+                        </>
                     )}
 
                     {dashboard && (
@@ -531,7 +428,7 @@ export function DashboardHeader(): JSX.Element | null {
                             </LemonButton>
                         ) : (
                             <>
-                                {dashboard && (
+                                {dashboard ? (
                                     <>
                                         <LemonButton
                                             type="secondary"
@@ -539,29 +436,9 @@ export function DashboardHeader(): JSX.Element | null {
                                             onClick={() => push(urls.dashboardSharing(dashboard.id))}
                                             size="small"
                                             icon={<IconShare fontSize="16" />}
-                                            tooltip="Share"
-                                            tooltipPlacement="top"
-                                        />
-                                        {canEditDashboard && hasTileRedesign && (
-                                            <LemonButton
-                                                type="secondary"
-                                                data-attr="dashboard-edit-mode-button"
-                                                onClick={() =>
-                                                    setDashboardMode(
-                                                        DashboardMode.Edit,
-                                                        DashboardEventSource.SceneCommonButtons
-                                                    )
-                                                }
-                                                size="small"
-                                                icon={<IconPencil fontSize="16" />}
-                                                tooltip="Edit layout"
-                                                tooltipPlacement="top"
-                                            />
-                                        )}
-                                    </>
-                                )}
-                                {dashboard ? (
-                                    <>
+                                        >
+                                            Share
+                                        </LemonButton>
                                         <AccessControlAction
                                             resourceType={AccessControlResourceType.Dashboard}
                                             minAccessLevel={AccessControlLevel.Editor}
@@ -585,10 +462,40 @@ export function DashboardHeader(): JSX.Element | null {
                                                     tooltipPlacement="top"
                                                     icon={<IconPlusSmall />}
                                                 >
-                                                    Text card
+                                                    <div>
+                                                        Text <span className="hidden md:inline-flex"> card</span>
+                                                    </div>
                                                 </LemonButton>
                                             </AppShortcut>
                                         </AccessControlAction>
+                                        {canEditDashboard && hasTileRedesign && (
+                                            <AppShortcut
+                                                name="EnterEditMode"
+                                                scope={Scene.Dashboard}
+                                                keybind={[keyBinds.edit]}
+                                                intent="Enter edit mode"
+                                                interaction="click"
+                                            >
+                                                <LemonButton
+                                                    type="secondary"
+                                                    data-attr="dashboard-edit-mode-button"
+                                                    onClick={() =>
+                                                        setDashboardMode(
+                                                            DashboardMode.Edit,
+                                                            DashboardEventSource.SceneCommonButtons
+                                                        )
+                                                    }
+                                                    size="small"
+                                                    icon={<IconPencil fontSize="16" />}
+                                                    tooltip="Edit layout"
+                                                    tooltipPlacement="top"
+                                                >
+                                                    <div>
+                                                        Edit <span className="hidden md:inline-flex"> layout</span>
+                                                    </div>
+                                                </LemonButton>
+                                            </AppShortcut>
+                                        )}
                                         <MaxTool
                                             identifier="upsert_dashboard"
                                             context={{

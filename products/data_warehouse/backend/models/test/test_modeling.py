@@ -60,6 +60,64 @@ GET_PARENTS_TEST_CASES = [
             """,
         {"events"},
     ),
+    # CTE used in a JOIN - should resolve through the CTE to find actual parents
+    (
+        """
+            WITH cte AS (SELECT event, person_id FROM events GROUP BY event, person_id)
+            SELECT p.id, c.event
+            FROM persons p
+            JOIN cte c ON p.id = c.person_id
+            """,
+        {"events", "persons"},
+    ),
+    # nested CTEs: a top-level CTE whose inner query defines its own CTEs used in a JOIN
+    (
+        """
+            WITH outer_cte AS (
+                WITH inner_data AS (
+                    SELECT event, person_id FROM events GROUP BY event, person_id
+                ),
+                inner_agg AS (
+                    SELECT person_id, count() AS cnt FROM inner_data GROUP BY person_id
+                )
+                SELECT p.id, ia.cnt
+                FROM persons p
+                JOIN inner_agg ia ON p.id = ia.person_id
+            )
+            SELECT * FROM outer_cte
+        """,
+        {"events", "persons"},
+    ),
+    # nested CTEs where an inner CTE shadows an outer CTE name
+    (
+        """
+            WITH cte AS (
+                WITH cte AS (
+                    SELECT event, person_id FROM events GROUP BY event, person_id
+                ),
+                agg AS (
+                    SELECT person_id, count() AS cnt FROM cte GROUP BY person_id
+                )
+                SELECT p.id, a.cnt
+                FROM persons p
+                JOIN agg a ON p.id = a.person_id
+            )
+            SELECT * FROM cte
+        """,
+        {"events", "persons"},
+    ),
+    # recursive CTE: self-referencing CTE should not cause infinite loop
+    (
+        """
+            WITH RECURSIVE cte AS (
+                SELECT 1 AS n
+                UNION ALL
+                SELECT n + 1 FROM cte WHERE n < 10
+            )
+            SELECT * FROM cte
+        """,
+        set(),
+    ),
 ]
 
 

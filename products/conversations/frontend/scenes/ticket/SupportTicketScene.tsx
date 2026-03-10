@@ -1,15 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconAI, IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -20,12 +24,14 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../..
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { SlaDisplay } from '../../components/SlaDisplay'
+import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+import { TicketActivityPanel } from './TicketActivityPanel'
 
 export const scene: SceneExport<{ ticketId: string }> = {
     component: SupportTicketScene,
@@ -42,6 +48,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         status,
         priority,
         assignee,
+        tags,
         chatMessages,
         messagesLoading,
         messageSending,
@@ -55,17 +62,33 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
         draftContent,
         draftIsPrivate,
+        suggesting,
     } = useValues(logic)
     const {
         setStatus,
         setPriority,
         setAssignee,
+        setTags,
         sendMessage,
         updateTicket,
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
+        suggestReply,
     } = useActions(logic)
+
+    const aiSuggestionEnabled = useFeatureFlag('PRODUCT_SUPPORT_AI_SUGGESTION')
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { preflight } = useValues(preflightLogic)
+    const aiAvailable = preflight?.openai_available
+
+    const aiDisabledReason = !aiAvailable
+        ? 'AI features are not available on this instance'
+        : !dataProcessingAccepted
+          ? dataProcessingApprovalDisabledReason || 'AI data processing must be approved for your organization'
+          : suggesting
+            ? 'Generating suggestion...'
+            : null
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -140,6 +163,22 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
+                        extraActions={
+                            aiSuggestionEnabled ? (
+                                <AIConsentPopoverWrapper>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconAI />}
+                                        onClick={suggestReply}
+                                        loading={suggesting}
+                                        disabledReason={aiDisabledReason}
+                                    >
+                                        Suggest reply
+                                    </LemonButton>
+                                </AIConsentPopoverWrapper>
+                            ) : undefined
+                        }
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />
@@ -288,6 +327,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <SlaDisplay slaDueAt={ticket.sla_due_at} />
                                 </div>
                             )}
+                            <div className="flex justify-between items-center">
+                                <span className="text-muted-alt">Tags</span>
+                                <TicketTags tags={tags} onChange={setTags} saving={false} />
+                            </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
                             <LemonButton
@@ -300,6 +343,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </LemonButton>
                         </div>
                     </LemonCard>
+
+                    {/* Activity History Panel */}
+                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

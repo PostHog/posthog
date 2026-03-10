@@ -1,3 +1,5 @@
+import './LiveEventsTable.scss'
+
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -159,7 +161,7 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
             </div>
             <LemonTable
-                className="table-fixed"
+                className="LiveEventsTable__table"
                 columns={columns}
                 data-attr="live-events-table"
                 rowKey="uuid"

@@ -13,7 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/events"
-	"github.com/redis/go-redis/v9"
+	"github.com/redis/rueidis"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -169,8 +169,12 @@ func TestStatsHandler_ReadsFromRedis(t *testing.T) {
 	apiToken := "phx_test_token"
 
 	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = client.Close() })
+	client, err := rueidis.NewClient(rueidis.ClientOption{
+		InitAddress:  []string{mr.Addr()},
+		DisableCache: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
 	rw := events.NewStatsInRedisFromClient(client)
 
 	ctx := context.Background()
@@ -194,7 +198,7 @@ func TestStatsHandler_ReadsFromRedis(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	err := handler(c)
+	err = handler(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 

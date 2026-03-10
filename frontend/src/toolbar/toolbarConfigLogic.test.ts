@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from '~/toolbar/utils'
+import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
     Promise.resolve({
@@ -12,12 +12,27 @@ global.fetch = jest.fn(() =>
     } as any as Response)
 )
 
+/** Mock fetch so the HEAD check succeeds and then the token exchange succeeds. */
+function mockTokenExchangeSuccess(): void {
+    ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+        if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+            return Promise.resolve({ ok: true, status: 200 })
+        }
+        return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
+        })
+    })
+}
+
 describe('toolbar toolbarConfigLogic', () => {
     let mockOpen: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         localStorage.clear()
+        sessionStorage.clear()
         ;(global.fetch as jest.Mock).mockClear()
         mockOpen = jest.spyOn(window, 'open').mockReturnValue({} as Window)
     })
@@ -97,11 +112,61 @@ describe('toolbar toolbarConfigLogic', () => {
 
     it('normalizes uiHost to not end with a slash', () => {
         const logic = toolbarConfigLogic.build({
-            posthog: { config: { ui_host: 'https://us.posthog.com/' } } as any,
+            posthog: { config: { ui_host: 'https://selfhosted.example.com/' } } as any,
         } as any)
         logic.mount()
-        expect(logic.values.uiHost.endsWith('/')).toBe(false)
-        expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
+    })
+
+    describe('uiHost resolution', () => {
+        it('prefers explicit uiHost prop over everything else', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                posthog: { requestRouter: { uiHost: 'https://should-not-be-used.com' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        })
+
+        it.each([
+            ['https://us.posthog.com', 'https://us.posthog.com'],
+            ['https://eu.posthog.com', 'https://eu.posthog.com'],
+        ])('uses requestRouter.uiHost when no explicit uiHost prop', (requestRouterUiHost, expected) => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://should-not-be-used',
+                posthog: { requestRouter: { uiHost: requestRouterUiHost }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe(expected)
+        })
+
+        it('uses requestRouter.uiHost even when apiURL is a reverse proxy', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://myproxy.example.com/ingest',
+                posthog: { requestRouter: { uiHost: 'https://us.posthog.com' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to ui_host config when no requestRouter', () => {
+            const logic = toolbarConfigLogic.build({
+                posthog: {
+                    config: { ui_host: 'https://my-posthog.example.com' },
+                } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://my-posthog.example.com')
+        })
+
+        it('falls back to apiURL when no requestRouter and no ui_host', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://selfhosted.example.com',
+                posthog: { config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
+        })
     })
 
     describe('OAuth localStorage restoration', () => {
@@ -217,6 +282,7 @@ describe('toolbar toolbarConfigLogic', () => {
                 clientId: 'client-id',
             })
             logic.mount()
+            ;(global.fetch as jest.Mock).mockClear() // clear the uiHost check call from afterMount
             ;(global.fetch as jest.Mock).mockImplementation(() =>
                 Promise.resolve({
                     ok: true,
@@ -239,12 +305,12 @@ describe('toolbar toolbarConfigLogic', () => {
 
         beforeEach(() => {
             replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
-            sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier: 'test-verifier', ts: Date.now() }))
+            const pkcePayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() })
+            localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
         })
 
         afterEach(() => {
             replaceStateSpy.mockRestore()
-            sessionStorage.clear()
             window.history.pushState({}, '', '/')
         })
 
@@ -268,6 +334,139 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
 
             expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
+        })
+
+        it('uses uiHost-derived URLs for token exchange', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { ui_host: 'https://us.posthog.com' } } as any,
+            } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'new-access',
+                isAuthenticated: true,
+            })
+
+            // [0] = HEAD check, [1] = token exchange
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe('https://us.posthog.com/toolbar_oauth/check')
+            const fetchCall = (global.fetch as jest.Mock).mock.calls[1]
+            expect(fetchCall[0]).toBe('https://us.posthog.com/oauth/token/')
+            const body = new URLSearchParams(fetchCall[1].body)
+            expect(body.get('redirect_uri')).toBe('https://us.posthog.com/toolbar_oauth/callback')
+        })
+
+        it('does not trigger temporaryToken migration during code exchange', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                temporaryToken: 'old-temp-token',
+            })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toNotHaveDispatchedActions(['tokenExpired'])
+        })
+
+        it('cleans up localStorage PKCE key after exchange', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            // Wait for HEAD check + token exchange to complete
+            await expectLogic(logic).delay(0)
+
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+
+        it('aborts token exchange when PKCE verifier has expired', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            const expiredPayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() - 11 * 60 * 1000 })
+            localStorage.setItem(PKCE_STORAGE_KEY, expiredPayload)
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: PKCE verifier expired')
+            // HEAD check fires but token exchange does not
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
+            warnSpy.mockRestore()
+        })
+
+        it('aborts token exchange when PKCE data is corrupted', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(PKCE_STORAGE_KEY, 'not-valid-json{{{')
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
+            // HEAD check fires but token exchange does not
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
+            warnSpy.mockRestore()
+        })
+
+        it('aborts token exchange when no PKCE data exists', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.removeItem(PKCE_STORAGE_KEY)
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            expect(warnSpy).toHaveBeenCalledWith('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
+            // HEAD check fires but token exchange does not
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
+            warnSpy.mockRestore()
+        })
+    })
+
+    describe('cleanToolbarAuthHash', () => {
+        let replaceStateSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            replaceStateSpy.mockRestore()
+            window.history.pushState({}, '', '/')
+        })
+
+        it('returns code and clientId from hash', () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            const result = cleanToolbarAuthHash()
+            expect(result).toEqual({ code: 'abc', clientId: 'xyz' })
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
+        })
+
+        it('returns null when hash does not match', () => {
+            window.history.pushState({}, '', '/#some-other-hash')
+            const result = cleanToolbarAuthHash()
+            expect(result).toBeNull()
+            expect(replaceStateSpy).not.toHaveBeenCalled()
         })
     })
 })

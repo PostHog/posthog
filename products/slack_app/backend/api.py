@@ -39,6 +39,7 @@ from posthog.temporal.ai.twig_slack_interactivity import TwigSlackInteractivityI
 from posthog.temporal.ai.twig_slack_mention import TwigSlackMentionWorkflow, TwigSlackMentionWorkflowInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_instance_region
 
 from ee.models.assistant import Conversation
 
@@ -57,6 +58,15 @@ SLACK_USER_INFO_CACHE_TTL_SECONDS = 600
 
 _GITHUB_REPOS_PER_PAGE = 100
 _MAX_GITHUB_REPOS = 500
+REPO_LIST_CACHE_TTL_SECONDS = 300
+
+
+def _repo_list_cache_key(team_id: int) -> str:
+    return f"twig:repo_list:v1:{team_id}"
+
+
+def _invalidate_repo_list_cache(team_id: int) -> None:
+    cache.delete(_repo_list_cache_key(team_id))
 
 
 @dataclass
@@ -223,6 +233,10 @@ def resolve_slack_user(
                 prefer_thread_message=True,
             )
             return None
+
+        if get_instance_region() == "DEV":
+            # Dev region override for testing on any workspace (for Slack review team)
+            slack_email = "twixes3d+slacktest@gmail.com"
 
         # Trust model: Slack signature validation proves the payload is authentic.
         # The email comes from Slack's `users.info` API via `users:read.email` scope, not from
@@ -739,6 +753,14 @@ def _post_repo_picker_message(
         },
     )
 
+    # Pre-warm the repo list cache so the external_select options request
+    # is served from cache rather than hitting the GitHub API inline.
+    # Non-fatal: the dropdown will still work, it will just fetch on demand.
+    try:
+        _get_full_repo_names(integration)
+    except Exception:
+        logger.warning("repo_list_prewarm_failed", team_id=integration.team_id, exc_info=True)
+
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     """Extract an explicit org/repo token from message text, if it matches connected repos."""
@@ -806,34 +828,45 @@ def _collect_thread_messages(
 
 def _get_full_repo_names(integration: Integration) -> list[str]:
     """Return canonical org/repo names across all GitHub integrations for the team, or [] if unavailable."""
+    cache_key = _repo_list_cache_key(integration.team_id)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     github_records = Integration.objects.filter(team=integration.team, kind="github")
     if not github_records.exists():
+        cache.set(cache_key, [], timeout=REPO_LIST_CACHE_TTL_SECONDS)
         return []
 
     all_repos: set[str] = set()
 
     for record in github_records:
         github = GitHubIntegration(record)
-        org = github.organization()
 
         page = 1
         while True:
-            repo_names = github.list_repositories(page=page)
-            for name in repo_names:
-                all_repos.add(f"{org}/{name}")
+            repo_entries = github.list_repositories(page=page)
+            for repo in repo_entries:
+                full_name = repo["full_name"]
+                all_repos.add(full_name)
                 if len(all_repos) >= _MAX_GITHUB_REPOS:
                     logger.warning(
                         "github_repo_list_capped",
                         team_id=integration.team_id,
                         cap=_MAX_GITHUB_REPOS,
                     )
-                    return sorted(all_repos)
+                    result = sorted(all_repos)
+                    cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
+                    return result
 
-            if len(repo_names) < _GITHUB_REPOS_PER_PAGE:
+            if len(repo_entries) < _GITHUB_REPOS_PER_PAGE:
                 break
             page += 1
 
-    return sorted(all_repos)
+    result = sorted(all_repos)
+    if result:
+        cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
+    return result
 
 
 def select_repository(
@@ -915,7 +948,7 @@ def _match_repo_rule(
     try:
         from posthog.llm.gateway_client import get_llm_client
 
-        client = get_llm_client("twig")
+        client = get_llm_client("slack-twig")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],
@@ -1206,7 +1239,12 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         logger.info("twig_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
 
-    all_repos = _get_full_repo_names(integration)
+    try:
+        all_repos = _get_full_repo_names(integration)
+    except Exception:
+        logger.exception("twig_repo_picker_options_repo_fetch_error", integration_id=integration.id)
+        return JsonResponse({"options": []})
+
     if not all_repos:
         logger.info("twig_repo_picker_options_no_repos", context_token=context_token, integration_id=integration.id)
         return JsonResponse({"options": []})
