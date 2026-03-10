@@ -1,59 +1,17 @@
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from posthog.temporal.health_checks.framework import HealthCheckRegistration
 
-from posthog.models.health_issue import HealthIssue
+from posthog.dags.common.health.types import BatchResult, HealthCheckResult
 
-BatchDetectFn = Callable[[list[int]], dict[int, list["HealthCheckResult"]]]
+BatchDetectFn = Callable[[list[int]], dict[int, list[HealthCheckResult]]]
 
-
-@dataclass
-class HealthCheckResult:
-    severity: HealthIssue.Severity
-    payload: dict[str, Any]
-    hash_keys: list[str] | None = None
-
-    def __post_init__(self) -> None:
-        valid = set(HealthIssue.Severity.values)
-        if self.severity not in valid:
-            raise ValueError(f"Invalid severity '{self.severity}', must be one of: {', '.join(sorted(valid))}")
-
-
-@dataclass
-class BatchResult:
-    batch_size: int = 0
-    issues_upserted: int = 0
-    issues_resolved: int = 0
-    teams_with_issues: int = 0
-    teams_healthy: int = 0
-    teams_failed: int = 0
-    teams_skipped: int = 0
-    detect_duration: float = 0.0
-    db_write_duration: float = 0.0
-    resolve_duration: float = 0.0
-
-    @property
-    def total_duration(self) -> float:
-        return self.detect_duration + self.db_write_duration + self.resolve_duration
-
-    @property
-    def teams_per_second(self) -> float:
-        return self.batch_size / self.total_duration if self.total_duration > 0 else 0
-
-    @property
-    def not_processed_rate(self) -> float:
-        return (self.teams_failed + self.teams_skipped) / self.batch_size if self.batch_size > 0 else 0
-
-    def __iadd__(self, other: BatchResult) -> BatchResult:
-        for f in dataclasses.fields(self):
-            setattr(self, f.name, getattr(self, f.name) + getattr(other, f.name))
-        return self
+__all__ = ["BatchDetectFn", "BatchResult", "HealthCheckResult"]
 
 
 @dataclass
