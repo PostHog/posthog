@@ -390,12 +390,6 @@ def sync_old_schemas_with_new_schemas(
     team_id: int,
     descriptions: dict[str, str | None] | None = None,
 ) -> tuple[list[str], list[str]]:
-<<<<<<< HEAD
-    new_schema_names = list(new_schemas.keys())
-
-    old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
-    old_schemas_names = [schema.name for schema in old_schemas]
-=======
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
 
     # Rename schemas matched by stable identity before name-based diffing
@@ -403,7 +397,6 @@ def sync_old_schemas_with_new_schemas(
 
     new_schema_names = new_schemas.keys()
     old_schemas_names = {schema.name for schema in old_schemas}
->>>>>>> e950c060387 (fix)
 
     if descriptions:
         for old_schema in old_schemas:
