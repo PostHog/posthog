@@ -64,14 +64,14 @@ export type NotebookLogicProps = {
     canvasFiltersOverride?: AnyPropertyFilter[]
 }
 
-async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
+async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any | null> {
     const maxWaitMs = 5000
     const startTime = Date.now()
 
     while (!waitForEditor()) {
         if (Date.now() - startTime > maxWaitMs) {
             console.warn('Notebook editor not ready after timeout')
-            return
+            return null
         }
         await new Promise((resolve) => setTimeout(resolve, 10))
     }
@@ -670,17 +670,39 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
             }
 
+            let inserted = false
+
             if (insertionPosition !== null && values.editor) {
                 try {
                     values.editor.insertContentAt(insertionPosition, content)
+                    inserted = true
                 } catch (e) {
                     console.warn('Failed to insert at position, appending to end instead', e)
-                    actions.insertAfterLastNode(content)
                 }
-            } else {
-                actions.insertAfterLastNode(content)
             }
-            lemonToast.success('Insight added to notebook')
+
+            if (!inserted) {
+                const result = await runWhenEditorIsReady(
+                    () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                    () => {
+                        let pos = 0
+                        let nextNode = values.editor?.nextNode(pos)
+                        while (nextNode) {
+                            pos = nextNode.position
+                            nextNode = values.editor?.nextNode(pos)
+                        }
+                        values.editor?.insertContentAfterNode(pos, content)
+                        return true
+                    }
+                )
+                inserted = result === true
+            }
+
+            if (inserted) {
+                lemonToast.success('Insight added to notebook')
+            } else {
+                lemonToast.warning('Could not add insight to notebook')
+            }
         },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (

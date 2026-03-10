@@ -54,14 +54,19 @@ export const openNotebook = async (
         // and called onOpen immediately, but async listeners (like
         // insertAfterLastNode) were killed when we unmounted the temporary
         // instance before they could complete.
+        let called = false
         const startTime = Date.now()
         while (Date.now() - startTime < 5000) {
             const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
             if (mountedLogic) {
                 onOpen(mountedLogic)
+                called = true
                 break
             }
             await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        if (!called) {
+            console.warn('openNotebook: timed out waiting for logic to mount', notebookId)
         }
     }
 }
