@@ -10,6 +10,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v1 import ErrorTrackingQueryV1Builder
@@ -46,6 +47,12 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False
 
+    @cached_property
+    def _builder(self) -> ErrorTrackingQueryV1Builder | ErrorTrackingQueryV2Builder:
+        if self.query.useQueryV2:
+            return ErrorTrackingQueryV2Builder(self.query, self.date_from, self.date_to)
+        return ErrorTrackingQueryV1Builder(self.query, self.team, self.date_from, self.date_to)
+
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["error_tracking_cache_version"] = self.CACHE_VERSION
@@ -66,34 +73,25 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         return relative_date_parse(date, ZoneInfo("UTC"), increase=True)
 
     def to_query(self) -> ast.SelectQuery:
-        if self.query.useQueryV2:
-            return ErrorTrackingQueryV2Builder(self.query, self.date_from, self.date_to).build_query()
-        return ErrorTrackingQueryV1Builder(self.query, self.team, self.date_from, self.date_to).build_query()
+        return self._builder.build_query()
 
     def _calculate(self):
-        if self.query.useQueryV2:
-            builder: ErrorTrackingQueryV1Builder | ErrorTrackingQueryV2Builder = ErrorTrackingQueryV2Builder(
-                self.query, self.date_from, self.date_to
-            )
-        else:
-            builder = ErrorTrackingQueryV1Builder(self.query, self.team, self.date_from, self.date_to)
-
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
-                query=builder.build_query(),
+                query=self._builder.build_query(),
                 team=self.team,
                 query_type="ErrorTrackingQuery",
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
-                filters=builder.hogql_filters(),
+                filters=self._builder.hogql_filters(),
             )
 
         columns: list[str] = query_result.columns or []
 
         return ErrorTrackingQueryResponse(
             columns=columns,
-            results=builder.process_results(columns, query_result.results),
+            results=self._builder.process_results(columns, query_result.results),
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
