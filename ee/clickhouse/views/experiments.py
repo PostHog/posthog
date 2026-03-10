@@ -23,13 +23,7 @@ from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import (
-    Experiment,
-    ExperimentHoldout,
-    ExperimentMetricResult,
-    ExperimentSavedMetric,
-    ExperimentTimeseriesRecalculation,
-)
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
