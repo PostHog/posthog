@@ -918,16 +918,6 @@ class TestExperimentService(APIBaseTest):
         experiment.refresh_from_db()
         assert experiment.exposure_cohort_id == cohort.id
 
-    def test_create_exposure_cohort_without_start_date_raises_before_flag_check(self):
-        self._create_flag(key="cohort-no-flag-test")
-        service = self._service()
-        experiment = service.create_experiment(name="No Start", feature_flag_key="cohort-no-flag-test")
-
-        with self.assertRaises(ValidationError) as ctx:
-            service.create_exposure_cohort(experiment)
-
-        assert "does not have a start date" in str(ctx.exception)
-
     def test_create_exposure_cohort_without_start_date_raises(self):
         self._create_flag(key="cohort-no-start")
         service = self._service()
