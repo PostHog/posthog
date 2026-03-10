@@ -6,6 +6,8 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import (
+    BooleanField,
+    Case,
     CharField,
     Count,
     DateTimeField,
@@ -17,6 +19,7 @@ from django.db.models import (
     Q,
     QuerySet,
     Value,
+    When,
 )
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
@@ -69,6 +72,7 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from posthog.tasks.migrate_favorites import migrate_user_favorites
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
@@ -777,14 +781,36 @@ class DashboardsViewSet(
                 )
             )
             if self.request.user.is_authenticated:
-                tiles_prefetch_queryset = tiles_prefetch_queryset.annotate(
-                    insight_is_favorited=Exists(
-                        InsightFavorite.objects.filter(
-                            user=self.request.user,
-                            insight_id=OuterRef("insight_id"),
+                if self.request.user.favorites_migrated_at:
+                    tiles_prefetch_queryset = tiles_prefetch_queryset.annotate(
+                        insight_is_favorited=Exists(
+                            InsightFavorite.objects.filter(
+                                user=self.request.user,
+                                insight_id=OuterRef("insight_id"),
+                            )
                         )
                     )
-                )
+                else:
+                    migrate_user_favorites.delay(self.request.user.id)
+
+                    tiles_prefetch_queryset = tiles_prefetch_queryset.annotate(
+                        insight_is_favorited=Case(
+                            When(
+                                Q(insight__favorited=True)
+                                | Q(
+                                    Exists(
+                                        InsightFavorite.objects.filter(
+                                            user=self.request.user,
+                                            insight_id=OuterRef("insight_id"),
+                                        )
+                                    )
+                                ),
+                                then=Value(True),
+                            ),
+                            default=Value(False),
+                            output_field=BooleanField(),
+                        )
+                    )
             try:
                 dashboard_id = self.kwargs["pk"]
                 tiles_prefetch_queryset = tiles_prefetch_queryset.filter(dashboard_id=dashboard_id)

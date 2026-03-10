@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Any, Union, cast
 
 from django.db import transaction
-from django.db.models import Count, F, Max, Prefetch, QuerySet
+from django.db.models import BooleanField, Case, Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Value, When
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -87,7 +87,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightFavorite, InsightViewed
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
@@ -107,6 +107,7 @@ from posthog.rbac.user_access_control import UserAccessControlError, UserAccessC
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
+from posthog.tasks.migrate_favorites import migrate_user_favorites
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     filters_override_requested_by_client,
@@ -122,31 +123,6 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
-
-
-def migrate_user_favorites(user: User) -> None:
-    """
-    Lazily migrates org-level favorited insights (Insight.favorited=True) to per-user
-    InsightFavorite records. Called once per user on their first insight API request after
-    the migration is deployed. This avoids a bulk data migration that would be too expensive
-    to run on prod at deploy time.
-    """
-    org_ids = OrganizationMembership.objects.filter(user=user).values_list("organization_id", flat=True)
-    team_ids = Team.objects.filter(organization_id__in=org_ids).values_list("id", flat=True)
-
-    global_favorites = Insight.objects_including_soft_deleted.filter(
-        team_id__in=team_ids,
-        favorited=True,
-        deleted=False,
-    ).values_list("id", "team_id")
-
-    new_favorites = [
-        InsightFavorite(user=user, insight_id=insight_id, team_id=team_id) for insight_id, team_id in global_favorites
-    ]
-    InsightFavorite.objects.bulk_create(new_favorites, ignore_conflicts=True)
-
-    user.favorites_migrated_at = now()
-    user.save(update_fields=["favorites_migrated_at"])
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -327,9 +303,16 @@ class InsightBasicSerializer(
         if hasattr(instance, "is_favorited"):
             representation["favorited"] = instance.is_favorited
         elif "request" in self.context and not self.context["request"].user.is_anonymous:
-            representation["favorited"] = InsightFavorite.objects.filter(
-                user=self.context["request"].user, insight=instance, team=instance.team
-            ).exists()
+            user = self.context["request"].user
+            if user.favorites_migrated_at:
+                representation["favorited"] = InsightFavorite.objects.filter(
+                    user=user, insight=instance, team=instance.team
+                ).exists()
+            else:
+                representation["favorited"] = (
+                    instance.favorited
+                    or InsightFavorite.objects.filter(user=user, insight=instance, team=instance.team).exists()
+                )
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
@@ -1101,23 +1084,39 @@ class InsightViewSet(
         if not self.request.user.is_anonymous:
             # One-time lazy migration: copy org-level Insight.favorited=True into per-user InsightFavorite rows
             if not self.request.user.favorites_migrated_at:
-                with transaction.atomic():
-                    user = User.objects.select_for_update().get(pk=self.request.user.pk)
-                    if not user.favorites_migrated_at:
-                        migrate_user_favorites(user)
+                migrate_user_favorites.delay(self.request.user.id)
 
-            # Annotate each insight with whether the current user has favorited it
-            from django.db.models import Exists, OuterRef
-
-            queryset = queryset.annotate(
-                is_favorited=Exists(
-                    InsightFavorite.objects.filter(
-                        insight=OuterRef("pk"),
-                        user=self.request.user,
-                        team=self.team,
+                # Fallback: check both legacy and new favorites
+                queryset = queryset.annotate(
+                    is_favorited=Case(
+                        When(
+                            Q(favorited=True)
+                            | Q(
+                                Exists(
+                                    InsightFavorite.objects.filter(
+                                        insight=OuterRef("pk"),
+                                        user=self.request.user,
+                                        team=self.team,
+                                    )
+                                )
+                            ),
+                            then=Value(True),
+                        ),
+                        default=Value(False),
+                        output_field=BooleanField(),
                     )
                 )
-            )
+            else:
+                # Annotate each insight with whether the current user has favorited it
+                queryset = queryset.annotate(
+                    is_favorited=Exists(
+                        InsightFavorite.objects.filter(
+                            insight=OuterRef("pk"),
+                            user=self.request.user,
+                            team=self.team,
+                        )
+                    )
+                )
 
         include_deleted = False
 
@@ -1284,11 +1283,21 @@ class InsightViewSet(
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 if not request.user.is_anonymous:
-                    queryset = queryset.filter(
-                        id__in=InsightFavorite.objects.filter(user=request.user, team=self.team).values_list(
-                            "insight_id", flat=True
+                    if request.user.favorites_migrated_at:
+                        queryset = queryset.filter(
+                            id__in=InsightFavorite.objects.filter(user=request.user, team=self.team).values_list(
+                                "insight_id", flat=True
+                            )
                         )
-                    )
+                    else:
+                        queryset = queryset.filter(
+                            Q(favorited=True)
+                            | Q(
+                                id__in=InsightFavorite.objects.filter(user=request.user, team=self.team).values_list(
+                                    "insight_id", flat=True
+                                )
+                            )
+                        )
                 else:
                     # Anonymous users (e.g. shared access tokens) fall back to the legacy field
                     queryset = queryset.filter(Q(favorited=True))
