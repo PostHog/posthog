@@ -1096,7 +1096,6 @@ class InsightViewSet(
                                     InsightFavorite.objects.filter(
                                         insight=OuterRef("pk"),
                                         user=self.request.user,
-                                        team=self.team,
                                     )
                                 )
                             ),
@@ -1113,7 +1112,6 @@ class InsightViewSet(
                         InsightFavorite.objects.filter(
                             insight=OuterRef("pk"),
                             user=self.request.user,
-                            team=self.team,
                         )
                     )
                 )
@@ -1285,17 +1283,17 @@ class InsightViewSet(
                 if not request.user.is_anonymous:
                     if request.user.favorites_migrated_at:
                         queryset = queryset.filter(
-                            id__in=InsightFavorite.objects.filter(user=request.user, team=self.team).values_list(
-                                "insight_id", flat=True
-                            )
+                            id__in=InsightFavorite.objects.filter(
+                                user=request.user, team__project_id=self.team.project_id
+                            ).values_list("insight_id", flat=True)
                         )
                     else:
                         queryset = queryset.filter(
                             Q(favorited=True)
                             | Q(
-                                id__in=InsightFavorite.objects.filter(user=request.user, team=self.team).values_list(
-                                    "insight_id", flat=True
-                                )
+                                id__in=InsightFavorite.objects.filter(
+                                    user=request.user, team__project_id=self.team.project_id
+                                ).values_list("insight_id", flat=True)
                             )
                         )
                 else:
