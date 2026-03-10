@@ -81,4 +81,14 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             f"/api/agentic/provisioning/resources/{self.team.id}",
             token=token,
         )
-        assert res.json()["service_id"] == "product_analytics"
+        assert res.json()["service_id"] == "posthog"
+
+    def test_create_resource_defaults_service_id_to_posthog(self):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={},
+            token=token,
+        )
+        assert res.status_code == 200
+        assert res.json()["service_id"] == "posthog"

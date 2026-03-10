@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import override_settings
 
 from posthog.models.oauth import OAuthAccessToken
@@ -72,3 +74,22 @@ class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
             token=token,
         )
         assert res.json()["service_id"] == "session_replay"
+
+    def test_rotate_defaults_service_id_to_posthog(self):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
+            token=token,
+        )
+        assert res.status_code == 200
+        assert res.json()["service_id"] == "posthog"
+
+    @patch("posthog.models.team.team.Team.reset_token_and_save", side_effect=Exception("db error"))
+    def test_rotate_returns_500_when_reset_token_fails(self, _mock_reset):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
+            token=token,
+        )
+        assert res.status_code == 500
+        assert res.json()["error"]["code"] == "credential_rotation_failed"
