@@ -148,8 +148,8 @@ bin/hobby-installer-*
 bin/hobby-installer/hobby-installer
 bin/hobby-installer/hobby-installer.log
 
-# hogprocs binary — built from common/hogprocs/ via `hogli hogprocs:build` or on first `hogli start`
-bin/hogprocs
+# phrocs binary
+bin/phrocs
 
 # Debug output of our session summaries product
 .session-summaries

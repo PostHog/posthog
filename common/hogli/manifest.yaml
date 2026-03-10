@@ -84,11 +84,11 @@ metadata:
             name: mprocs
             about: Process orchestrator that runs all dev services in parallel with live
                 output and easy process management.
-        hogprocs:
-            name: hogprocs
+        phrocs:
+            name: phrocs
             about: PostHog's custom Bubble Tea process runner. Replaces mprocs with a
                 PostHog-branded TUI — per-process sidebar, scrollable output, PTY support,
-                and hogli-aware keybindings. Built from common/hogprocs/ on first run.
+                and hogli-aware keybindings. Built from common/phrocs/ on first run.
 devenv:
     dev:setup: null
     dev:generate: null
@@ -164,10 +164,10 @@ health_checks:
 start:
     start:
         bin_script: start
-        description: Main entry point that launches all dev services via hogprocs (Bubble
-            Tea TUI). Falls back to mprocs if hogprocs can't be built.
+        description: Main entry point that launches all dev services via phrocs (Bubble
+            Tea TUI). Falls back to mprocs if phrocs can't be built.
         services:
-            - hogprocs
+            - phrocs
             - mprocs
             - docker
             - django
@@ -633,13 +633,13 @@ tools:
         bin_script: generate_personhog_proto.sh
         description: 'TODO: add description for generate_personhog_proto.sh'
         hidden: true
-    hogprocs:build:
-        cmd: cd common/hogprocs && go build -o ../../bin/hogprocs .
-        description: Build the hogprocs binary from source (Go required; run once or after
-            changing common/hogprocs/)
-    hogprocs:
-        bin_script: hogprocs
-        description: Run hogprocs directly with a custom mprocs-format YAML config
+    phrocs:build:
+        cmd: cd common/phrocs && go build -o ../../bin/phrocs .
+        description: Build the phrocs binary from source (Go required; run once or after
+            changing common/phrocs/)
+    phrocs:
+        bin_script: phrocs
+        description: Run phrocs directly with a custom mprocs-format YAML config
         hidden: true
 utilities:
     nuke:

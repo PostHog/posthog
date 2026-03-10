@@ -1,4 +1,4 @@
-module github.com/posthog/posthog/hogprocs
+module github.com/posthog/posthog/phrocs
 
 go 1.24.2
 

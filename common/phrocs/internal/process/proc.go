@@ -13,7 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/creack/pty"
-	"github.com/posthog/posthog/hogprocs/internal/config"
+	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
 // Status represents the lifecycle state of a process.

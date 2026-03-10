@@ -1,4 +1,4 @@
-// Package tui implements the Bubble Tea TUI for hogprocs
+// Package tui implements the Bubble Tea TUI for phrocs
 //
 // Layout:
 //
@@ -27,7 +27,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/posthog/posthog/hogprocs/internal/process"
+	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
 // Number of terminal lines the header occupies
@@ -66,16 +66,16 @@ type Model struct {
 	copyAnchor int
 	copyCursor int
 
-	keys    keyMap
-	help    help.Model
-	spinner spinner.Model
+	keys     keyMap
+	help     help.Model
+	spinner  spinner.Model
 	showHelp bool
 
 	width  int
 	height int
 	ready  bool
 
-	// Writes go to /tmp/hogprocs-debug.log
+	// Writes go to /tmp/phrocs-debug.log
 	log *log.Logger
 }
 
@@ -533,7 +533,7 @@ func (m Model) copySelectedText() string {
 // ── renderers ─────────────────────────────────────────────────────────────────
 
 func (m Model) renderHeader() string {
-	brand := headerBrandStyle.Render("  HogProcs")
+	brand := headerBrandStyle.Render("  phrocs")
 
 	running := 0
 	for _, p := range m.procs {

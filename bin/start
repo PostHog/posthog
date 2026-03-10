@@ -88,18 +88,18 @@ export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 
 PROCESS_MANAGER="mprocs"
 
-# Only use hogprocs when --hog is explicitly passed
-if [[ " $* " == *" --hog "* ]]; then
-    PROCESS_MANAGER="$REPOSITORY_ROOT/bin/hogprocs"
+# Only use phrocs when --phrocs is explicitly passed
+if [[ " $* " == *" --phrocs "* ]]; then
+    PROCESS_MANAGER="$REPOSITORY_ROOT/bin/phrocs"
 
-    # Build hogprocs on first run if binary doesn't exist
+    # Build phrocs on first run if binary doesn't exist
     if [[ ! -x "$PROCESS_MANAGER" ]]; then
-        echo "🔨 Building hogprocs from source (first run)..."
-        if ! hogli hogprocs:build 2>&1; then
-            echo "⚠️ hogprocs build failed; falling back to mprocs"
+        echo "🔨 Building phrocs from source (first run)..."
+        if ! hogli phrocs:build 2>&1; then
+            echo "⚠️ phrocs build failed; falling back to mprocs"
             PROCESS_MANAGER="mprocs"
         else
-            echo "✅ hogprocs built successfully"
+            echo "✅ phrocs built successfully"
             # Install lazydocker as a recommended companion tool
             if ! command -v lazydocker &>/dev/null; then
                 if command -v brew &>/dev/null; then

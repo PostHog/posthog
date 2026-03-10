@@ -1,4 +1,4 @@
-// hogprocs is a PostHog-branded dev process runner built with Bubble Tea.
+// phrocs is a PostHog-branded dev process runner built with Bubble Tea.
 //
 // It is a drop-in replacement for mprocs: it reads the same YAML config
 // that `hogli dev:generate` produces and renders a customisable TUI with a
@@ -6,11 +6,11 @@
 //
 // Usage:
 //
-//	hogprocs [--debug] <config.yaml>
+//	phrocs [--debug] <config.yaml>
 //
 // Flags:
 //
-//	--debug   Write a debug log to /tmp/hogprocs-debug.log (key inputs, proc
+//	--debug   Write a debug log to /tmp/phrocs-debug.log (key inputs, proc
 //	          selection changes, status transitions, etc.)
 package main
 
@@ -20,9 +20,9 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/posthog/posthog/hogprocs/internal/config"
-	"github.com/posthog/posthog/hogprocs/internal/process"
-	"github.com/posthog/posthog/hogprocs/internal/tui"
+	"github.com/posthog/posthog/phrocs/internal/config"
+	"github.com/posthog/posthog/phrocs/internal/process"
+	"github.com/posthog/posthog/phrocs/internal/tui"
 )
 
 func main() {
@@ -39,9 +39,9 @@ func main() {
 				i++
 			}
 		case "--debug":
-			f, err := os.OpenFile("/tmp/hogprocs-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			f, err := os.OpenFile("/tmp/phrocs-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "hogprocs: open debug log: %v\n", err)
+				fmt.Fprintf(os.Stderr, "phrocs: open debug log: %v\n", err)
 				os.Exit(1)
 			}
 			logger = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
@@ -50,13 +50,13 @@ func main() {
 	}
 
 	if configPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: hogprocs [--debug] --config <config.yaml>")
+		fmt.Fprintln(os.Stderr, "usage: phrocs [--debug] --config <config.yaml>")
 		os.Exit(1)
 	}
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "hogprocs: load config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "phrocs: load config: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -74,7 +74,7 @@ func main() {
 	go mgr.StartAll()
 
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "hogprocs: %v\n", err)
+		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
 		os.Exit(1)
 	}
 }
