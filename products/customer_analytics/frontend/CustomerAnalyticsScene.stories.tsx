@@ -1,8 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { useActions } from 'kea'
-import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -35,12 +34,6 @@ const meta: Meta = {
 export default meta
 
 export const B2CMode: StoryFn = () => {
-    const { setBusinessType } = useActions(customerAnalyticsSceneLogic)
-
-    useEffect(() => {
-        setBusinessType('b2c')
-    }, [setBusinessType])
-
     return <App />
 }
 B2CMode.parameters = {
@@ -60,12 +53,11 @@ export const B2BModeWithGroupsEnabled: StoryFn = () => {
         },
     })
 
-    const { setBusinessType, setSelectedGroupType } = useActions(customerAnalyticsSceneLogic)
-
-    useEffect(() => {
-        setBusinessType('b2b')
-        setSelectedGroupType(0)
-    }, [setBusinessType, setSelectedGroupType])
+    useDelayedOnMountEffect(() => {
+        const logic = customerAnalyticsSceneLogic.findMounted()
+        logic?.actions.setBusinessType('b2b')
+        logic?.actions.setSelectedGroupType(0)
+    })
 
     return <App />
 }
@@ -76,11 +68,10 @@ B2BModeWithGroupsEnabled.parameters = {
 export const B2BModeWithoutGroups: StoryFn = () => {
     useAvailableFeatures([])
 
-    const { setBusinessType } = useActions(customerAnalyticsSceneLogic)
-
-    useEffect(() => {
-        setBusinessType('b2b')
-    }, [setBusinessType])
+    useDelayedOnMountEffect(() => {
+        const logic = customerAnalyticsSceneLogic.findMounted()
+        logic?.actions.setBusinessType('b2b')
+    })
 
     return <App />
 }
