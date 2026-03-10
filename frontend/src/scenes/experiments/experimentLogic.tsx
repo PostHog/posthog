@@ -1319,9 +1319,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     })
 
                     if (response) {
-                        actions.reportExperimentCreated(response, {
-                            creation_source: 'legacy',
-                        })
                         actions.addProductIntent({
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
@@ -1368,8 +1365,8 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
-            // Load metrics for running experiments (will set up auto-refresh after load completes)
-            if (experiment?.start_date) {
+            // Load metrics for launched experiments (will set up auto-refresh after load completes)
+            if (experiment && isLaunched(experiment)) {
                 actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual')
             }
         },
@@ -1481,7 +1478,12 @@ export const experimentLogic = kea<experimentLogicType>([
 
                 // Only set up auto-refresh if enabled AND page is visible
                 // This prevents the interval from restarting when async operations complete after the page becomes invisible
-                if (values.autoRefresh.enabled && values.experiment?.start_date && values.isPageVisible) {
+                if (
+                    values.experiment &&
+                    values.autoRefresh.enabled &&
+                    isLaunched(values.experiment) &&
+                    values.isPageVisible
+                ) {
                     actions.resetAutoRefreshInterval()
                 }
             }
@@ -1526,8 +1528,8 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
-            if (experiment.start_date) {
-                // For running experiments, refresh results if any of these fields are updated
+            if (isLaunched(experiment)) {
+                // For launched experiments, refresh results if any of these fields are updated
                 const forceRefresh =
                     payload?.start_date !== undefined ||
                     payload?.end_date !== undefined ||
@@ -1833,8 +1835,8 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.setPrimaryMetricsResultsLoading(false)
 
-            // Mark the review results task as complete when results are loaded for a running experiment
-            if (values.experiment?.start_date) {
+            // Mark the review results task as complete when results are loaded for a launched experiment
+            if (values.experiment && isLaunched(values.experiment)) {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
             }
         },
@@ -2233,13 +2235,13 @@ export const experimentLogic = kea<experimentLogicType>([
         isExperimentDraft: [
             (s) => [s.experiment],
             (experiment): boolean => {
-                return !experiment?.start_date && !experiment?.end_date && !experiment?.archived
+                return !!experiment && !isLaunched(experiment) && !experiment.archived
             },
         ],
         isExperimentLaunched: [
             (s) => [s.experiment],
             (experiment): boolean => {
-                return !!experiment?.start_date
+                return !!experiment && isLaunched(experiment)
             },
         ],
         isExperimentRunning: [

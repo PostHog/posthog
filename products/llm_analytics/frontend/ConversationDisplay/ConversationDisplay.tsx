@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import React from 'react'
 
-import { IconChat } from '@posthog/icons'
+import { IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EventType } from '~/types'
@@ -29,7 +29,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
         output: rawOutput,
     })
 
-    const handleTryInPlayground = (): void => {
+    const handleOpenInPlayground = (): void => {
         setupPlaygroundFromEvent({
             model: eventProperties.$ai_model,
             provider: eventProperties.$ai_provider,
@@ -76,12 +76,12 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     <LemonButton
                         type="secondary"
                         size="small"
-                        icon={<IconChat />}
-                        onClick={handleTryInPlayground}
-                        tooltip="Try this prompt in the playground"
-                        data-attr="try-in-playground-conversation"
+                        icon={<IconPlay />}
+                        onClick={handleOpenInPlayground}
+                        tooltip="Open in Playground"
+                        data-attr="llma-playground-open-from-conversation"
                     >
-                        Try in Playground
+                        Open in Playground
                     </LemonButton>
                 )}
             </header>

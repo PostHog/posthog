@@ -903,6 +903,12 @@ export enum ExperimentProgressStatus {
     Complete = 'complete',
 }
 
+export enum ExperimentStatus {
+    Draft = 'draft',
+    Running = 'running',
+    Stopped = 'stopped',
+}
+
 export enum PropertyFilterType {
     /** Event metadata and fields on the clickhouse events table */
     Meta = 'meta',
@@ -3310,6 +3316,7 @@ export interface ChoiceQuestionProcessedResponses {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
     data: ChoiceQuestionResponseData[]
     totalResponses: number
+    noResponseCount: number
 }
 
 export interface OpenQuestionProcessedResponses {
@@ -4344,6 +4351,7 @@ export interface Experiment {
     }
     start_date?: string | null
     end_date?: string | null
+    status?: ExperimentStatus | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -5264,6 +5272,7 @@ export enum ActivityScope {
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
+    LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
 }
@@ -5322,6 +5331,7 @@ export interface DataModelingNode {
     id: string
     name: string
     type: DataModelingNodeType
+    description?: string
     dag_id: string
     saved_query_id?: string
     created_at: string

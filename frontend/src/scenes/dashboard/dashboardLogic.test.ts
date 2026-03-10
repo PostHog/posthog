@@ -5,8 +5,9 @@ import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -340,6 +341,40 @@ describe('dashboardLogic', () => {
                 variables: {},
             })
         })
+
+        it('discarding edit mode restores original layouts', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialDashboard = logic.values.dashboard
+            expect(initialDashboard).not.toBeNull()
+
+            const firstTile = initialDashboard!.tiles[0]
+            const originalLayouts = logic.values.dashboardLayouts[firstTile.id]
+
+            expect(originalLayouts).not.toBeUndefined()
+
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            const editedTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
+            expect(editedTileLayouts).not.toEqual(originalLayouts)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
+            expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
     })
 
     describe('moving between dashboards', () => {
@@ -574,6 +609,34 @@ describe('dashboardLogic', () => {
                             total: 2,
                         },
                     })
+            })
+
+            it('manual refresh does not update last refresh when insights fail', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+                const refreshError = new Error('Queries are a little too busy right now.')
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockRejectedValue(refreshError)
+
+                ;(api.update as jest.Mock).mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                })
+                    .toDispatchActions([
+                        'triggerDashboardRefresh',
+                        'refreshDashboardItems',
+                        logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
+                    ])
+                    .toFinishAllListeners()
+
+                expect(logic.values.lastDashboardRefresh).toBeNull()
+                expect(logic.values.blockRefresh).toBe(false)
+                expect(api.update).not.toHaveBeenCalled()
+
+                getInsightWithRetrySpy.mockRestore()
             })
 
             it('automatic refresh reloads stale insights (but not fresh ones)', async () => {

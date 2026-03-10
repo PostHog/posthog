@@ -137,6 +137,16 @@ export enum RefreshDashboardItemsAction {
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
+const tileLayoutsFromDashboard = (
+    dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
+): Record<number, DashboardTile['layouts']> => {
+    const tileIdToLayouts: Record<number, DashboardTile['layouts']> = {}
+    dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
+        tileIdToLayouts[tile.id] = tile.layouts
+    })
+    return tileIdToLayouts
+}
+
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
@@ -536,14 +546,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardLayouts: [
             {} as Record<DashboardTile['id'], DashboardTile['layouts']>,
             {
-                loadDashboardSuccess: (_, { dashboard }) => {
-                    const tileIdToLayouts: Record<number, DashboardTile['layouts']> = {}
-                    dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
-                        tileIdToLayouts[tile.id] = tile.layouts
-                    })
-
-                    return tileIdToLayouts
-                },
+                loadDashboardSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                loadDashboardMetadataSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                saveEditModeChangesSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                receiveTileFromStream: (state, { tile }) => ({
+                    ...state,
+                    [tile.id]: tile.layouts,
+                }),
             },
         ],
         temporaryBreakdownColors: [
@@ -1763,7 +1772,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
                 // and all tiles were refreshed
-                if (forceRefresh && tilesAbortedCount === 0) {
+                if (forceRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
