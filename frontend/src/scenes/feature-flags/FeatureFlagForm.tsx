@@ -804,6 +804,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                       setBucketingIdentifier(value)
                                                 : undefined
                                         }
+                                        evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
                                 </div>
                             )}
