@@ -187,7 +187,6 @@ export class LogsRateLimiterService {
     public async filterMessages(messages: LogsIngestionMessage[]): Promise<FilteredMessages> {
         // Group messages by team to calculate total cost per team (only for teams with rate limiting enabled)
         const teamCosts = new Map<number, number>()
-        const teamTimestamps = new Map<number, number>()
         const teamOldestTimestamps = new Map<number, number>()
 
         for (const message of messages) {
@@ -205,14 +204,6 @@ export class LogsRateLimiterService {
             // Cost is in KB (uncompressed bytes / 1000)
             const costKb = bytesToKb(message.bytesUncompressed)
             teamCosts.set(message.teamId, currentCost + costKb)
-
-            // Use the max timestamp for this team so the token bucket refills across the batch's time span.
-            // This prevents over-limiting during backfill when batches span large time windows.
-            const messageTimestamp = this.getTimestampFromMessage(message)
-            const existingTimestamp = teamTimestamps.get(message.teamId)
-            if (existingTimestamp === undefined || messageTimestamp > existingTimestamp) {
-                teamTimestamps.set(message.teamId, messageTimestamp)
-            }
         }
 
         // Track how far behind wall clock the messages are (using oldest per team for worst-case lag)
@@ -226,7 +217,7 @@ export class LogsRateLimiterService {
             Array.from(teamCosts.entries()).map(([teamId, cost]) => [
                 teamId.toString(),
                 cost,
-                teamTimestamps.get(teamId) ?? msToSeconds(Date.now()),
+                teamOldestTimestamps.get(teamId) ?? msToSeconds(Date.now()),
             ])
         )
 
