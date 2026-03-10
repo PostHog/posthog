@@ -92,61 +92,75 @@ def normalize_credential_value(value: Any) -> Any:
     return value
 
 
-def get_credential_fingerprint(data: dict[str, Any], fields: list[FieldType]) -> dict[tuple[str, ...], Any]:
-    fingerprint: dict[tuple[str, ...], Any] = {}
+def _get_nested_dict(data: dict[str, Any], field_name: str) -> dict[str, Any]:
+    nested_data = data.get(field_name, {})
+    return nested_data if isinstance(nested_data, dict) else {}
 
+
+def _get_file_upload_fingerprint_value(field: SourceFieldFileUploadConfig, value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: normalize_credential_value(value.get(key, MISSING)) for key in field.fileFormat.keys}
+    return normalize_credential_value(value)
+
+
+def _add_ssh_tunnel_fingerprint(
+    fingerprint: dict[tuple[str, ...], Any], prefix: tuple[str, ...], ssh_tunnel_data: dict[str, Any]
+) -> None:
+    auth_data = ssh_tunnel_data.get("auth") or ssh_tunnel_data.get("auth_type") or {}
+    if not isinstance(auth_data, dict):
+        auth_data = {}
+
+    auth_prefix = (*prefix, "auth")
+    fingerprint[(*auth_prefix, "selection")] = normalize_credential_value(
+        auth_data.get("type", auth_data.get("selection", MISSING))
+    )
+    for field_name in ("username", "password", "passphrase", "private_key"):
+        fingerprint[(*auth_prefix, field_name)] = normalize_credential_value(auth_data.get(field_name, MISSING))
+
+
+def _collect_credential_fingerprint(
+    fingerprint: dict[tuple[str, ...], Any],
+    data: dict[str, Any],
+    fields: list[FieldType],
+    prefix: tuple[str, ...] = (),
+) -> None:
     for field in fields:
+        field_prefix = (*prefix, field.name)
+
         if isinstance(field, SourceFieldInputConfig):
             if field.type == SourceFieldInputConfigType.PASSWORD or field.name in CREDENTIAL_LIKE_FIELD_NAMES:
-                fingerprint[(field.name,)] = normalize_credential_value(data.get(field.name, MISSING))
-        elif isinstance(field, SourceFieldSwitchGroupConfig):
-            nested_data = data.get(field.name, {})
-            if not isinstance(nested_data, dict):
-                nested_data = {}
-            for path, value in get_credential_fingerprint(nested_data, field.fields).items():
-                fingerprint[(field.name, *path)] = value
-        elif isinstance(field, SourceFieldSelectConfig):
-            nested_data = data.get(field.name, {})
-            if not isinstance(nested_data, dict):
-                nested_data = {}
+                fingerprint[field_prefix] = normalize_credential_value(data.get(field.name, MISSING))
+            continue
 
-            fingerprint[(field.name, "selection")] = normalize_credential_value(nested_data.get("selection", MISSING))
+        if isinstance(field, SourceFieldSwitchGroupConfig):
+            _collect_credential_fingerprint(fingerprint, _get_nested_dict(data, field.name), field.fields, field_prefix)
+            continue
+
+        if isinstance(field, SourceFieldSelectConfig):
+            nested_data = _get_nested_dict(data, field.name)
+            fingerprint[(*field_prefix, "selection")] = normalize_credential_value(
+                nested_data.get("selection", MISSING)
+            )
             for option in field.options:
-                if not option.fields:
-                    continue
-                for path, value in get_credential_fingerprint(nested_data, option.fields).items():
-                    fingerprint[(field.name, *path)] = value
-        elif isinstance(field, (SourceFieldFileUploadConfig, SourceFieldOauthConfig)):
-            value = data.get(field.name, MISSING)
-            if isinstance(field, SourceFieldFileUploadConfig) and isinstance(value, dict):
-                value = {key: normalize_credential_value(value.get(key, MISSING)) for key in field.fileFormat.keys}
-            else:
-                value = normalize_credential_value(value)
-            fingerprint[(field.name,)] = value
-        elif isinstance(field, SourceFieldSSHTunnelConfig):
-            ssh_tunnel_data = data.get(field.name, {})
-            if not isinstance(ssh_tunnel_data, dict):
-                ssh_tunnel_data = {}
+                if option.fields:
+                    _collect_credential_fingerprint(fingerprint, nested_data, option.fields, field_prefix)
+            continue
 
-            auth_data = ssh_tunnel_data.get("auth") or ssh_tunnel_data.get("auth_type") or {}
-            if not isinstance(auth_data, dict):
-                auth_data = {}
+        if isinstance(field, SourceFieldFileUploadConfig):
+            fingerprint[field_prefix] = _get_file_upload_fingerprint_value(field, data.get(field.name, MISSING))
+            continue
 
-            fingerprint[(field.name, "auth", "selection")] = normalize_credential_value(
-                auth_data.get("type", auth_data.get("selection", MISSING))
-            )
-            fingerprint[(field.name, "auth", "username")] = normalize_credential_value(
-                auth_data.get("username", MISSING)
-            )
-            fingerprint[(field.name, "auth", "password")] = normalize_credential_value(
-                auth_data.get("password", MISSING)
-            )
-            fingerprint[(field.name, "auth", "passphrase")] = normalize_credential_value(
-                auth_data.get("passphrase", MISSING)
-            )
-            fingerprint[(field.name, "auth", "private_key")] = normalize_credential_value(
-                auth_data.get("private_key", MISSING)
-            )
+        if isinstance(field, SourceFieldOauthConfig):
+            fingerprint[field_prefix] = normalize_credential_value(data.get(field.name, MISSING))
+            continue
+
+        if isinstance(field, SourceFieldSSHTunnelConfig):
+            _add_ssh_tunnel_fingerprint(fingerprint, field_prefix, _get_nested_dict(data, field.name))
+
+
+def get_credential_fingerprint(data: dict[str, Any], fields: list[FieldType]) -> dict[tuple[str, ...], Any]:
+    fingerprint: dict[tuple[str, ...], Any] = {}
+    _collect_credential_fingerprint(fingerprint, data, fields)
 
     return fingerprint
 

@@ -12,6 +12,18 @@ import psycopg
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import (
+    Option,
+    SourceFieldFileUploadConfig,
+    SourceFieldFileUploadJsonFormatConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
+)
+
 from posthog.models import Team
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
@@ -34,6 +46,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_warehouse.backend.api.external_data_source import get_credential_fingerprint
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -60,6 +73,104 @@ class TestExternalDataSource(APIBaseTest):
     def _create_external_data_schema(self, source_id) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(
             name="Customers", team_id=self.team.pk, source_id=source_id, table=None
+        )
+
+    def test_get_credential_fingerprint_handles_nested_fields(self):
+        fields = [
+            SourceFieldInputConfig(
+                name="password",
+                label="Password",
+                placeholder="Password",
+                required=True,
+                type=SourceFieldInputConfigType.PASSWORD,
+            ),
+            SourceFieldSwitchGroupConfig(
+                name="advanced",
+                label="Advanced",
+                default=False,
+                fields=[
+                    SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string",
+                        placeholder="postgres://",
+                        required=False,
+                        type=SourceFieldInputConfigType.TEXT,
+                    )
+                ],
+            ),
+            SourceFieldSelectConfig(
+                name="auth_method",
+                label="Auth method",
+                defaultValue="basic",
+                required=True,
+                options=[
+                    Option(
+                        label="Basic",
+                        value="basic",
+                        fields=[
+                            SourceFieldInputConfig(
+                                name="api_key",
+                                label="API key",
+                                placeholder="API key",
+                                required=False,
+                                type=SourceFieldInputConfigType.PASSWORD,
+                            )
+                        ],
+                    )
+                ],
+            ),
+            SourceFieldFileUploadConfig(
+                name="service_account",
+                label="Service account",
+                required=False,
+                fileFormat=SourceFieldFileUploadJsonFormatConfig(format=".json", keys=["private_key", "client_email"]),
+            ),
+            SourceFieldOauthConfig(name="oauth_token", label="OAuth token", required=False, kind="oauth2"),
+        ]
+
+        fingerprint = get_credential_fingerprint(
+            {
+                "password": "secret",
+                "advanced": {"connection_string": ""},
+                "auth_method": {"selection": "basic", "api_key": "api-secret"},
+                "service_account": {"private_key": "pem", "client_email": ""},
+                "oauth_token": None,
+            },
+            fields,
+        )
+
+        self.assertEqual(
+            fingerprint,
+            {
+                ("password",): "secret",
+                ("advanced", "connection_string"): None,
+                ("auth_method", "selection"): "basic",
+                ("auth_method", "api_key"): "api-secret",
+                ("service_account",): {"private_key": "pem", "client_email": None},
+                ("oauth_token",): None,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("auth", {"auth": {"selection": "password", "username": "root", "password": "secret"}}),
+            ("auth_type", {"auth_type": {"type": "password", "username": "root", "password": "secret"}}),
+        ]
+    )
+    def test_get_credential_fingerprint_handles_ssh_tunnel_auth_shapes(self, _label: str, ssh_value: dict):
+        fields = [SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="SSH tunnel")]
+
+        fingerprint = get_credential_fingerprint({"ssh_tunnel": ssh_value}, fields)
+
+        self.assertEqual(
+            fingerprint,
+            {
+                ("ssh_tunnel", "auth", "selection"): "password",
+                ("ssh_tunnel", "auth", "username"): "root",
+                ("ssh_tunnel", "auth", "password"): "secret",
+                ("ssh_tunnel", "auth", "passphrase"): None,
+                ("ssh_tunnel", "auth", "private_key"): None,
+            },
         )
 
     @patch(
