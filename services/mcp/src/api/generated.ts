@@ -5007,6 +5007,7 @@ export namespace Schemas {
     * `day` - day
     * `week` - week
     * `every 5 minutes` - every 5 minutes
+    * `every 15 minutes` - every 15 minutes
      */
     export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
 
@@ -5016,6 +5017,7 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Every5Minutes: 'every 5 minutes',
+      Every15Minutes: 'every 15 minutes',
     } as const;
 
     /**
@@ -18166,6 +18168,8 @@ export namespace Schemas {
       /** @nullable */
       readonly next_delivery_date: string | null;
       /** @nullable */
+      integration_id?: number | null;
+      /** @nullable */
       invite_message?: string | null;
     }
 
@@ -21304,6 +21308,8 @@ export namespace Schemas {
       readonly summary?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
+      /** @nullable */
+      integration_id?: number | null;
       /** @nullable */
       invite_message?: string | null;
     }
