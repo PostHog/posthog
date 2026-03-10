@@ -49,104 +49,111 @@ export const EnvironmentsHogFunctionsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
-            type: zod.string().nullable(),
-            name: zod.string().nullable(),
-            description: zod.string(),
-            created_at: zod.string().datetime({}),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(environmentsHogFunctionsListResponseResultsItemCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod
-                    .string()
-                    .max(environmentsHogFunctionsListResponseResultsItemCreatedByOneFirstNameMax)
-                    .optional(),
-                last_name: zod
-                    .string()
-                    .max(environmentsHogFunctionsListResponseResultsItemCreatedByOneLastNameMax)
-                    .optional(),
-                email: zod.string().email().max(environmentsHogFunctionsListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            updated_at: zod.string().datetime({}),
-            enabled: zod.boolean(),
-            hog: zod.string(),
-            filters: zod.unknown().nullable(),
-            icon_url: zod.string().nullable(),
-            template: zod.object({
-                id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-                name: zod
-                    .string()
-                    .max(environmentsHogFunctionsListResponseResultsItemTemplateOneNameMax)
-                    .describe('Display name of the template.'),
-                description: zod.string().nullish().describe('What this template does.'),
-                code: zod.string().describe('Source code of the template.'),
-                code_language: zod
-                    .string()
-                    .max(environmentsHogFunctionsListResponseResultsItemTemplateOneCodeLanguageMax)
-                    .optional()
-                    .describe("Programming language: 'hog' or 'javascript'."),
-                inputs_schema: zod
-                    .unknown()
-                    .describe('Schema defining configurable inputs for functions created from this template.'),
-                type: zod
-                    .string()
-                    .max(environmentsHogFunctionsListResponseResultsItemTemplateOneTypeMax)
-                    .describe('Function type this template creates.'),
-                status: zod
-                    .string()
-                    .max(environmentsHogFunctionsListResponseResultsItemTemplateOneStatusMax)
-                    .optional()
-                    .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-                category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-                free: zod.boolean().optional().describe('Whether available on free plans.'),
-                icon_url: zod.string().nullish().describe("URL for the template's icon."),
-                filters: zod.unknown().nullish().describe('Default event filters.'),
-                masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-                mapping_templates: zod
-                    .array(
-                        zod.object({
-                            name: zod.string().describe('Name of this mapping template.'),
-                            include_by_default: zod
-                                .boolean()
-                                .nullish()
-                                .describe('Whether this mapping is enabled by default.'),
-                            filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                            inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                            inputs_schema: zod
-                                .unknown()
-                                .nullish()
-                                .describe('Additional input schema fields specific to this mapping.'),
-                        })
-                    )
-                    .nullish()
-                    .describe('Pre-defined mapping configurations for destination templates.'),
-            }),
+            id: zod.string().optional(),
+            type: zod.string().nullish(),
+            name: zod.string().nullish(),
+            description: zod.string().optional(),
+            created_at: zod.string().datetime({}).optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(environmentsHogFunctionsListResponseResultsItemCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(environmentsHogFunctionsListResponseResultsItemCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(environmentsHogFunctionsListResponseResultsItemCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod
+                        .string()
+                        .email()
+                        .max(environmentsHogFunctionsListResponseResultsItemCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            updated_at: zod.string().datetime({}).optional(),
+            enabled: zod.boolean().optional(),
+            hog: zod.string().optional(),
+            filters: zod.unknown().nullish(),
+            icon_url: zod.string().nullish(),
+            template: zod
+                .object({
+                    id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+                    name: zod
+                        .string()
+                        .max(environmentsHogFunctionsListResponseResultsItemTemplateOneNameMax)
+                        .describe('Display name of the template.'),
+                    description: zod.string().nullish().describe('What this template does.'),
+                    code: zod.string().describe('Source code of the template.'),
+                    code_language: zod
+                        .string()
+                        .max(environmentsHogFunctionsListResponseResultsItemTemplateOneCodeLanguageMax)
+                        .optional()
+                        .describe("Programming language: 'hog' or 'javascript'."),
+                    inputs_schema: zod
+                        .unknown()
+                        .describe('Schema defining configurable inputs for functions created from this template.'),
+                    type: zod
+                        .string()
+                        .max(environmentsHogFunctionsListResponseResultsItemTemplateOneTypeMax)
+                        .describe('Function type this template creates.'),
+                    status: zod
+                        .string()
+                        .max(environmentsHogFunctionsListResponseResultsItemTemplateOneStatusMax)
+                        .optional()
+                        .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+                    category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+                    free: zod.boolean().optional().describe('Whether available on free plans.'),
+                    icon_url: zod.string().nullish().describe("URL for the template's icon."),
+                    filters: zod.unknown().nullish().describe('Default event filters.'),
+                    masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+                    mapping_templates: zod
+                        .array(
+                            zod.object({
+                                name: zod.string().describe('Name of this mapping template.'),
+                                include_by_default: zod
+                                    .boolean()
+                                    .nullish()
+                                    .describe('Whether this mapping is enabled by default.'),
+                                filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                                inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                                inputs_schema: zod
+                                    .unknown()
+                                    .nullish()
+                                    .describe('Additional input schema fields specific to this mapping.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('Pre-defined mapping configurations for destination templates.'),
+                })
+                .optional(),
             status: zod
                 .object({
                     state: zod
@@ -161,8 +168,8 @@ export const EnvironmentsHogFunctionsListResponse = zod.object({
                         .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
                     tokens: zod.number(),
                 })
-                .nullable(),
-            execution_order: zod.number().nullable(),
+                .nullish(),
+            execution_order: zod.number().nullish(),
         })
     ),
 })
@@ -274,9 +281,9 @@ export const EnvironmentsHogFunctionsCreateBody = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -378,9 +385,9 @@ export const EnvironmentsHogFunctionsCreateBody = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -464,7 +471,7 @@ export const environmentsHogFunctionsRetrieveResponseExecutionOrderMin = 0
 export const environmentsHogFunctionsRetrieveResponseExecutionOrderMax = 32767
 
 export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     type: zod
         .union([
             zod
@@ -492,37 +499,48 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
         .nullish()
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
-    created_at: zod.string().datetime({}),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(environmentsHogFunctionsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(environmentsHogFunctionsRetrieveResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(environmentsHogFunctionsRetrieveResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(environmentsHogFunctionsRetrieveResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(environmentsHogFunctionsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(environmentsHogFunctionsRetrieveResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(environmentsHogFunctionsRetrieveResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(environmentsHogFunctionsRetrieveResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-    bytecode: zod.unknown().nullable(),
-    transpiled: zod.string().nullable(),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -573,9 +591,9 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -683,9 +701,9 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -712,52 +730,57 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
         .nullish()
         .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
     icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-    template: zod.object({
-        id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-        name: zod
-            .string()
-            .max(environmentsHogFunctionsRetrieveResponseTemplateOneNameMax)
-            .describe('Display name of the template.'),
-        description: zod.string().nullish().describe('What this template does.'),
-        code: zod.string().describe('Source code of the template.'),
-        code_language: zod
-            .string()
-            .max(environmentsHogFunctionsRetrieveResponseTemplateOneCodeLanguageMax)
-            .optional()
-            .describe("Programming language: 'hog' or 'javascript'."),
-        inputs_schema: zod
-            .unknown()
-            .describe('Schema defining configurable inputs for functions created from this template.'),
-        type: zod
-            .string()
-            .max(environmentsHogFunctionsRetrieveResponseTemplateOneTypeMax)
-            .describe('Function type this template creates.'),
-        status: zod
-            .string()
-            .max(environmentsHogFunctionsRetrieveResponseTemplateOneStatusMax)
-            .optional()
-            .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-        category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-        free: zod.boolean().optional().describe('Whether available on free plans.'),
-        icon_url: zod.string().nullish().describe("URL for the template's icon."),
-        filters: zod.unknown().nullish().describe('Default event filters.'),
-        masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-        mapping_templates: zod
-            .array(
-                zod.object({
-                    name: zod.string().describe('Name of this mapping template.'),
-                    include_by_default: zod.boolean().nullish().describe('Whether this mapping is enabled by default.'),
-                    filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                    inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                    inputs_schema: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Additional input schema fields specific to this mapping.'),
-                })
-            )
-            .nullish()
-            .describe('Pre-defined mapping configurations for destination templates.'),
-    }),
+    template: zod
+        .object({
+            id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+            name: zod
+                .string()
+                .max(environmentsHogFunctionsRetrieveResponseTemplateOneNameMax)
+                .describe('Display name of the template.'),
+            description: zod.string().nullish().describe('What this template does.'),
+            code: zod.string().describe('Source code of the template.'),
+            code_language: zod
+                .string()
+                .max(environmentsHogFunctionsRetrieveResponseTemplateOneCodeLanguageMax)
+                .optional()
+                .describe("Programming language: 'hog' or 'javascript'."),
+            inputs_schema: zod
+                .unknown()
+                .describe('Schema defining configurable inputs for functions created from this template.'),
+            type: zod
+                .string()
+                .max(environmentsHogFunctionsRetrieveResponseTemplateOneTypeMax)
+                .describe('Function type this template creates.'),
+            status: zod
+                .string()
+                .max(environmentsHogFunctionsRetrieveResponseTemplateOneStatusMax)
+                .optional()
+                .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+            category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+            free: zod.boolean().optional().describe('Whether available on free plans.'),
+            icon_url: zod.string().nullish().describe("URL for the template's icon."),
+            filters: zod.unknown().nullish().describe('Default event filters.'),
+            masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+            mapping_templates: zod
+                .array(
+                    zod.object({
+                        name: zod.string().describe('Name of this mapping template.'),
+                        include_by_default: zod
+                            .boolean()
+                            .nullish()
+                            .describe('Whether this mapping is enabled by default.'),
+                        filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                        inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                        inputs_schema: zod
+                            .unknown()
+                            .nullish()
+                            .describe('Additional input schema fields specific to this mapping.'),
+                    })
+                )
+                .nullish()
+                .describe('Pre-defined mapping configurations for destination templates.'),
+        })
+        .optional(),
     template_id: zod
         .string()
         .max(environmentsHogFunctionsRetrieveResponseTemplateIdMax)
@@ -777,7 +800,7 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
                 .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
             tokens: zod.number(),
         })
-        .nullable(),
+        .nullish(),
     execution_order: zod
         .number()
         .min(environmentsHogFunctionsRetrieveResponseExecutionOrderMin)
@@ -785,7 +808,7 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
-    batch_export_id: zod.string().nullable(),
+    batch_export_id: zod.string().nullish(),
 })
 
 /**
@@ -896,9 +919,9 @@ export const EnvironmentsHogFunctionsUpdateBody = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -1000,9 +1023,9 @@ export const EnvironmentsHogFunctionsUpdateBody = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -1078,7 +1101,7 @@ export const environmentsHogFunctionsUpdateResponseExecutionOrderMin = 0
 export const environmentsHogFunctionsUpdateResponseExecutionOrderMax = 32767
 
 export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     type: zod
         .union([
             zod
@@ -1106,37 +1129,48 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
         .nullish()
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
-    created_at: zod.string().datetime({}),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(environmentsHogFunctionsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(environmentsHogFunctionsUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(environmentsHogFunctionsUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(environmentsHogFunctionsUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(environmentsHogFunctionsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(environmentsHogFunctionsUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(environmentsHogFunctionsUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(environmentsHogFunctionsUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-    bytecode: zod.unknown().nullable(),
-    transpiled: zod.string().nullable(),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -1185,9 +1219,9 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -1295,9 +1329,9 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -1324,52 +1358,57 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
         .nullish()
         .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
     icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-    template: zod.object({
-        id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-        name: zod
-            .string()
-            .max(environmentsHogFunctionsUpdateResponseTemplateOneNameMax)
-            .describe('Display name of the template.'),
-        description: zod.string().nullish().describe('What this template does.'),
-        code: zod.string().describe('Source code of the template.'),
-        code_language: zod
-            .string()
-            .max(environmentsHogFunctionsUpdateResponseTemplateOneCodeLanguageMax)
-            .optional()
-            .describe("Programming language: 'hog' or 'javascript'."),
-        inputs_schema: zod
-            .unknown()
-            .describe('Schema defining configurable inputs for functions created from this template.'),
-        type: zod
-            .string()
-            .max(environmentsHogFunctionsUpdateResponseTemplateOneTypeMax)
-            .describe('Function type this template creates.'),
-        status: zod
-            .string()
-            .max(environmentsHogFunctionsUpdateResponseTemplateOneStatusMax)
-            .optional()
-            .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-        category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-        free: zod.boolean().optional().describe('Whether available on free plans.'),
-        icon_url: zod.string().nullish().describe("URL for the template's icon."),
-        filters: zod.unknown().nullish().describe('Default event filters.'),
-        masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-        mapping_templates: zod
-            .array(
-                zod.object({
-                    name: zod.string().describe('Name of this mapping template.'),
-                    include_by_default: zod.boolean().nullish().describe('Whether this mapping is enabled by default.'),
-                    filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                    inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                    inputs_schema: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Additional input schema fields specific to this mapping.'),
-                })
-            )
-            .nullish()
-            .describe('Pre-defined mapping configurations for destination templates.'),
-    }),
+    template: zod
+        .object({
+            id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+            name: zod
+                .string()
+                .max(environmentsHogFunctionsUpdateResponseTemplateOneNameMax)
+                .describe('Display name of the template.'),
+            description: zod.string().nullish().describe('What this template does.'),
+            code: zod.string().describe('Source code of the template.'),
+            code_language: zod
+                .string()
+                .max(environmentsHogFunctionsUpdateResponseTemplateOneCodeLanguageMax)
+                .optional()
+                .describe("Programming language: 'hog' or 'javascript'."),
+            inputs_schema: zod
+                .unknown()
+                .describe('Schema defining configurable inputs for functions created from this template.'),
+            type: zod
+                .string()
+                .max(environmentsHogFunctionsUpdateResponseTemplateOneTypeMax)
+                .describe('Function type this template creates.'),
+            status: zod
+                .string()
+                .max(environmentsHogFunctionsUpdateResponseTemplateOneStatusMax)
+                .optional()
+                .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+            category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+            free: zod.boolean().optional().describe('Whether available on free plans.'),
+            icon_url: zod.string().nullish().describe("URL for the template's icon."),
+            filters: zod.unknown().nullish().describe('Default event filters.'),
+            masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+            mapping_templates: zod
+                .array(
+                    zod.object({
+                        name: zod.string().describe('Name of this mapping template.'),
+                        include_by_default: zod
+                            .boolean()
+                            .nullish()
+                            .describe('Whether this mapping is enabled by default.'),
+                        filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                        inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                        inputs_schema: zod
+                            .unknown()
+                            .nullish()
+                            .describe('Additional input schema fields specific to this mapping.'),
+                    })
+                )
+                .nullish()
+                .describe('Pre-defined mapping configurations for destination templates.'),
+        })
+        .optional(),
     template_id: zod
         .string()
         .max(environmentsHogFunctionsUpdateResponseTemplateIdMax)
@@ -1389,7 +1428,7 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
                 .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
             tokens: zod.number(),
         })
-        .nullable(),
+        .nullish(),
     execution_order: zod
         .number()
         .min(environmentsHogFunctionsUpdateResponseExecutionOrderMin)
@@ -1397,7 +1436,7 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
-    batch_export_id: zod.string().nullable(),
+    batch_export_id: zod.string().nullish(),
 })
 
 /**
@@ -1510,9 +1549,9 @@ export const EnvironmentsHogFunctionsPartialUpdateBody = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -1620,9 +1659,9 @@ export const EnvironmentsHogFunctionsPartialUpdateBody = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -1698,7 +1737,7 @@ export const environmentsHogFunctionsPartialUpdateResponseExecutionOrderMin = 0
 export const environmentsHogFunctionsPartialUpdateResponseExecutionOrderMax = 32767
 
 export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     type: zod
         .union([
             zod
@@ -1726,37 +1765,57 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
         .nullish()
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
-    created_at: zod.string().datetime({}),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(environmentsHogFunctionsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(environmentsHogFunctionsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(environmentsHogFunctionsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(environmentsHogFunctionsPartialUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod
+                .string()
+                .max(environmentsHogFunctionsPartialUpdateResponseCreatedByOneDistinctIdMax)
+                .nullish(),
+            first_name: zod
+                .string()
+                .max(environmentsHogFunctionsPartialUpdateResponseCreatedByOneFirstNameMax)
+                .optional(),
+            last_name: zod
+                .string()
+                .max(environmentsHogFunctionsPartialUpdateResponseCreatedByOneLastNameMax)
+                .optional(),
+            email: zod.string().email().max(environmentsHogFunctionsPartialUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-    bytecode: zod.unknown().nullable(),
-    transpiled: zod.string().nullable(),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -1811,9 +1870,9 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -1921,9 +1980,9 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -1950,52 +2009,57 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
         .nullish()
         .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
     icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-    template: zod.object({
-        id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-        name: zod
-            .string()
-            .max(environmentsHogFunctionsPartialUpdateResponseTemplateOneNameMax)
-            .describe('Display name of the template.'),
-        description: zod.string().nullish().describe('What this template does.'),
-        code: zod.string().describe('Source code of the template.'),
-        code_language: zod
-            .string()
-            .max(environmentsHogFunctionsPartialUpdateResponseTemplateOneCodeLanguageMax)
-            .optional()
-            .describe("Programming language: 'hog' or 'javascript'."),
-        inputs_schema: zod
-            .unknown()
-            .describe('Schema defining configurable inputs for functions created from this template.'),
-        type: zod
-            .string()
-            .max(environmentsHogFunctionsPartialUpdateResponseTemplateOneTypeMax)
-            .describe('Function type this template creates.'),
-        status: zod
-            .string()
-            .max(environmentsHogFunctionsPartialUpdateResponseTemplateOneStatusMax)
-            .optional()
-            .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-        category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-        free: zod.boolean().optional().describe('Whether available on free plans.'),
-        icon_url: zod.string().nullish().describe("URL for the template's icon."),
-        filters: zod.unknown().nullish().describe('Default event filters.'),
-        masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-        mapping_templates: zod
-            .array(
-                zod.object({
-                    name: zod.string().describe('Name of this mapping template.'),
-                    include_by_default: zod.boolean().nullish().describe('Whether this mapping is enabled by default.'),
-                    filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                    inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                    inputs_schema: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Additional input schema fields specific to this mapping.'),
-                })
-            )
-            .nullish()
-            .describe('Pre-defined mapping configurations for destination templates.'),
-    }),
+    template: zod
+        .object({
+            id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+            name: zod
+                .string()
+                .max(environmentsHogFunctionsPartialUpdateResponseTemplateOneNameMax)
+                .describe('Display name of the template.'),
+            description: zod.string().nullish().describe('What this template does.'),
+            code: zod.string().describe('Source code of the template.'),
+            code_language: zod
+                .string()
+                .max(environmentsHogFunctionsPartialUpdateResponseTemplateOneCodeLanguageMax)
+                .optional()
+                .describe("Programming language: 'hog' or 'javascript'."),
+            inputs_schema: zod
+                .unknown()
+                .describe('Schema defining configurable inputs for functions created from this template.'),
+            type: zod
+                .string()
+                .max(environmentsHogFunctionsPartialUpdateResponseTemplateOneTypeMax)
+                .describe('Function type this template creates.'),
+            status: zod
+                .string()
+                .max(environmentsHogFunctionsPartialUpdateResponseTemplateOneStatusMax)
+                .optional()
+                .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+            category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+            free: zod.boolean().optional().describe('Whether available on free plans.'),
+            icon_url: zod.string().nullish().describe("URL for the template's icon."),
+            filters: zod.unknown().nullish().describe('Default event filters.'),
+            masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+            mapping_templates: zod
+                .array(
+                    zod.object({
+                        name: zod.string().describe('Name of this mapping template.'),
+                        include_by_default: zod
+                            .boolean()
+                            .nullish()
+                            .describe('Whether this mapping is enabled by default.'),
+                        filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                        inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                        inputs_schema: zod
+                            .unknown()
+                            .nullish()
+                            .describe('Additional input schema fields specific to this mapping.'),
+                    })
+                )
+                .nullish()
+                .describe('Pre-defined mapping configurations for destination templates.'),
+        })
+        .optional(),
     template_id: zod
         .string()
         .max(environmentsHogFunctionsPartialUpdateResponseTemplateIdMax)
@@ -2015,7 +2079,7 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
                 .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
             tokens: zod.number(),
         })
-        .nullable(),
+        .nullish(),
     execution_order: zod
         .number()
         .min(environmentsHogFunctionsPartialUpdateResponseExecutionOrderMin)
@@ -2023,7 +2087,7 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
-    batch_export_id: zod.string().nullable(),
+    batch_export_id: zod.string().nullish(),
 })
 
 /**
@@ -2149,9 +2213,9 @@ export const EnvironmentsHogFunctionsEnableBackfillsCreateBody = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -2259,9 +2323,9 @@ export const EnvironmentsHogFunctionsEnableBackfillsCreateBody = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -2349,7 +2413,7 @@ export const environmentsHogFunctionsInvocationsCreateBodyMockAsyncFunctionsDefa
 export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
     configuration: zod
         .object({
-            id: zod.string(),
+            id: zod.string().optional(),
             type: zod
                 .union([
                     zod
@@ -2377,58 +2441,60 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                 .nullish()
                 .describe('Display name for the function.'),
             description: zod.string().optional().describe('Human-readable description of what this function does.'),
-            created_at: zod.string().datetime({}),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax)
-                    .optional(),
-                last_name: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
-                    .optional(),
-                email: zod
-                    .string()
-                    .email()
-                    .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            updated_at: zod.string().datetime({}),
+            created_at: zod.string().datetime({}).optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod
+                        .string()
+                        .email()
+                        .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            updated_at: zod.string().datetime({}).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
             deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-            bytecode: zod.unknown().nullable(),
-            transpiled: zod.string().nullable(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
                     zod.object({
@@ -2492,9 +2558,9 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                             .enum(['hog', 'liquid'])
                             .optional()
                             .describe('* `hog` - hog\n* `liquid` - liquid'),
-                        bytecode: zod.array(zod.unknown()),
-                        order: zod.number(),
-                        transpiled: zod.unknown(),
+                        bytecode: zod.array(zod.unknown()).optional(),
+                        order: zod.number().optional(),
+                        transpiled: zod.unknown().optional(),
                     })
                 )
                 .optional()
@@ -2607,9 +2673,9 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                                         .enum(['hog', 'liquid'])
                                         .optional()
                                         .describe('* `hog` - hog\n* `liquid` - liquid'),
-                                    bytecode: zod.array(zod.unknown()),
-                                    order: zod.number(),
-                                    transpiled: zod.unknown(),
+                                    bytecode: zod.array(zod.unknown()).optional(),
+                                    order: zod.number().optional(),
+                                    transpiled: zod.unknown().optional(),
                                 })
                             )
                             .optional(),
@@ -2638,55 +2704,57 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                 .nullish()
                 .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
             icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-            template: zod.object({
-                id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-                name: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneNameMax)
-                    .describe('Display name of the template.'),
-                description: zod.string().nullish().describe('What this template does.'),
-                code: zod.string().describe('Source code of the template.'),
-                code_language: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneCodeLanguageMax)
-                    .optional()
-                    .describe("Programming language: 'hog' or 'javascript'."),
-                inputs_schema: zod
-                    .unknown()
-                    .describe('Schema defining configurable inputs for functions created from this template.'),
-                type: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneTypeMax)
-                    .describe('Function type this template creates.'),
-                status: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneStatusMax)
-                    .optional()
-                    .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-                category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-                free: zod.boolean().optional().describe('Whether available on free plans.'),
-                icon_url: zod.string().nullish().describe("URL for the template's icon."),
-                filters: zod.unknown().nullish().describe('Default event filters.'),
-                masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-                mapping_templates: zod
-                    .array(
-                        zod.object({
-                            name: zod.string().describe('Name of this mapping template.'),
-                            include_by_default: zod
-                                .boolean()
-                                .nullish()
-                                .describe('Whether this mapping is enabled by default.'),
-                            filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                            inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                            inputs_schema: zod
-                                .unknown()
-                                .nullish()
-                                .describe('Additional input schema fields specific to this mapping.'),
-                        })
-                    )
-                    .nullish()
-                    .describe('Pre-defined mapping configurations for destination templates.'),
-            }),
+            template: zod
+                .object({
+                    id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+                    name: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneNameMax)
+                        .describe('Display name of the template.'),
+                    description: zod.string().nullish().describe('What this template does.'),
+                    code: zod.string().describe('Source code of the template.'),
+                    code_language: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneCodeLanguageMax)
+                        .optional()
+                        .describe("Programming language: 'hog' or 'javascript'."),
+                    inputs_schema: zod
+                        .unknown()
+                        .describe('Schema defining configurable inputs for functions created from this template.'),
+                    type: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneTypeMax)
+                        .describe('Function type this template creates.'),
+                    status: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneStatusMax)
+                        .optional()
+                        .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+                    category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+                    free: zod.boolean().optional().describe('Whether available on free plans.'),
+                    icon_url: zod.string().nullish().describe("URL for the template's icon."),
+                    filters: zod.unknown().nullish().describe('Default event filters.'),
+                    masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+                    mapping_templates: zod
+                        .array(
+                            zod.object({
+                                name: zod.string().describe('Name of this mapping template.'),
+                                include_by_default: zod
+                                    .boolean()
+                                    .nullish()
+                                    .describe('Whether this mapping is enabled by default.'),
+                                filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                                inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                                inputs_schema: zod
+                                    .unknown()
+                                    .nullish()
+                                    .describe('Additional input schema fields specific to this mapping.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('Pre-defined mapping configurations for destination templates.'),
+                })
+                .optional(),
             template_id: zod
                 .string()
                 .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateIdMax)
@@ -2706,7 +2774,7 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                         .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
                     tokens: zod.number(),
                 })
-                .nullable(),
+                .nullish(),
             execution_order: zod
                 .number()
                 .min(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMin)
@@ -2714,7 +2782,7 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
             _create_in_folder: zod.string().optional(),
-            batch_export_id: zod.string().nullable(),
+            batch_export_id: zod.string().nullish(),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -2771,7 +2839,7 @@ export const environmentsHogFunctionsInvocationsCreateResponseMockAsyncFunctions
 export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
     configuration: zod
         .object({
-            id: zod.string(),
+            id: zod.string().optional(),
             type: zod
                 .union([
                     zod
@@ -2799,58 +2867,60 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                 .nullish()
                 .describe('Display name for the function.'),
             description: zod.string().optional().describe('Human-readable description of what this function does.'),
-            created_at: zod.string().datetime({}),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneFirstNameMax)
-                    .optional(),
-                last_name: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneLastNameMax)
-                    .optional(),
-                email: zod
-                    .string()
-                    .email()
-                    .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            updated_at: zod.string().datetime({}),
+            created_at: zod.string().datetime({}).optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod
+                        .string()
+                        .email()
+                        .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            updated_at: zod.string().datetime({}).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
             deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-            bytecode: zod.unknown().nullable(),
-            transpiled: zod.string().nullable(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
                     zod.object({
@@ -2914,9 +2984,9 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                             .enum(['hog', 'liquid'])
                             .optional()
                             .describe('* `hog` - hog\n* `liquid` - liquid'),
-                        bytecode: zod.array(zod.unknown()),
-                        order: zod.number(),
-                        transpiled: zod.unknown(),
+                        bytecode: zod.array(zod.unknown()).optional(),
+                        order: zod.number().optional(),
+                        transpiled: zod.unknown().optional(),
                     })
                 )
                 .optional()
@@ -3031,9 +3101,9 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                                         .enum(['hog', 'liquid'])
                                         .optional()
                                         .describe('* `hog` - hog\n* `liquid` - liquid'),
-                                    bytecode: zod.array(zod.unknown()),
-                                    order: zod.number(),
-                                    transpiled: zod.unknown(),
+                                    bytecode: zod.array(zod.unknown()).optional(),
+                                    order: zod.number().optional(),
+                                    transpiled: zod.unknown().optional(),
                                 })
                             )
                             .optional(),
@@ -3062,55 +3132,59 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                 .nullish()
                 .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
             icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-            template: zod.object({
-                id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-                name: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneNameMax)
-                    .describe('Display name of the template.'),
-                description: zod.string().nullish().describe('What this template does.'),
-                code: zod.string().describe('Source code of the template.'),
-                code_language: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneCodeLanguageMax)
-                    .optional()
-                    .describe("Programming language: 'hog' or 'javascript'."),
-                inputs_schema: zod
-                    .unknown()
-                    .describe('Schema defining configurable inputs for functions created from this template.'),
-                type: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneTypeMax)
-                    .describe('Function type this template creates.'),
-                status: zod
-                    .string()
-                    .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneStatusMax)
-                    .optional()
-                    .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-                category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-                free: zod.boolean().optional().describe('Whether available on free plans.'),
-                icon_url: zod.string().nullish().describe("URL for the template's icon."),
-                filters: zod.unknown().nullish().describe('Default event filters.'),
-                masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-                mapping_templates: zod
-                    .array(
-                        zod.object({
-                            name: zod.string().describe('Name of this mapping template.'),
-                            include_by_default: zod
-                                .boolean()
-                                .nullish()
-                                .describe('Whether this mapping is enabled by default.'),
-                            filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                            inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                            inputs_schema: zod
-                                .unknown()
-                                .nullish()
-                                .describe('Additional input schema fields specific to this mapping.'),
-                        })
-                    )
-                    .nullish()
-                    .describe('Pre-defined mapping configurations for destination templates.'),
-            }),
+            template: zod
+                .object({
+                    id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+                    name: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneNameMax)
+                        .describe('Display name of the template.'),
+                    description: zod.string().nullish().describe('What this template does.'),
+                    code: zod.string().describe('Source code of the template.'),
+                    code_language: zod
+                        .string()
+                        .max(
+                            environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneCodeLanguageMax
+                        )
+                        .optional()
+                        .describe("Programming language: 'hog' or 'javascript'."),
+                    inputs_schema: zod
+                        .unknown()
+                        .describe('Schema defining configurable inputs for functions created from this template.'),
+                    type: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneTypeMax)
+                        .describe('Function type this template creates.'),
+                    status: zod
+                        .string()
+                        .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneStatusMax)
+                        .optional()
+                        .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+                    category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+                    free: zod.boolean().optional().describe('Whether available on free plans.'),
+                    icon_url: zod.string().nullish().describe("URL for the template's icon."),
+                    filters: zod.unknown().nullish().describe('Default event filters.'),
+                    masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+                    mapping_templates: zod
+                        .array(
+                            zod.object({
+                                name: zod.string().describe('Name of this mapping template.'),
+                                include_by_default: zod
+                                    .boolean()
+                                    .nullish()
+                                    .describe('Whether this mapping is enabled by default.'),
+                                filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                                inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                                inputs_schema: zod
+                                    .unknown()
+                                    .nullish()
+                                    .describe('Additional input schema fields specific to this mapping.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('Pre-defined mapping configurations for destination templates.'),
+                })
+                .optional(),
             template_id: zod
                 .string()
                 .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateIdMax)
@@ -3130,7 +3204,7 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                         .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
                     tokens: zod.number(),
                 })
-                .nullable(),
+                .nullish(),
             execution_order: zod
                 .number()
                 .min(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneExecutionOrderMin)
@@ -3138,7 +3212,7 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
             _create_in_folder: zod.string().optional(),
-            batch_export_id: zod.string().nullable(),
+            batch_export_id: zod.string().nullish(),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -3153,8 +3227,8 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
         .boolean()
         .default(environmentsHogFunctionsInvocationsCreateResponseMockAsyncFunctionsDefault)
         .describe('When true (default), async functions like fetch() are simulated.'),
-    status: zod.string().describe('Invocation result status.'),
-    logs: zod.array(zod.unknown()).describe('Execution logs from the test invocation.'),
+    status: zod.string().optional().describe('Invocation result status.'),
+    logs: zod.array(zod.unknown()).optional().describe('Execution logs from the test invocation.'),
     invocation_id: zod.string().nullish().describe('Optional invocation ID for correlation.'),
 })
 
@@ -3246,7 +3320,7 @@ export const environmentsHogFunctionsRearrangePartialUpdateResponseExecutionOrde
 export const environmentsHogFunctionsRearrangePartialUpdateResponseExecutionOrderMax = 32767
 
 export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     type: zod
         .union([
             zod
@@ -3274,46 +3348,57 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
         .nullish()
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
-    created_at: zod.string().datetime({}),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod
-            .string()
-            .max(environmentsHogFunctionsRearrangePartialUpdateResponseCreatedByOneDistinctIdMax)
-            .nullish(),
-        first_name: zod
-            .string()
-            .max(environmentsHogFunctionsRearrangePartialUpdateResponseCreatedByOneFirstNameMax)
-            .optional(),
-        last_name: zod
-            .string()
-            .max(environmentsHogFunctionsRearrangePartialUpdateResponseCreatedByOneLastNameMax)
-            .optional(),
-        email: zod.string().email().max(environmentsHogFunctionsRearrangePartialUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod
+                .string()
+                .max(environmentsHogFunctionsRearrangePartialUpdateResponseCreatedByOneDistinctIdMax)
+                .nullish(),
+            first_name: zod
+                .string()
+                .max(environmentsHogFunctionsRearrangePartialUpdateResponseCreatedByOneFirstNameMax)
+                .optional(),
+            last_name: zod
+                .string()
+                .max(environmentsHogFunctionsRearrangePartialUpdateResponseCreatedByOneLastNameMax)
+                .optional(),
+            email: zod.string().email().max(environmentsHogFunctionsRearrangePartialUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-    bytecode: zod.unknown().nullable(),
-    transpiled: zod.string().nullable(),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -3368,9 +3453,9 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -3478,9 +3563,9 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -3509,52 +3594,57 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
         .nullish()
         .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
     icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-    template: zod.object({
-        id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-        name: zod
-            .string()
-            .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateOneNameMax)
-            .describe('Display name of the template.'),
-        description: zod.string().nullish().describe('What this template does.'),
-        code: zod.string().describe('Source code of the template.'),
-        code_language: zod
-            .string()
-            .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateOneCodeLanguageMax)
-            .optional()
-            .describe("Programming language: 'hog' or 'javascript'."),
-        inputs_schema: zod
-            .unknown()
-            .describe('Schema defining configurable inputs for functions created from this template.'),
-        type: zod
-            .string()
-            .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateOneTypeMax)
-            .describe('Function type this template creates.'),
-        status: zod
-            .string()
-            .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateOneStatusMax)
-            .optional()
-            .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-        category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-        free: zod.boolean().optional().describe('Whether available on free plans.'),
-        icon_url: zod.string().nullish().describe("URL for the template's icon."),
-        filters: zod.unknown().nullish().describe('Default event filters.'),
-        masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-        mapping_templates: zod
-            .array(
-                zod.object({
-                    name: zod.string().describe('Name of this mapping template.'),
-                    include_by_default: zod.boolean().nullish().describe('Whether this mapping is enabled by default.'),
-                    filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                    inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                    inputs_schema: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Additional input schema fields specific to this mapping.'),
-                })
-            )
-            .nullish()
-            .describe('Pre-defined mapping configurations for destination templates.'),
-    }),
+    template: zod
+        .object({
+            id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+            name: zod
+                .string()
+                .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateOneNameMax)
+                .describe('Display name of the template.'),
+            description: zod.string().nullish().describe('What this template does.'),
+            code: zod.string().describe('Source code of the template.'),
+            code_language: zod
+                .string()
+                .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateOneCodeLanguageMax)
+                .optional()
+                .describe("Programming language: 'hog' or 'javascript'."),
+            inputs_schema: zod
+                .unknown()
+                .describe('Schema defining configurable inputs for functions created from this template.'),
+            type: zod
+                .string()
+                .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateOneTypeMax)
+                .describe('Function type this template creates.'),
+            status: zod
+                .string()
+                .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateOneStatusMax)
+                .optional()
+                .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+            category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+            free: zod.boolean().optional().describe('Whether available on free plans.'),
+            icon_url: zod.string().nullish().describe("URL for the template's icon."),
+            filters: zod.unknown().nullish().describe('Default event filters.'),
+            masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+            mapping_templates: zod
+                .array(
+                    zod.object({
+                        name: zod.string().describe('Name of this mapping template.'),
+                        include_by_default: zod
+                            .boolean()
+                            .nullish()
+                            .describe('Whether this mapping is enabled by default.'),
+                        filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                        inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                        inputs_schema: zod
+                            .unknown()
+                            .nullish()
+                            .describe('Additional input schema fields specific to this mapping.'),
+                    })
+                )
+                .nullish()
+                .describe('Pre-defined mapping configurations for destination templates.'),
+        })
+        .optional(),
     template_id: zod
         .string()
         .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateIdMax)
@@ -3574,7 +3664,7 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
                 .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
             tokens: zod.number(),
         })
-        .nullable(),
+        .nullish(),
     execution_order: zod
         .number()
         .min(environmentsHogFunctionsRearrangePartialUpdateResponseExecutionOrderMin)
@@ -3582,7 +3672,7 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
-    batch_export_id: zod.string().nullable(),
+    batch_export_id: zod.string().nullish(),
 })
 export const EnvironmentsHogFunctionsRearrangePartialUpdateResponse = zod.array(
     EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem
@@ -3630,95 +3720,105 @@ export const HogFunctionsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
-            type: zod.string().nullable(),
-            name: zod.string().nullable(),
-            description: zod.string(),
-            created_at: zod.string().datetime({}),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod.string().max(hogFunctionsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
-                first_name: zod.string().max(hogFunctionsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
-                last_name: zod.string().max(hogFunctionsListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                email: zod.string().email().max(hogFunctionsListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            updated_at: zod.string().datetime({}),
-            enabled: zod.boolean(),
-            hog: zod.string(),
-            filters: zod.unknown().nullable(),
-            icon_url: zod.string().nullable(),
-            template: zod.object({
-                id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-                name: zod
-                    .string()
-                    .max(hogFunctionsListResponseResultsItemTemplateOneNameMax)
-                    .describe('Display name of the template.'),
-                description: zod.string().nullish().describe('What this template does.'),
-                code: zod.string().describe('Source code of the template.'),
-                code_language: zod
-                    .string()
-                    .max(hogFunctionsListResponseResultsItemTemplateOneCodeLanguageMax)
-                    .optional()
-                    .describe("Programming language: 'hog' or 'javascript'."),
-                inputs_schema: zod
-                    .unknown()
-                    .describe('Schema defining configurable inputs for functions created from this template.'),
-                type: zod
-                    .string()
-                    .max(hogFunctionsListResponseResultsItemTemplateOneTypeMax)
-                    .describe('Function type this template creates.'),
-                status: zod
-                    .string()
-                    .max(hogFunctionsListResponseResultsItemTemplateOneStatusMax)
-                    .optional()
-                    .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-                category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-                free: zod.boolean().optional().describe('Whether available on free plans.'),
-                icon_url: zod.string().nullish().describe("URL for the template's icon."),
-                filters: zod.unknown().nullish().describe('Default event filters.'),
-                masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-                mapping_templates: zod
-                    .array(
-                        zod.object({
-                            name: zod.string().describe('Name of this mapping template.'),
-                            include_by_default: zod
-                                .boolean()
-                                .nullish()
-                                .describe('Whether this mapping is enabled by default.'),
-                            filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                            inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                            inputs_schema: zod
-                                .unknown()
-                                .nullish()
-                                .describe('Additional input schema fields specific to this mapping.'),
-                        })
-                    )
-                    .nullish()
-                    .describe('Pre-defined mapping configurations for destination templates.'),
-            }),
+            id: zod.string().optional(),
+            type: zod.string().nullish(),
+            name: zod.string().nullish(),
+            description: zod.string().optional(),
+            created_at: zod.string().datetime({}).optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(hogFunctionsListResponseResultsItemCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(hogFunctionsListResponseResultsItemCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod.string().max(hogFunctionsListResponseResultsItemCreatedByOneLastNameMax).optional(),
+                    email: zod.string().email().max(hogFunctionsListResponseResultsItemCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            updated_at: zod.string().datetime({}).optional(),
+            enabled: zod.boolean().optional(),
+            hog: zod.string().optional(),
+            filters: zod.unknown().nullish(),
+            icon_url: zod.string().nullish(),
+            template: zod
+                .object({
+                    id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+                    name: zod
+                        .string()
+                        .max(hogFunctionsListResponseResultsItemTemplateOneNameMax)
+                        .describe('Display name of the template.'),
+                    description: zod.string().nullish().describe('What this template does.'),
+                    code: zod.string().describe('Source code of the template.'),
+                    code_language: zod
+                        .string()
+                        .max(hogFunctionsListResponseResultsItemTemplateOneCodeLanguageMax)
+                        .optional()
+                        .describe("Programming language: 'hog' or 'javascript'."),
+                    inputs_schema: zod
+                        .unknown()
+                        .describe('Schema defining configurable inputs for functions created from this template.'),
+                    type: zod
+                        .string()
+                        .max(hogFunctionsListResponseResultsItemTemplateOneTypeMax)
+                        .describe('Function type this template creates.'),
+                    status: zod
+                        .string()
+                        .max(hogFunctionsListResponseResultsItemTemplateOneStatusMax)
+                        .optional()
+                        .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+                    category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+                    free: zod.boolean().optional().describe('Whether available on free plans.'),
+                    icon_url: zod.string().nullish().describe("URL for the template's icon."),
+                    filters: zod.unknown().nullish().describe('Default event filters.'),
+                    masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+                    mapping_templates: zod
+                        .array(
+                            zod.object({
+                                name: zod.string().describe('Name of this mapping template.'),
+                                include_by_default: zod
+                                    .boolean()
+                                    .nullish()
+                                    .describe('Whether this mapping is enabled by default.'),
+                                filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                                inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                                inputs_schema: zod
+                                    .unknown()
+                                    .nullish()
+                                    .describe('Additional input schema fields specific to this mapping.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('Pre-defined mapping configurations for destination templates.'),
+                })
+                .optional(),
             status: zod
                 .object({
                     state: zod
@@ -3733,8 +3833,8 @@ export const HogFunctionsListResponse = zod.object({
                         .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
                     tokens: zod.number(),
                 })
-                .nullable(),
-            execution_order: zod.number().nullable(),
+                .nullish(),
+            execution_order: zod.number().nullish(),
         })
     ),
 })
@@ -3843,9 +3943,9 @@ export const HogFunctionsCreateBody = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -3947,9 +4047,9 @@ export const HogFunctionsCreateBody = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -4034,7 +4134,7 @@ export const hogFunctionsRetrieveResponseExecutionOrderMin = 0
 export const hogFunctionsRetrieveResponseExecutionOrderMax = 32767
 
 export const HogFunctionsRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     type: zod
         .union([
             zod
@@ -4058,37 +4158,48 @@ export const HogFunctionsRetrieveResponse = zod.object({
         ),
     name: zod.string().max(hogFunctionsRetrieveResponseNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
-    created_at: zod.string().datetime({}),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(hogFunctionsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(hogFunctionsRetrieveResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(hogFunctionsRetrieveResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(hogFunctionsRetrieveResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(hogFunctionsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(hogFunctionsRetrieveResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(hogFunctionsRetrieveResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(hogFunctionsRetrieveResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-    bytecode: zod.unknown().nullable(),
-    transpiled: zod.string().nullable(),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -4137,9 +4248,9 @@ export const HogFunctionsRetrieveResponse = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -4241,9 +4352,9 @@ export const HogFunctionsRetrieveResponse = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -4270,52 +4381,57 @@ export const HogFunctionsRetrieveResponse = zod.object({
         .nullish()
         .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
     icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-    template: zod.object({
-        id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-        name: zod
-            .string()
-            .max(hogFunctionsRetrieveResponseTemplateOneNameMax)
-            .describe('Display name of the template.'),
-        description: zod.string().nullish().describe('What this template does.'),
-        code: zod.string().describe('Source code of the template.'),
-        code_language: zod
-            .string()
-            .max(hogFunctionsRetrieveResponseTemplateOneCodeLanguageMax)
-            .optional()
-            .describe("Programming language: 'hog' or 'javascript'."),
-        inputs_schema: zod
-            .unknown()
-            .describe('Schema defining configurable inputs for functions created from this template.'),
-        type: zod
-            .string()
-            .max(hogFunctionsRetrieveResponseTemplateOneTypeMax)
-            .describe('Function type this template creates.'),
-        status: zod
-            .string()
-            .max(hogFunctionsRetrieveResponseTemplateOneStatusMax)
-            .optional()
-            .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-        category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-        free: zod.boolean().optional().describe('Whether available on free plans.'),
-        icon_url: zod.string().nullish().describe("URL for the template's icon."),
-        filters: zod.unknown().nullish().describe('Default event filters.'),
-        masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-        mapping_templates: zod
-            .array(
-                zod.object({
-                    name: zod.string().describe('Name of this mapping template.'),
-                    include_by_default: zod.boolean().nullish().describe('Whether this mapping is enabled by default.'),
-                    filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                    inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                    inputs_schema: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Additional input schema fields specific to this mapping.'),
-                })
-            )
-            .nullish()
-            .describe('Pre-defined mapping configurations for destination templates.'),
-    }),
+    template: zod
+        .object({
+            id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+            name: zod
+                .string()
+                .max(hogFunctionsRetrieveResponseTemplateOneNameMax)
+                .describe('Display name of the template.'),
+            description: zod.string().nullish().describe('What this template does.'),
+            code: zod.string().describe('Source code of the template.'),
+            code_language: zod
+                .string()
+                .max(hogFunctionsRetrieveResponseTemplateOneCodeLanguageMax)
+                .optional()
+                .describe("Programming language: 'hog' or 'javascript'."),
+            inputs_schema: zod
+                .unknown()
+                .describe('Schema defining configurable inputs for functions created from this template.'),
+            type: zod
+                .string()
+                .max(hogFunctionsRetrieveResponseTemplateOneTypeMax)
+                .describe('Function type this template creates.'),
+            status: zod
+                .string()
+                .max(hogFunctionsRetrieveResponseTemplateOneStatusMax)
+                .optional()
+                .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+            category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+            free: zod.boolean().optional().describe('Whether available on free plans.'),
+            icon_url: zod.string().nullish().describe("URL for the template's icon."),
+            filters: zod.unknown().nullish().describe('Default event filters.'),
+            masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+            mapping_templates: zod
+                .array(
+                    zod.object({
+                        name: zod.string().describe('Name of this mapping template.'),
+                        include_by_default: zod
+                            .boolean()
+                            .nullish()
+                            .describe('Whether this mapping is enabled by default.'),
+                        filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                        inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                        inputs_schema: zod
+                            .unknown()
+                            .nullish()
+                            .describe('Additional input schema fields specific to this mapping.'),
+                    })
+                )
+                .nullish()
+                .describe('Pre-defined mapping configurations for destination templates.'),
+        })
+        .optional(),
     template_id: zod
         .string()
         .max(hogFunctionsRetrieveResponseTemplateIdMax)
@@ -4335,7 +4451,7 @@ export const HogFunctionsRetrieveResponse = zod.object({
                 .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
             tokens: zod.number(),
         })
-        .nullable(),
+        .nullish(),
     execution_order: zod
         .number()
         .min(hogFunctionsRetrieveResponseExecutionOrderMin)
@@ -4343,7 +4459,7 @@ export const HogFunctionsRetrieveResponse = zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
-    batch_export_id: zod.string().nullable(),
+    batch_export_id: zod.string().nullish(),
 })
 
 export const HogFunctionsUpdateParams = zod.object({
@@ -4451,9 +4567,9 @@ export const HogFunctionsUpdateBody = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -4555,9 +4671,9 @@ export const HogFunctionsUpdateBody = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -4633,7 +4749,7 @@ export const hogFunctionsUpdateResponseExecutionOrderMin = 0
 export const hogFunctionsUpdateResponseExecutionOrderMax = 32767
 
 export const HogFunctionsUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     type: zod
         .union([
             zod
@@ -4657,37 +4773,48 @@ export const HogFunctionsUpdateResponse = zod.object({
         ),
     name: zod.string().max(hogFunctionsUpdateResponseNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
-    created_at: zod.string().datetime({}),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(hogFunctionsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(hogFunctionsUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(hogFunctionsUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(hogFunctionsUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(hogFunctionsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(hogFunctionsUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(hogFunctionsUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(hogFunctionsUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-    bytecode: zod.unknown().nullable(),
-    transpiled: zod.string().nullable(),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -4736,9 +4863,9 @@ export const HogFunctionsUpdateResponse = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -4840,9 +4967,9 @@ export const HogFunctionsUpdateResponse = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -4869,49 +4996,57 @@ export const HogFunctionsUpdateResponse = zod.object({
         .nullish()
         .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
     icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-    template: zod.object({
-        id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-        name: zod.string().max(hogFunctionsUpdateResponseTemplateOneNameMax).describe('Display name of the template.'),
-        description: zod.string().nullish().describe('What this template does.'),
-        code: zod.string().describe('Source code of the template.'),
-        code_language: zod
-            .string()
-            .max(hogFunctionsUpdateResponseTemplateOneCodeLanguageMax)
-            .optional()
-            .describe("Programming language: 'hog' or 'javascript'."),
-        inputs_schema: zod
-            .unknown()
-            .describe('Schema defining configurable inputs for functions created from this template.'),
-        type: zod
-            .string()
-            .max(hogFunctionsUpdateResponseTemplateOneTypeMax)
-            .describe('Function type this template creates.'),
-        status: zod
-            .string()
-            .max(hogFunctionsUpdateResponseTemplateOneStatusMax)
-            .optional()
-            .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-        category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-        free: zod.boolean().optional().describe('Whether available on free plans.'),
-        icon_url: zod.string().nullish().describe("URL for the template's icon."),
-        filters: zod.unknown().nullish().describe('Default event filters.'),
-        masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-        mapping_templates: zod
-            .array(
-                zod.object({
-                    name: zod.string().describe('Name of this mapping template.'),
-                    include_by_default: zod.boolean().nullish().describe('Whether this mapping is enabled by default.'),
-                    filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                    inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                    inputs_schema: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Additional input schema fields specific to this mapping.'),
-                })
-            )
-            .nullish()
-            .describe('Pre-defined mapping configurations for destination templates.'),
-    }),
+    template: zod
+        .object({
+            id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+            name: zod
+                .string()
+                .max(hogFunctionsUpdateResponseTemplateOneNameMax)
+                .describe('Display name of the template.'),
+            description: zod.string().nullish().describe('What this template does.'),
+            code: zod.string().describe('Source code of the template.'),
+            code_language: zod
+                .string()
+                .max(hogFunctionsUpdateResponseTemplateOneCodeLanguageMax)
+                .optional()
+                .describe("Programming language: 'hog' or 'javascript'."),
+            inputs_schema: zod
+                .unknown()
+                .describe('Schema defining configurable inputs for functions created from this template.'),
+            type: zod
+                .string()
+                .max(hogFunctionsUpdateResponseTemplateOneTypeMax)
+                .describe('Function type this template creates.'),
+            status: zod
+                .string()
+                .max(hogFunctionsUpdateResponseTemplateOneStatusMax)
+                .optional()
+                .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+            category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+            free: zod.boolean().optional().describe('Whether available on free plans.'),
+            icon_url: zod.string().nullish().describe("URL for the template's icon."),
+            filters: zod.unknown().nullish().describe('Default event filters.'),
+            masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+            mapping_templates: zod
+                .array(
+                    zod.object({
+                        name: zod.string().describe('Name of this mapping template.'),
+                        include_by_default: zod
+                            .boolean()
+                            .nullish()
+                            .describe('Whether this mapping is enabled by default.'),
+                        filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                        inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                        inputs_schema: zod
+                            .unknown()
+                            .nullish()
+                            .describe('Additional input schema fields specific to this mapping.'),
+                    })
+                )
+                .nullish()
+                .describe('Pre-defined mapping configurations for destination templates.'),
+        })
+        .optional(),
     template_id: zod
         .string()
         .max(hogFunctionsUpdateResponseTemplateIdMax)
@@ -4931,7 +5066,7 @@ export const HogFunctionsUpdateResponse = zod.object({
                 .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
             tokens: zod.number(),
         })
-        .nullable(),
+        .nullish(),
     execution_order: zod
         .number()
         .min(hogFunctionsUpdateResponseExecutionOrderMin)
@@ -4939,7 +5074,7 @@ export const HogFunctionsUpdateResponse = zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
-    batch_export_id: zod.string().nullable(),
+    batch_export_id: zod.string().nullish(),
 })
 
 export const HogFunctionsPartialUpdateParams = zod.object({
@@ -5047,9 +5182,9 @@ export const HogFunctionsPartialUpdateBody = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -5151,9 +5286,9 @@ export const HogFunctionsPartialUpdateBody = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -5229,7 +5364,7 @@ export const hogFunctionsPartialUpdateResponseExecutionOrderMin = 0
 export const hogFunctionsPartialUpdateResponseExecutionOrderMax = 32767
 
 export const HogFunctionsPartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     type: zod
         .union([
             zod
@@ -5257,37 +5392,48 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
         .nullish()
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
-    created_at: zod.string().datetime({}),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(hogFunctionsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(hogFunctionsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(hogFunctionsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(hogFunctionsPartialUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(hogFunctionsPartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(hogFunctionsPartialUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(hogFunctionsPartialUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(hogFunctionsPartialUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-    bytecode: zod.unknown().nullable(),
-    transpiled: zod.string().nullable(),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -5336,9 +5482,9 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -5440,9 +5586,9 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -5469,52 +5615,57 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
         .nullish()
         .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
     icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-    template: zod.object({
-        id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-        name: zod
-            .string()
-            .max(hogFunctionsPartialUpdateResponseTemplateOneNameMax)
-            .describe('Display name of the template.'),
-        description: zod.string().nullish().describe('What this template does.'),
-        code: zod.string().describe('Source code of the template.'),
-        code_language: zod
-            .string()
-            .max(hogFunctionsPartialUpdateResponseTemplateOneCodeLanguageMax)
-            .optional()
-            .describe("Programming language: 'hog' or 'javascript'."),
-        inputs_schema: zod
-            .unknown()
-            .describe('Schema defining configurable inputs for functions created from this template.'),
-        type: zod
-            .string()
-            .max(hogFunctionsPartialUpdateResponseTemplateOneTypeMax)
-            .describe('Function type this template creates.'),
-        status: zod
-            .string()
-            .max(hogFunctionsPartialUpdateResponseTemplateOneStatusMax)
-            .optional()
-            .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-        category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-        free: zod.boolean().optional().describe('Whether available on free plans.'),
-        icon_url: zod.string().nullish().describe("URL for the template's icon."),
-        filters: zod.unknown().nullish().describe('Default event filters.'),
-        masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-        mapping_templates: zod
-            .array(
-                zod.object({
-                    name: zod.string().describe('Name of this mapping template.'),
-                    include_by_default: zod.boolean().nullish().describe('Whether this mapping is enabled by default.'),
-                    filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                    inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                    inputs_schema: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Additional input schema fields specific to this mapping.'),
-                })
-            )
-            .nullish()
-            .describe('Pre-defined mapping configurations for destination templates.'),
-    }),
+    template: zod
+        .object({
+            id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+            name: zod
+                .string()
+                .max(hogFunctionsPartialUpdateResponseTemplateOneNameMax)
+                .describe('Display name of the template.'),
+            description: zod.string().nullish().describe('What this template does.'),
+            code: zod.string().describe('Source code of the template.'),
+            code_language: zod
+                .string()
+                .max(hogFunctionsPartialUpdateResponseTemplateOneCodeLanguageMax)
+                .optional()
+                .describe("Programming language: 'hog' or 'javascript'."),
+            inputs_schema: zod
+                .unknown()
+                .describe('Schema defining configurable inputs for functions created from this template.'),
+            type: zod
+                .string()
+                .max(hogFunctionsPartialUpdateResponseTemplateOneTypeMax)
+                .describe('Function type this template creates.'),
+            status: zod
+                .string()
+                .max(hogFunctionsPartialUpdateResponseTemplateOneStatusMax)
+                .optional()
+                .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+            category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+            free: zod.boolean().optional().describe('Whether available on free plans.'),
+            icon_url: zod.string().nullish().describe("URL for the template's icon."),
+            filters: zod.unknown().nullish().describe('Default event filters.'),
+            masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+            mapping_templates: zod
+                .array(
+                    zod.object({
+                        name: zod.string().describe('Name of this mapping template.'),
+                        include_by_default: zod
+                            .boolean()
+                            .nullish()
+                            .describe('Whether this mapping is enabled by default.'),
+                        filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                        inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                        inputs_schema: zod
+                            .unknown()
+                            .nullish()
+                            .describe('Additional input schema fields specific to this mapping.'),
+                    })
+                )
+                .nullish()
+                .describe('Pre-defined mapping configurations for destination templates.'),
+        })
+        .optional(),
     template_id: zod
         .string()
         .max(hogFunctionsPartialUpdateResponseTemplateIdMax)
@@ -5534,7 +5685,7 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
                 .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
             tokens: zod.number(),
         })
-        .nullable(),
+        .nullish(),
     execution_order: zod
         .number()
         .min(hogFunctionsPartialUpdateResponseExecutionOrderMin)
@@ -5542,7 +5693,7 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
-    batch_export_id: zod.string().nullable(),
+    batch_export_id: zod.string().nullish(),
 })
 
 /**
@@ -5666,9 +5817,9 @@ export const HogFunctionsEnableBackfillsCreateBody = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -5776,9 +5927,9 @@ export const HogFunctionsEnableBackfillsCreateBody = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -5867,7 +6018,7 @@ export const hogFunctionsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 export const HogFunctionsInvocationsCreateBody = zod.object({
     configuration: zod
         .object({
-            id: zod.string(),
+            id: zod.string().optional(),
             type: zod
                 .union([
                     zod
@@ -5895,55 +6046,60 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                 .nullish()
                 .describe('Display name for the function.'),
             description: zod.string().optional().describe('Human-readable description of what this function does.'),
-            created_at: zod.string().datetime({}),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax)
-                    .optional(),
-                last_name: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
-                    .optional(),
-                email: zod.string().email().max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            updated_at: zod.string().datetime({}),
+            created_at: zod.string().datetime({}).optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod
+                        .string()
+                        .email()
+                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            updated_at: zod.string().datetime({}).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
             deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-            bytecode: zod.unknown().nullable(),
-            transpiled: zod.string().nullable(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
                     zod.object({
@@ -6001,9 +6157,9 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                             .enum(['hog', 'liquid'])
                             .optional()
                             .describe('* `hog` - hog\n* `liquid` - liquid'),
-                        bytecode: zod.array(zod.unknown()),
-                        order: zod.number(),
-                        transpiled: zod.unknown(),
+                        bytecode: zod.array(zod.unknown()).optional(),
+                        order: zod.number().optional(),
+                        transpiled: zod.unknown().optional(),
                     })
                 )
                 .optional()
@@ -6116,9 +6272,9 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                                         .enum(['hog', 'liquid'])
                                         .optional()
                                         .describe('* `hog` - hog\n* `liquid` - liquid'),
-                                    bytecode: zod.array(zod.unknown()),
-                                    order: zod.number(),
-                                    transpiled: zod.unknown(),
+                                    bytecode: zod.array(zod.unknown()).optional(),
+                                    order: zod.number().optional(),
+                                    transpiled: zod.unknown().optional(),
                                 })
                             )
                             .optional(),
@@ -6147,55 +6303,57 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                 .nullish()
                 .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
             icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-            template: zod.object({
-                id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-                name: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneNameMax)
-                    .describe('Display name of the template.'),
-                description: zod.string().nullish().describe('What this template does.'),
-                code: zod.string().describe('Source code of the template.'),
-                code_language: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneCodeLanguageMax)
-                    .optional()
-                    .describe("Programming language: 'hog' or 'javascript'."),
-                inputs_schema: zod
-                    .unknown()
-                    .describe('Schema defining configurable inputs for functions created from this template.'),
-                type: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneTypeMax)
-                    .describe('Function type this template creates.'),
-                status: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneStatusMax)
-                    .optional()
-                    .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-                category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-                free: zod.boolean().optional().describe('Whether available on free plans.'),
-                icon_url: zod.string().nullish().describe("URL for the template's icon."),
-                filters: zod.unknown().nullish().describe('Default event filters.'),
-                masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-                mapping_templates: zod
-                    .array(
-                        zod.object({
-                            name: zod.string().describe('Name of this mapping template.'),
-                            include_by_default: zod
-                                .boolean()
-                                .nullish()
-                                .describe('Whether this mapping is enabled by default.'),
-                            filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                            inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                            inputs_schema: zod
-                                .unknown()
-                                .nullish()
-                                .describe('Additional input schema fields specific to this mapping.'),
-                        })
-                    )
-                    .nullish()
-                    .describe('Pre-defined mapping configurations for destination templates.'),
-            }),
+            template: zod
+                .object({
+                    id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+                    name: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneNameMax)
+                        .describe('Display name of the template.'),
+                    description: zod.string().nullish().describe('What this template does.'),
+                    code: zod.string().describe('Source code of the template.'),
+                    code_language: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneCodeLanguageMax)
+                        .optional()
+                        .describe("Programming language: 'hog' or 'javascript'."),
+                    inputs_schema: zod
+                        .unknown()
+                        .describe('Schema defining configurable inputs for functions created from this template.'),
+                    type: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneTypeMax)
+                        .describe('Function type this template creates.'),
+                    status: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneStatusMax)
+                        .optional()
+                        .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+                    category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+                    free: zod.boolean().optional().describe('Whether available on free plans.'),
+                    icon_url: zod.string().nullish().describe("URL for the template's icon."),
+                    filters: zod.unknown().nullish().describe('Default event filters.'),
+                    masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+                    mapping_templates: zod
+                        .array(
+                            zod.object({
+                                name: zod.string().describe('Name of this mapping template.'),
+                                include_by_default: zod
+                                    .boolean()
+                                    .nullish()
+                                    .describe('Whether this mapping is enabled by default.'),
+                                filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                                inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                                inputs_schema: zod
+                                    .unknown()
+                                    .nullish()
+                                    .describe('Additional input schema fields specific to this mapping.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('Pre-defined mapping configurations for destination templates.'),
+                })
+                .optional(),
             template_id: zod
                 .string()
                 .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateIdMax)
@@ -6215,7 +6373,7 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                         .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
                     tokens: zod.number(),
                 })
-                .nullable(),
+                .nullish(),
             execution_order: zod
                 .number()
                 .min(hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMin)
@@ -6223,7 +6381,7 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
             _create_in_folder: zod.string().optional(),
-            batch_export_id: zod.string().nullable(),
+            batch_export_id: zod.string().nullish(),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -6280,7 +6438,7 @@ export const hogFunctionsInvocationsCreateResponseMockAsyncFunctionsDefault = tr
 export const HogFunctionsInvocationsCreateResponse = zod.object({
     configuration: zod
         .object({
-            id: zod.string(),
+            id: zod.string().optional(),
             type: zod
                 .union([
                     zod
@@ -6308,58 +6466,60 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                 .nullish()
                 .describe('Display name for the function.'),
             description: zod.string().optional().describe('Human-readable description of what this function does.'),
-            created_at: zod.string().datetime({}),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneFirstNameMax)
-                    .optional(),
-                last_name: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneLastNameMax)
-                    .optional(),
-                email: zod
-                    .string()
-                    .email()
-                    .max(hogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            updated_at: zod.string().datetime({}),
+            created_at: zod.string().datetime({}).optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod
+                        .string()
+                        .email()
+                        .max(hogFunctionsInvocationsCreateResponseConfigurationOneCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            updated_at: zod.string().datetime({}).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
             deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-            bytecode: zod.unknown().nullable(),
-            transpiled: zod.string().nullable(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
                     zod.object({
@@ -6423,9 +6583,9 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                             .enum(['hog', 'liquid'])
                             .optional()
                             .describe('* `hog` - hog\n* `liquid` - liquid'),
-                        bytecode: zod.array(zod.unknown()),
-                        order: zod.number(),
-                        transpiled: zod.unknown(),
+                        bytecode: zod.array(zod.unknown()).optional(),
+                        order: zod.number().optional(),
+                        transpiled: zod.unknown().optional(),
                     })
                 )
                 .optional()
@@ -6538,9 +6698,9 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                                         .enum(['hog', 'liquid'])
                                         .optional()
                                         .describe('* `hog` - hog\n* `liquid` - liquid'),
-                                    bytecode: zod.array(zod.unknown()),
-                                    order: zod.number(),
-                                    transpiled: zod.unknown(),
+                                    bytecode: zod.array(zod.unknown()).optional(),
+                                    order: zod.number().optional(),
+                                    transpiled: zod.unknown().optional(),
                                 })
                             )
                             .optional(),
@@ -6569,55 +6729,57 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                 .nullish()
                 .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
             icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-            template: zod.object({
-                id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-                name: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneNameMax)
-                    .describe('Display name of the template.'),
-                description: zod.string().nullish().describe('What this template does.'),
-                code: zod.string().describe('Source code of the template.'),
-                code_language: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneCodeLanguageMax)
-                    .optional()
-                    .describe("Programming language: 'hog' or 'javascript'."),
-                inputs_schema: zod
-                    .unknown()
-                    .describe('Schema defining configurable inputs for functions created from this template.'),
-                type: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneTypeMax)
-                    .describe('Function type this template creates.'),
-                status: zod
-                    .string()
-                    .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneStatusMax)
-                    .optional()
-                    .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-                category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-                free: zod.boolean().optional().describe('Whether available on free plans.'),
-                icon_url: zod.string().nullish().describe("URL for the template's icon."),
-                filters: zod.unknown().nullish().describe('Default event filters.'),
-                masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-                mapping_templates: zod
-                    .array(
-                        zod.object({
-                            name: zod.string().describe('Name of this mapping template.'),
-                            include_by_default: zod
-                                .boolean()
-                                .nullish()
-                                .describe('Whether this mapping is enabled by default.'),
-                            filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                            inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                            inputs_schema: zod
-                                .unknown()
-                                .nullish()
-                                .describe('Additional input schema fields specific to this mapping.'),
-                        })
-                    )
-                    .nullish()
-                    .describe('Pre-defined mapping configurations for destination templates.'),
-            }),
+            template: zod
+                .object({
+                    id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+                    name: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneNameMax)
+                        .describe('Display name of the template.'),
+                    description: zod.string().nullish().describe('What this template does.'),
+                    code: zod.string().describe('Source code of the template.'),
+                    code_language: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneCodeLanguageMax)
+                        .optional()
+                        .describe("Programming language: 'hog' or 'javascript'."),
+                    inputs_schema: zod
+                        .unknown()
+                        .describe('Schema defining configurable inputs for functions created from this template.'),
+                    type: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneTypeMax)
+                        .describe('Function type this template creates.'),
+                    status: zod
+                        .string()
+                        .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateOneStatusMax)
+                        .optional()
+                        .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+                    category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+                    free: zod.boolean().optional().describe('Whether available on free plans.'),
+                    icon_url: zod.string().nullish().describe("URL for the template's icon."),
+                    filters: zod.unknown().nullish().describe('Default event filters.'),
+                    masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+                    mapping_templates: zod
+                        .array(
+                            zod.object({
+                                name: zod.string().describe('Name of this mapping template.'),
+                                include_by_default: zod
+                                    .boolean()
+                                    .nullish()
+                                    .describe('Whether this mapping is enabled by default.'),
+                                filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                                inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                                inputs_schema: zod
+                                    .unknown()
+                                    .nullish()
+                                    .describe('Additional input schema fields specific to this mapping.'),
+                            })
+                        )
+                        .nullish()
+                        .describe('Pre-defined mapping configurations for destination templates.'),
+                })
+                .optional(),
             template_id: zod
                 .string()
                 .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateIdMax)
@@ -6637,7 +6799,7 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                         .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
                     tokens: zod.number(),
                 })
-                .nullable(),
+                .nullish(),
             execution_order: zod
                 .number()
                 .min(hogFunctionsInvocationsCreateResponseConfigurationOneExecutionOrderMin)
@@ -6645,7 +6807,7 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
             _create_in_folder: zod.string().optional(),
-            batch_export_id: zod.string().nullable(),
+            batch_export_id: zod.string().nullish(),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -6660,8 +6822,8 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
         .boolean()
         .default(hogFunctionsInvocationsCreateResponseMockAsyncFunctionsDefault)
         .describe('When true (default), async functions like fetch() are simulated.'),
-    status: zod.string().describe('Invocation result status.'),
-    logs: zod.array(zod.unknown()).describe('Execution logs from the test invocation.'),
+    status: zod.string().optional().describe('Invocation result status.'),
+    logs: zod.array(zod.unknown()).optional().describe('Execution logs from the test invocation.'),
     invocation_id: zod.string().nullish().describe('Optional invocation ID for correlation.'),
 })
 
@@ -6761,7 +6923,7 @@ export const hogFunctionsRearrangePartialUpdateResponseExecutionOrderMin = 0
 export const hogFunctionsRearrangePartialUpdateResponseExecutionOrderMax = 32767
 
 export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     type: zod
         .union([
             zod
@@ -6789,37 +6951,51 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
         .nullish()
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
-    created_at: zod.string().datetime({}),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(hogFunctionsRearrangePartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(hogFunctionsRearrangePartialUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(hogFunctionsRearrangePartialUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(hogFunctionsRearrangePartialUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod
+                .string()
+                .max(hogFunctionsRearrangePartialUpdateResponseCreatedByOneDistinctIdMax)
+                .nullish(),
+            first_name: zod.string().max(hogFunctionsRearrangePartialUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(hogFunctionsRearrangePartialUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(hogFunctionsRearrangePartialUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-    bytecode: zod.unknown().nullable(),
-    transpiled: zod.string().nullable(),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -6870,9 +7046,9 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
             zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
-                bytecode: zod.array(zod.unknown()),
-                order: zod.number(),
-                transpiled: zod.unknown(),
+                bytecode: zod.array(zod.unknown()).optional(),
+                order: zod.number().optional(),
+                transpiled: zod.unknown().optional(),
             })
         )
         .optional()
@@ -6980,9 +7156,9 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
                                 .enum(['hog', 'liquid'])
                                 .optional()
                                 .describe('* `hog` - hog\n* `liquid` - liquid'),
-                            bytecode: zod.array(zod.unknown()),
-                            order: zod.number(),
-                            transpiled: zod.unknown(),
+                            bytecode: zod.array(zod.unknown()).optional(),
+                            order: zod.number().optional(),
+                            transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
@@ -7009,52 +7185,57 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
         .nullish()
         .describe('Event-to-destination field mappings. Only for destination and site_destination types.'),
     icon_url: zod.string().nullish().describe("URL for the function's icon displayed in the UI."),
-    template: zod.object({
-        id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
-        name: zod
-            .string()
-            .max(hogFunctionsRearrangePartialUpdateResponseTemplateOneNameMax)
-            .describe('Display name of the template.'),
-        description: zod.string().nullish().describe('What this template does.'),
-        code: zod.string().describe('Source code of the template.'),
-        code_language: zod
-            .string()
-            .max(hogFunctionsRearrangePartialUpdateResponseTemplateOneCodeLanguageMax)
-            .optional()
-            .describe("Programming language: 'hog' or 'javascript'."),
-        inputs_schema: zod
-            .unknown()
-            .describe('Schema defining configurable inputs for functions created from this template.'),
-        type: zod
-            .string()
-            .max(hogFunctionsRearrangePartialUpdateResponseTemplateOneTypeMax)
-            .describe('Function type this template creates.'),
-        status: zod
-            .string()
-            .max(hogFunctionsRearrangePartialUpdateResponseTemplateOneStatusMax)
-            .optional()
-            .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
-        category: zod.unknown().optional().describe('Category tags for organizing templates.'),
-        free: zod.boolean().optional().describe('Whether available on free plans.'),
-        icon_url: zod.string().nullish().describe("URL for the template's icon."),
-        filters: zod.unknown().nullish().describe('Default event filters.'),
-        masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
-        mapping_templates: zod
-            .array(
-                zod.object({
-                    name: zod.string().describe('Name of this mapping template.'),
-                    include_by_default: zod.boolean().nullish().describe('Whether this mapping is enabled by default.'),
-                    filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                    inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
-                    inputs_schema: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Additional input schema fields specific to this mapping.'),
-                })
-            )
-            .nullish()
-            .describe('Pre-defined mapping configurations for destination templates.'),
-    }),
+    template: zod
+        .object({
+            id: zod.string().describe("Unique template identifier (e.g. 'template-slack')."),
+            name: zod
+                .string()
+                .max(hogFunctionsRearrangePartialUpdateResponseTemplateOneNameMax)
+                .describe('Display name of the template.'),
+            description: zod.string().nullish().describe('What this template does.'),
+            code: zod.string().describe('Source code of the template.'),
+            code_language: zod
+                .string()
+                .max(hogFunctionsRearrangePartialUpdateResponseTemplateOneCodeLanguageMax)
+                .optional()
+                .describe("Programming language: 'hog' or 'javascript'."),
+            inputs_schema: zod
+                .unknown()
+                .describe('Schema defining configurable inputs for functions created from this template.'),
+            type: zod
+                .string()
+                .max(hogFunctionsRearrangePartialUpdateResponseTemplateOneTypeMax)
+                .describe('Function type this template creates.'),
+            status: zod
+                .string()
+                .max(hogFunctionsRearrangePartialUpdateResponseTemplateOneStatusMax)
+                .optional()
+                .describe('Lifecycle status: alpha, beta, stable, deprecated, or hidden.'),
+            category: zod.unknown().optional().describe('Category tags for organizing templates.'),
+            free: zod.boolean().optional().describe('Whether available on free plans.'),
+            icon_url: zod.string().nullish().describe("URL for the template's icon."),
+            filters: zod.unknown().nullish().describe('Default event filters.'),
+            masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+            mapping_templates: zod
+                .array(
+                    zod.object({
+                        name: zod.string().describe('Name of this mapping template.'),
+                        include_by_default: zod
+                            .boolean()
+                            .nullish()
+                            .describe('Whether this mapping is enabled by default.'),
+                        filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
+                        inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                        inputs_schema: zod
+                            .unknown()
+                            .nullish()
+                            .describe('Additional input schema fields specific to this mapping.'),
+                    })
+                )
+                .nullish()
+                .describe('Pre-defined mapping configurations for destination templates.'),
+        })
+        .optional(),
     template_id: zod
         .string()
         .max(hogFunctionsRearrangePartialUpdateResponseTemplateIdMax)
@@ -7074,7 +7255,7 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
                 .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
             tokens: zod.number(),
         })
-        .nullable(),
+        .nullish(),
     execution_order: zod
         .number()
         .min(hogFunctionsRearrangePartialUpdateResponseExecutionOrderMin)
@@ -7082,6 +7263,6 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
-    batch_export_id: zod.string().nullable(),
+    batch_export_id: zod.string().nullish(),
 })
 export const HogFunctionsRearrangePartialUpdateResponse = zod.array(HogFunctionsRearrangePartialUpdateResponseItem)

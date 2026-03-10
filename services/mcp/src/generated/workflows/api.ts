@@ -1162,48 +1162,51 @@ export const HogFlowsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
-            name: zod.string().nullable(),
-            description: zod.string(),
-            version: zod.number(),
+            id: zod.string().optional(),
+            name: zod.string().nullish(),
+            description: zod.string().optional(),
+            version: zod.number().optional(),
             status: zod
                 .enum(['draft', 'active', 'archived'])
-                .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-            created_at: zod.string().datetime({}),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod.string().max(hogFlowsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
-                first_name: zod.string().max(hogFlowsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
-                last_name: zod.string().max(hogFlowsListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                email: zod.string().email().max(hogFlowsListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            updated_at: zod.string().datetime({}),
-            trigger: zod.unknown(),
-            trigger_masking: zod.unknown().nullable(),
-            conversion: zod.unknown().nullable(),
+                .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived')
+                .optional(),
+            created_at: zod.string().datetime({}).optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod.string().max(hogFlowsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
+                    first_name: zod.string().max(hogFlowsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
+                    last_name: zod.string().max(hogFlowsListResponseResultsItemCreatedByOneLastNameMax).optional(),
+                    email: zod.string().email().max(hogFlowsListResponseResultsItemCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            updated_at: zod.string().datetime({}).optional(),
+            trigger: zod.unknown().optional(),
+            trigger_masking: zod.unknown().nullish(),
+            conversion: zod.unknown().nullish(),
             exit_condition: zod
                 .enum([
                     'exit_on_conversion',
@@ -1213,12 +1216,13 @@ export const HogFlowsListResponse = zod.object({
                 ])
                 .describe(
                     '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
-                ),
-            edges: zod.unknown(),
-            actions: zod.unknown(),
-            abort_action: zod.string().nullable(),
-            variables: zod.unknown().nullable(),
-            billable_action_types: zod.unknown().nullable(),
+                )
+                .optional(),
+            edges: zod.unknown().optional(),
+            actions: zod.unknown().optional(),
+            abort_action: zod.string().nullish(),
+            variables: zod.unknown().nullish(),
+            billable_action_types: zod.unknown().nullish(),
         })
     ),
 })
@@ -1347,37 +1351,48 @@ export const hogFlowsRetrieveResponseActionsItemFiltersOneSourceDefault = `event
 export const hogFlowsRetrieveResponseActionsItemTypeMax = 100
 
 export const HogFlowsRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     name: zod.string().max(hogFlowsRetrieveResponseNameMax).nullish(),
     description: zod.string().optional(),
-    version: zod.number(),
+    version: zod.number().optional(),
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
         .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    created_at: zod.string().datetime({}),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(hogFlowsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(hogFlowsRetrieveResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(hogFlowsRetrieveResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(hogFlowsRetrieveResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    updated_at: zod.string().datetime({}),
+    created_at: zod.string().datetime({}).optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(hogFlowsRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(hogFlowsRetrieveResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(hogFlowsRetrieveResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(hogFlowsRetrieveResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    updated_at: zod.string().datetime({}).optional(),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .object({
@@ -2919,7 +2934,7 @@ export const HogFlowsUserBlastRadiusCreateResponse = zod.object({
             output_variable: zod.unknown().nullish(),
         })
     ),
-    abort_action: zod.string().nullable(),
+    abort_action: zod.string().nullish(),
     variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
-    billable_action_types: zod.unknown().nullable(),
+    billable_action_types: zod.unknown().nullish(),
 })
