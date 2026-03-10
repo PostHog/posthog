@@ -3,7 +3,7 @@ import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconClock } from '@posthog/icons'
-import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -35,18 +35,22 @@ export const scene: SceneExport<WorkflowSceneLogicProps> = {
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
-    const sceneLogic = workflowSceneLogic(props)
+    const workflowSceneProps: WorkflowSceneLogicProps = {
+        id: props.id || 'new',
+        tab: props.tab || 'workflow',
+        tabId: props.tabId || 'default',
+    }
+    const sceneLogic = workflowSceneLogic(workflowSceneProps)
     const { currentTab } = useValues(sceneLogic)
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
 
-    const batchJobsLogic = batchWorkflowJobsLogic({ id: props.id })
+    const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
     const { futureJobs } = useValues(batchJobsLogic)
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow, hasPendingDraft, lastSavedAt, isDraftSaving, isWorkflowSubmitting } =
-        useValues(logic)
+    const { workflowLoading, originalWorkflow } = useValues(logic)
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -64,7 +68,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         {
             label: 'Workflow',
             key: 'workflow',
-            content: <Workflow {...props} />,
+            content: <Workflow {...workflowSceneProps} />,
         },
 
         {
@@ -81,7 +85,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                 </div>
             ),
             key: 'logs',
-            content: <WorkflowLogs id={props.id!} />,
+            content: <WorkflowLogs id={workflowSceneProps.id!} />,
         },
         {
             label: 'Metrics',
@@ -90,7 +94,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              * If we're rendering tabs, props.id is guaranteed to be
              * defined and not "new" (see return statement below)
              */
-            content: <WorkflowMetrics id={props.id!} />,
+            content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
         {
             label: 'History',
@@ -99,7 +103,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              * If we're rendering tabs, props.id is guaranteed to be
              * defined and not "new" (see return statement below)
              */
-            content: <ActivityLog id={props.id!} scope={ActivityScope.HOG_FLOW} />,
+            content: <ActivityLog id={workflowSceneProps.id!} scope={ActivityScope.HOG_FLOW} />,
         },
     ]
 
@@ -107,34 +111,19 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         <SceneContent className="h-full flex flex-col grow">
             <BindLogic logic={workflowLogic} props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}>
                 <WorkflowSceneHeader {...props} />
-                {hasPendingDraft && originalWorkflow.status === 'active' && (
-                    <LemonBanner type="info" className="mx-4 mt-2">
-                        Unpublished changes.
-                    </LemonBanner>
-                )}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...props} />
                 ) : (
-                    <div className="relative flex flex-col grow">
-                        <span className="absolute right-4 top-2 text-xs text-muted">
-                            {isDraftSaving || isWorkflowSubmitting
-                                ? 'Saving...'
-                                : lastSavedAt
-                                  ? `Last saved ${new Date(lastSavedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
-                                  : null}
-                        </span>
-                        <LemonTabs
-                            activeKey={currentTab}
-                            onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
-                            tabs={tabs}
-                            sceneInset
-                            className={clsx({
-                                'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow':
-                                    currentTab === 'workflow',
-                            })}
-                        />
-                    </div>
+                    <LemonTabs
+                        activeKey={currentTab}
+                        onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
+                        tabs={tabs}
+                        sceneInset
+                        className={clsx({
+                            'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
+                        })}
+                    />
                 )}
             </BindLogic>
         </SceneContent>

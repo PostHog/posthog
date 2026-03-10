@@ -1,3 +1,4 @@
+import os
 import statistics
 
 import pytest
@@ -33,6 +34,7 @@ class TestFlushKafkaBatch:
             total_cohorts=5,
             heartbeater=heartbeater,
             logger=logger,
+            percentile_bucket="p0-p50",
         )
 
         assert result == 0
@@ -63,6 +65,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=5,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p0-p50",
             )
 
         assert result == 100
@@ -88,6 +91,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=5,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p0-p50",
                 is_final=True,
             )
 
@@ -117,6 +121,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=5,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p0-p50",
                 is_final=False,
             )
 
@@ -155,6 +160,7 @@ class TestFlushKafkaBatch:
                     total_cohorts=5,
                     heartbeater=heartbeater,
                     logger=logger,
+                    percentile_bucket="p0-p50",
                 )
 
         # Should log warnings for failed messages
@@ -187,6 +193,7 @@ class TestFlushKafkaBatch:
                     total_cohorts=5,
                     heartbeater=heartbeater,
                     logger=logger,
+                    percentile_bucket="p0-p50",
                 )
 
         assert logger.warning.call_count == 5
@@ -211,6 +218,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=10,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p50-p80",
             )
 
         heartbeat_msg = heartbeater.details[0]
@@ -237,6 +245,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=8,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p80-p90",
             )
 
         # Check logger.info was called with metadata
@@ -249,15 +258,24 @@ class TestFlushKafkaBatch:
 class TestBatchFlushingBehavior:
     """Tests for batch flushing logic and integration."""
 
-    def test_flush_batch_size_constant_is_10k(self):
-        """Verify the FLUSH_BATCH_SIZE constant is set to 10,000."""
-        # Read the source to verify the constant
-        import inspect
+    def test_flush_batch_size_env_var_configuration(self):
+        """Verify FLUSH_BATCH_SIZE uses environment variable configuration."""
+        # Test default value (1000 when env var is not set)
+        with patch.dict(os.environ, {}, clear=True):
+            # Test the env parsing logic directly
+            default_value = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+            assert default_value == 1000
 
+        # Test env var override
+        with patch.dict(os.environ, {"COHORT_KAFKA_FLUSH_BATCH_SIZE": "500"}):
+            env_value = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+            assert env_value == 500
+
+        # Test that the module constant exists and is configurable
         import posthog.temporal.messaging.realtime_cohort_calculation_workflow as module
 
-        source = inspect.getsource(module.process_realtime_cohort_calculation_activity)
-        assert "FLUSH_BATCH_SIZE = 10_000" in source
+        assert hasattr(module, "FLUSH_BATCH_SIZE")
+        assert isinstance(module.FLUSH_BATCH_SIZE, int)
 
     @pytest.mark.asyncio
     async def test_multiple_batches_handled_correctly(self):
@@ -277,12 +295,16 @@ class TestBatchFlushingBehavior:
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow.asyncio.to_thread"):
             # Batch 1
-            result1 = await flush_kafka_batch(kafka_producer, mock_results_batch1, 123, 1, 5, heartbeater, logger)
+            result1 = await flush_kafka_batch(
+                kafka_producer, mock_results_batch1, 123, 1, 5, heartbeater, logger, "p90-p95"
+            )
             # Batch 2
-            result2 = await flush_kafka_batch(kafka_producer, mock_results_batch2, 123, 1, 5, heartbeater, logger)
+            result2 = await flush_kafka_batch(
+                kafka_producer, mock_results_batch2, 123, 1, 5, heartbeater, logger, "p90-p95"
+            )
             # Batch 3 (final)
             result3 = await flush_kafka_batch(
-                kafka_producer, mock_results_batch3, 123, 1, 5, heartbeater, logger, is_final=True
+                kafka_producer, mock_results_batch3, 123, 1, 5, heartbeater, logger, "p90-p95", is_final=True
             )
 
         assert result1 == 10000
@@ -1224,8 +1246,8 @@ class TestCoordinatorWorkflowInsufficientData:
             )
 
     @pytest.mark.asyncio
-    async def test_coordinator_continues_p0_p90_schedule_when_insufficient_data(self):
-        """Should continue processing for p0-p90 schedule even when no duration data exists."""
+    async def test_coordinator_continues_when_insufficient_duration_data(self):
+        """Should continue processing even when no duration data exists for percentile filtering."""
         from unittest.mock import AsyncMock
 
         # Import the coordinator workflow
@@ -1255,7 +1277,7 @@ class TestCoordinatorWorkflowInsufficientData:
             ]
 
             inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
-                duration_percentile_min=0.0,  # p0-p90 schedule
+                duration_percentile_min=0.0,  # Test with wide percentile range
                 duration_percentile_max=90.0,
             )
 

@@ -1,13 +1,16 @@
 import type { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import { FeatureFlagUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
+
+type TResult = Schemas.FeatureFlag & { url: string }
 
 const schema = FeatureFlagUpdateSchema
 
 type Params = z.infer<typeof schema>
 
-export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const updateHandler: ToolBase<typeof schema, TResult>['handler'] = async (context: Context, params: Params) => {
     const { flagKey, data } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -28,7 +31,7 @@ export const updateHandler: ToolBase<typeof schema>['handler'] = async (context:
     return featureFlagWithUrl
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, TResult> => ({
     name: 'update-feature-flag',
     schema,
     handler: updateHandler,

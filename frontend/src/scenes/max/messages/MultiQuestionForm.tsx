@@ -7,7 +7,7 @@ import { MessageTemplate } from './MessageTemplate'
 interface MultiQuestionFormRecapProps {
     form: MultiQuestionFormType
     /** Saved answers from the backend (used when the form was previously submitted and page is reloaded) */
-    savedAnswers?: Record<string, string>
+    savedAnswers?: Record<string, string | string[]>
 }
 
 /**
@@ -29,13 +29,46 @@ export function MultiQuestionFormRecap({ form, savedAnswers }: MultiQuestionForm
                     <span>Form submitted</span>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                    {questions.map((question) => (
-                        <div key={question.id} className="text-sm">
-                            <span className="text-muted">{question.question}</span>
-                            <br />
-                            <span className="font-medium">{savedAnswers?.[question.id] || '—'}</span>
-                        </div>
-                    ))}
+                    {questions.map((question) => {
+                        const hasFields = question.fields && question.fields.length > 0
+                        return (
+                            <div key={question.id} className="text-sm">
+                                <span className="text-muted">{question.question}</span>
+                                {hasFields ? (
+                                    <div className="ml-3 mt-0.5 flex flex-col gap-0.5">
+                                        {question.fields!.map((field) => {
+                                            const answer = savedAnswers?.[field.id]
+                                            return (
+                                                <div key={field.id}>
+                                                    <span className="text-muted">{field.label}:</span>{' '}
+                                                    <span className="font-medium">
+                                                        {answer
+                                                            ? Array.isArray(answer)
+                                                                ? answer.join(', ')
+                                                                : answer
+                                                            : '—'}
+                                                    </span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                ) : (
+                                    <>
+                                        <br />
+                                        <span className="font-medium">
+                                            {(() => {
+                                                const answer = savedAnswers?.[question.id]
+                                                if (!answer) {
+                                                    return '—'
+                                                }
+                                                return Array.isArray(answer) ? answer.join(', ') : answer
+                                            })()}
+                                        </span>
+                                    </>
+                                )}
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
         </MessageTemplate>

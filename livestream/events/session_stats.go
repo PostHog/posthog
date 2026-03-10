@@ -134,30 +134,38 @@ func (ss *SessionStats) Add(token, sessionId string) {
 	ss.getOrCreateCounter(token).Add(1)
 }
 
-func (ss *SessionStats) KeepStats(ctx context.Context, statsChan chan SessionRecordingEvent) {
-	log.Println("starting session recording stats keeper...")
+func (ss *SessionStats) KeepStats(ctx context.Context, statsChan chan SessionRecordingEvent, flushInterval time.Duration) {
+	log.Printf("starting session recording stats keeper (flush interval: %s)...", flushInterval)
 
 	metricsTicker := time.NewTicker(10 * time.Second)
 	defer metricsTicker.Stop()
 
+	flushTicker := time.NewTicker(flushInterval)
+	defer flushTicker.Stop()
+
+	pending := make(map[string]map[string]float64)
+
 	for {
 		select {
 		case <-ctx.Done():
+			ss.flushSessionsToRedis(pending)
 			log.Println("session recording stats keeper shutting down...")
 			return
 		case <-metricsTicker.C:
 			metrics.SessionRecordingLRUSize.Set(float64(ss.Len()))
 			metrics.SessionRecordingTokenCount.Set(float64(ss.TokenCount()))
+		case <-flushTicker.C:
+			ss.flushSessionsToRedis(pending)
+			pending = make(map[string]map[string]float64)
 		case event := <-statsChan:
 			ss.Add(event.Token, event.SessionId)
 			metrics.SessionRecordingHandledEvents.Inc()
 
 			if ss.RedisStore != nil {
-				rCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if err := ss.RedisStore.AddSession(rCtx, event.Token, event.SessionId); err != nil {
-					log.Printf("Redis AddSession error: %v", err)
+				if pending[event.Token] == nil {
+					pending[event.Token] = make(map[string]float64)
 				}
-				cancel()
+				pending[event.Token][event.SessionId] = float64(time.Now().Unix())
 			}
 		}
 	}
@@ -186,4 +194,13 @@ func (ss *SessionStats) KeysForToken(token string) []string {
 		}
 	}
 	return sessions
+}
+
+func (ss *SessionStats) flushSessionsToRedis(pending map[string]map[string]float64) {
+	if ss.RedisStore == nil || len(pending) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ss.RedisStore.FlushSessions(ctx, pending)
 }

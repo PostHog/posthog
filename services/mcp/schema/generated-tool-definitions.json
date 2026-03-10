@@ -1,4 +1,79 @@
 {
+    "actions-get-all": {
+        "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not supported on this endpoint.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Get all actions",
+        "title": "Get all actions",
+        "required_scopes": ["action:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "action-create": {
+        "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching button clicks on the signup page.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Create action",
+        "title": "Create action",
+        "required_scopes": ["action:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-get": {
+        "description": "Get a specific action by ID. Returns the action configuration including all steps and their trigger conditions.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Get action",
+        "title": "Get action",
+        "required_scopes": ["action:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "action-update": {
+        "description": "Update an existing action by ID. Can update name, description, steps, tags, and Slack notification settings.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Update action",
+        "title": "Update action",
+        "required_scopes": ["action:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-delete": {
+        "description": "Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but historical data is preserved.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Delete action",
+        "title": "Delete action",
+        "required_scopes": ["action:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "cohorts-list": {
         "description": "List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on property filters).",
         "category": "Cohorts",
@@ -74,7 +149,7 @@
             "readOnlyHint": false
         }
     },
-    "cohorts-remove-person-from-static-cohort-partial-update": {
+    "cohorts-rm-person-from-static-cohort-partial-update": {
         "description": "Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort succeeds silently.",
         "category": "Cohorts",
         "feature": "cohorts",
