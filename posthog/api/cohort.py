@@ -12,7 +12,8 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.openapi import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from pydantic import (
@@ -332,6 +333,37 @@ class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
 
 class RemovePersonRequestSerializer(serializers.Serializer):
     person_id = serializers.UUIDField(required=True, help_text="Person UUID to remove from the cohort")
+
+
+class CohortPersonEventInfoSerializer(serializers.Serializer):
+    uuid = serializers.UUIDField()
+    timestamp = serializers.DateTimeField()
+    window_id = serializers.CharField()
+
+
+class CohortPersonMatchedRecordingSerializer(serializers.Serializer):
+    session_id = serializers.CharField()
+    events = CohortPersonEventInfoSerializer(many=True)
+
+
+class CohortPersonSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    id = serializers.UUIDField()
+    uuid = serializers.UUIDField()
+    created_at = serializers.DateTimeField(allow_null=True)
+    last_seen_at = serializers.DateTimeField(allow_null=True)
+    properties = serializers.DictField()
+    is_identified = serializers.BooleanField(allow_null=True)
+    name = serializers.CharField()
+    distinct_ids = serializers.ListField(child=serializers.CharField())
+    matched_recordings = CohortPersonMatchedRecordingSerializer(many=True)
+    value_at_data_point = serializers.FloatField(allow_null=True)
+
+
+class CohortPersonsResponseSerializer(serializers.Serializer):
+    results = CohortPersonSerializer(many=True)
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
 
 
 class CohortCalculationHistorySerializer(serializers.ModelSerializer):
@@ -1125,6 +1157,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return graph, behavioral_cohorts
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("limit", OpenApiTypes.INT, description="Number of results to return per page."),
+            OpenApiParameter("offset", OpenApiTypes.INT, description="The initial index from which to return results."),
+        ],
+        responses={200: CohortPersonsResponseSerializer},
+    )
     @action(
         methods=["GET"],
         detail=True,
