@@ -43,9 +43,7 @@ def create_insight_caching_state(
 
 # Reaching into the internals of LocMemCache
 def cache_keys(cache):
-    # Filter to only insight cache keys (prefixed with "cache_") to avoid
-    # picking up unrelated cache entries (e.g. group_types_for_project_*)
-    return {key.split(":", 2)[-1] for key in cache._cache.keys() if key.split(":", 2)[-1].startswith("cache_")}
+    return {key.split(":", 2)[-1] for key in cache._cache.keys()}
 
 
 @pytest.mark.django_db
