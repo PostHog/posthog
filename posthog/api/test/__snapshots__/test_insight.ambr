@@ -1792,7 +1792,6 @@
        (SELECT 1 AS "a"
         FROM "posthog_insightfavorite" U0
         WHERE (U0."insight_id" = ("posthog_dashboarditem"."id")
-               AND U0."team_id" = 99999
                AND U0."user_id" = 99999)
         LIMIT 1) AS "is_favorited"
      FROM "posthog_dashboarditem"
@@ -1838,7 +1837,6 @@
     (SELECT 1 AS "a"
      FROM "posthog_insightfavorite" U0
      WHERE (U0."insight_id" = ("posthog_dashboarditem"."id")
-            AND U0."team_id" = 99999
             AND U0."user_id" = 99999)
      LIMIT 1) AS "is_favorited",
          MAX("posthog_insightviewed"."last_viewed_at") AS "last_viewed_at",
