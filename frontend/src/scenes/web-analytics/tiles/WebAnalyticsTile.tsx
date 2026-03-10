@@ -693,6 +693,9 @@ export const WebStatsTrendTile = ({
                 ? {
                       inspectLabel: 'Click to zoom in',
                       onDataPointClick({ day }) {
+                          if (typeof day !== 'string') {
+                              return
+                          }
                           const zoomRange = getZoomDateRange(day, interval)
                           if (zoomRange) {
                               zoomIntoPeriod(zoomRange.dateFrom, zoomRange.dateTo, zoomRange.interval)
