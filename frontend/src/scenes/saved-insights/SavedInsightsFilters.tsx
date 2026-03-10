@@ -224,9 +224,9 @@ export function SavedInsightsFilters({
                             active={notOnDashboard || false}
                             onClick={() => setFilters({ notOnDashboard: !notOnDashboard })}
                             size="small"
-                            icon={<IconCircleDashed />}
+                            icon={<IconCircleDashed />}                            
                         >
-                            Unused
+                            Not on dashboards
                         </LemonButton>
                     )}
                     {quickFilterSet.has('featureFlags') && (
