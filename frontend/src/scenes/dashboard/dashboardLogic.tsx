@@ -1492,6 +1492,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                     tiles: [{ id: tileId, color }],
                 })
+
+                posthog.capture('dashboard tile color changed', {
+                    dashboard_id: props.id,
+                    tile_id: tileId,
+                    previous_color: previousColor ?? null,
+                    new_color: color,
+                })
             } catch {
                 actions.setTileProperty(tileId, { color: previousColor })
                 lemonToast.error('Failed to update tile color')
