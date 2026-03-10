@@ -5,6 +5,7 @@ type ErrorTrackingBaseRule = {
     id: string
     filters: UniversalFiltersGroup
     order_key: number
+    disabled_data: JsonType | null
     created_at?: string
     updated_at?: string
 }
@@ -13,12 +14,10 @@ export type ErrorTrackingSuppressionRule = ErrorTrackingBaseRule
 
 export type ErrorTrackingAssignmentRule = ErrorTrackingBaseRule & {
     assignee: ErrorTrackingIssueAssignee | null
-    disabled_data: JsonType | null
 }
 
 export type ErrorTrackingGroupingRule = ErrorTrackingBaseRule & {
     assignee: ErrorTrackingIssueAssignee | null
-    disabled_data: JsonType | null
     description?: string
 }
 

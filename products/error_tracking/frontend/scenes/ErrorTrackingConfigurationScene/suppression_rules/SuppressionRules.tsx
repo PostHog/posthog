@@ -5,6 +5,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { PropsWithChildren, useEffect } from 'react'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -115,19 +116,28 @@ export function SuppressionRules(): JSX.Element {
             >
                 <SortableContext items={displayRules} strategy={verticalListSortingStrategy}>
                     <div className="flex flex-col mt-2 gap-2">
-                        {displayRules.map((rule) => (
-                            <SortableRuleItem key={rule.id} ruleId={rule.id} reorderable={isReorderingRules}>
-                                <LemonCard
-                                    hoverEffect={false}
-                                    className={cn('flex flex-col p-0', !isReorderingRules && 'cursor-pointer')}
-                                    onClick={isReorderingRules ? undefined : () => openModal(rule)}
-                                >
-                                    <div className="flex items-center justify-between px-3 py-2">
-                                        <span className="text-xs font-semibold uppercase text-secondary">
-                                            Match {rule.filters.type === FilterLogicalOperator.And ? 'all' : 'any'}
-                                        </span>
-                                        {(rule.created_at || rule.updated_at) && (
-                                            <span className="text-xs text-muted">
+                        {displayRules.map((rule) => {
+                            const disabled = !!rule.disabled_data
+
+                            return (
+                                <SortableRuleItem key={rule.id} ruleId={rule.id} reorderable={isReorderingRules}>
+                                    <LemonCard
+                                        hoverEffect={false}
+                                        className={cn('flex flex-col p-0', !isReorderingRules && 'cursor-pointer')}
+                                        onClick={isReorderingRules ? undefined : () => openModal(rule)}
+                                    >
+                                        <div className="flex items-center justify-between px-3 py-2">
+                                            <span className="text-xs font-semibold uppercase text-secondary">
+                                                Match {rule.filters.type === FilterLogicalOperator.And ? 'all' : 'any'}
+                                            </span>
+                                            <span className="flex items-center gap-1 text-xs text-muted">
+                                                {disabled && (
+                                                    <>
+                                                        <IconWarning className="text-warning text-base" />
+                                                        <span className="text-warning font-semibold">Disabled</span>
+                                                        <span>·</span>
+                                                    </>
+                                                )}
                                                 {rule.updated_at && rule.updated_at !== rule.created_at ? (
                                                     <>
                                                         Updated <TZLabel time={rule.updated_at} />
@@ -138,28 +148,28 @@ export function SuppressionRules(): JSX.Element {
                                                     </>
                                                 ) : null}
                                             </span>
-                                        )}
-                                    </div>
-                                    <LemonDivider className="my-0" />
-                                    <div className="px-3 py-2">
-                                        <PropertyFilters
-                                            editable={false}
-                                            propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
-                                            taxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.ErrorTrackingProperties,
-                                                TaxonomicFilterGroupType.EventProperties,
-                                            ]}
-                                            onChange={() => {}}
-                                            pageKey={`suppression-rule-${rule.id}`}
-                                            buttonSize="small"
-                                            propertyGroupType={rule.filters.type}
-                                            hasRowOperator={false}
-                                            disablePopover
-                                        />
-                                    </div>
-                                </LemonCard>
-                            </SortableRuleItem>
-                        ))}
+                                        </div>
+                                        <LemonDivider className="my-0" />
+                                        <div className="px-3 py-2">
+                                            <PropertyFilters
+                                                editable={false}
+                                                propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
+                                                taxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.ErrorTrackingProperties,
+                                                    TaxonomicFilterGroupType.EventProperties,
+                                                ]}
+                                                onChange={() => {}}
+                                                pageKey={`suppression-rule-${rule.id}`}
+                                                buttonSize="small"
+                                                propertyGroupType={rule.filters.type}
+                                                hasRowOperator={false}
+                                                disablePopover
+                                            />
+                                        </div>
+                                    </LemonCard>
+                                </SortableRuleItem>
+                            )
+                        })}
                     </div>
                 </SortableContext>
             </DndContext>

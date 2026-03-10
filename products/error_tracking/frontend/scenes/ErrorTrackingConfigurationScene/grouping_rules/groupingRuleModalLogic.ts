@@ -35,6 +35,7 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
         openModal: (rule?: ErrorTrackingGroupingRule) => ({ rule: rule ?? null }),
         closeModal: true,
         updateRule: (rule: ErrorTrackingGroupingRule) => ({ rule }),
+        increaseDateRange: true,
     }),
 
     reducers({
@@ -44,6 +45,17 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
             {
                 openModal: (_, { rule }) => rule ?? emptyRule(),
                 updateRule: (_, { rule }) => rule,
+            },
+        ],
+        dateRange: [
+            '-7d' as string,
+            {
+                openModal: () => '-7d',
+                updateRule: () => '-7d',
+                increaseDateRange: (state) => {
+                    const next: Record<string, string> = { '-7d': '-30d', '-30d': '-90d' }
+                    return next[state] ?? state
+                },
             },
         ],
     }),
@@ -65,7 +77,7 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
                         event: '$exception',
                         select: ['count()', 'count(distinct properties.$exception_issue_id)'],
                         properties,
-                        after: '-7d',
+                        after: values.dateRange,
                     })
 
                     return {
@@ -118,6 +130,9 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
         },
         updateRule: () => {
             actions.resetMatchCount()
+        },
+        increaseDateRange: () => {
+            actions.loadMatchCount()
         },
     })),
 

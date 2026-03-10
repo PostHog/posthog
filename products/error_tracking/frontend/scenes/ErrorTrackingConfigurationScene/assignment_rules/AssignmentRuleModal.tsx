@@ -11,13 +11,24 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { AssigneeLabelDisplay } from '../../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../../components/Assignee/AssigneeSelect'
+import { DisabledRuleBanner } from '../rules/DisabledRuleBanner'
 import { MatchResultBanner } from '../rules/MatchResultBanner'
 import { assignmentRuleModalLogic } from './assignmentRuleModalLogic'
 
 export function AssignmentRuleModal(): JSX.Element {
-    const { isOpen, rule, hasFilters, hasAssignee, matchResult, matchResultLoading, savingLoading, deletingLoading } =
-        useValues(assignmentRuleModalLogic)
-    const { closeModal, updateRule, loadMatchCount, saveRule, deleteRule } = useActions(assignmentRuleModalLogic)
+    const {
+        isOpen,
+        rule,
+        hasFilters,
+        hasAssignee,
+        matchResult,
+        matchResultLoading,
+        savingLoading,
+        deletingLoading,
+        dateRange,
+    } = useValues(assignmentRuleModalLogic)
+    const { closeModal, updateRule, loadMatchCount, saveRule, deleteRule, increaseDateRange } =
+        useActions(assignmentRuleModalLogic)
 
     const isEditing = rule.id !== 'new'
 
@@ -33,7 +44,7 @@ export function AssignmentRuleModal(): JSX.Element {
             }
             isOpen={isOpen}
             onClose={closeModal}
-            width={600}
+            width={700}
             overlayClassName="pt-20"
             footer={
                 <div className="flex justify-between w-full">
@@ -88,6 +99,7 @@ export function AssignmentRuleModal(): JSX.Element {
             }
         >
             <div className="space-y-4 py-2">
+                {rule.disabled_data && <DisabledRuleBanner rule={rule} onClose={closeModal} />}
                 <div>
                     <LemonLabel className="mb-2">Assignee</LemonLabel>
                     <AssigneeSelect assignee={rule.assignee} onChange={(assignee) => updateRule({ ...rule, assignee })}>
@@ -130,12 +142,16 @@ export function AssignmentRuleModal(): JSX.Element {
                 </div>
 
                 {matchResult !== null && !matchResultLoading ? (
-                    <LemonBanner type={matchResult.exceptionCount === 0 ? 'info' : 'warning'}>
+                    <LemonBanner type={matchResult.exceptionCount === 0 ? 'error' : 'success'}>
                         <MatchResultBanner
                             matchResult={matchResult}
                             properties={(rule.filters.values as AnyPropertyFilter[]) ?? []}
-                            suffix={(issuesLink) => (
-                                <>across {issuesLink} would have been assigned in the last 7 days</>
+                            dateRange={dateRange}
+                            onIncreaseDateRange={increaseDateRange}
+                            suffix={(issuesLink, dateRangeLabel) => (
+                                <>
+                                    across {issuesLink} would have been assigned in the last {dateRangeLabel}
+                                </>
                             )}
                         />
                     </LemonBanner>

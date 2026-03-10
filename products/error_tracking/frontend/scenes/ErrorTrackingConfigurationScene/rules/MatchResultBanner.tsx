@@ -1,6 +1,6 @@
 import { combineUrl } from 'kea-router'
 
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -8,22 +8,49 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityTab, AnyPropertyFilter } from '~/types'
 
+const DATE_RANGE_LABELS: Record<string, string> = {
+    '-7d': '7 days',
+    '-30d': '30 days',
+    '-90d': '90 days',
+}
+
+const NEXT_DATE_RANGE: Record<string, string> = {
+    '-7d': '-30d',
+    '-30d': '-90d',
+}
+
 export function MatchResultBanner({
     matchResult,
     properties,
     suffix,
+    dateRange = '-7d',
+    onIncreaseDateRange,
 }: {
     matchResult: { exceptionCount: number; issueCount: number }
     properties: AnyPropertyFilter[]
-    suffix: (issuesLink: JSX.Element) => JSX.Element
+    suffix: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
+    dateRange?: string
+    onIncreaseDateRange?: () => void
 }): JSX.Element {
+    const dateRangeLabel = DATE_RANGE_LABELS[dateRange] ?? '7 days'
+    const nextRange = NEXT_DATE_RANGE[dateRange]
+
     if (matchResult.exceptionCount === 0) {
-        return <span>No exceptions matched in the last 7 days</span>
+        return (
+            <div className="flex items-center justify-between gap-2">
+                <span>No exceptions matched in the last {dateRangeLabel}</span>
+                {nextRange && onIncreaseDateRange && (
+                    <LemonButton type="secondary" size="xsmall" onClick={onIncreaseDateRange}>
+                        Try last {DATE_RANGE_LABELS[nextRange]}
+                    </LemonButton>
+                )}
+            </div>
+        )
     }
 
     const issuesUrl = urls.errorTracking({
         filterGroup: { type: 'AND', values: [{ type: 'AND', values: properties }] },
-        dateRange: { date_from: '-7d', date_to: null },
+        dateRange: { date_from: dateRange, date_to: null },
     })
 
     const exceptionsUrl = combineUrl(
@@ -37,7 +64,7 @@ export function MatchResultBanner({
                     kind: NodeKind.EventsQuery,
                     select: defaultDataTableColumns(NodeKind.EventsQuery),
                     orderBy: ['timestamp DESC'],
-                    after: '-7d',
+                    after: dateRange,
                     event: '$exception',
                     properties,
                 },
@@ -48,7 +75,7 @@ export function MatchResultBanner({
     ).url
 
     const issuesLink = (
-        <Link to={issuesUrl} target="_blank" externalLink targetBlankIcon={false}>
+        <Link to={`${window.location.origin}${issuesUrl}`} target="_blank" targetBlankIcon={false}>
             {matchResult.issueCount.toLocaleString()} issue
             {matchResult.issueCount === 1 ? '' : 's'}
         </Link>
@@ -56,11 +83,11 @@ export function MatchResultBanner({
 
     return (
         <span>
-            <Link to={exceptionsUrl} target="_blank" externalLink targetBlankIcon={false}>
+            <Link to={`${window.location.origin}${exceptionsUrl}`} target="_blank" targetBlankIcon={false}>
                 {matchResult.exceptionCount.toLocaleString()} exception
                 {matchResult.exceptionCount === 1 ? '' : 's'}
             </Link>{' '}
-            {suffix(issuesLink)}
+            {suffix(issuesLink, dateRangeLabel)}
         </span>
     )
 }

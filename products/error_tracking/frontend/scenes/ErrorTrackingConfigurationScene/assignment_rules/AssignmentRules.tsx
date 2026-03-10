@@ -5,7 +5,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { PropsWithChildren, useEffect } from 'react'
 
-import { LemonBanner, LemonButton, LemonCard, LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { IconWarning } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,14 +14,14 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { AnyPropertyFilter, FilterLogicalOperator, SidePanelTab } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
     AssigneeResolver,
 } from '../../../components/Assignee/AssigneeDisplay'
+import { assigneeSelectLogic } from '../../../components/Assignee/assigneeSelectLogic'
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from '../rules/types'
 import { AssignmentRuleModal } from './AssignmentRuleModal'
@@ -54,33 +55,6 @@ function SortableRuleItem({
     )
 }
 
-function DisabledBanner({ rule }: { rule: ErrorTrackingRule }): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelLogic)
-    const message =
-        'disabled_data' in rule && rule.disabled_data ? (rule.disabled_data as Record<string, any>).message : null
-
-    return (
-        <>
-            <LemonBanner
-                className="mx-2 mt-2"
-                type="warning"
-                action={{
-                    onClick: () => openSidePanel(SidePanelTab.Support, 'bug:error_tracking'),
-                    children: 'Contact support',
-                }}
-            >
-                This rule has been disabled due to an error. Editing the rule will re-enable it. If you need help, reach
-                out to support.
-            </LemonBanner>
-            {message && (
-                <LemonBanner className="mx-2 mt-1" type="error">
-                    Error during evaluation: {message}
-                </LemonBanner>
-            )}
-        </>
-    )
-}
-
 export function AssignmentRules(): JSX.Element {
     const ruleType = ErrorTrackingRuleType.Assignment
     const logic = rulesLogic({ ruleType })
@@ -88,10 +62,12 @@ export function AssignmentRules(): JSX.Element {
     const { loadRules, startReorderingRules, finishReorderingRules, cancelReorderingRules, reorderLocalRules } =
         useActions(logic)
     const { openModal } = useActions(assignmentRuleModalLogic)
+    const { ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
 
     useEffect(() => {
         loadRules()
-    }, [loadRules])
+        ensureAssigneeTypesLoaded()
+    }, [loadRules, ensureAssigneeTypesLoaded])
 
     if (!initialLoadComplete) {
         return <Spinner />
@@ -162,38 +138,40 @@ export function AssignmentRules(): JSX.Element {
                                         className={cn('flex flex-col p-0', !isReorderingRules && 'cursor-pointer')}
                                         onClick={isReorderingRules ? undefined : () => openModal(rule)}
                                     >
-                                        {disabled && <DisabledBanner rule={rule} />}
                                         <div className="flex items-center justify-between px-3 py-2">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-xs font-semibold uppercase text-secondary">
                                                     Match{' '}
                                                     {rule.filters.type === FilterLogicalOperator.And ? 'all' : 'any'}
                                                 </span>
-                                                {rule.assignee && (
-                                                    <AssigneeResolver assignee={rule.assignee}>
-                                                        {({ assignee }) => (
-                                                            <span className="flex items-center gap-1 text-xs text-muted">
-                                                                <span>→</span>
-                                                                <AssigneeIconDisplay assignee={assignee} />
-                                                                <AssigneeLabelDisplay assignee={assignee} />
-                                                            </span>
-                                                        )}
-                                                    </AssigneeResolver>
-                                                )}
+                                                <span className="text-xs text-muted">→</span>
+                                                <AssigneeResolver assignee={rule.assignee}>
+                                                    {({ assignee }) => (
+                                                        <span className="flex items-center gap-1 text-xs">
+                                                            <AssigneeIconDisplay assignee={assignee} size="xsmall" />
+                                                            <AssigneeLabelDisplay assignee={assignee} />
+                                                        </span>
+                                                    )}
+                                                </AssigneeResolver>
                                             </div>
-                                            {(rule.created_at || rule.updated_at) && (
-                                                <span className="text-xs text-muted">
-                                                    {rule.updated_at && rule.updated_at !== rule.created_at ? (
-                                                        <>
-                                                            Updated <TZLabel time={rule.updated_at} />
-                                                        </>
-                                                    ) : rule.created_at ? (
-                                                        <>
-                                                            Created <TZLabel time={rule.created_at} />
-                                                        </>
-                                                    ) : null}
-                                                </span>
-                                            )}
+                                            <span className="flex items-center gap-1 text-xs text-muted">
+                                                {disabled && (
+                                                    <>
+                                                        <IconWarning className="text-warning text-base" />
+                                                        <span className="text-warning font-semibold">Disabled</span>
+                                                        <span>·</span>
+                                                    </>
+                                                )}
+                                                {rule.updated_at && rule.updated_at !== rule.created_at ? (
+                                                    <>
+                                                        Updated <TZLabel time={rule.updated_at} />
+                                                    </>
+                                                ) : rule.created_at ? (
+                                                    <>
+                                                        Created <TZLabel time={rule.created_at} />
+                                                    </>
+                                                ) : null}
+                                            </span>
                                         </div>
                                         <LemonDivider className="my-0" />
                                         <div className="px-3 py-2">

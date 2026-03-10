@@ -8,13 +8,15 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
+import { DisabledRuleBanner } from '../rules/DisabledRuleBanner'
 import { MatchResultBanner } from '../rules/MatchResultBanner'
 import { suppressionRuleModalLogic } from './suppressionRuleModalLogic'
 
 export function SuppressionRuleModal(): JSX.Element {
-    const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading } =
+    const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading, dateRange } =
         useValues(suppressionRuleModalLogic)
-    const { closeModal, updateRule, loadMatchCount, saveRule, deleteRule } = useActions(suppressionRuleModalLogic)
+    const { closeModal, updateRule, loadMatchCount, saveRule, deleteRule, increaseDateRange } =
+        useActions(suppressionRuleModalLogic)
 
     const isEditing = rule.id !== 'new'
 
@@ -26,7 +28,7 @@ export function SuppressionRuleModal(): JSX.Element {
             }
             isOpen={isOpen}
             onClose={closeModal}
-            width={600}
+            width={800}
             overlayClassName="pt-20"
             footer={
                 <div className="flex justify-between w-full">
@@ -81,6 +83,7 @@ export function SuppressionRuleModal(): JSX.Element {
             }
         >
             <div className="space-y-4 py-2">
+                {rule.disabled_data && <DisabledRuleBanner rule={rule} onClose={closeModal} />}
                 <div>
                     <div className="flex items-center justify-between mb-3">
                         <span className="font-semibold text-sm">Filters</span>
@@ -105,7 +108,10 @@ export function SuppressionRuleModal(): JSX.Element {
                             TaxonomicFilterGroupType.EventProperties,
                         ]}
                         onChange={(properties: AnyPropertyFilter[]) =>
-                            updateRule({ ...rule, filters: { ...rule.filters, values: properties } })
+                            updateRule({
+                                ...rule,
+                                filters: { ...rule.filters, values: properties },
+                            })
                         }
                         pageKey="suppression-rule-modal"
                         buttonSize="small"
@@ -116,12 +122,16 @@ export function SuppressionRuleModal(): JSX.Element {
                 </div>
 
                 {matchResult !== null && !matchResultLoading ? (
-                    <LemonBanner type={matchResult.exceptionCount === 0 ? 'info' : 'warning'}>
+                    <LemonBanner type={matchResult.exceptionCount === 0 ? 'error' : 'success'}>
                         <MatchResultBanner
                             matchResult={matchResult}
                             properties={(rule.filters.values as AnyPropertyFilter[]) ?? []}
-                            suffix={(issuesLink) => (
-                                <>across {issuesLink} would have been suppressed in the last 7 days</>
+                            dateRange={dateRange}
+                            onIncreaseDateRange={increaseDateRange}
+                            suffix={(issuesLink, dateRangeLabel) => (
+                                <>
+                                    across {issuesLink} would have been suppressed in the last {dateRangeLabel}
+                                </>
                             )}
                         />
                     </LemonBanner>

@@ -8,13 +8,15 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
+import { DisabledRuleBanner } from '../rules/DisabledRuleBanner'
 import { MatchResultBanner } from '../rules/MatchResultBanner'
 import { groupingRuleModalLogic } from './groupingRuleModalLogic'
 
 export function GroupingRuleModal(): JSX.Element {
-    const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading } =
+    const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading, dateRange } =
         useValues(groupingRuleModalLogic)
-    const { closeModal, updateRule, loadMatchCount, saveRule, deleteRule } = useActions(groupingRuleModalLogic)
+    const { closeModal, updateRule, loadMatchCount, saveRule, deleteRule, increaseDateRange } =
+        useActions(groupingRuleModalLogic)
 
     const isEditing = rule.id !== 'new'
 
@@ -24,7 +26,7 @@ export function GroupingRuleModal(): JSX.Element {
             description={<span className="text-secondary">Matching exceptions will be grouped as a single issue.</span>}
             isOpen={isOpen}
             onClose={closeModal}
-            width={600}
+            width={700}
             overlayClassName="pt-20"
             footer={
                 <div className="flex justify-between w-full">
@@ -79,6 +81,7 @@ export function GroupingRuleModal(): JSX.Element {
             }
         >
             <div className="space-y-4 py-2">
+                {rule.disabled_data && <DisabledRuleBanner rule={rule} onClose={closeModal} />}
                 <div>
                     <div className="flex items-center justify-between mb-3">
                         <span className="font-semibold text-sm">Filters</span>
@@ -111,11 +114,18 @@ export function GroupingRuleModal(): JSX.Element {
                 </div>
 
                 {matchResult !== null && !matchResultLoading ? (
-                    <LemonBanner type={matchResult.exceptionCount === 0 ? 'info' : 'warning'}>
+                    <LemonBanner type={matchResult.exceptionCount === 0 ? 'error' : 'success'}>
                         <MatchResultBanner
                             matchResult={matchResult}
                             properties={(rule.filters.values as AnyPropertyFilter[]) ?? []}
-                            suffix={() => <>would have been grouped into one issue in the last 7 days</>}
+                            dateRange={dateRange}
+                            onIncreaseDateRange={increaseDateRange}
+                            suffix={(issuesLink, dateRangeLabel) => (
+                                <>
+                                    across {issuesLink} would have been grouped into one issue in the last{' '}
+                                    {dateRangeLabel}
+                                </>
+                            )}
                         />
                     </LemonBanner>
                 ) : null}

@@ -14,6 +14,7 @@ function emptyRule(orderKey: number = 0): ErrorTrackingSuppressionRule {
     return {
         id: 'new',
         filters: { type: FilterLogicalOperator.Or, values: [] },
+        disabled_data: null,
         order_key: orderKey,
     }
 }
@@ -33,6 +34,7 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
         openModal: (rule?: ErrorTrackingSuppressionRule) => ({ rule: rule ?? null }),
         closeModal: true,
         updateRule: (rule: ErrorTrackingSuppressionRule) => ({ rule }),
+        increaseDateRange: true,
     }),
 
     reducers({
@@ -42,6 +44,17 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
             {
                 openModal: (_, { rule }) => rule ?? emptyRule(),
                 updateRule: (_, { rule }) => rule,
+            },
+        ],
+        dateRange: [
+            '-7d' as string,
+            {
+                openModal: () => '-7d',
+                updateRule: () => '-7d',
+                increaseDateRange: (state) => {
+                    const next: Record<string, string> = { '-7d': '-30d', '-30d': '-90d' }
+                    return next[state] ?? state
+                },
             },
         ],
     }),
@@ -63,7 +76,7 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
                         event: '$exception',
                         select: ['count()', 'count(distinct properties.$exception_issue_id)'],
                         properties,
-                        after: '-7d',
+                        after: values.dateRange,
                     })
 
                     return {
@@ -116,6 +129,9 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
         },
         updateRule: () => {
             actions.resetMatchCount()
+        },
+        increaseDateRange: () => {
+            actions.loadMatchCount()
         },
     })),
 
