@@ -173,6 +173,7 @@ export class MCP extends McpAgent<Env> {
         if (!this._api) {
             const baseUrl = await this.getBaseUrl()
             await this.resolveClientInfo()
+            const oauthClientName = (await this.cache.get('clientName')) || undefined
             this._api = new ApiClient({
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
@@ -180,6 +181,7 @@ export class MCP extends McpAgent<Env> {
                 mcpClientName: this._mcpClientName,
                 mcpClientVersion: this._mcpClientVersion,
                 mcpProtocolVersion: this._mcpProtocolVersion,
+                oauthClientName,
             })
         }
 
@@ -209,6 +211,8 @@ export class MCP extends McpAgent<Env> {
 
             await this.resolveClientInfo()
 
+            const clientName = await this.cache.get('clientName')
+
             client.capture({
                 distinctId,
                 event,
@@ -218,6 +222,7 @@ export class MCP extends McpAgent<Env> {
                               $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
                           }
                         : {}),
+                    ...(clientName ? { client_name: clientName } : {}),
                     ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),

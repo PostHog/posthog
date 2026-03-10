@@ -24,6 +24,9 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
                     // attach it to analytics events for MCP source attribution.
                     headers.set('x-posthog-mcp-user-agent', config.clientUserAgent)
                 }
+                if (config.oauthClientName) {
+                    headers.set('x-posthog-mcp-oauth-client-name', config.oauthClientName)
+                }
 
                 // Handle query parameters
                 if (input.urlSearchParams) {

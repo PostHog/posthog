@@ -99,6 +99,7 @@ export interface ApiConfig {
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
+    oauthClientName?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -143,6 +144,7 @@ export class ApiClient {
             ...(this.config.mcpProtocolVersion
                 ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),
+            ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
