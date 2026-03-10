@@ -20,6 +20,12 @@ hogli lint:skills
 
 # 4. Build to verify
 hogli build:skills
+
+# 5. Test locally with PostHog Code or a coding agent
+hogli sync:skill -- --name <skill-name>
+
+# 6. Delete the test skill (optional)
+hogli unsync:skill -- --name <skill-name>
 ```
 
 Distribution is automatic after merge — CI publishes to [PostHog/skills](https://github.com/PostHog/skills).

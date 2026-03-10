@@ -840,7 +840,7 @@ export const productToursLogic = kea<productToursLogicType>([
 
             document.addEventListener('mouseover', cache.onMouseOver, true)
             document.addEventListener('click', cache.onClick, true)
-            document.addEventListener('scroll', cache.onScroll, true)
+            document.addEventListener('scroll', cache.onScroll, { capture: true, passive: true })
             window.addEventListener('resize', cache.onResize)
             window.addEventListener('keydown', cache.onKeyDown)
 
@@ -866,7 +866,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 document.removeEventListener('click', cache.onClick, true)
             }
             if (cache.onScroll) {
-                document.removeEventListener('scroll', cache.onScroll, true)
+                document.removeEventListener('scroll', cache.onScroll, { capture: true })
             }
             if (cache.onResize) {
                 window.removeEventListener('resize', cache.onResize)

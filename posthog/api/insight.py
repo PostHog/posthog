@@ -44,6 +44,7 @@ from posthog.api.insight_suggestions import generate_insight_name, get_insight_a
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -208,7 +209,7 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         }
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "legacy insight endpoint called",
             properties,
             team=team,
@@ -388,7 +389,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = serializers.PrimaryKeyRelatedField(
+    dashboards = TeamScopedPrimaryKeyRelatedField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -1180,11 +1181,14 @@ class InsightViewSet(
         """
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
-        queryset = Insight.objects.filter(team=self.team, insightviewed__user=request.user, deleted=False).order_by(
-            "-insightviewed__last_viewed_at"
-        )[:5]
+        queryset = (
+            Insight.objects.filter(team=self.team, insightviewed__user=request.user, deleted=False)
+            .annotate(last_viewed_at=F("insightviewed__last_viewed_at"))
+            .order_by("-last_viewed_at")
+        )
 
         queryset = self._annotate_favorited(queryset)
+        queryset = queryset[:5]
 
         response = InsightBasicSerializer(queryset, many=True, context=self.get_serializer_context())
         return Response(data=response.data, status=status.HTTP_200_OK)

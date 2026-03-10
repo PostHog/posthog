@@ -2350,6 +2350,7 @@
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
          "posthog_experiment"."exposure_preaggregation_enabled",
+         "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
@@ -2654,6 +2655,7 @@
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
          "posthog_experiment"."exposure_preaggregation_enabled",
+         "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
