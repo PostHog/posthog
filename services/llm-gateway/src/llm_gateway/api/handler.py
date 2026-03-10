@@ -45,6 +45,15 @@ OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
 OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
 
+# Parameters that control LLM client routing/authentication.
+# These must never be accepted from user input to prevent request
+# redirection and API key exfiltration.
+FORBIDDEN_REQUEST_PARAMS = frozenset({"api_key", "api_base", "base_url", "api_version", "organization"})
+
+
+def _sanitize_request_data(data: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in data.items() if k not in FORBIDDEN_REQUEST_PARAMS}
+
 
 async def handle_llm_request(
     request_data: dict[str, Any],
@@ -55,6 +64,7 @@ async def handle_llm_request(
     llm_call: Callable[..., Awaitable[Any]],
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
+    request_data = _sanitize_request_data(request_data)
     settings = get_settings()
     start_time = time.monotonic()
 
