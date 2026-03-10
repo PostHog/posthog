@@ -5556,8 +5556,16 @@ const api = {
         async list(
             params: {
                 status?: string
+                priority?: string
+                channel_source?: string
+                sla?: string
+                assignee?: string
+                tags?: string
                 distinct_ids?: string
                 search?: string
+                date_from?: string
+                date_to?: string
+                order_by?: string
                 limit?: number
                 offset?: number
             } = {}
