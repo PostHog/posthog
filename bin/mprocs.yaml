@@ -64,6 +64,7 @@ procs:
         shell: |-
             bin/wait-for-docker temporal && \
             bin/check_ducklake_up && \
+            python manage.py register_temporal_search_attributes && \
             if [ -n "$TEMPORAL_DISABLE_HOT_RELOAD" ] || ! command -v nodemon >/dev/null 2>&1; then \
                 python manage.py start_temporal_worker --task-queue development-task-queue; \
             else \
