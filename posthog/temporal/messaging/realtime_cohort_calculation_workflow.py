@@ -104,11 +104,11 @@ def get_cohort_calculation_failure_metric():
     )
 
 
-def get_membership_changed_metric(status: str):
-    """Counter for cohort membership changes by status (entered/left)."""
+def get_membership_changed_metric(status: str, percentile_bucket: str):
+    """Counter for cohort membership changes by status (entered/left) and percentile bucket."""
     return (
         temporalio.activity.metric_meter()
-        .with_additional_attributes({"status": status})
+        .with_additional_attributes({"status": status, "percentile_bucket": percentile_bucket})
         .create_counter(
             "realtime_cohort_membership_changed",
             "Number of cohort membership changes (people entering or leaving cohorts)",
@@ -485,9 +485,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     )
 
                     if status_counts["entered"] > 0:
-                        get_membership_changed_metric("entered").add(status_counts["entered"])
+                        get_membership_changed_metric("entered", percentile_bucket).add(status_counts["entered"])
                     if status_counts["left"] > 0:
-                        get_membership_changed_metric("left").add(status_counts["left"])
+                        get_membership_changed_metric("left", percentile_bucket).add(status_counts["left"])
 
                 # Calculate full cohort processing duration (not just query time)
                 # Includes: query execution + Kafka message production + message flushing
