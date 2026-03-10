@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -23,11 +23,10 @@ export function PendingApprovalsBanner(): JSX.Element | null {
         <LemonBanner
             type="info"
             className="mb-4"
-            action={
-                <LemonButton type="secondary" size="small" to={urls.approvals()}>
-                    Go to change requests
-                </LemonButton>
-            }
+            action={{
+                children: 'Go to change requests',
+                to: urls.approvals(),
+            }}
         >
             {message}
         </LemonBanner>
