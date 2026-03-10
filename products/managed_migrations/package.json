@@ -1,8 +1,7 @@
 {
     "name": "@posthog/products-managed-migrations",
     "scripts": {
-        "backend:test": "echo 'No backend tests'",
-        "backend:contract-check": "echo 'Contract files unchanged'"
+        "backend:test": "echo 'No backend tests'"
     },
     "dependencies": {
         "kea": "catalog:",

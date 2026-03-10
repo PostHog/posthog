@@ -60,7 +60,10 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
 
     const dashboardContent =
         businessType === 'b2b' && shouldShowGroupsIntroduction ? (
-            <GroupsIntroduction />
+            <>
+                <CustomerAnalyticsFilters />
+                <GroupsIntroduction />
+            </>
         ) : (
             <>
                 <CustomerAnalyticsFilters />

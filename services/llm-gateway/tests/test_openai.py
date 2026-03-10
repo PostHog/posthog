@@ -4,6 +4,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+DANGEROUS_PARAMS: list[tuple[str, str]] = [
+    ("api_key", "sk-stolen-key"),
+    ("api_base", "https://attacker.example.com"),
+    ("base_url", "https://attacker.example.com"),
+    ("organization", "org-attacker"),
+]
+
 
 class TestChatCompletionsEndpoint:
     @pytest.fixture
@@ -114,3 +121,34 @@ class TestChatCompletionsEndpoint:
         data = response.json()
         assert data["error"]["message"] == error_message
         assert data["error"]["type"] == error_type
+
+    @pytest.mark.parametrize(
+        "param_name,param_value",
+        [pytest.param(name, value, id=name) for name, value in DANGEROUS_PARAMS],
+    )
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_dangerous_params_not_forwarded_to_llm(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_openai_response: dict,
+        param_name: str,
+        param_value: str,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_openai_response)
+        mock_completion.return_value = mock_response
+
+        body_with_injection = {**valid_request_body, param_name: param_value}
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json=body_with_injection,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_completion.call_args
+        assert param_name not in call_kwargs.kwargs, (
+            f"Dangerous parameter '{param_name}' was forwarded to litellm.acompletion"
+        )

@@ -1,12 +1,22 @@
 import { getUserAgent } from '@/lib/constants'
 
 import type { ApiConfig } from './client'
-import type { createApiClient } from './generated'
 import { globalRateLimiter } from './rate-limiter'
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
-export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApiClient>[0] = (config) => {
+export interface Fetcher {
+    fetch: (input: {
+        method: string
+        url: URL
+        urlSearchParams?: URLSearchParams
+        parameters?: { body?: unknown; header?: Record<string, unknown> }
+        path: string
+        overrides?: RequestInit
+    }) => Promise<Response>
+}
+
+export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
     return {
         fetch: async (input) => {
             const maxRetries = 3

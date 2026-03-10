@@ -129,7 +129,7 @@ function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPro
     }
 }
 
-function getApiErrorDetail(error: unknown): string | undefined {
+export function getApiErrorDetail(error: unknown): string | undefined {
     if (error !== null && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
         return error.detail
     }
