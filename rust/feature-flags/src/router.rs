@@ -287,6 +287,13 @@ fn resolve_rate_limit_capacities(
 ) -> (Option<u32>, u32) {
     if warn_capacity > 0 {
         // New tiered model takes precedence
+        if warn_capacity >= enforce_capacity {
+            tracing::warn!(
+                warn_capacity,
+                enforce_capacity,
+                "warn capacity >= enforce capacity; the warn tier will never trigger because requests will be blocked first"
+            );
+        }
         (Some(warn_capacity), enforce_capacity)
     } else if log_only {
         // Backwards compat: log-only mode → use enforce_capacity as warn capacity,
