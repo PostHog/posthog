@@ -517,7 +517,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     values.element?.removeEventListener('touchmove', onMove)
                     values.element?.removeEventListener('touchend', onTouchEnd)
                 }
-                values.element.addEventListener('touchmove', onMove)
+                values.element.addEventListener('touchmove', onMove, { passive: true })
                 values.element.addEventListener('touchend', onTouchEnd)
             } else {
                 const onMouseUp = (e: MouseEvent): void => {

@@ -1,20 +1,14 @@
-from copy import deepcopy
-from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
-from zoneinfo import ZoneInfo
 
 from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
-import pydantic
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -28,13 +22,7 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.cohort import Cohort
-from posthog.models.experiment import (
-    Experiment,
-    ExperimentHoldout,
-    ExperimentMetricResult,
-    ExperimentSavedMetric,
-    ExperimentTimeseriesRecalculation,
-)
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -49,8 +37,6 @@ from products.product_tours.backend.models import ProductTour
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
-
-DEFAULT_ROLLOUT_PERCENTAGE = 100
 
 
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -190,89 +176,19 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return value
 
     def validate(self, data):
-        # Validate start/end dates
-        start_date = data.get("start_date")
-        end_date = data.get("end_date")
-
-        # Only validate if both dates are present
-        if start_date and end_date and start_date >= end_date:
-            raise ValidationError("End date must be after start date")
-
+        ExperimentService.validate_experiment_date_range(data.get("start_date"), data.get("end_date"))
         return super().validate(data)
 
     def validate_parameters(self, value):
-        if not value:
-            return value
-
-        variants = value.get("feature_flag_variants", [])
-
-        if len(variants) >= 21:
-            raise ValidationError("Feature flag variants must be less than 21")
-        elif len(variants) > 0:
-            if len(variants) < 2:
-                raise ValidationError(
-                    "Feature flag must have at least 2 variants (control and at least one test variant)"
-                )
-            if "control" not in [variant["key"] for variant in variants]:
-                raise ValidationError("Feature flag variants must contain a control variant")
-
+        ExperimentService.validate_experiment_parameters(value)
         return value
 
-    def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
-        variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
-
-        if len(variants) < 2:
-            raise ValidationError("Feature flag must have at least 2 variants (control and at least one test variant)")
-
-        if "control" not in [variant["key"] for variant in variants]:
-            raise ValidationError("Feature flag must have a variant with key 'control'")
-
-        return feature_flag
-
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
-        if not exposure_criteria:
-            return exposure_criteria
-
-        if "filterTestAccounts" in exposure_criteria and not isinstance(exposure_criteria["filterTestAccounts"], bool):
-            raise ValidationError("filterTestAccounts must be a boolean")
-
-        if "exposure_config" in exposure_criteria:
-            exposure_config = exposure_criteria["exposure_config"]
-            try:
-                if exposure_config.get("kind") == "ActionsNode":
-                    ActionsNode.model_validate(exposure_config)
-                else:
-                    ExperimentEventExposureConfig.model_validate(exposure_config)
-                return exposure_criteria
-            except Exception:
-                raise ValidationError("Invalid exposure criteria")
-
+        ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
         return exposure_criteria
 
-    VALID_METRIC_KINDS = {"ExperimentMetric", "ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
-
     def _validate_metrics_list(self, metrics: list | None) -> list | None:
-        if metrics is None:
-            return metrics
-
-        if not isinstance(metrics, list):
-            raise ValidationError("Metrics must be a list")
-
-        for i, metric in enumerate(metrics):
-            if not isinstance(metric, dict):
-                raise ValidationError(f"Invalid metric at index {i}: must be a dict")
-
-            kind = metric.get("kind")
-            if kind not in self.VALID_METRIC_KINDS:
-                raise ValidationError(f"Invalid metric at index {i}: unknown kind '{kind}'")
-
-            # Only ExperimentMetric needs Pydantic validation (legacy kinds are pass-through)
-            if kind == "ExperimentMetric":
-                try:
-                    ExperimentMetric.model_validate(metric)
-                except pydantic.ValidationError as e:
-                    raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
-
+        ExperimentService.validate_experiment_metrics(metrics)
         return metrics
 
     def validate_metrics(self, value):
@@ -342,417 +258,20 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         )
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        # if (
-        #     not instance.filters.get("events")
-        #     and not instance.filters.get("actions")
-        #     and not instance.filters.get("data_warehouse")
-        #     and validated_data.get("start_date")
-        #     and not validated_data.get("filters")
-        # ):
-        #     raise ValidationError("Filters are required when launching an experiment")
-
-        update_saved_metrics = "saved_metrics_ids" in validated_data
-        saved_metrics_data = validated_data.pop("saved_metrics_ids", []) or []
-
-        # Capture old saved metric UUIDs BEFORE delete for ordering sync
-        old_saved_metric_uuids: dict[str, set[str]] = {"primary": set(), "secondary": set()}
-        if update_saved_metrics:
-            for link in instance.experimenttosavedmetric_set.select_related("saved_metric").all():
-                if link.saved_metric.query:
-                    uuid = link.saved_metric.query.get("uuid")
-                    if uuid:
-                        metric_type = (link.metadata or {}).get("type", "primary")
-                        if metric_type == "primary":
-                            old_saved_metric_uuids["primary"].add(uuid)
-                        else:
-                            old_saved_metric_uuids["secondary"].add(uuid)
-
-        # We replace all saved metrics on update to avoid issues with partial updates
-        if update_saved_metrics:
-            instance.experimenttosavedmetric_set.all().delete()
-            for saved_metric_data in saved_metrics_data:
-                saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                    data={
-                        "experiment": instance.id,
-                        "saved_metric": saved_metric_data["id"],
-                        "metadata": saved_metric_data.get("metadata"),
-                    },
-                    context=self.context,
-                )
-                saved_metric_serializer.is_valid(raise_exception=True)
-                saved_metric_serializer.save()
-
-        has_start_date = validated_data.get("start_date") is not None
-        feature_flag = instance.feature_flag
-
-        # When restoring an experiment (deleted transitions from True to False),
-        # verify the linked feature flag hasn't been deleted in the meantime.
-        if instance.deleted and validated_data.get("deleted") is False:
-            if feature_flag.deleted:
-                raise ValidationError(
-                    "Cannot restore experiment: the linked feature flag has been deleted. "
-                    "Restore the feature flag first, then restore the experiment."
-                )
-
-        expected_keys = {
-            "name",
-            "description",
-            "start_date",
-            "end_date",
-            "filters",
-            "parameters",
-            "archived",
-            "deleted",
-            "secondary_metrics",
-            "holdout",
-            "exposure_criteria",
-            "metrics",
-            "metrics_secondary",
-            "stats_config",
-            "scheduling_config",
-            "conclusion",
-            "conclusion_comment",
-            "primary_metrics_ordered_uuids",
-            "secondary_metrics_ordered_uuids",
-        }
-        given_keys = set(validated_data.keys())
-        extra_keys = given_keys - expected_keys
-
-        if feature_flag.key == validated_data.get("get_feature_flag_key"):
-            extra_keys.remove("get_feature_flag_key")
-
-        if extra_keys:
-            raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
-
-        # if an experiment has launched, we cannot edit its variants or holdout anymore.
-        if not instance.is_draft:
-            if "feature_flag_variants" in validated_data.get("parameters", {}):
-                if len(validated_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
-                    raise ValidationError("Can't update feature_flag_variants on Experiment")
-
-                for variant in validated_data["parameters"]["feature_flag_variants"]:
-                    if (
-                        len([ff_variant for ff_variant in feature_flag.variants if ff_variant["key"] == variant["key"]])
-                        != 1
-                    ):
-                        raise ValidationError("Can't update feature_flag_variants on Experiment")
-            if "holdout" in validated_data and validated_data["holdout"] != instance.holdout:
-                raise ValidationError("Can't update holdout on running Experiment")
-
-        properties = validated_data.get("filters", {}).get("properties")
-        if properties:
-            raise ValidationError("Experiments do not support global filter properties")
-
-        if instance.is_draft:
-            # if feature flag variants or holdout have changed, update the feature flag.
-            holdout_groups = instance.holdout.filters if instance.holdout else None
-            if "holdout" in validated_data:
-                holdout_groups = validated_data["holdout"].filters if validated_data["holdout"] else None
-
-            if validated_data.get("parameters"):
-                variants = validated_data["parameters"].get("feature_flag_variants", [])
-                aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
-
-                global_filters = validated_data.get("filters")
-                properties = []
-                if global_filters:
-                    properties = global_filters.get("properties", [])
-                    if properties:
-                        raise ValidationError("Experiments do not support global filter properties")
-
-                default_variants = [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-                ]
-
-                feature_flag_filters = feature_flag.filters
-
-                # When experiments are edited, they have already a linked feature flag. That feature flag can me modified to have
-                # complex release conditions across multiple groups. An initial backend implementation rejected updates with the
-                # rollout_percentage, as the the frontend shows such linked feature flag as display (not a form). That way the backend
-                # would have notified about a change of implementation. However, the frontend still carries the param in the state.
-                # To be consistent with the current frontend/backend interaction, we allow receiving rollout_percentage and default
-                # to the first group of release conditions.
-                existing_groups = feature_flag.filters.get("groups", [])
-                experiment_rollout_percentage = validated_data["parameters"].get("rollout_percentage")
-                if experiment_rollout_percentage is not None and existing_groups:
-                    existing_groups[0]["rollout_percentage"] = experiment_rollout_percentage
-
-                feature_flag_filters["groups"] = existing_groups
-                feature_flag_filters["multivariate"] = {"variants": variants or default_variants}
-                feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
-                feature_flag_filters["holdout_groups"] = holdout_groups
-
-                existing_flag_serializer = FeatureFlagSerializer(
-                    feature_flag,
-                    data={"filters": feature_flag_filters},
-                    partial=True,
-                    context=self.context,
-                )
-                existing_flag_serializer.is_valid(raise_exception=True)
-                existing_flag_serializer.save()
-            else:
-                # no parameters provided, just update the holdout if necessary
-                if "holdout" in validated_data:
-                    existing_flag_serializer = FeatureFlagSerializer(
-                        feature_flag,
-                        data={"filters": {**feature_flag.filters, "holdout_groups": holdout_groups}},
-                        partial=True,
-                        context=self.context,
-                    )
-                    existing_flag_serializer.is_valid(raise_exception=True)
-                    existing_flag_serializer.save()
-
-        # Always recalculate fingerprints for all metrics
-        # Fingerprints depend on start_date, stats_config, and exposure_criteria
-        start_date = validated_data.get("start_date", instance.start_date)
-        stats_config = validated_data.get("stats_config", instance.stats_config)
-        exposure_criteria = validated_data.get("exposure_criteria", instance.exposure_criteria)
-
-        for metric_field in ["metrics", "metrics_secondary"]:
-            # Use metrics from validated_data if present, otherwise use existing metrics
-            metrics = validated_data.get(metric_field, getattr(instance, metric_field, None))
-            if metrics:
-                updated_metrics = []
-                for metric in metrics:
-                    metric_copy = deepcopy(metric)
-                    stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
-                    metric_copy["fingerprint"] = compute_metric_fingerprint(
-                        metric_copy,
-                        start_date,
-                        stats_method,
-                        exposure_criteria,
-                    )
-                    updated_metrics.append(metric_copy)
-
-                validated_data[metric_field] = updated_metrics
-
-        self._sync_ordering_with_metric_changes(instance, validated_data)
-        self._sync_ordering_for_saved_metrics(
-            instance,
-            validated_data,
-            old_saved_metric_uuids,
-            saved_metrics_data if update_saved_metrics else None,
-        )
-        self._validate_metric_ordering(instance, validated_data)
-
-        if instance.is_draft and has_start_date:
-            feature_flag.active = True
-            feature_flag.save()
-            return super().update(instance, validated_data)
-        else:
-            # Not a draft, doesn't have start date
-            # Or draft without start date
-            return super().update(instance, validated_data)
-
-    def _sync_ordering_with_metric_changes(self, instance: Experiment, validated_data: dict) -> None:
-        """
-        Sync ordering arrays with inline metric changes in this request.
-
-        When metrics are added/removed, their UUIDs should be added/removed from
-        the ordering arrays. This handles the case where API consumers send metrics
-        without also updating the ordering arrays.
-        """
-        if "metrics" in validated_data:
-            old_uuids = {m.get("uuid") for m in instance.metrics or [] if m.get("uuid")}
-            new_uuids = {m.get("uuid") for m in validated_data.get("metrics") or [] if m.get("uuid")}
-
-            added = new_uuids - old_uuids
-            removed = old_uuids - new_uuids
-
-            if added or removed:
-                # Use ordering from request if explicitly provided, otherwise use instance's ordering
-                if "primary_metrics_ordered_uuids" in validated_data:
-                    current_ordering = list(validated_data["primary_metrics_ordered_uuids"] or [])
-                else:
-                    current_ordering = list(instance.primary_metrics_ordered_uuids or [])
-
-                current_ordering = [u for u in current_ordering if u not in removed]
-                for uuid in added:
-                    if uuid not in current_ordering:
-                        current_ordering.append(uuid)
-
-                validated_data["primary_metrics_ordered_uuids"] = current_ordering
-
-        if "metrics_secondary" in validated_data:
-            old_uuids = {m.get("uuid") for m in instance.metrics_secondary or [] if m.get("uuid")}
-            new_uuids = {m.get("uuid") for m in validated_data.get("metrics_secondary") or [] if m.get("uuid")}
-
-            added = new_uuids - old_uuids
-            removed = old_uuids - new_uuids
-
-            if added or removed:
-                if "secondary_metrics_ordered_uuids" in validated_data:
-                    current_ordering = list(validated_data["secondary_metrics_ordered_uuids"] or [])
-                else:
-                    current_ordering = list(instance.secondary_metrics_ordered_uuids or [])
-
-                current_ordering = [u for u in current_ordering if u not in removed]
-
-                for uuid in added:
-                    if uuid not in current_ordering:
-                        current_ordering.append(uuid)
-
-                validated_data["secondary_metrics_ordered_uuids"] = current_ordering
-
-    def _sync_ordering_for_saved_metrics(
-        self,
-        instance: Experiment,
-        validated_data: dict,
-        old_saved_metric_uuids: dict[str, set[str]],
-        saved_metrics_data: list[dict] | None,
-    ) -> None:
-        """
-        Sync ordering arrays with saved metric changes in this request.
-
-        Since saved_metrics_ids is popped from validated_data early and saved metrics
-        are deleted/recreated before this runs, we need the old UUIDs passed in.
-
-        Args:
-            instance: The experiment being updated
-            validated_data: The validated data dict (will be modified)
-            old_saved_metric_uuids: Dict with 'primary' and 'secondary' keys containing old UUIDs
-            saved_metrics_data: The new saved_metrics_ids from the request, or None if not updating
-        """
-        if saved_metrics_data is None:
-            return
-
-        new_primary_uuids: set[str] = set()
-        new_secondary_uuids: set[str] = set()
-
-        saved_metric_ids_list = [sm["id"] for sm in saved_metrics_data]
-        if saved_metric_ids_list:
-            saved_metrics = {
-                sm.id: sm
-                for sm in ExperimentSavedMetric.objects.filter(
-                    id__in=saved_metric_ids_list, team_id=self.context["team_id"]
-                )
-            }
-
-            for sm_data in saved_metrics_data:
-                saved_metric = saved_metrics.get(sm_data["id"])
-                if saved_metric and saved_metric.query:
-                    uuid = saved_metric.query.get("uuid")
-                    if uuid:
-                        metric_type = (sm_data.get("metadata") or {}).get("type", "primary")
-                        if metric_type == "primary":
-                            new_primary_uuids.add(uuid)
-                        else:
-                            new_secondary_uuids.add(uuid)
-
-        added_primary = new_primary_uuids - old_saved_metric_uuids["primary"]
-        removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids
-        added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
-        removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
-
-        if added_primary or removed_primary:
-            if "primary_metrics_ordered_uuids" in validated_data:
-                current_ordering = list(validated_data["primary_metrics_ordered_uuids"] or [])
-            else:
-                current_ordering = list(instance.primary_metrics_ordered_uuids or [])
-
-            current_ordering = [u for u in current_ordering if u not in removed_primary]
-            for uuid in added_primary:
-                if uuid not in current_ordering:
-                    current_ordering.append(uuid)
-            validated_data["primary_metrics_ordered_uuids"] = current_ordering
-
-        if added_secondary or removed_secondary:
-            if "secondary_metrics_ordered_uuids" in validated_data:
-                current_ordering = list(validated_data["secondary_metrics_ordered_uuids"] or [])
-            else:
-                current_ordering = list(instance.secondary_metrics_ordered_uuids or [])
-
-            current_ordering = [u for u in current_ordering if u not in removed_secondary]
-            for uuid in added_secondary:
-                if uuid not in current_ordering:
-                    current_ordering.append(uuid)
-            validated_data["secondary_metrics_ordered_uuids"] = current_ordering
-
-    def _validate_metric_ordering(self, instance: Experiment, validated_data: dict) -> None:
-        """
-        Validate that ordering arrays contain all metric UUIDs.
-
-        This catches bugs where the frontend sends metrics but fails to include
-        their UUIDs in the ordering arrays
-        """
-        primary_ordering = validated_data.get("primary_metrics_ordered_uuids", instance.primary_metrics_ordered_uuids)
-        secondary_ordering = validated_data.get(
-            "secondary_metrics_ordered_uuids", instance.secondary_metrics_ordered_uuids
-        )
-
-        # Get inline metrics
-        primary_metrics = validated_data.get("metrics", instance.metrics) or []
-        secondary_metrics = validated_data.get("metrics_secondary", instance.metrics_secondary) or []
-
-        # Get saved metrics from the db (they were just created/recreated in update())
-        saved_metrics = list(instance.experimenttosavedmetric_set.select_related("saved_metric").all())
-
-        expected_primary_uuids: set[str] = set()
-        expected_secondary_uuids: set[str] = set()
-
-        # Add inline metric UUIDs
-        for metric in primary_metrics:
-            uuid = metric.get("uuid")
-            if uuid:
-                expected_primary_uuids.add(uuid)
-
-        for metric in secondary_metrics:
-            uuid = metric.get("uuid")
-            if uuid:
-                expected_secondary_uuids.add(uuid)
-
-        # Add saved metric UUIDs
-        for link in saved_metrics:
-            saved_metric = link.saved_metric
-            uuid = saved_metric.query.get("uuid") if saved_metric.query else None
-            if uuid:
-                metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-                if metric_type == "primary":
-                    expected_primary_uuids.add(uuid)
-                else:
-                    expected_secondary_uuids.add(uuid)
-
-        # Validate: if there are primary metrics, ordering array must exist and contain all UUIDs
-        if expected_primary_uuids:
-            if primary_ordering is None:
-                raise ValidationError(
-                    "primary_metrics_ordered_uuids is null but primary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_primary_uuids - set(primary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"primary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-
-        # Validate: if there are secondary metrics, ordering array must exist and contain all UUIDs
-        if expected_secondary_uuids:
-            if secondary_ordering is None:
-                raise ValidationError(
-                    "secondary_metrics_ordered_uuids is null but secondary metrics exist. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
-            missing = expected_secondary_uuids - set(secondary_ordering)
-            if missing:
-                raise ValidationError(
-                    f"secondary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
-                    "This is likely a frontend bug - please refresh and try again."
-                )
+        team = Team.objects.get(id=self.context["team_id"])
+        service = ExperimentService(team=team, user=self.context["request"].user)
+        return service.update_experiment(instance, validated_data, serializer_context=self.context)
 
 
-class ExperimentStatus(str, Enum):
+class ExperimentQueryStatus(str, Enum):
     """
-    Note: The frontend also uses a "ProgressStatus.Paused" status, but this is purely a
-    virtual status to have better UX for the user. Technically, paused experiments have
-    feature flags disabled while the experiment is still "running" in the backend, i.e.
-    they have start_date but no end_date).
+    Note: The frontend still treats paused experiments as a UI-only variant of "running"
+    when the linked flag is disabled, so the API only filters on stored experiment statuses.
     """
 
     DRAFT = "draft"
     RUNNING = "running"
-    COMPLETE = "complete"
+    STOPPED = "stopped"
     ALL = "all"
 
 
@@ -783,18 +302,29 @@ class EnterpriseExperimentsViewSet(
             # filtering by status
             status = self.request.query_params.get("status")
             if status:
+                normalized_status = status.lower()
+                if normalized_status == "complete":
+                    normalized_status = ExperimentQueryStatus.STOPPED.value
+
                 try:
-                    status_enum = ExperimentStatus(status.lower())
+                    status_enum = ExperimentQueryStatus(normalized_status)
                 except ValueError:
                     status_enum = None
 
-                if status_enum and status_enum != ExperimentStatus.ALL:
-                    if status_enum == ExperimentStatus.DRAFT:
-                        queryset = queryset.filter(start_date__isnull=True)
-                    elif status_enum == ExperimentStatus.RUNNING:
-                        queryset = queryset.filter(start_date__isnull=False, end_date__isnull=True)
-                    elif status_enum == ExperimentStatus.COMPLETE:
-                        queryset = queryset.filter(end_date__isnull=False)
+                if status_enum and status_enum != ExperimentQueryStatus.ALL:
+                    if status_enum == ExperimentQueryStatus.DRAFT:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.DRAFT) | Q(status__isnull=True, start_date__isnull=True)
+                        )
+                    elif status_enum == ExperimentQueryStatus.RUNNING:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.RUNNING)
+                            | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                        )
+                    elif status_enum == ExperimentQueryStatus.STOPPED:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.STOPPED) | Q(status__isnull=True, end_date__isnull=False)
+                        )
 
             # filtering by creator id
             created_by_id = self.request.query_params.get("created_by_id")
@@ -855,6 +385,8 @@ class EnterpriseExperimentsViewSet(
                     queryset = queryset.order_by(F("computed_status").asc())
             else:
                 queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
 
         return queryset
 
@@ -876,67 +408,14 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
+        feature_flag_key = request.data.get("feature_flag_key")
 
-        # Allow overriding the feature flag key from the request
-        feature_flag_key = request.data.get("feature_flag_key", source_experiment.feature_flag.key)
-
-        # Check if the feature flag key refers to an existing flag with different variants
-        # If so, we need to update parameters.feature_flag_variants to match the new flag
-        parameters = deepcopy(source_experiment.parameters) or {}
-        if feature_flag_key != source_experiment.feature_flag.key:
-            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team_id).first()
-            if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
-                parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
-
-        # Generate a unique name for the duplicate
-        base_name = f"{source_experiment.name} (Copy)"
-        duplicate_name = base_name
-        counter = 1
-        while Experiment.objects.filter(team_id=self.team_id, name=duplicate_name, deleted=False).exists():
-            duplicate_name = f"{base_name} {counter}"
-            counter += 1
-
-        # Prepare saved metrics data for the serializer
-        saved_metrics_data = []
-        for experiment_to_saved_metric in source_experiment.experimenttosavedmetric_set.all():
-            saved_metrics_data.append(
-                {
-                    "id": experiment_to_saved_metric.saved_metric.id,
-                    "metadata": experiment_to_saved_metric.metadata,
-                }
-            )
-
-        # Prepare data for duplication
-        duplicate_data = {
-            "name": duplicate_name,
-            "description": source_experiment.description,
-            "type": source_experiment.type,
-            "parameters": parameters,
-            "filters": source_experiment.filters,
-            "metrics": source_experiment.metrics,
-            "metrics_secondary": source_experiment.metrics_secondary,
-            "stats_config": source_experiment.stats_config,
-            "scheduling_config": source_experiment.scheduling_config,
-            "exposure_criteria": source_experiment.exposure_criteria,
-            "saved_metrics_ids": saved_metrics_data,
-            "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
-            "primary_metrics_ordered_uuids": source_experiment.primary_metrics_ordered_uuids,
-            "secondary_metrics_ordered_uuids": source_experiment.secondary_metrics_ordered_uuids,
-            "exposure_preaggregation_enabled": source_experiment.exposure_preaggregation_enabled,
-            # Reset fields for new experiment
-            "start_date": None,
-            "end_date": None,
-            "archived": False,
-            "deleted": False,
-        }
-
-        # Create the duplicate experiment using the serializer
-        duplicate_serializer = ExperimentSerializer(
-            data=duplicate_data,
-            context=self.get_serializer_context(),
+        service = ExperimentService(team=self.team, user=request.user)
+        duplicate_experiment = service.duplicate_experiment(
+            source_experiment,
+            feature_flag_key=feature_flag_key,
+            serializer_context=self.get_serializer_context(),
         )
-        duplicate_serializer.is_valid(raise_exception=True)
-        duplicate_experiment = duplicate_serializer.save()
 
         return Response(
             ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
@@ -945,88 +424,17 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
-        flag = getattr(experiment, "feature_flag", None)
-        if not flag:
-            raise ValidationError("Experiment does not have a feature flag")
-
-        if not experiment.start_date:
-            raise ValidationError("Experiment does not have a start date")
-
-        if experiment.exposure_cohort:
-            raise ValidationError("Experiment already has an exposure cohort")
-
-        exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-        exposure_filter = None
-        if exposure_filter_data:
-            exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
-
-        target_entity: int | str = "$feature_flag_called"
-        target_entity_type = "events"
-        target_filters = [
-            {
-                "key": "$feature_flag",
-                "value": [flag.key],
-                "operator": "exact",
-                "type": "event",
-            }
-        ]
-
-        if exposure_filter:
-            entity = exposure_filter.entities[0]
-            if entity.id:
-                target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
-                target_entity = entity.id
-                if entity.type == "actions":
-                    try:
-                        target_entity = int(target_entity)
-                    except ValueError:
-                        raise ValidationError("Invalid action ID")
-
-                target_filters = [
-                    prop.to_dict()
-                    for prop in entity.property_groups.flat
-                    if prop.type in ("event", "feature", "element", "hogql")
-                ]
-
-        cohort_serializer = CohortSerializer(
-            data={
-                "is_static": False,
-                "name": f'Users exposed to experiment "{experiment.name}"',
-                "is_calculating": True,
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "type": "OR",
-                                "values": [
-                                    {
-                                        "type": "behavioral",
-                                        "value": "performed_event",
-                                        "key": target_entity,
-                                        "negation": False,
-                                        "event_type": target_entity_type,
-                                        "event_filters": target_filters,
-                                        "explicit_datetime": experiment.start_date.isoformat(),
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                },
-            },
-            context={
+        service = ExperimentService(team=self.team, user=request.user)
+        cohort = service.create_exposure_cohort(
+            experiment,
+            serializer_context={
                 "request": request,
                 "team": self.team,
                 "team_id": self.team_id,
             },
         )
-
-        cohort_serializer.is_valid(raise_exception=True)
-        cohort = cohort_serializer.save()
-        experiment.exposure_cohort = cohort
-        experiment.save(update_fields=["exposure_cohort"])
-        return Response({"cohort": cohort_serializer.data}, status=201)
+        cohort_data = CohortSerializer(cohort, context={"request": request, "team": self.team}).data
+        return Response({"cohort": cohort_data}, status=201)
 
     @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
     def eligible_feature_flags(self, request: Request, **kwargs: Any) -> Response:
@@ -1150,139 +558,20 @@ class EnterpriseExperimentsViewSet(
 
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Retrieve timeseries results for a specific experiment-metric combination.
-        Aggregates daily results into a timeseries format for frontend compatibility.
-
-        Query parameters:
-        - metric_uuid (required): The UUID of the metric to retrieve results for
-        - fingerprint (required): The fingerprint of the metric configuration
-        """
         experiment = self.get_object()
         metric_uuid = request.query_params.get("metric_uuid")
         fingerprint = request.query_params.get("fingerprint")
 
         if not metric_uuid:
             raise ValidationError("metric_uuid query parameter is required")
-
         if not fingerprint:
             raise ValidationError("fingerprint query parameter is required")
 
-        project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
-
-        if not experiment.start_date:
-            raise ValidationError("Experiment has not been started yet")
-        start_date = experiment.start_date.date()
-        end_date = experiment.end_date.date() if experiment.end_date else date.today()
-
-        experiment_dates = []
-        current_date = start_date
-        while current_date <= end_date:
-            experiment_dates.append(current_date)
-            current_date += timedelta(days=1)
-
-        # Pre-populate timeline with null values so frontend gets complete date range
-        timeseries: dict[str, Any | None] = {}
-        errors: dict[str, str] = {}
-        for experiment_date in experiment_dates:
-            timeseries[experiment_date.isoformat()] = None
-
-        metric_results = ExperimentMetricResult.objects.filter(
-            experiment_id=experiment.id, metric_uuid=metric_uuid, fingerprint=fingerprint
-        ).order_by("query_to")
-
-        completed_count = 0
-        failed_count = 0
-        pending_count = 0
-        no_record_count = 0
-        latest_completed_at = None
-
-        # Create mapping from query_to to result, deriving the day in project timezone
-        # Note: query_to is the EXCLUSIVE end of the time range
-        # Example: Data for 2025-11-09 has query_to = 2025-11-10T00:00:00 (recalculation)
-        #          or query_to = 2025-11-09T02:00:00 (regular DAG)
-        # To find which day the data represents, subtract 1 microsecond to get the last included moment
-        results_by_date = {}
-        for result in metric_results:
-            # Subtract 1 microsecond to convert exclusive boundary to inclusive
-            query_to_adjusted = result.query_to - timedelta(microseconds=1)
-            query_to_in_project_tz = query_to_adjusted.astimezone(project_tz)
-            day_in_project_tz = query_to_in_project_tz.date()
-            results_by_date[day_in_project_tz] = result
-
-        for experiment_date in experiment_dates:
-            date_key = experiment_date.isoformat()
-
-            if experiment_date in results_by_date:
-                metric_result = results_by_date[experiment_date]
-
-                if metric_result.status == "completed":
-                    timeseries[date_key] = metric_result.result
-                    completed_count += 1
-                elif metric_result.status == "failed":
-                    if metric_result.error_message:
-                        errors[date_key] = metric_result.error_message
-                    failed_count += 1
-                elif metric_result.status == "pending":
-                    pending_count += 1
-
-                if metric_result.completed_at:
-                    if latest_completed_at is None or metric_result.completed_at > latest_completed_at:
-                        latest_completed_at = metric_result.completed_at
-            else:
-                no_record_count += 1
-
-        total_experiment_days = len(experiment_dates)
-        calculated_days = completed_count + failed_count + pending_count
-
-        # If we have zero calculated days, it's pending
-        if calculated_days == 0:
-            overall_status = "pending"
-        # If all calculated days failed, it's failed
-        elif completed_count == 0 and failed_count > 0:
-            overall_status = "failed"
-        # If we have all days completed, it's completed
-        elif completed_count == total_experiment_days:
-            overall_status = "completed"
-        # If we have at least some data (completed or failed), it's partial
-        else:
-            overall_status = "partial"
-
-        active_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
-
-        first_result = metric_results.first()
-        last_result = metric_results.last()
-        response_data = {
-            "experiment_id": experiment.id,
-            "metric_uuid": metric_uuid,
-            "status": overall_status,
-            "timeseries": timeseries,
-            "errors": errors if errors else None,
-            "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
-            "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
-            "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
-            "recalculation_status": active_recalculation.status if active_recalculation else None,
-            "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
-        }
-
-        return Response(response_data)
+        service = ExperimentService(team=self.team, user=request.user)
+        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid, fingerprint=fingerprint))
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Create a recalculation request for experiment timeseries data.
-
-        Request body:
-        - metric (required): The full metric object to recalculate
-        - fingerprint (required): The fingerprint of the metric configuration
-        """
         experiment = self.get_object()
 
         metric = request.data.get("metric")
@@ -1293,102 +582,15 @@ class EnterpriseExperimentsViewSet(
         if not fingerprint:
             raise ValidationError("fingerprint is required")
 
-        if not experiment.start_date:
-            raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
-
-        # Check for existing recalculation request to ensure idempotency
-        existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
-
-        if existing_recalculation:
-            return Response(
-                {
-                    "id": existing_recalculation.id,
-                    "experiment_id": experiment.id,
-                    "metric_uuid": existing_recalculation.metric.get("uuid"),
-                    "fingerprint": fingerprint,
-                    "status": existing_recalculation.status,
-                    "created_at": existing_recalculation.created_at.isoformat(),
-                },
-                status=200,
-            )
-
-        # Delete all existing metric results for this experiment/metric/fingerprint combination
-        metric_uuid = metric.get("uuid")
-        if metric_uuid:
-            ExperimentMetricResult.objects.filter(
-                experiment_id=experiment.id,
-                metric_uuid=metric_uuid,
-                fingerprint=fingerprint,
-            ).delete()
-
-        # Create new recalculation request
-        recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
-            team=experiment.team,
-            experiment=experiment,
-            metric=metric,
-            fingerprint=fingerprint,
-            status=ExperimentTimeseriesRecalculation.Status.PENDING,
-        )
-
-        return Response(
-            {
-                "id": recalculation_request.id,
-                "experiment_id": experiment.id,
-                "metric_uuid": metric.get("uuid"),
-                "fingerprint": fingerprint,
-                "status": recalculation_request.status,
-                "created_at": recalculation_request.created_at.isoformat(),
-            },
-            status=201,
-        )
+        service = ExperimentService(team=self.team, user=request.user)
+        result = service.request_timeseries_recalculation(experiment, metric=metric, fingerprint=fingerprint)
+        status_code = 200 if result.pop("is_existing", False) else 201
+        return Response(result, status=status_code)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
-        """Get experimentation velocity statistics."""
-        team_tz = ZoneInfo(self.team.timezone) if self.team.timezone else ZoneInfo("UTC")
-        today = datetime.now(team_tz).date()
-
-        last_30d_start = today - timedelta(days=30)
-        previous_30d_start = today - timedelta(days=60)
-        previous_30d_end = last_30d_start
-
-        base_queryset = Experiment.objects.filter(team=self.team, deleted=False, archived=False)
-
-        launched_last_30d = base_queryset.filter(
-            start_date__gte=last_30d_start, start_date__lt=today + timedelta(days=1)
-        ).count()
-
-        launched_previous_30d = base_queryset.filter(
-            start_date__gte=previous_30d_start, start_date__lt=previous_30d_end
-        ).count()
-
-        if launched_previous_30d == 0:
-            percent_change = 100.0 if launched_last_30d > 0 else 0.0
-        else:
-            percent_change = ((launched_last_30d - launched_previous_30d) / launched_previous_30d) * 100
-
-        active_experiments = base_queryset.filter(start_date__isnull=False, end_date__isnull=True).count()
-
-        completed_last_30d = base_queryset.filter(
-            end_date__gte=last_30d_start, end_date__lt=today + timedelta(days=1)
-        ).count()
-
-        return Response(
-            {
-                "launched_last_30d": launched_last_30d,
-                "launched_previous_30d": launched_previous_30d,
-                "percent_change": round(percent_change, 1),
-                "active_experiments": active_experiments,
-                "completed_last_30d": completed_last_30d,
-            }
-        )
+        service = ExperimentService(team=self.team, user=request.user)
+        return Response(service.get_velocity_stats())
 
 
 @mutable_receiver(model_activity_signal, sender=Experiment)

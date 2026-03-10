@@ -68,6 +68,7 @@
     'posthog.tasks.hog_functions.refresh_affected_hog_functions',
     'posthog.tasks.hog_functions.sync_hog_function_templates_task',
     'posthog.tasks.hypercache_verification.verify_and_fix_flag_definitions_cache_task',
+    'posthog.tasks.hypercache_verification.verify_and_fix_flag_definitions_without_cohorts_cache_task',
     'posthog.tasks.hypercache_verification.verify_and_fix_flags_cache_task',
     'posthog.tasks.hypercache_verification.verify_and_fix_team_metadata_cache_task',
     'posthog.tasks.integrations.push_vercel_secrets',

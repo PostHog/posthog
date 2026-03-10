@@ -4,11 +4,11 @@ import { SnapshotStore } from '../snapshot-store/SnapshotStore'
 
 export function convertSegmentKinds(
     segments: RecordingSegment[],
-    snapshotStore: SnapshotStore | null,
+    snapshotStore: SnapshotStore,
     isLoadingSnapshots: boolean
 ): RecordingSegment[] {
     return segments.map((segment) => {
-        if (snapshotStore && snapshotStore.sourceCount > 0) {
+        if (snapshotStore.sourceCount > 0) {
             const startIdx = snapshotStore.getSourceIndexForTimestamp(segment.startTimestamp)
             const endIdx = snapshotStore.getSourceIndexForTimestamp(segment.endTimestamp)
             const hasUnloaded = snapshotStore.getUnloadedIndicesInRange(startIdx, endIdx).length > 0

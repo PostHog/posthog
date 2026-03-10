@@ -6,6 +6,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -25,10 +26,12 @@ export function ChatHeader({
     conversationId,
     tabId,
     children,
+    hideBorder,
 }: {
     conversationId: string | null
     tabId?: string
     children?: React.ReactNode
+    hideBorder?: boolean
 }): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
@@ -36,7 +39,12 @@ export function ChatHeader({
     const isTitleLoading = chatTitle === 'New chat'
 
     return (
-        <div className="flex w-full gap-2 py-2 border-b border-primary items-center justify-between px-2">
+        <div
+            className={cn(
+                'flex w-full gap-2 py-2 border-b border-primary items-center justify-between px-2',
+                hideBorder && 'border-b-0'
+            )}
+        >
             <div className="flex items-center gap-2 pl-2 text-sm font-medium truncate min-w-0 flex-1">
                 {children}
                 {chatTitle === null ? null : isTitleLoading ? (
