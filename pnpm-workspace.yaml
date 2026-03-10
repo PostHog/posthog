@@ -15,6 +15,7 @@ packages:
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app
+    - tools/*
     - rust/cyclotron-node
 
 catalog:

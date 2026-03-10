@@ -29,6 +29,49 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @parameterized.expand(
+        [
+            ("draft", "draft"),
+            ("running", "running"),
+            ("stopped", "stopped"),
+            ("complete", "stopped"),
+        ]
+    )
+    def test_can_filter_experiments_by_status(self, status_filter: str, expected_status: str) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Draft experiment",
+                "feature_flag_key": "draft-filter-flag",
+                "parameters": None,
+            },
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Running experiment",
+                "feature_flag_key": "running-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Stopped experiment",
+                "feature_flag_key": "stopped-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "end_date": "2021-12-10T00:00",
+                "parameters": None,
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?status={status_filter}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["status"], expected_status)
+
     def test_getting_experiments_is_not_nplus1(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
