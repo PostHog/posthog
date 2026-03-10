@@ -899,121 +899,18 @@ mod tests {
         );
     }
 
-    /// Mock downloader that tracks how many times download_file is called,
-    /// used to verify lazy metadata download behavior.
+    /// Parameterized mock downloader that tracks call counts and optionally
+    /// injects file-download failures to exercise fallback logic.
     #[derive(Debug)]
-    struct LazyDownloadTracker {
+    struct TrackingDownloader {
         checkpoints: Vec<CheckpointMetadata>,
         metadata_download_count: Arc<AtomicUsize>,
-    }
-
-    impl LazyDownloadTracker {
-        fn new(checkpoints: Vec<CheckpointMetadata>) -> Self {
-            Self {
-                checkpoints,
-                metadata_download_count: Arc::new(AtomicUsize::new(0)),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl CheckpointDownloader for LazyDownloadTracker {
-        async fn list_recent_checkpoints(
-            &self,
-            _topic: &str,
-            _partition_number: i32,
-        ) -> Result<Vec<String>> {
-            Ok(self
-                .checkpoints
-                .iter()
-                .map(|m| m.get_metadata_filepath())
-                .collect())
-        }
-
-        async fn download_file(&self, remote_key: &str) -> Result<Vec<u8>> {
-            self.metadata_download_count.fetch_add(1, Ordering::SeqCst);
-            for checkpoint in &self.checkpoints {
-                if checkpoint.get_metadata_filepath() == remote_key {
-                    return Ok(checkpoint.to_json()?.into_bytes());
-                }
-            }
-            Err(anyhow::anyhow!("Metadata not found: {remote_key}"))
-        }
-
-        async fn download_and_store_file_cancellable(
-            &self,
-            _remote_key: &str,
-            local_filepath: &Path,
-            _cancel_token: Option<&CancellationToken>,
-        ) -> Result<()> {
-            tokio::fs::write(local_filepath, b"mock file content").await?;
-            Ok(())
-        }
-
-        async fn download_files_cancellable(
-            &self,
-            remote_keys: &[String],
-            local_base_path: &Path,
-            cancel_token: Option<&CancellationToken>,
-        ) -> Result<()> {
-            for key in remote_keys {
-                let filename = key.rsplit('/').next().unwrap_or(key);
-                let local_path = local_base_path.join(filename);
-                self.download_and_store_file_cancellable(key, &local_path, cancel_token)
-                    .await?;
-            }
-            Ok(())
-        }
-
-        async fn is_available(&self) -> bool {
-            true
-        }
-    }
-
-    #[tokio::test]
-    async fn test_lazy_metadata_download_only_fetches_needed() {
-        let tmp_dir = TempDir::new().unwrap();
-
-        // 3 checkpoints available, newest first (hours 14, 13, 12)
-        let checkpoints = vec![
-            create_test_metadata("test-topic", 0, 14),
-            create_test_metadata("test-topic", 0, 13),
-            create_test_metadata("test-topic", 0, 12),
-        ];
-
-        let tracker = LazyDownloadTracker::new(checkpoints);
-        let download_count = Arc::clone(&tracker.metadata_download_count);
-
-        let importer = CheckpointImporter::new(
-            Box::new(tracker),
-            tmp_dir.path().to_path_buf(),
-            3,
-            Duration::from_secs(60),
-        );
-
-        let result = importer
-            .import_checkpoint_for_topic_partition("test-topic", 0)
-            .await;
-
-        assert!(result.is_ok(), "Import should succeed: {:?}", result.err());
-        assert_eq!(
-            download_count.load(Ordering::SeqCst),
-            1,
-            "Only the newest metadata.json should be downloaded when first attempt succeeds"
-        );
-    }
-
-    /// Mock downloader where the first N metadata downloads succeed but their
-    /// file downloads fail, forcing fallback to later checkpoints.
-    #[derive(Debug)]
-    struct FallbackTracker {
-        checkpoints: Vec<CheckpointMetadata>,
-        metadata_download_count: Arc<AtomicUsize>,
+        /// Number of initial file-download attempts that should fail (0 = all succeed)
         file_download_fail_count: usize,
         file_download_attempts: Arc<AtomicUsize>,
     }
 
-    impl FallbackTracker {
+    impl TrackingDownloader {
         fn new(checkpoints: Vec<CheckpointMetadata>, file_download_fail_count: usize) -> Self {
             Self {
                 checkpoints,
@@ -1025,7 +922,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl CheckpointDownloader for FallbackTracker {
+    impl CheckpointDownloader for TrackingDownloader {
         async fn list_recent_checkpoints(
             &self,
             _topic: &str,
@@ -1083,6 +980,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_lazy_metadata_download_only_fetches_needed() {
+        let tmp_dir = TempDir::new().unwrap();
+
+        // 3 checkpoints available, newest first (hours 14, 13, 12)
+        let checkpoints = vec![
+            create_test_metadata("test-topic", 0, 14),
+            create_test_metadata("test-topic", 0, 13),
+            create_test_metadata("test-topic", 0, 12),
+        ];
+
+        let tracker = TrackingDownloader::new(checkpoints, 0);
+        let download_count = Arc::clone(&tracker.metadata_download_count);
+
+        let importer = CheckpointImporter::new(
+            Box::new(tracker),
+            tmp_dir.path().to_path_buf(),
+            3,
+            Duration::from_secs(60),
+        );
+
+        let result = importer
+            .import_checkpoint_for_topic_partition("test-topic", 0)
+            .await;
+
+        assert!(result.is_ok(), "Import should succeed: {:?}", result.err());
+        assert_eq!(
+            download_count.load(Ordering::SeqCst),
+            1,
+            "Only the newest metadata.json should be downloaded when first attempt succeeds"
+        );
+    }
+
+    #[tokio::test]
     async fn test_lazy_metadata_download_fallback_downloads_incrementally() {
         let tmp_dir = TempDir::new().unwrap();
 
@@ -1093,7 +1023,7 @@ mod tests {
             create_test_metadata("test-topic", 0, 12),
         ];
 
-        let tracker = FallbackTracker::new(checkpoints, 2);
+        let tracker = TrackingDownloader::new(checkpoints, 2);
         let metadata_count = Arc::clone(&tracker.metadata_download_count);
 
         let importer = CheckpointImporter::new(
