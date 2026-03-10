@@ -1,5 +1,4 @@
 import math
-import time
 import random
 import asyncio
 import datetime as dt
@@ -324,8 +323,7 @@ async def get_realtime_cohort_selection_activity(
                 seen_ids.add(cohort_id)
                 unique_cohort_ids.append(cohort_id)
 
-        # Step 4: Sort by ID for consistent distribution
-        unique_cohort_ids.sort()
+        # Step 4: Return with duration-based ordering preserved for effective load balancing
         return unique_cohort_ids
 
     cohort_ids = await get_selected_cohort_ids()
@@ -548,7 +546,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                     f"Child workflow failed ({completed_count + failed_count}/{workflows_scheduled}): {e}"
                 )
 
-        coordinator_duration = time.monotonic() - coordinator_start_time
+        coordinator_duration = temporalio.workflow.time() - coordinator_start_time
         get_coordinator_duration_histogram(percentile_bucket).record(coordinator_duration)
 
         workflow_logger.info(

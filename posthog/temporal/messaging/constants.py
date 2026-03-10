@@ -23,8 +23,8 @@ def get_percentile_bucket_label(min_percentile: float | None, max_percentile: fl
     if min_percentile is None and max_percentile is None:
         return "manual"
     elif min_percentile is None:
-        return f"p0-p{int(max_percentile)}"
+        return f"p0-p{int(max_percentile) if max_percentile is not None else 0}"
     elif max_percentile is None:
-        return f"p{int(min_percentile)}-p100"
+        return f"p{int(min_percentile) if min_percentile is not None else 0}-p100"
     else:
         return f"p{int(min_percentile)}-p{int(max_percentile)}"
