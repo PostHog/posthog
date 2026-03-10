@@ -2059,7 +2059,11 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "db_password"  # Main DB password preserved
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"  # SSH password preserved
 
-    def test_update_with_null_password_preserves_existing(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_null_password_preserves_existing(self, mock_validate_credentials):
         """Regression test: sending password=null should not overwrite stored password."""
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -2097,8 +2101,13 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"  # Host was updated
         assert source.job_inputs["password"] == "original_password"  # Password preserved
+        mock_validate_credentials.assert_called_once()
 
-    def test_update_with_empty_string_password_preserves_existing(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_empty_string_password_preserves_existing(self, mock_validate_credentials):
         """Regression test: sending password="" (empty string) should not overwrite stored password.
 
         This reproduces the bug where the frontend form sends an empty string for password
@@ -2140,6 +2149,7 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"  # Host was updated
         assert source.job_inputs["password"] == "original_password"  # Password preserved
+        mock_validate_credentials.assert_called_once()
 
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
@@ -2185,9 +2195,9 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
-        return_value=(False, "should not be called"),
+        return_value=(True, None),
     )
-    def test_update_with_host_change_does_not_revalidate_credentials(self, mock_validate_credentials):
+    def test_update_with_host_change_revalidates_credentials(self, mock_validate_credentials):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -2219,9 +2229,13 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200, response.json()
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
-        mock_validate_credentials.assert_not_called()
+        mock_validate_credentials.assert_called_once()
 
-    def test_update_source_without_ssh_tunnel_does_not_crash(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_source_without_ssh_tunnel_does_not_crash(self, mock_validate_credentials):
         """Regression test: updating a source that has no ssh_tunnel should not crash."""
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -2259,6 +2273,7 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "original_password"
+        mock_validate_credentials.assert_called_once()
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_update_blocks_internal_host(self):

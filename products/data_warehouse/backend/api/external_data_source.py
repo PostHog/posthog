@@ -137,32 +137,6 @@ def credentials_touched(data: dict[str, Any], fields: list[FieldType]) -> bool:
                 return True
 
     return False
-
-
-def validate_connection_policy_changes(
-    source: Any, source_config: Config, team_id: int, incoming_job_inputs: dict[str, Any]
-) -> None:
-    if not {"host", "ssh_tunnel"} & set(incoming_job_inputs.keys()):
-        return
-
-    # Host and SSH tunnel edits need cheap policy validation even when credentials are unchanged.
-    # This avoids turning a PATCH into a live connectivity check unless the user actually changed
-    # a secret that requires re-authentication.
-    if hasattr(source, "ssh_tunnel_is_valid"):
-        ssh_valid, ssh_error = source.ssh_tunnel_is_valid(source_config, team_id)
-        if not ssh_valid:
-            raise ValidationError(ssh_error or "Invalid SSH tunnel configuration")
-
-    if not hasattr(source, "is_database_host_valid") or not hasattr(source_config, "host"):
-        return
-
-    ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
-    using_ssh_tunnel = bool(getattr(ssh_tunnel, "enabled", False))
-    host_valid, host_error = source.is_database_host_valid(source_config.host, team_id, using_ssh_tunnel)
-    if not host_valid:
-        raise ValidationError(host_error or "Invalid host")
-
-
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
@@ -411,11 +385,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         existing_job_inputs = instance.job_inputs or {}
         incoming_job_inputs = validated_data.get("job_inputs", {})
+        host_changed = "host" in incoming_job_inputs and incoming_job_inputs.get("host") != existing_job_inputs.get("host")
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
         password_fields = get_password_field_names(source.get_source_config.fields)
-        should_validate_credentials = False
+        should_validate_connection = False
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
@@ -453,19 +428,20 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
         if "job_inputs" in validated_data:
-            should_validate_credentials = credentials_touched(incoming_job_inputs, source.get_source_config.fields)
+            should_validate_connection = host_changed or credentials_touched(
+                incoming_job_inputs, source.get_source_config.fields
+            )
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validate_connection_policy_changes(source, source_config, instance.team_id, incoming_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
 
-        if should_validate_credentials:
-            # Secret changes need a real source credential check. Host and SSH policy checks already
-            # ran above so this path stays focused on authentication and connectivity.
+        if should_validate_connection:
+            # Host changes and secret changes both need a real auth/connectivity check against
+            # the resolved config, so keep that in a single validation path.
             credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
