@@ -12,7 +12,7 @@ class DetectionResult:
     is_anomaly: bool
     score: float | None = None
     triggered_indices: list[int] = field(default_factory=list)
-    all_scores: list[float | None] | None = field(default_factory=list)
+    all_scores: list[float | None] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

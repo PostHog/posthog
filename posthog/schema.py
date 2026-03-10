@@ -1162,13 +1162,7 @@ class DefaultChannelTypes(StrEnum):
 class DetectorType(StrEnum):
     ZSCORE = "zscore"
     MAD = "mad"
-    IQR = "iqr"
-    ISOLATION_FOREST = "isolation_forest"
-    ECOD = "ecod"
-    COPOD = "copod"
-    KNN = "knn"
     THRESHOLD = "threshold"
-    ENSEMBLE = "ensemble"
 
 
 class DistanceFunc(StrEnum):

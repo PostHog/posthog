@@ -80,6 +80,10 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "calculated_value",
             "state",
             "targets_notified",
+            "anomaly_scores",
+            "triggered_points",
+            "triggered_dates",
+            "interval",
         ]
         read_only_fields = fields
 

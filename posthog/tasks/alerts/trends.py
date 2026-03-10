@@ -434,6 +434,8 @@ def _breach_messages(
 # Minimum samples required for each detector type
 DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.ZSCORE: 31,  # window + 1
+    DetectorType.MAD: 31,  # window + 1
+    DetectorType.THRESHOLD: 1,  # single data point sufficient
 }
 
 
@@ -466,7 +468,7 @@ def check_trends_alert_with_detector(
 
     # For statistical detectors with window config, ensure we fetch enough samples
     window = detector_config.get("window", 30)
-    if detector_type in (DetectorType.ZSCORE, DetectorType.MAD, DetectorType.IQR):
+    if detector_type in (DetectorType.ZSCORE, DetectorType.MAD):
         min_samples = max(min_samples, window + 1)
 
     # Calculate date range to fetch enough data
@@ -489,8 +491,15 @@ def check_trends_alert_with_detector(
         filters_override=filters_override,
     )
 
-    if not calculation_result.result:
+    if calculation_result.result is None:
         raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+
+    if not calculation_result.result:
+        return AlertEvaluationResult(
+            value=0,
+            breaches=[],
+            interval=query.interval.value if query.interval else None,
+        )
 
     # Pick the series to analyze
     selected_series_result = _pick_series_result(config, calculation_result)
@@ -529,7 +538,7 @@ def check_trends_alert_with_detector(
     return AlertEvaluationResult(
         value=float(data[-1]) if len(data) > 0 else None,
         breaches=breaches if breaches else [],
-        anomaly_scores=result.all_scores if result.all_scores else None,
+        anomaly_scores=result.all_scores or None,
         triggered_points=result.triggered_indices if result.triggered_indices else None,
         triggered_dates=triggered_dates,
         interval=query.interval.value if query.interval else None,

@@ -11710,7 +11710,7 @@
             "description": "Detector configuration types"
         },
         "DetectorType": {
-            "enum": ["zscore", "mad", "iqr", "isolation_forest", "ecod", "copod", "knn", "threshold", "ensemble"],
+            "enum": ["zscore", "mad", "threshold"],
             "type": "string"
         },
         "DocumentArtifactContent": {

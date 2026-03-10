@@ -3857,13 +3857,7 @@ export interface TrendsAlertConfig {
 export enum DetectorType {
     ZSCORE = 'zscore',
     MAD = 'mad',
-    IQR = 'iqr',
-    ISOLATION_FOREST = 'isolation_forest',
-    ECOD = 'ecod',
-    COPOD = 'copod',
-    KNN = 'knn',
     THRESHOLD = 'threshold',
-    ENSEMBLE = 'ensemble',
 }
 
 /** Preprocessing transforms applied to the time series before detection */
