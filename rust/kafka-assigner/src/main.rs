@@ -24,6 +24,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let config = Config::init_with_defaults()?;
+    config
+        .validate()
+        .map_err(|e| format!("invalid config: {e}"))?;
     tracing::info!(?config, "loaded configuration");
 
     let etcd_store = EtcdStore::connect(StoreConfig {
