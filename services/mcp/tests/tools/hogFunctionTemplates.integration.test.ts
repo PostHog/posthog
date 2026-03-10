@@ -78,21 +78,20 @@ describe('Hog Function Templates', { concurrent: false }, () => {
         })
 
         it('should respect the offset parameter', async () => {
-            const allResult = await listTool.handler(context, { limit: 10 })
-            const all = parseToolResponse(allResult)
+            // Fetch two consecutive pages in a single logical test to verify offset works.
+            // Templates are sorted by popularity which can shift between calls, so we
+            // only check structural pagination properties rather than exact ID ordering.
+            const firstPage = parseToolResponse(await listTool.handler(context, { limit: 2, offset: 0 }))
+            const secondPage = parseToolResponse(await listTool.handler(context, { limit: 2, offset: 2 }))
 
-            if (all.results.length < 2) {
-                // Not enough templates to test offset — skip.
-                return
+            expect(firstPage.results.length).toBe(2)
+            expect(secondPage.results.length).toBeGreaterThan(0)
+
+            // The two pages should not share any IDs
+            const firstIds = new Set(firstPage.results.map((t: any) => t.id))
+            for (const t of secondPage.results) {
+                expect(firstIds.has(t.id)).toBe(false)
             }
-
-            const pagedResult = await listTool.handler(context, { offset: 1, limit: 10 })
-            const paged = parseToolResponse(pagedResult)
-
-            // The offset shifts the starting position but doesn't reduce page size
-            // when there are more items than limit. Verify the first item is shifted.
-            expect(paged.results.length).toBeGreaterThan(0)
-            expect(paged.results[0].id).toBe(all.results[1].id)
         })
     })
 
