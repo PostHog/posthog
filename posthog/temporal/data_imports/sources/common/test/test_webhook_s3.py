@@ -545,7 +545,7 @@ class TestWebhookSourceManagerWithMinIO:
         tables = [table async for table in manager.get_items()]
 
         assert len(tables) == 2
-        ids = sorted([t.column("id").to_pylist()[0] for t in tables])
+        ids = sorted([t.column("id").to_pylist()[0] for t in tables])  # type: ignore
         assert ids == ["a", "b"]
 
         # Both files should be deleted

@@ -97,10 +97,11 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
 
     try:
         while True:
-            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)
+            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)  # type: ignore
             if not has_value:
                 break
-            yield item  # type: ignore[misc]
+
+            yield item  # type: ignore
     finally:
         await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _close)
 
