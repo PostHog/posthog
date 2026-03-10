@@ -19,22 +19,11 @@ from products.error_tracking.backend.models import ErrorTrackingIssue
 
 
 class ErrorTrackingQueryV1Builder:
-    """Builds and processes V1 error tracking queries.
-
-    Pure ClickHouse aggregation over the events table. Issue metadata (status, name,
-    assignee, first_seen) is fetched from Postgres in a separate round-trip after the
-    CH query returns, and merged with the aggregated rows.
-    """
-
     def __init__(self, query: ErrorTrackingQuery, team, date_from: datetime.datetime, date_to: datetime.datetime):
         self.query = query
         self.team = team
         self.date_from = date_from
         self.date_to = date_to
-
-    # ------------------------------------------------------------------ #
-    # Public interface                                                     #
-    # ------------------------------------------------------------------ #
 
     def build_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -77,10 +66,6 @@ class ErrorTrackingQueryV1Builder:
                 )
         return results
 
-    # ------------------------------------------------------------------ #
-    # WHERE clause                                                         #
-    # ------------------------------------------------------------------ #
-
     @property
     def _where(self) -> ast.And:
         exprs = build_event_where_exprs(self.query, self.date_from, self.date_to)
@@ -98,10 +83,6 @@ class ErrorTrackingQueryV1Builder:
             )
 
         return ast.And(exprs=exprs)
-
-    # ------------------------------------------------------------------ #
-    # Postgres queries                                                     #
-    # ------------------------------------------------------------------ #
 
     def _fetch_issues(self, ids: list) -> dict:
         status = self.query.status

@@ -17,30 +17,15 @@ from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, NonAtomicBaseTest):
-    """V2 path — CH inner aggregation + Postgres metadata join.
-
-    Uses NonAtomicBaseTest (TransactionTestCase) so Django commits postgres data
-    before each test runs, making it visible to the CH postgres connector.
-
-    _fixture_teardown only flushes the default DB. Touching the persons DB between
-    tests corrupts the sqlx migration state, and persons data leaking across tests
-    is safe because CH queries always filter by team_id (which auto-increments).
-    """
-
     __test__ = True
     use_v2 = True
 
+    # we have to do this manually there because standard django test class runs in a django transaction hence data is invisibile to CH via PH connector.
+    # I had to change the base test class to NonAtomicBaseTest to allow this. And that's why I have to tear down the data manually.
     def _fixture_teardown(self):
-        # Use DELETE (not TRUNCATE) to preserve postgres sequences — sequences must
-        # keep incrementing so each test gets a unique team_id for CH data isolation.
-        # Persons DB is only cleaned for the current test's team_id to avoid touching
-        # the sqlx migration state (which full truncation corrupts).
         current_team_id = getattr(self.team, "id", None) if hasattr(self, "team") else None
 
         with connections["default"].cursor() as cursor:
-            # TRUNCATE CASCADE (without RESTART IDENTITY) so sequences keep incrementing.
-            # This gives each test a unique team_id — critical for CH data isolation since
-            # CH events from previous tests aren't cleaned between tests.
             cursor.execute("""
                 TRUNCATE
                     posthog_errortrackingissueassignment,

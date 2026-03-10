@@ -34,11 +34,11 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
         database = databases[db_name]
 
         address = add_param("db:5432")  # docker container for postgres from clickhouse
-        # During tests Django uses a test-prefixed database (e.g. test_posthog) rather than
-        # the configured NAME. Use the live connection's settings_dict to get the real name.
         from django.db import connections
 
-        actual_db_name = connections[db_name].settings_dict["NAME"]
+        actual_db_name = connections[db_name].settings_dict[
+            "NAME"
+        ]  # during tests, django uses test-prefixed db name rather than the configured NAME
         db = add_param(actual_db_name)
         user = add_param(database["USER"])
         password = add_param(database["PASSWORD"])

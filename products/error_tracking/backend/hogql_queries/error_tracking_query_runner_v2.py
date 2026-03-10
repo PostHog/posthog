@@ -16,23 +16,10 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
 
 
 class ErrorTrackingQueryV2Builder:
-    """Builds and processes V2 error tracking queries.
-
-    Two-level query: the inner subquery runs entirely in ClickHouse and aggregates
-    events by issue_id. The outer query joins the small aggregated result set against
-    postgres tables (issues, fingerprints, assignments) for metadata. Since all outer
-    joins are 1:1 per issue, no re-aggregation is needed and postgres only touches
-    the already-reduced row set rather than the raw event stream.
-    """
-
     def __init__(self, query: ErrorTrackingQuery, date_from: datetime.datetime, date_to: datetime.datetime):
         self.query = query
         self.date_from = date_from
         self.date_to = date_to
-
-    # ------------------------------------------------------------------ #
-    # Public interface                                                     #
-    # ------------------------------------------------------------------ #
 
     def build_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -117,10 +104,6 @@ class ErrorTrackingQueryV2Builder:
             )
         return results
 
-    # ------------------------------------------------------------------ #
-    # Inner subquery (pure CH)                                             #
-    # ------------------------------------------------------------------ #
-
     def _inner_subquery(self) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=build_select_expressions(self.query, self.date_from, self.date_to),
@@ -128,10 +111,6 @@ class ErrorTrackingQueryV2Builder:
             where=ast.And(exprs=build_event_where_exprs(self.query, self.date_from, self.date_to)),
             group_by=[ast.Field(chain=["id"])],
         )
-
-    # ------------------------------------------------------------------ #
-    # Outer query (postgres metadata joins)                                #
-    # ------------------------------------------------------------------ #
 
     def _fingerprints_subquery(self) -> ast.SelectQuery:
         """Historical first_seen per issue, regardless of the queried date range."""
@@ -220,10 +199,6 @@ class ErrorTrackingQueryV2Builder:
 
         return ast.And(exprs=exprs) if exprs else None
 
-    # ------------------------------------------------------------------ #
-    # Helpers                                                              #
-    # ------------------------------------------------------------------ #
-
     def _extract_assignee(self, row: dict) -> dict | None:
         user_id = row.get("assignee_user_id")
         role_id = row.get("assignee_role_id")
@@ -239,7 +214,7 @@ class ErrorTrackingQueryV2Builder:
 
     @cached_property
     def _issue_properties(self) -> list[ErrorTrackingIssueFilter]:
-        return [v for v in self._properties if v.type == "error_tracking_issue"]  # type: ignore[return-value]
+        return [v for v in self._properties if v.type == "error_tracking_issue"]
 
     @cached_property
     def _hogql_properties(self):

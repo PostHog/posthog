@@ -43,13 +43,6 @@ from ee.models.rbac.role import Role
 
 
 class ErrorTrackingQueryRunnerTestsMixin:
-    """Pure test mixin — no Django test base.
-
-    Contains all shared test methods and helpers. Concrete subclasses mix this
-    with the appropriate Django test base (TestCase for V1, TransactionTestCase
-    for V2 so the CH postgres connector can see committed data).
-    """
-
     __test__ = False
 
     use_v2: bool = False
@@ -721,8 +714,6 @@ class ErrorTrackingQueryRunnerTestsMixin:
 
 
 class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, APIBaseTest):
-    """V1 path — pure CH aggregation, Postgres metadata fetched separately."""
-
     __test__ = True
     use_v2 = False
 

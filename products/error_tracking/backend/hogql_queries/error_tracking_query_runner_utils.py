@@ -1,9 +1,3 @@
-"""Shared utilities for error tracking query builders.
-
-Only put things here that are byte-for-byte identical between V1 and V2.
-If sharing requires non-trivial abstraction, keep a copy in each builder instead.
-"""
-
 import re
 import datetime
 
@@ -211,7 +205,6 @@ def build_select_expressions(
 def build_event_where_exprs(
     query: ErrorTrackingQuery, date_from: datetime.datetime, date_to: datetime.datetime
 ) -> list[ast.Expr]:
-    """Event-level WHERE expressions shared by V1 and the V2 inner subquery."""
     exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
