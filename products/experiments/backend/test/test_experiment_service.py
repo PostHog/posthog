@@ -839,6 +839,40 @@ class TestExperimentService(APIBaseTest):
         assert fresh_experiment.primary_metrics_ordered_uuids == ["sm-1"]
         assert fresh_experiment.secondary_metrics_ordered_uuids == []
 
+    def test_update_experiment_validates_unknown_keys_before_saved_metric_mutation(self):
+        self._create_flag(key="validate-before-mutate")
+        sm1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM1",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+        )
+        sm2 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM2",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-2", "event": "$pageleave"},
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Validate Before Mutate",
+            feature_flag_key="validate-before-mutate",
+            saved_metrics_ids=[{"id": sm1.id, "metadata": {"type": "primary"}}],
+        )
+
+        with (
+            patch("django.db.models.query.QuerySet.delete") as delete_mock,
+            self.assertRaises(ValidationError) as ctx,
+        ):
+            service.update_experiment(
+                experiment,
+                {
+                    "saved_metrics_ids": [{"id": sm2.id, "metadata": {"type": "secondary"}}],
+                    "unknown_key": "value",
+                },
+            )
+
+        assert "Can't update keys" in str(ctx.exception)
+        delete_mock.assert_not_called()
+
     def test_update_experiment_restore_with_deleted_flag_raises(self):
         experiment = self._create_draft_experiment()
         service = self._service()
