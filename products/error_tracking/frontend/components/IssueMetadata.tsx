@@ -106,9 +106,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                     className="h-full pt-0"
                 />
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--color-bg-fill-scroll-thumb)_transparent]">
-                {children}
-            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
         </div>
     )
 }
