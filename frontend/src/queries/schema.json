@@ -12997,10 +12997,6 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
-        "DataWarehouseSyncInterval": {
-            "enum": ["1min", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
-            "type": "string"
-        },
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
@@ -14071,8 +14067,9 @@
                     "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
                     "type": "object"
                 },
-                "cache_age_seconds": {
-                    "type": "number"
+                "data_freshness_seconds": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
                 },
                 "deleted": {
                     "description": "Set to true to soft-delete this endpoint",
@@ -14103,10 +14100,6 @@
                             "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
-                },
-                "sync_frequency": {
-                    "$ref": "#/definitions/DataWarehouseSyncInterval",
-                    "description": "How frequently should the underlying materialized view be updated"
                 },
                 "version": {
                     "$ref": "#/definitions/integer",

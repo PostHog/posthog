@@ -1049,7 +1049,7 @@
         }
     },
     "endpoint-update": {
-        "description": "Update an existing endpoint by name. Can update the query (auto-creates a new version), description, cache age, active status, and materialization. Pass version in body to target a specific version for non-query updates.",
+        "description": "Update an existing endpoint by name. Can update the query (auto-creates a new version), description, data freshness, active status, and materialization. Pass version in body to target a specific version for non-query updates.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Update endpoint",
@@ -1064,7 +1064,7 @@
         }
     },
     "endpoint-versions": {
-        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, cache settings, and materialization status at that point in time.",
+        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, data freshness, and materialization status at that point in time.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Get endpoint versions",

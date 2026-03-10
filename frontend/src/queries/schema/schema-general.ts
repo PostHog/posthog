@@ -16,7 +16,6 @@ import {
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
-    DataWarehouseSyncInterval,
     DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
@@ -1850,11 +1849,10 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
-    cache_age_seconds?: number
+    /** How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency. */
+    data_freshness_seconds?: integer
     /** Whether this endpoint's query results are materialized to S3 */
     is_materialized?: boolean
-    /** How frequently should the underlying materialized view be updated */
-    sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
