@@ -71,6 +71,7 @@ class ExperimentService:
         )
 
         stats_config = self._apply_stats_config_defaults(stats_config)
+        exposure_criteria = self._apply_exposure_criteria_defaults(exposure_criteria)
 
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
         if metrics is not None:
@@ -225,6 +226,13 @@ class ExperimentService:
             if frequentist_config.get("alpha") is None:
                 result["frequentist"] = {**frequentist_config, "alpha": 1 - confidence_level}
 
+        return result
+
+    def _apply_exposure_criteria_defaults(self, exposure_criteria: dict | None) -> dict:
+        """Apply default exposure criteria if not provided."""
+        result = dict(exposure_criteria or {})
+        if result.get("filterTestAccounts") is None:
+            result["filterTestAccounts"] = True
         return result
 
     def _apply_web_variants(self, experiment: Experiment, variants: list[dict]) -> None:

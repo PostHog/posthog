@@ -26,6 +26,7 @@ tools:
             funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not
             supported on this endpoint.
         mcp_version: 1
+        ui_resource_uri: ui://posthog/action-list.html
     action-create:
         operation: actions_create
         enabled: true
@@ -51,6 +52,7 @@ tools:
         param_overrides:
             name:
                 description: Name of the action (must be unique within the project)
+        ui_resource_uri: ui://posthog/action.html
     action-get:
         operation: actions_retrieve
         enabled: true
@@ -66,6 +68,7 @@ tools:
             Get a specific action by ID. Returns the action configuration including all steps and their trigger
             conditions.
         mcp_version: 1
+        ui_resource_uri: ui://posthog/action.html
     actions-update:
         operation: actions_update
         enabled: false
@@ -88,6 +91,7 @@ tools:
             - bytecode_error
             - creation_context
             - last_calculated_at
+        ui_resource_uri: ui://posthog/action.html
     action-delete:
         operation: actions_destroy
         enabled: true
