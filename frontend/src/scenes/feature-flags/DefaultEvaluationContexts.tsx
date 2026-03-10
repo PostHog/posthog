@@ -77,7 +77,7 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                                     value={newContextInput}
                                     onChange={setNewContextInput}
                                     onKeyDown={handleKeyDown}
-                                    placeholder="e.g., production"
+                                    placeholder="e.g., main-app"
                                     autoFocus
                                     className="w-32"
                                     disabledReason={restrictedReason}

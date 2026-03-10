@@ -17,58 +17,71 @@ export const featureFlagEvaluationTagsLogic = kea<featureFlagEvaluationTagsLogic
     key((props) => `${props.flagId ?? 'new'}-${props.context}`),
 
     actions({
-        setIsEditing: (isEditing: boolean) => ({ isEditing }),
+        setIsEditingTags: (isEditing: boolean) => ({ isEditing }),
+        setIsEditingContexts: (isEditing: boolean) => ({ isEditing }),
         setLocalTags: (tags: string[]) => ({ tags }),
         setLocalEvaluationTags: (evaluationTags: string[]) => ({ evaluationTags }),
-        saveTagsAndEvaluationTags: true,
-        cancelEditing: true,
+        saveTags: true,
+        saveContexts: true,
+        cancelEditingTags: true,
+        cancelEditingContexts: true,
     }),
 
     reducers(({ props }) => ({
-        isEditing: [
+        isEditingTags: [
             false,
             {
-                setIsEditing: (_, { isEditing }) => isEditing,
-                saveTagsAndEvaluationTags: () => false,
-                cancelEditing: () => false,
+                setIsEditingTags: (_, { isEditing }) => isEditing,
+                saveTags: () => false,
+                cancelEditingTags: () => false,
+            },
+        ],
+        isEditingContexts: [
+            false,
+            {
+                setIsEditingContexts: (_, { isEditing }) => isEditing,
+                saveContexts: () => false,
+                cancelEditingContexts: () => false,
             },
         ],
         localTags: [
             props.tags ?? ([] as string[]),
             {
                 setLocalTags: (_, { tags }) => tags,
-                cancelEditing: () => props.tags ?? [],
+                cancelEditingTags: () => props.tags ?? [],
             },
         ],
         localEvaluationTags: [
             props.evaluationTags ?? ([] as string[]),
             {
                 setLocalEvaluationTags: (_, { evaluationTags }) => evaluationTags,
-                cancelEditing: () => props.evaluationTags ?? [],
+                cancelEditingContexts: () => props.evaluationTags ?? [],
             },
         ],
     })),
 
     propsChanged(({ actions, props, values }, oldProps) => {
-        // Only sync from props when not editing - if props change during editing, we preserve the user's local edits.
-        // Reference equality is intentional: parent components should pass new array
-        // references when data changes (standard React immutability pattern).
-        if (!values.isEditing) {
-            if (props.tags !== oldProps.tags) {
-                actions.setLocalTags(props.tags)
-            }
-            if (props.evaluationTags !== oldProps.evaluationTags) {
-                actions.setLocalEvaluationTags(props.evaluationTags)
-            }
+        if (!values.isEditingTags && props.tags !== oldProps.tags) {
+            actions.setLocalTags(props.tags)
+        }
+        if (!values.isEditingContexts && props.evaluationTags !== oldProps.evaluationTags) {
+            actions.setLocalEvaluationTags(props.evaluationTags)
         }
     }),
 
     listeners(({ props, values }) => ({
-        saveTagsAndEvaluationTags: () => {
+        saveTags: () => {
             const { flagId } = props
             if (typeof flagId === 'number') {
                 featureFlagLogic({ id: flagId }).actions.saveFeatureFlag({
                     tags: values.localTags,
+                })
+            }
+        },
+        saveContexts: () => {
+            const { flagId } = props
+            if (typeof flagId === 'number') {
+                featureFlagLogic({ id: flagId }).actions.saveFeatureFlag({
                     evaluation_contexts: values.localEvaluationTags,
                 })
             }

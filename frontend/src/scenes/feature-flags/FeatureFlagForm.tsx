@@ -311,33 +311,16 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         },
                                         content: (
                                             <div className="flex flex-col gap-4">
-                                                {/* Tags section */}
+                                                {/* Tags and evaluation contexts */}
                                                 <div className="flex flex-col gap-2">
-                                                    <label className="text-sm font-medium flex items-center gap-1">
-                                                        {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
-                                                        <Tooltip
-                                                            title={
-                                                                hasEvaluationTags ? (
-                                                                    <>
-                                                                        Use tags to organize flags. Mark a tag as an
-                                                                        evaluation context to restrict where this flag
-                                                                        can evaluate.{' '}
-                                                                        <Link
-                                                                            to="https://posthog.com/docs/feature-flags/evaluation-contexts"
-                                                                            target="_blank"
-                                                                        >
-                                                                            Learn more
-                                                                        </Link>
-                                                                    </>
-                                                                ) : (
-                                                                    'Organize and filter your flags.'
-                                                                )
-                                                            }
-                                                            interactive={hasEvaluationTags}
-                                                        >
-                                                            <IconInfo className="text-secondary text-base" />
-                                                        </Tooltip>
-                                                    </label>
+                                                    {!hasEvaluationTags && (
+                                                        <label className="text-sm font-medium flex items-center gap-1">
+                                                            Tags
+                                                            <Tooltip title="Organize and filter your flags.">
+                                                                <IconInfo className="text-secondary text-base" />
+                                                            </Tooltip>
+                                                        </label>
+                                                    )}
                                                     {hasEvaluationTags ? (
                                                         <LemonField name="tags">
                                                             {({ value: formTags, onChange: onChangeTags }) => (

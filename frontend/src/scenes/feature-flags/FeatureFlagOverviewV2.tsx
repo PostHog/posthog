@@ -201,9 +201,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <div className="font-semibold">Advanced options</div>
 
                             <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium">
-                                    {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
-                                </label>
+                                {!hasEvaluationTags && <label className="text-sm font-medium">Tags</label>}
                                 <TagsDisplay
                                     tags={featureFlag.tags || []}
                                     evaluationTags={featureFlag.evaluation_contexts || []}
