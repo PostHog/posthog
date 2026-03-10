@@ -4,14 +4,11 @@ from typing import Any, Literal
 from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
-import pydantic
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -179,78 +176,19 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return value
 
     def validate(self, data):
-        # Validate start/end dates
-        start_date = data.get("start_date")
-        end_date = data.get("end_date")
-
-        # Only validate if both dates are present
-        if start_date and end_date and start_date >= end_date:
-            raise ValidationError("End date must be after start date")
-
+        ExperimentService.validate_experiment_date_range(data.get("start_date"), data.get("end_date"))
         return super().validate(data)
 
     def validate_parameters(self, value):
-        if not value:
-            return value
-
-        variants = value.get("feature_flag_variants", [])
-
-        if len(variants) >= 21:
-            raise ValidationError("Feature flag variants must be less than 21")
-        elif len(variants) > 0:
-            if len(variants) < 2:
-                raise ValidationError(
-                    "Feature flag must have at least 2 variants (control and at least one test variant)"
-                )
-            if "control" not in [variant["key"] for variant in variants]:
-                raise ValidationError("Feature flag variants must contain a control variant")
-
+        ExperimentService.validate_experiment_parameters(value)
         return value
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
-        if not exposure_criteria:
-            return exposure_criteria
-
-        if "filterTestAccounts" in exposure_criteria and not isinstance(exposure_criteria["filterTestAccounts"], bool):
-            raise ValidationError("filterTestAccounts must be a boolean")
-
-        if "exposure_config" in exposure_criteria:
-            exposure_config = exposure_criteria["exposure_config"]
-            try:
-                if exposure_config.get("kind") == "ActionsNode":
-                    ActionsNode.model_validate(exposure_config)
-                else:
-                    ExperimentEventExposureConfig.model_validate(exposure_config)
-                return exposure_criteria
-            except Exception:
-                raise ValidationError("Invalid exposure criteria")
-
+        ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
         return exposure_criteria
 
-    VALID_METRIC_KINDS = {"ExperimentMetric", "ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
-
     def _validate_metrics_list(self, metrics: list | None) -> list | None:
-        if metrics is None:
-            return metrics
-
-        if not isinstance(metrics, list):
-            raise ValidationError("Metrics must be a list")
-
-        for i, metric in enumerate(metrics):
-            if not isinstance(metric, dict):
-                raise ValidationError(f"Invalid metric at index {i}: must be a dict")
-
-            kind = metric.get("kind")
-            if kind not in self.VALID_METRIC_KINDS:
-                raise ValidationError(f"Invalid metric at index {i}: unknown kind '{kind}'")
-
-            # Only ExperimentMetric needs Pydantic validation (legacy kinds are pass-through)
-            if kind == "ExperimentMetric":
-                try:
-                    ExperimentMetric.model_validate(metric)
-                except pydantic.ValidationError as e:
-                    raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
-
+        ExperimentService.validate_experiment_metrics(metrics)
         return metrics
 
     def validate_metrics(self, value):
@@ -459,7 +397,7 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
-        feature_flag_key = request.data.get("feature_flag_key", source_experiment.feature_flag.key)
+        feature_flag_key = request.data.get("feature_flag_key")
 
         service = ExperimentService(team=self.team, user=request.user)
         duplicate_experiment = service.duplicate_experiment(

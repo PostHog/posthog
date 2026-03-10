@@ -3121,6 +3121,28 @@ class TestExperimentCRUD(APILicensedTest):
         assert duplicate_data["feature_flag_key"] == "new-flag-with-different-variants"
         assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag_variants
 
+    def test_duplicate_experiment_rejects_blank_feature_flag_key(self) -> None:
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "feature_flag_key": "original-flag",
+            },
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {"feature_flag_key": ""},
+        )
+
+        self.assertEqual(duplicate_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            Experiment.objects.filter(team=self.team, name="Original Experiment (Copy)", deleted=False).count(),
+            0,
+        )
+
     def test_metric_fingerprinting(self):
         """Test that metric fingerprints are computed correctly on create and update"""
 

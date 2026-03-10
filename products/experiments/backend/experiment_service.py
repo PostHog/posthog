@@ -5,7 +5,10 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pydantic
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer
@@ -35,9 +38,77 @@ DEFAULT_VARIANTS = [
 class ExperimentService:
     """Single source of truth for experiment business logic."""
 
+    VALID_METRIC_KINDS = {"ExperimentMetric", "ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
+
     def __init__(self, team: Team, user: Any):
         self.team = team
         self.user = user
+
+    @staticmethod
+    def validate_experiment_date_range(start_date: datetime | None, end_date: datetime | None) -> None:
+        """Validate experiment start/end date ordering."""
+        if start_date and end_date and start_date >= end_date:
+            raise ValidationError("End date must be after start date")
+
+    @staticmethod
+    def validate_experiment_parameters(parameters: dict | None) -> None:
+        """Validate experiment parameters accepted by the API layer."""
+        if not parameters:
+            return
+
+        variants = parameters.get("feature_flag_variants", [])
+
+        if len(variants) >= 21:
+            raise ValidationError("Feature flag variants must be less than 21")
+        if len(variants) > 0:
+            if len(variants) < 2:
+                raise ValidationError(
+                    "Feature flag must have at least 2 variants (control and at least one test variant)"
+                )
+            if "control" not in [variant["key"] for variant in variants]:
+                raise ValidationError("Feature flag variants must contain a control variant")
+
+    @staticmethod
+    def validate_experiment_exposure_criteria(exposure_criteria: dict | None) -> None:
+        """Validate experiment exposure criteria payloads."""
+        if not exposure_criteria:
+            return
+
+        if "filterTestAccounts" in exposure_criteria and not isinstance(exposure_criteria["filterTestAccounts"], bool):
+            raise ValidationError("filterTestAccounts must be a boolean")
+
+        if "exposure_config" in exposure_criteria:
+            exposure_config = exposure_criteria["exposure_config"]
+            try:
+                if exposure_config.get("kind") == "ActionsNode":
+                    ActionsNode.model_validate(exposure_config)
+                else:
+                    ExperimentEventExposureConfig.model_validate(exposure_config)
+            except Exception:
+                raise ValidationError("Invalid exposure criteria")
+
+    @classmethod
+    def validate_experiment_metrics(cls, metrics: list | None) -> None:
+        """Validate metric payloads accepted by the API layer."""
+        if metrics is None:
+            return
+
+        if not isinstance(metrics, list):
+            raise ValidationError("Metrics must be a list")
+
+        for i, metric in enumerate(metrics):
+            if not isinstance(metric, dict):
+                raise ValidationError(f"Invalid metric at index {i}: must be a dict")
+
+            kind = metric.get("kind")
+            if kind not in cls.VALID_METRIC_KINDS:
+                raise ValidationError(f"Invalid metric at index {i}: unknown kind '{kind}'")
+
+            if kind == "ExperimentMetric":
+                try:
+                    ExperimentMetric.model_validate(metric)
+                except pydantic.ValidationError as e:
+                    raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
     def create_experiment(
         self,
@@ -562,13 +633,19 @@ class ExperimentService:
         serializer_context: dict | None = None,
     ) -> Experiment:
         """Duplicate an experiment as a new draft."""
-        feature_flag_key = feature_flag_key or source_experiment.feature_flag.key
+        if feature_flag_key is None:
+            feature_flag_key = source_experiment.feature_flag.key
 
         parameters = deepcopy(source_experiment.parameters) or {}
         if feature_flag_key != source_experiment.feature_flag.key:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
             if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
                 parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
+
+        self.validate_experiment_parameters(parameters)
+        self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
+        self.validate_experiment_metrics(source_experiment.metrics)
+        self.validate_experiment_metrics(source_experiment.metrics_secondary)
 
         base_name = f"{source_experiment.name} (Copy)"
         duplicate_name = base_name

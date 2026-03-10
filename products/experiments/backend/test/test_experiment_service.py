@@ -808,8 +808,6 @@ class TestExperimentService(APIBaseTest):
             name="Original",
             feature_flag_key="dup-source",
             description="Original desc",
-            metrics=[{"kind": "ExperimentMetric", "metric_type": "count", "uuid": "m1", "event": "$pageview"}],
-            primary_metrics_ordered_uuids=["m1"],
             start_date=timezone.now(),
         )
 
@@ -858,6 +856,27 @@ class TestExperimentService(APIBaseTest):
         assert dup.feature_flag.key == "dup-custom-target"
         flag_variants = dup.feature_flag.filters["multivariate"]["variants"]
         assert len(flag_variants) == 3
+
+    def test_duplicate_experiment_revalidates_source_parameters(self):
+        self._create_flag(key="dup-invalid-source")
+        service = self._service()
+        source = service.create_experiment(
+            name="Invalid Source",
+            feature_flag_key="dup-invalid-source",
+        )
+        Experiment.objects.filter(id=source.id).update(
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "test", "name": "Test", "rollout_percentage": 100},
+                ]
+            }
+        )
+        source.refresh_from_db()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.duplicate_experiment(source)
+
+        assert "at least 2 variants" in str(ctx.exception)
 
     def test_duplicate_experiment_copies_saved_metrics(self):
         self._create_flag(key="dup-saved")
