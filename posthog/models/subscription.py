@@ -78,6 +78,7 @@ class Subscription(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        db_index=False,
     )
 
     # Subscription type (email, slack etc.)
