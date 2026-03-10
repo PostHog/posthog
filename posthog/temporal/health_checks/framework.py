@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from posthog.dags.common.owners import JobOwners
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
 from posthog.temporal.health_checks.models import HealthCheckResult
-from posthog.temporal.health_checks.owners import HealthCheckOwners
 from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS
 
 
@@ -12,7 +12,7 @@ from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS
 class HealthCheckRegistration:
     name: str
     kind: str
-    owner: HealthCheckOwners
+    owner: JobOwners
     schedule: str | None
     batch_size: int
     max_concurrent: int
@@ -45,7 +45,7 @@ def _register_health_check(cls: type[HealthCheck]) -> None:
 class HealthCheck:
     name: str
     kind: str
-    owner: HealthCheckOwners
+    owner: JobOwners
     policy: HealthExecutionPolicy = DEFAULT_EXECUTION_POLICY
     schedule: str | None = None
     rollout_percentage: float = 1.0

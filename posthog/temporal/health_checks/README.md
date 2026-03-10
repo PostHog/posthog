@@ -18,7 +18,7 @@ from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
-from posthog.temporal.health_checks.owners import HealthCheckOwners
+from posthog.dags.common.owners import JobOwners
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
 STALE_DATA_SQL = """
@@ -33,7 +33,7 @@ GROUP BY team_id
 class StaleDataCheck(HealthCheck):
     name = "stale_data"
     kind = "stale_data"
-    owner = HealthCheckOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_WEB_ANALYTICS
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "0 8 * * *"  # daily at 08:00 UTC
 
@@ -85,7 +85,7 @@ Omit `schedule` if you only want the check to be triggered manually from the adm
 class HealthCheck:
     name: str
     kind: str
-    owner: HealthCheckOwners
+    owner: JobOwners
     policy: HealthExecutionPolicy = DEFAULT_EXECUTION_POLICY
     schedule: str | None = None
     rollout_percentage: float = 1.0
@@ -100,7 +100,7 @@ class HealthCheck:
 | ------------------------- | ----------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `name`                    | `str`                   | required                   | Unique name used in Temporal workflow and schedule naming                                                                         |
 | `kind`                    | `str`                   | required                   | Issue kind written to the `posthog_healthissue` table. Must be globally unique                                                    |
-| `owner`                   | `HealthCheckOwners`     | required                   | Team that owns this check (used for alert routing)                                                                                |
+| `owner`                   | `JobOwners`             | required                   | Team that owns this check (used for alert routing)                                                                                |
 | `policy`                  | `HealthExecutionPolicy` | `DEFAULT_EXECUTION_POLICY` | Controls batch size and concurrency (see [Execution policies](#execution-policies))                                               |
 | `schedule`                | `str \| None`           | `None`                     | Cron expression (UTC). Omit for manual-only checks                                                                                |
 | `rollout_percentage`      | `float`                 | `1.0`                      | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                      |

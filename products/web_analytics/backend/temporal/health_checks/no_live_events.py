@@ -1,8 +1,8 @@
+from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
-from posthog.temporal.health_checks.owners import HealthCheckOwners
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
 NO_LIVE_EVENTS_LOOKBACK_DAYS = 30
@@ -19,7 +19,7 @@ GROUP BY team_id
 class NoLiveEventsCheck(HealthCheck):
     name = "no_live_events"
     kind = "no_live_events"
-    owner = HealthCheckOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_WEB_ANALYTICS
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
