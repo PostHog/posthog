@@ -102,8 +102,6 @@ def field_contains_credentials(field: FieldType) -> bool:
             for nested_field in (option.fields or [])
         )
 
-    return False
-
 
 def credentials_touched(data: dict[str, Any], fields: list[FieldType]) -> bool:
     for field in fields:
