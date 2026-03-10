@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
+import { escapeRegex } from 'lib/actionUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -121,7 +122,8 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                         ...propertyFilters,
                         {
                             key: '$ai_tools_called',
-                            operator: PropertyOperator.IsSet,
+                            operator: PropertyOperator.Regex,
+                            value: '.+',
                             type: PropertyFilterType.Event,
                         },
                     ],
@@ -158,7 +160,7 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                                 {
                                     key: '$ai_tools_called',
                                     operator: PropertyOperator.Regex,
-                                    value: `(^|,)${toolName}(,|$)`,
+                                    value: `(^|,)${escapeRegex(toolName)}(,|$)`,
                                     type: PropertyFilterType.Event,
                                 },
                             ],
@@ -199,7 +201,7 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                                 {
                                     key: '$ai_tools_called',
                                     operator: PropertyOperator.Regex,
-                                    value: `(^|,)${toolName}(,|$)`,
+                                    value: `(^|,)${escapeRegex(toolName)}(,|$)`,
                                     type: PropertyFilterType.Event,
                                 },
                             ],
@@ -227,7 +229,8 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                         ...propertyFilters,
                         {
                             key: '$ai_tools_called',
-                            operator: PropertyOperator.IsSet,
+                            operator: PropertyOperator.Regex,
+                            value: '.+',
                             type: PropertyFilterType.Event,
                         },
                     ],
