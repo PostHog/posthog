@@ -147,6 +147,9 @@ build:openapi-schema     Django → OpenAPI JSON (frontend/tmp/openapi.json)
 build:openapi-types      OpenAPI → TypeScript API types (frontend)
         │
         ▼
+build:openapi-mcp-types  OpenAPI → TypeScript API types (MCP)
+        │
+        ▼
 build:openapi-mcp        OpenAPI → Zod schemas for MCP (Orval)
         │
         ▼
