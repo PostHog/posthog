@@ -141,6 +141,12 @@ class HogQLPrinter(Visitor[str]):
                     ret += f" {expr.set_operator} "
             ret += query
         self._indent += 1
+        if node.order_by:
+            order_by_str = ", ".join(self.visit(o) for o in node.order_by)
+            if self.pretty:
+                ret = ret.rstrip() + f"\n{self.indent(1)}ORDER BY {order_by_str}"
+            else:
+                ret += f" ORDER BY {order_by_str}"
         if node.limit is not None:
             limit_str = self.visit(node.limit)
             if node.limit_percent:

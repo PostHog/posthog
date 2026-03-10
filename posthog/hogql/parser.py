@@ -407,6 +407,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return initial_query
 
         result = ast.SelectSetQuery(initial_select_query=initial_query, subsequent_select_queries=select_queries)
+        if ctx.orderByClause():
+            result.order_by = self.visit(ctx.orderByClause())
         if ctx.limitAndOffsetClauseOptional():
             limit_clause = ctx.limitAndOffsetClauseOptional()
             exprs = limit_clause.columnExpr()
@@ -630,10 +632,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitJoinExprParens(self, ctx: HogQLParser.JoinExprParensContext):
         return self.visit(ctx.joinExpr())
 
+    def visitJoinExprPositional(self, ctx: HogQLParser.JoinExprPositionalContext):
+        join1: ast.JoinExpr = self.visit(ctx.joinExpr(0))
+        join2: ast.JoinExpr = self.visit(ctx.joinExpr(1))
+        join2.join_type = "POSITIONAL JOIN"
+        if ctx.joinConstraintClause():
+            join2.constraint = self.visit(ctx.joinConstraintClause())
+        last_join = join1
+        while last_join.next_join is not None:
+            last_join = last_join.next_join
+        last_join.next_join = join2
+        return join1
+
     def visitJoinExprCrossOp(self, ctx: HogQLParser.JoinExprCrossOpContext):
         join1: ast.JoinExpr = self.visit(ctx.joinExpr(0))
         join2: ast.JoinExpr = self.visit(ctx.joinExpr(1))
-        join2.join_type = "POSITIONAL JOIN" if ctx.joinOpCross().POSITIONAL() else "CROSS JOIN"
+        join2.join_type = "CROSS JOIN"
         last_join = join1
         while last_join.next_join is not None:
             last_join = last_join.next_join
@@ -1261,6 +1275,24 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprColumnsAll(self, ctx: HogQLParser.ColumnExprColumnsAllContext):
         return ast.ColumnsExpr(all_columns=True)
+
+    def visitColumnExprColumnsQualifiedAll(self, ctx: HogQLParser.ColumnExprColumnsQualifiedAllContext):
+        return ast.ColumnsExpr(all_columns=True)
+
+    def visitColumnExprColumnsQualifiedExclude(self, ctx: HogQLParser.ColumnExprColumnsQualifiedExcludeContext):
+        exclude = [self.visit(ident) for ident in ctx.identifierList().identifier()]
+        return ast.ColumnsExpr(all_columns=True, exclude=exclude)
+
+    def visitColumnExprColumnsQualifiedReplace(self, ctx: HogQLParser.ColumnExprColumnsQualifiedReplaceContext):
+        replace = self._parse_columns_replace_list(ctx.columnsReplaceList())
+        return ast.ColumnsExpr(all_columns=True, replace=replace)
+
+    def visitColumnExprColumnsQualifiedExcludeReplace(
+        self, ctx: HogQLParser.ColumnExprColumnsQualifiedExcludeReplaceContext
+    ):
+        exclude = [self.visit(ident) for ident in ctx.identifierList().identifier()]
+        replace = self._parse_columns_replace_list(ctx.columnsReplaceList())
+        return ast.ColumnsExpr(all_columns=True, exclude=exclude, replace=replace)
 
     def visitColumnExprSpreadColumnsRegex(self, ctx: HogQLParser.ColumnExprSpreadColumnsRegexContext):
         pattern = parse_string_literal_ctx(ctx.STRING_LITERAL())

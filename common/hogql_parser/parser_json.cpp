@@ -2,6 +2,7 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -186,7 +187,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     try {
       return visitAsJSON(tree);
     } catch (const bad_any_cast& e) {
-      cout << tree->toStringTree(true) << endl;
+      // cout << tree->toStringTree(true) << endl;
       throw ParsingError("Failed to cast parse tree node to JSON");
     }
   }
@@ -1031,12 +1032,16 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT(JoinExprCrossOp) {
     Json join2_json = visitAsJSON(ctx->joinExpr(1));
     Json join1_json = visitAsJSON(ctx->joinExpr(0));
-    auto join_op_cross_ctx = ctx->joinOpCross();
-    if (join_op_cross_ctx->POSITIONAL()) {
-      join2_json["join_type"] = "POSITIONAL JOIN";
-    } else {
-      join2_json["join_type"] = "CROSS JOIN";
-    }
+    join2_json["join_type"] = "CROSS JOIN";
+    return chainJoinExprs(join1_json, join2_json);
+  }
+
+  VISIT(JoinExprPositional) {
+    Json join2_json = visitAsJSON(ctx->joinExpr(1));
+    Json join1_json = visitAsJSON(ctx->joinExpr(0));
+    join2_json["join_type"] = "POSITIONAL JOIN";
+    auto constraint_ctx = ctx->joinConstraintClause();
+    join2_json["constraint"] = constraint_ctx ? visitAsJSON(constraint_ctx) : Json();
     return chainJoinExprs(join1_json, join2_json);
   }
 
@@ -2178,6 +2183,50 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
+  VISIT(ColumnExprColumnsQualifiedAll) {
+    Json json = Json::object();
+    json["node"] = "ColumnsExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["all_columns"] = true;
+    return json;
+  }
+
+  VISIT(ColumnExprColumnsQualifiedExclude) {
+    Json json = Json::object();
+    json["node"] = "ColumnsExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["all_columns"] = true;
+    Json exclude = Json::array();
+    for (auto ident : ctx->identifierList()->identifier()) {
+      exclude.pushBack(visitAsString(ident));
+    }
+    json["exclude"] = std::move(exclude);
+    return json;
+  }
+
+  VISIT(ColumnExprColumnsQualifiedReplace) {
+    Json json = Json::object();
+    json["node"] = "ColumnsExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["all_columns"] = true;
+    json["replace"] = buildColumnsReplaceJson(ctx->columnsReplaceList());
+    return json;
+  }
+
+  VISIT(ColumnExprColumnsQualifiedExcludeReplace) {
+    Json json = Json::object();
+    json["node"] = "ColumnsExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["all_columns"] = true;
+    Json exclude = Json::array();
+    for (auto ident : ctx->identifierList()->identifier()) {
+      exclude.pushBack(visitAsString(ident));
+    }
+    json["exclude"] = std::move(exclude);
+    json["replace"] = buildColumnsReplaceJson(ctx->columnsReplaceList());
+    return json;
+  }
+
   VISIT(ColumnExprSpreadColumnsRegex) {
     Json json = Json::object();
     json["node"] = "SpreadExpr";
@@ -2615,13 +2664,21 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       json["value_type"] = "number";
     } else if (text.find(".") != string::npos || text.find("e") != string::npos) {
-      json["value"] = Json(stod(text));  // Float
+      try {
+        json["value"] = Json(stod(text));  // Float
+      } catch (const std::out_of_range&) {
+        json["value"] = (text[0] == '-') ? -std::numeric_limits<double>::infinity() : std::numeric_limits<double>::infinity();
+      }
       return json;
     } else {
       try {
         json["value"] = static_cast<int64_t>(stoll(text));  // Integer
       } catch (const std::out_of_range&) {
-        json["value"] = Json(stod(text));  // Too large for int64, use float
+        try {
+          json["value"] = Json(stod(text));  // Too large for int64, use float
+        } catch (const std::out_of_range&) {
+          json["value"] = (text[0] == '-') ? -std::numeric_limits<double>::infinity() : std::numeric_limits<double>::infinity();
+        }
       }
       return json;
     }
