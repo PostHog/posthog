@@ -74,59 +74,58 @@ function InsightOptionCard({ insightType, metadata, index }: InsightOptionCardPr
     const preview = INSIGHT_PREVIEWS[insightType]
 
     return (
-        <div data-attr={`insight-option-${insightType.toLowerCase()}`}>
-            <div
-                className="InsightOptions__card"
-                style={{ animationDelay: `${index * 0.05}s` }}
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
+        <div
+            className="InsightOptions__card"
+            style={{ animationDelay: `${index * 0.05}s` }}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <LemonCard
+                className="cursor-pointer h-full overflow-hidden"
+                data-attr={`insight-option-${insightType.toLowerCase()}`}
+                hoverEffect
+                onClick={() => router.actions.push(url)}
             >
-                <LemonCard
-                    className="cursor-pointer h-full overflow-hidden"
-                    hoverEffect
-                    onClick={() => router.actions.push(url)}
-                >
-                    <div className="flex flex-col gap-3 h-full">
-                        {preview && (
-                            <div className="relative w-full aspect-video overflow-hidden bg-fill-secondary">
-                                <img
-                                    src={isHovered ? preview.animated : preview.static}
-                                    alt={`${metadata.name} preview`}
-                                    className="w-full h-full object-contain object-top transition-opacity duration-200"
-                                    loading="lazy"
-                                />
-                                <div
-                                    className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/60 text-[10px] font-medium text-white transition-opacity duration-200 ${isHovered ? 'opacity-0' : 'opacity-100'}`}
-                                >
-                                    <IconPlay className="w-3 h-3" />
-                                    <span>Hover to play</span>
-                                </div>
-                            </div>
-                        )}
-                        <div className="flex-1 flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
-                                {Icon && <Icon className="text-lg text-secondary" />}
-                                <div className="font-semibold text-default">{metadata.name}</div>
-                            </div>
-                            {metadata.description && (
-                                <div className="text-sm text-secondary leading-snug">
-                                    {metadata.tooltipDescription || metadata.description}
-                                </div>
-                            )}
-                        </div>
-                        {metadata.tooltipDocLink && (
-                            <Link
-                                to={metadata.tooltipDocLink}
-                                target="_blank"
-                                className="text-xs mt-auto pt-2"
-                                onClick={(e) => e.stopPropagation()}
+                <div className="flex flex-col gap-3 h-full">
+                    {preview && (
+                        <div className="relative w-full aspect-video overflow-hidden bg-fill-secondary">
+                            <img
+                                src={isHovered ? preview.animated : preview.static}
+                                alt={`${metadata.name} preview`}
+                                className="w-full h-full object-contain object-top transition-opacity duration-200"
+                                loading="lazy"
+                            />
+                            <div
+                                className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-black/60 text-[10px] font-medium text-white transition-opacity duration-200 ${isHovered ? 'opacity-0' : 'opacity-100'}`}
                             >
-                                Learn more
-                            </Link>
+                                <IconPlay className="w-3 h-3" />
+                                <span>Hover to play</span>
+                            </div>
+                        </div>
+                    )}
+                    <div className="flex-1 flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                            {Icon && <Icon className="text-lg text-secondary" />}
+                            <div className="font-semibold text-default">{metadata.name}</div>
+                        </div>
+                        {metadata.description && (
+                            <div className="text-sm text-secondary leading-snug">
+                                {metadata.tooltipDescription || metadata.description}
+                            </div>
                         )}
                     </div>
-                </LemonCard>
-            </div>
+                    {metadata.tooltipDocLink && (
+                        <Link
+                            to={metadata.tooltipDocLink}
+                            target="_blank"
+                            className="text-xs mt-auto pt-2"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            Learn more
+                        </Link>
+                    )}
+                </div>
+            </LemonCard>
         </div>
     )
 }
