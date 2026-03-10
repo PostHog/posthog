@@ -841,6 +841,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
 
+        dashboardLoadedAt: [
+            null as number | null,
+            {
+                loadDashboardSuccess: () => Date.now(),
+            },
+        ],
+
         lastDashboardRefresh: [
             null as Dayjs | null,
             {
@@ -1275,14 +1282,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         isNewDashboard: [
-            (s) => [s.dashboard, s.dashboardLoading],
-            (dashboard, dashboardLoading): boolean => {
+            (s) => [s.dashboard, s.dashboardLoading, s.dashboardLoadedAt],
+            (dashboard, dashboardLoading, dashboardLoadedAt): boolean => {
                 if (!dashboard || dashboardLoading) {
                     return false
                 }
+                const isRecentlyCreated =
+                    dashboardLoadedAt != null && dashboardLoadedAt - new Date(dashboard.created_at).getTime() < 30000
                 return (
                     Boolean(dashboard._highlight) ||
                     dashboard.name === 'New Dashboard' ||
+                    isRecentlyCreated ||
                     !dashboard.tiles ||
                     dashboard.tiles.length === 0
                 )
