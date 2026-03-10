@@ -246,13 +246,21 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 setExperimentsTab: (state, { tabKey }) => tabKey ?? state,
             },
         ],
+        hasLoadedExperiments: [
+            false,
+            {
+                loadExperimentsSuccess: () => true,
+                loadExperimentsFailure: () => true,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setExperimentsFilters: async (_, breakpoint) => {
-            /**
-             * this debounces the search input. Yeah, I know.
-             */
-            await breakpoint(300)
+            // Only debounce after the first load — the debounce is for search input,
+            // but the initial load from urlToAction should fire immediately.
+            if (values.hasLoadedExperiments || values.experimentsLoading) {
+                await breakpoint(300)
+            }
             actions.loadExperiments()
         },
         setFeatureFlagModalFilters: async (_, breakpoint) => {
@@ -474,7 +482,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     }),
     afterMount(({ actions, values }) => {
-        actions.loadExperiments()
         actions.loadExperimentsStats()
         // Sync modal page with URL on mount
         const urlPage = values.featureFlagModalPageFromURL
