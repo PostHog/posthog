@@ -30,6 +30,7 @@ export function LLMAnalyticsTools(): JSX.Element {
         buildToolPathsQuery,
         buildToolSequencesQuery,
         buildToolTrendQuery,
+        buildAllToolsTrendQuery,
         buildToolHeatmapQuery,
     } = useValues(llmAnalyticsToolsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -39,178 +40,188 @@ export function LLMAnalyticsTools(): JSX.Element {
     const { renderSortableColumnTitle } = useSortableColumns(toolsSort, setToolsSort)
 
     return (
-        <>
-            {showToolsCharts && (
-                <div className="flex justify-end mb-2">
-                    <Tooltip title="View tool co-occurrence heatmap">
-                        <LemonButton
-                            icon={<IconRetentionHeatmap />}
-                            size="small"
-                            type="secondary"
-                            to={urls.insightNew({ query: buildToolHeatmapQuery })}
-                            targetBlank
-                            data-attr="llma-tools-heatmap-click"
-                        >
-                            Tool co-occurrence
-                        </LemonButton>
-                    </Tooltip>
-                </div>
-            )}
-            <DataTable
-                query={{
-                    ...toolsQuery,
-                    showSavedFilters: true,
-                }}
-                setQuery={(query) => {
-                    if (!isHogQLQuery(query.source)) {
-                        console.warn('LLMAnalyticsTools received a non-HogQL query:', query.source)
-                        return
-                    }
-                    const { filters = {} } = query.source
-                    const { dateRange = {} } = filters
-                    setDates(dateRange.date_from || null, dateRange.date_to || null)
-                    setShouldFilterTestAccounts(filters.filterTestAccounts || false)
-                    setPropertyFilters(filters.properties || [])
-                }}
-                context={{
-                    columns: {
-                        tool: {
-                            render: function RenderTool(x) {
-                                const toolValue = x.value
-                                if (!toolValue || toolValue === 'null' || toolValue === '') {
-                                    return <span className="text-muted">Unknown tool</span>
-                                }
+        <DataTable
+            query={{
+                ...toolsQuery,
+                showSavedFilters: true,
+            }}
+            setQuery={(query) => {
+                if (!isHogQLQuery(query.source)) {
+                    console.warn('LLMAnalyticsTools received a non-HogQL query:', query.source)
+                    return
+                }
+                const { filters = {} } = query.source
+                const { dateRange = {} } = filters
+                setDates(dateRange.date_from || null, dateRange.date_to || null)
+                setShouldFilterTestAccounts(filters.filterTestAccounts || false)
+                setPropertyFilters(filters.properties || [])
+            }}
+            context={{
+                customActions: showToolsCharts
+                    ? [
+                          <Tooltip title="View tool usage trends over time" key="trends">
+                              <LemonButton
+                                  icon={<IconTrends />}
+                                  size="small"
+                                  type="secondary"
+                                  to={urls.insightNew({ query: buildAllToolsTrendQuery })}
+                                  targetBlank
+                                  data-attr="llma-tools-all-trends-click"
+                              >
+                                  Tool trends
+                              </LemonButton>
+                          </Tooltip>,
+                          <Tooltip title="View tool co-occurrence heatmap" key="heatmap">
+                              <LemonButton
+                                  icon={<IconRetentionHeatmap />}
+                                  size="small"
+                                  type="secondary"
+                                  to={urls.insightNew({ query: buildToolHeatmapQuery })}
+                                  targetBlank
+                                  data-attr="llma-tools-heatmap-click"
+                              >
+                                  Tool co-occurrence
+                              </LemonButton>
+                          </Tooltip>,
+                      ]
+                    : undefined,
+                columns: {
+                    tool: {
+                        render: function RenderTool(x) {
+                            const toolValue = x.value
+                            if (!toolValue || toolValue === 'null' || toolValue === '') {
+                                return <span className="text-muted">Unknown tool</span>
+                            }
 
-                                const toolString = String(toolValue)
+                            const toolString = String(toolValue)
 
-                                return (
-                                    <div className="flex items-center gap-1">
-                                        <Tooltip title={`View generations calling ${toolString}`}>
-                                            <Link
-                                                to={
-                                                    combineUrl(urls.llmAnalyticsGenerations(), {
-                                                        ...searchParams,
-                                                        filters: [
-                                                            {
-                                                                type: PropertyFilterType.Event,
-                                                                key: '$ai_tools_called',
-                                                                operator: PropertyOperator.Regex,
-                                                                value: `(^|,)${escapeRegex(toolString)}(,|$)`,
-                                                            },
-                                                        ],
-                                                    }).url
-                                                }
-                                                className="font-mono text-sm"
-                                                data-attr="llma-tools-row-click"
-                                            >
-                                                {toolString}
-                                            </Link>
-                                        </Tooltip>
-                                        {showToolsCharts && (
-                                            <>
-                                                <Tooltip title={`View ${toolString} usage over time`}>
-                                                    <LemonButton
-                                                        icon={<IconTrends />}
-                                                        size="xsmall"
-                                                        to={urls.insightNew({
-                                                            query: {
-                                                                kind: NodeKind.InsightVizNode,
-                                                                source: buildToolTrendQuery(toolString),
-                                                            } as InsightVizNode,
-                                                        })}
-                                                        targetBlank
-                                                        data-attr="llma-tools-trend-click"
-                                                    />
-                                                </Tooltip>
-                                                <Tooltip title={`View tool combinations with ${toolString}`}>
-                                                    <LemonButton
-                                                        icon={<IconGraph />}
-                                                        size="xsmall"
-                                                        to={urls.insightNew({
-                                                            query: {
-                                                                kind: NodeKind.InsightVizNode,
-                                                                source: buildToolSequencesQuery(toolString),
-                                                            } as InsightVizNode,
-                                                        })}
-                                                        targetBlank
-                                                        data-attr="llma-tools-sequences-click"
-                                                    />
-                                                </Tooltip>
-                                                <Tooltip title={`View tool paths from ${toolString}`}>
-                                                    <LemonButton
-                                                        icon={<IconUserPaths />}
-                                                        size="xsmall"
-                                                        to={urls.insightNew({
-                                                            query: {
-                                                                kind: NodeKind.InsightVizNode,
-                                                                source: buildToolPathsQuery(toolString),
-                                                            } as InsightVizNode,
-                                                        })}
-                                                        targetBlank
-                                                        data-attr="llma-tools-paths-click"
-                                                    />
-                                                </Tooltip>
-                                            </>
-                                        )}
-                                    </div>
-                                )
-                            },
-                        },
-                        total_calls: {
-                            renderTitle: () => (
-                                <Tooltip title="Total number of times this tool was called">
-                                    {renderSortableColumnTitle('total_calls', 'Total calls')}
-                                </Tooltip>
-                            ),
-                        },
-                        traces: {
-                            renderTitle: () => (
-                                <Tooltip title="Number of unique traces where this tool was called">
-                                    {renderSortableColumnTitle('traces', 'Traces')}
-                                </Tooltip>
-                            ),
-                        },
-                        users: {
-                            renderTitle: () => (
-                                <Tooltip title="Number of unique users who triggered this tool">
-                                    {renderSortableColumnTitle('users', 'Users')}
-                                </Tooltip>
-                            ),
-                        },
-                        sessions: {
-                            renderTitle: () => (
-                                <Tooltip title="Number of unique sessions where this tool was called">
-                                    {renderSortableColumnTitle('sessions', 'Sessions')}
-                                </Tooltip>
-                            ),
-                        },
-                        single_pct: {
-                            renderTitle: () => (
-                                <Tooltip title="Percentage of calls where this was the only tool called">
-                                    {renderSortableColumnTitle('single_pct', 'Single %')}
-                                </Tooltip>
-                            ),
-                            render: function RenderSinglePct(x) {
-                                return <span>{String(x.value)}%</span>
-                            },
-                        },
-                        days_seen: {
-                            renderTitle: () => (
-                                <Tooltip title="Number of distinct days this tool was called">
-                                    {renderSortableColumnTitle('days_seen', 'Days seen')}
-                                </Tooltip>
-                            ),
-                        },
-                        first_seen: {
-                            renderTitle: () => renderSortableColumnTitle('first_seen', 'First seen'),
-                        },
-                        last_seen: {
-                            renderTitle: () => renderSortableColumnTitle('last_seen', 'Last seen'),
+                            return (
+                                <div className="flex items-center gap-1">
+                                    <Tooltip title={`View generations calling ${toolString}`}>
+                                        <Link
+                                            to={
+                                                combineUrl(urls.llmAnalyticsGenerations(), {
+                                                    ...searchParams,
+                                                    filters: [
+                                                        {
+                                                            type: PropertyFilterType.Event,
+                                                            key: '$ai_tools_called',
+                                                            operator: PropertyOperator.Regex,
+                                                            value: `(^|,)${escapeRegex(toolString)}(,|$)`,
+                                                        },
+                                                    ],
+                                                }).url
+                                            }
+                                            className="font-mono text-sm"
+                                            data-attr="llma-tools-row-click"
+                                        >
+                                            {toolString}
+                                        </Link>
+                                    </Tooltip>
+                                    {showToolsCharts && (
+                                        <>
+                                            <Tooltip title={`View ${toolString} usage over time`}>
+                                                <LemonButton
+                                                    icon={<IconTrends />}
+                                                    size="xsmall"
+                                                    to={urls.insightNew({
+                                                        query: {
+                                                            kind: NodeKind.InsightVizNode,
+                                                            source: buildToolTrendQuery(toolString),
+                                                        } as InsightVizNode,
+                                                    })}
+                                                    targetBlank
+                                                    data-attr="llma-tools-trend-click"
+                                                />
+                                            </Tooltip>
+                                            <Tooltip title={`View tool combinations with ${toolString}`}>
+                                                <LemonButton
+                                                    icon={<IconGraph />}
+                                                    size="xsmall"
+                                                    to={urls.insightNew({
+                                                        query: {
+                                                            kind: NodeKind.InsightVizNode,
+                                                            source: buildToolSequencesQuery(toolString),
+                                                        } as InsightVizNode,
+                                                    })}
+                                                    targetBlank
+                                                    data-attr="llma-tools-sequences-click"
+                                                />
+                                            </Tooltip>
+                                            <Tooltip title={`View tool paths from ${toolString}`}>
+                                                <LemonButton
+                                                    icon={<IconUserPaths />}
+                                                    size="xsmall"
+                                                    to={urls.insightNew({
+                                                        query: {
+                                                            kind: NodeKind.InsightVizNode,
+                                                            source: buildToolPathsQuery(toolString),
+                                                        } as InsightVizNode,
+                                                    })}
+                                                    targetBlank
+                                                    data-attr="llma-tools-paths-click"
+                                                />
+                                            </Tooltip>
+                                        </>
+                                    )}
+                                </div>
+                            )
                         },
                     },
-                }}
-                uniqueKey="llm-analytics-tools"
-            />
-        </>
+                    total_calls: {
+                        renderTitle: () => (
+                            <Tooltip title="Total number of times this tool was called">
+                                {renderSortableColumnTitle('total_calls', 'Total calls')}
+                            </Tooltip>
+                        ),
+                    },
+                    traces: {
+                        renderTitle: () => (
+                            <Tooltip title="Number of unique traces where this tool was called">
+                                {renderSortableColumnTitle('traces', 'Traces')}
+                            </Tooltip>
+                        ),
+                    },
+                    users: {
+                        renderTitle: () => (
+                            <Tooltip title="Number of unique users who triggered this tool">
+                                {renderSortableColumnTitle('users', 'Users')}
+                            </Tooltip>
+                        ),
+                    },
+                    sessions: {
+                        renderTitle: () => (
+                            <Tooltip title="Number of unique sessions where this tool was called">
+                                {renderSortableColumnTitle('sessions', 'Sessions')}
+                            </Tooltip>
+                        ),
+                    },
+                    single_pct: {
+                        renderTitle: () => (
+                            <Tooltip title="Percentage of calls where this was the only tool called">
+                                {renderSortableColumnTitle('single_pct', 'Single %')}
+                            </Tooltip>
+                        ),
+                        render: function RenderSinglePct(x) {
+                            return <span>{String(x.value)}%</span>
+                        },
+                    },
+                    days_seen: {
+                        renderTitle: () => (
+                            <Tooltip title="Number of distinct days this tool was called">
+                                {renderSortableColumnTitle('days_seen', 'Days seen')}
+                            </Tooltip>
+                        ),
+                    },
+                    first_seen: {
+                        renderTitle: () => renderSortableColumnTitle('first_seen', 'First seen'),
+                    },
+                    last_seen: {
+                        renderTitle: () => renderSortableColumnTitle('last_seen', 'Last seen'),
+                    },
+                },
+            }}
+            uniqueKey="llm-analytics-tools"
+        />
     )
 }

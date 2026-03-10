@@ -6,6 +6,7 @@ import { groupsModel } from '~/models/groupsModel'
 import {
     DataTableNode,
     DataVisualizationNode,
+    InsightVizNode,
     NodeKind,
     PathsQuery,
     TrendsQuery,
@@ -206,6 +207,44 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                     ],
                 })
             },
+        ],
+        buildAllToolsTrendQuery: [
+            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
+            (
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[]
+            ): InsightVizNode => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom || null,
+                        date_to: dateFilter.dateTo || null,
+                    },
+                    filterTestAccounts: shouldFilterTestAccounts,
+                    properties: [
+                        ...propertyFilters,
+                        {
+                            key: '$ai_tools_called',
+                            operator: PropertyOperator.IsSet,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_generation',
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown:
+                            "arrayJoin(arrayDistinct(splitByChar(',', ifNull(properties.$ai_tools_called, ''))))",
+                        breakdown_type: 'hogql',
+                        breakdown_limit: 10,
+                    },
+                },
+            }),
         ],
         buildToolHeatmapQuery: [
             (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
