@@ -82,6 +82,7 @@ class Command(BaseCommand):
         for report in reports:
             report_id = str(report.id)
 
+            workflow_inputs: SignalReportDeletionWorkflowInputs | SignalReportReingestionWorkflowInputs
             if action == ACTION_DELETE:
                 workflow_name = "signal-report-deletion"
                 workflow_id = SignalReportDeletionWorkflow.workflow_id_for(team_id, report_id)
