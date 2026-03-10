@@ -1,4 +1,7 @@
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 from posthog.schema import (
     FunnelAggregateByHogQL,
@@ -45,6 +48,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
+        request: Optional["Request"] = None,
     ):
         super().__init__(
             query,
@@ -54,6 +58,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             limit_context=limit_context,
             query_id=query_id,
             extract_modifiers=lambda query: query.source.modifiers if hasattr(query.source, "modifiers") else None,
+            request=request,
         )
 
     @cached_property
