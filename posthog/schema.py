@@ -1123,19 +1123,6 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     MANAGED_VIEWSET = "managed_viewset"
 
 
-class DataWarehouseSyncInterval(StrEnum):
-    FIELD_1MIN = "1min"
-    FIELD_5MIN = "5min"
-    FIELD_15MIN = "15min"
-    FIELD_30MIN = "30min"
-    FIELD_1HOUR = "1hour"
-    FIELD_6HOUR = "6hour"
-    FIELD_12HOUR = "12hour"
-    FIELD_24HOUR = "24hour"
-    FIELD_7DAY = "7day"
-    FIELD_30DAY = "30day"
-
-
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -20192,7 +20179,12 @@ class EndpointRequest(BaseModel):
             " Keys are column names, values are bucket keys (hour, day, week, month)."
         ),
     )
-    cache_age_seconds: float | None = None
+    data_freshness_seconds: int | None = Field(
+        default=None,
+        description=(
+            "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
+        ),
+    )
     deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
     derived_from_insight: str | None = None
     description: str | None = None
@@ -20204,10 +20196,6 @@ class EndpointRequest(BaseModel):
     name: str | None = None
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
-    )
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
     )
     version: int | None = Field(
         default=None,

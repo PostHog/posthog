@@ -69,8 +69,8 @@ const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schema
 })
 
 const EndpointCreateSchema = EndpointsCreateBody.omit({
+    data_freshness_seconds: true,
     is_active: true,
-    sync_frequency: true,
     derived_from_insight: true,
     version: true,
     bucket_overrides: true,
@@ -92,9 +92,6 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        if (params.cache_age_seconds !== undefined) {
-            body['cache_age_seconds'] = params.cache_age_seconds
-        }
         if (params.is_materialized !== undefined) {
             body['is_materialized'] = params.is_materialized
         }
@@ -110,7 +107,7 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
 const EndpointUpdateSchema = EndpointsPartialUpdateParams.omit({ project_id: true }).extend(
     EndpointsPartialUpdateBody.omit({
         name: true,
-        sync_frequency: true,
+        data_freshness_seconds: true,
         derived_from_insight: true,
         bucket_overrides: true,
         deleted: true,
@@ -128,9 +125,6 @@ const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<
         }
         if (params.description !== undefined) {
             body['description'] = params.description
-        }
-        if (params.cache_age_seconds !== undefined) {
-            body['cache_age_seconds'] = params.cache_age_seconds
         }
         if (params.is_active !== undefined) {
             body['is_active'] = params.is_active

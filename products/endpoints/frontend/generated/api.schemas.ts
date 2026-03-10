@@ -88,11 +88,6 @@ export interface EndpointMaterializationApi {
     last_materialized_at?: string | null
     /** Last materialization error message, if any. */
     error?: string
-    /**
-     * How often the materialization refreshes (e.g. 'every_hour').
-     * @nullable
-     */
-    sync_frequency?: string | null
 }
 
 /**
@@ -129,10 +124,10 @@ export interface EndpointResponseApi {
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
     /**
-     * Cache TTL in seconds, or null for default interval-based caching.
+     * How fresh the data should be, in seconds. Controls cache TTL and, for materialized endpoints, sync frequency.
      * @nullable
      */
-    cache_age_seconds: number | null
+    data_freshness_seconds: number | null
     /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**
@@ -210,10 +205,10 @@ export interface EndpointRequestApi {
      */
     description?: string | null
     /**
-     * Cache TTL in seconds (60–86400).
+     * How fresh the data should be, in seconds (3600–604800). Controls cache TTL and, for materialized endpoints, sync frequency.
      * @nullable
      */
-    cache_age_seconds?: number | null
+    data_freshness_seconds?: number | null
     /**
      * Whether this endpoint is available for execution via the API.
      * @nullable
@@ -224,11 +219,6 @@ export interface EndpointRequestApi {
      * @nullable
      */
     is_materialized?: boolean | null
-    /**
-     * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-     * @nullable
-     */
-    sync_frequency?: string | null
     /**
      * Short ID of the insight this endpoint was derived from.
      * @nullable
@@ -275,10 +265,10 @@ export interface EndpointVersionResponseApi {
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
     /**
-     * Cache TTL in seconds, or null for default interval-based caching.
+     * How fresh the data should be, in seconds. Controls cache TTL and, for materialized endpoints, sync frequency.
      * @nullable
      */
-    cache_age_seconds: number | null
+    data_freshness_seconds: number | null
     /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**
@@ -362,10 +352,10 @@ export interface PatchedEndpointRequestApi {
      */
     description?: string | null
     /**
-     * Cache TTL in seconds (60–86400).
+     * How fresh the data should be, in seconds (3600–604800). Controls cache TTL and, for materialized endpoints, sync frequency.
      * @nullable
      */
-    cache_age_seconds?: number | null
+    data_freshness_seconds?: number | null
     /**
      * Whether this endpoint is available for execution via the API.
      * @nullable
@@ -376,11 +366,6 @@ export interface PatchedEndpointRequestApi {
      * @nullable
      */
     is_materialized?: boolean | null
-    /**
-     * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-     * @nullable
-     */
-    sync_frequency?: string | null
     /**
      * Short ID of the insight this endpoint was derived from.
      * @nullable

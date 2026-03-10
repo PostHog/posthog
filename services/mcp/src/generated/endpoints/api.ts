@@ -50,13 +50,14 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
-        cache_age_seconds: zod.number().nullish().describe('Cache TTL in seconds (60–86400).'),
+        data_freshness_seconds: zod
+            .number()
+            .nullish()
+            .describe(
+                'How fresh the data should be, in seconds (3600–604800). Controls cache TTL and, for materialized endpoints, sync frequency.'
+            ),
         is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
         is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),
-        sync_frequency: zod
-            .string()
-            .nullish()
-            .describe("Materialization refresh frequency (e.g. 'every_hour', 'every_day')."),
         derived_from_insight: zod
             .string()
             .nullish()
@@ -112,13 +113,14 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
-        cache_age_seconds: zod.number().nullish().describe('Cache TTL in seconds (60–86400).'),
+        data_freshness_seconds: zod
+            .number()
+            .nullish()
+            .describe(
+                'How fresh the data should be, in seconds (3600–604800). Controls cache TTL and, for materialized endpoints, sync frequency.'
+            ),
         is_active: zod.boolean().nullish().describe('Whether this endpoint is available for execution via the API.'),
         is_materialized: zod.boolean().nullish().describe('Whether query results are materialized to S3.'),
-        sync_frequency: zod
-            .string()
-            .nullish()
-            .describe("Materialization refresh frequency (e.g. 'every_hour', 'every_day')."),
         derived_from_insight: zod
             .string()
             .nullish()
