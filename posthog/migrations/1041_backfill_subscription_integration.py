@@ -1,5 +1,4 @@
-from django.contrib.postgres.operations import AddIndexConcurrently
-from django.db import migrations, models
+from django.db import migrations
 
 
 def backfill_subscription_integration(apps, schema_editor):
@@ -40,16 +39,10 @@ def backfill_subscription_integration(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("posthog", "1040_subscription_integration"),
     ]
 
     operations = [
-        AddIndexConcurrently(
-            model_name="subscription",
-            index=models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
-        ),
         migrations.RunPython(backfill_subscription_integration, migrations.RunPython.noop),
     ]

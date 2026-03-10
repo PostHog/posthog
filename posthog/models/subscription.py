@@ -108,6 +108,11 @@ class Subscription(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
+        ]
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Only cache rrule if all required fields are loaded (not deferred).
