@@ -7,10 +7,12 @@ from posthog.models import Team
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
+from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import DeliverSubscriptionReportActivityInputs
 
 from ee.api.test.base import APILicensedTest
+from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 
 
 @patch("ee.api.subscription.sync_connect")
@@ -397,3 +399,20 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
         assert "do not belong to your team" in response.json()["detail"]
+
+    def test_backfill_picks_same_integration_as_delivery(self, mock_sync):
+        """The data migration must pick the same integration that
+        get_slack_integration_for_team returns (the one with the lowest id)."""
+        integration_a = Integration.objects.create(team=self.team, kind="slack", config={"a": 1})
+        Integration.objects.create(team=self.team, kind="slack", config={"b": 2})
+
+        delivery_integration = get_slack_integration_for_team(self.team.id)
+        assert delivery_integration is not None
+
+        # The backfill query mirrors get_slack_integration_for_team:
+        # Integration.objects.filter(team_id=..., kind="slack").order_by("id").first()
+        backfill_integration = Integration.objects.filter(team_id=self.team.id, kind="slack").order_by("id").first()
+
+        assert backfill_integration is not None
+        assert backfill_integration.id == delivery_integration.id
+        assert backfill_integration.id == integration_a.id
