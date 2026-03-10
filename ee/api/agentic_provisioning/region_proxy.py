@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 PROXY_TIMEOUT = 10
 US_DOMAIN = "us.posthog.com"
 EU_DOMAIN = "eu.posthog.com"
+PROXY_LOOP_HEADER = "X-PostHog-Proxied"
 
 PROXY_HEADER_ALLOWLIST = frozenset(
     {
@@ -54,6 +55,7 @@ def _proxy_to_region(request: Request, target_domain: str) -> Response:
 
     headers = {k: v for k, v in request.headers.items() if k.lower() in PROXY_HEADER_ALLOWLIST}
     headers["Host"] = target_domain
+    headers[PROXY_LOOP_HEADER] = "1"
 
     try:
         response = external_requests.request(
@@ -133,6 +135,10 @@ def stripe_region_proxy(strategy: str):
             current = _current_region()
             if current is None or current in ("DEV", "LOCAL"):
                 return view_func(request, *args, **kwargs)
+
+            if request.META.get(f"HTTP_{PROXY_LOOP_HEADER.upper().replace('-', '_')}"):
+                return view_func(request, *args, **kwargs)
+
 
             if check_fn(request, current):
                 target = _other_region_domain(current)
