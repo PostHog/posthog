@@ -96,7 +96,7 @@ export function VercelConnect(): JSX.Element {
                 setSuccess(true)
                 setLinking(false)
 
-                const returnUrl = sessionInfo?.next_url
+                const returnUrl = data.next_url
                 if (returnUrl) {
                     window.location.href = returnUrl
                 }

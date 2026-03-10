@@ -451,6 +451,7 @@ class TestVercelConnectCookieBinding(VercelConnectTestBase):
         parsed = parse_qs(urlparse(response["Location"]).query)
         session_key = parsed["session"][0]
 
+
         complete_response = self.client.post(
             "/api/vercel/connect/complete",
             {"session": session_key, "organization_id": str(self.organization.id)},

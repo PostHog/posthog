@@ -280,7 +280,13 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
         else:
             scripts = {}
 
-        for script in ("backend:test", "backend:contract-check"):
+        # backend:test is required for all products with backend/
+        # backend:contract-check is only required for isolated products (have facade/contracts.py)
+        required_scripts = ["backend:test"]
+        if is_isolated:
+            required_scripts.append("backend:contract-check")
+
+        for script in required_scripts:
             has_script = script in scripts
             if verbose:
                 click.echo(f"  {script} in package.json...")
@@ -418,7 +424,7 @@ def _lint_all_products() -> None:
 
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
-        "Checks: required root files, backend:test, backend:contract-check, misplaced files, file/folder conflicts\n"
+        "Checks: required root files, backend:test, backend:contract-check (isolated only), misplaced files, file/folder conflicts\n"
     )
 
     failed: list[str] = []
