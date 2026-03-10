@@ -105,6 +105,11 @@ AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cas
 AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
 BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
+# AWS Bedrock (bearer token auth for evaluating Anthropic models via Bedrock)
+AWS_BEARER_TOKEN_BEDROCK = get_from_env("AWS_BEARER_TOKEN_BEDROCK", "")
+AWS_BEDROCK_REGION = get_from_env("AWS_BEDROCK_REGION", "us-east-1")
+AWS_BEDROCK_MODEL_ID = get_from_env("AWS_BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+
 LLMA_EVAL_OPENAI_API_KEY = get_from_env("LLMA_EVAL_OPENAI_API_KEY", "")
 LLMA_EVAL_OPENAI_BASE_URL = get_from_env("LLMA_EVAL_OPENAI_BASE_URL", "")
 LLMA_EVAL_ANTHROPIC_API_KEY = get_from_env("LLMA_EVAL_ANTHROPIC_API_KEY", "")
