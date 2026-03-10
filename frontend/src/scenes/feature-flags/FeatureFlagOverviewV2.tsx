@@ -361,6 +361,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     id={String(featureFlag.id)}
                                     filters={featureFlag.filters}
                                     isDisabled={!featureFlag.active}
+                                    evaluationRuntime={featureFlag.evaluation_runtime}
                                 />
                             </EditableOverviewSection>
                         </>

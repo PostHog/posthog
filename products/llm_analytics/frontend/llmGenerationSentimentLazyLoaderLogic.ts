@@ -19,7 +19,7 @@ function isValidGenerationSentiment(value: unknown): value is GenerationSentimen
     return !!value && typeof value === 'object' && 'label' in value && !('error' in value)
 }
 
-const BATCH_MAX_SIZE = 20
+const BATCH_MAX_SIZE = 5
 
 function chunk<T>(arr: T[], size: number): T[][] {
     const chunks: T[][] = []

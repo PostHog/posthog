@@ -360,7 +360,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is created',
             inputs: {
                 text: {
-                    value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [Posthog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}))',
+                    value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert))',
                 },
             },
         },
@@ -391,7 +391,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -481,7 +481,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is reopened',
             inputs: {
                 text: {
-                    value: '**🔄 {event.properties.name} reopened:** {event.properties.description} (View in [Posthog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}))',
+                    value: '**🔄 {event.properties.name} reopened:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert))',
                 },
             },
         },
@@ -512,7 +512,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -543,7 +543,18 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
 **Project:** [{project.name}]({project.url})
 **Alert:** [{source.name}]({source.url})
 
-[View issue]({project.url}/error_tracking/{event.distinct_id})`,
+[View issue]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert)`,
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-microsoft-teams',
+            name: 'Post to Microsoft Teams on issue spiking',
+            description: 'Posts a message to Microsoft Teams when an issue is spiking',
+            inputs: {
+                text: {
+                    value: "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert))",
                 },
             },
         },
@@ -579,7 +590,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}?utm_source=alert',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },

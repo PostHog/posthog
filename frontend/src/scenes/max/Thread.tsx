@@ -403,6 +403,7 @@ function Message({
                                         dashboards={message.ui_context.dashboards}
                                         events={message.ui_context.events}
                                         actions={message.ui_context.actions}
+                                        notebooks={message.ui_context.notebooks}
                                         useCurrentPageContext={false}
                                     />
                                 )}
@@ -617,7 +618,12 @@ function Message({
                             )
                         } else if (isNotebookArtifactContent(message.content)) {
                             return (
-                                <NotebookArtifactAnswer key={key} content={message.content} status={message.status} />
+                                <NotebookArtifactAnswer
+                                    key={key}
+                                    content={message.content}
+                                    status={message.status}
+                                    artifactId={message.artifact_id}
+                                />
                             )
                         }
                         return null
