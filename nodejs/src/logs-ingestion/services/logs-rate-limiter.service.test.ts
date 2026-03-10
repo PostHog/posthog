@@ -579,7 +579,6 @@ describe('LogsRateLimiterService', () => {
                 observeSpy.mockRestore()
             })
 
-            it('should use first message timestamp for rate limiting when multiple messages in batch', async () => {
             it('should use max message timestamp for team when multiple messages in batch', async () => {
                 const time1 = new Date('2024-01-01T00:00:00Z').toISOString()
                 const time2 = new Date('2024-01-01T00:00:10Z').toISOString() // 10 seconds later
