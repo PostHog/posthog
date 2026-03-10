@@ -36,7 +36,7 @@ class InvalidStatusTransition(Exception):
     def __init__(self, from_status: str, to_status: str):
         self.from_status = from_status
         self.to_status = to_status
-        super().__init__(f"Cannot transition from {from_status} to {to_status}")
+        super().__init__(f"Invalid status transition from {from_status} to {to_status}")
 
 
 class SignalReport(UUIDModel):
