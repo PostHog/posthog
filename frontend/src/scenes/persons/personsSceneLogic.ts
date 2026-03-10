@@ -55,7 +55,10 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         query: [
             PEOPLE_LIST_DEFAULT_QUERY,
             {
-                setQuery: (_, { query }) => query,
+                setQuery: (state, { query }) => ({
+                    ...query,
+                    defaultColumns: query.defaultColumns ?? state.defaultColumns,
+                }),
             },
         ],
         showDisplayNameNudge: [
@@ -119,6 +122,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
                     if (typeof queryParam === 'object') {
                         actions.setQuery({
                             ...queryParam,
+                            defaultColumns: values.defaultColumns,
                         })
                     } else {
                         lemonToast.error('Invalid query in URL')
