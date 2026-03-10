@@ -229,6 +229,9 @@ jobs:
               with:
                   node-version: 20
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-backend.yml
 
             - name: Install pnpm dependencies
               run: pnpm install --frozen-lockfile
@@ -334,6 +337,9 @@ jobs:
               with:
                   node-version: 20
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-backend.yml
 
             - name: Install pnpm dependencies
               run: pnpm install --frozen-lockfile
@@ -792,6 +798,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-backend.yml
 
             - name: Install package.json dependencies with pnpm
               env:
