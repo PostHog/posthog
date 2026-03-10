@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconGraph, IconTrends, IconUserPaths } from '@posthog/icons'
+import { IconGraph, IconRetentionHeatmap, IconTrends, IconUserPaths } from '@posthog/icons'
 
 import { escapeRegex } from 'lib/actionUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,8 +24,14 @@ import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 export function LLMAnalyticsTools(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { setToolsSort } = useActions(llmAnalyticsToolsLogic)
-    const { toolsQuery, toolsSort, buildToolPathsQuery, buildToolSequencesQuery, buildToolTrendQuery } =
-        useValues(llmAnalyticsToolsLogic)
+    const {
+        toolsQuery,
+        toolsSort,
+        buildToolPathsQuery,
+        buildToolSequencesQuery,
+        buildToolTrendQuery,
+        buildToolHeatmapQuery,
+    } = useValues(llmAnalyticsToolsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const showToolsCharts = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_CHARTS]
@@ -34,6 +40,22 @@ export function LLMAnalyticsTools(): JSX.Element {
 
     return (
         <>
+            {showToolsCharts && (
+                <div className="flex justify-end mb-2">
+                    <Tooltip title="View tool co-occurrence heatmap">
+                        <LemonButton
+                            icon={<IconRetentionHeatmap />}
+                            size="small"
+                            type="secondary"
+                            to={urls.insightNew({ query: buildToolHeatmapQuery })}
+                            targetBlank
+                            data-attr="llma-tools-heatmap-click"
+                        >
+                            Tool co-occurrence
+                        </LemonButton>
+                    </Tooltip>
+                </div>
+            )}
             <DataTable
                 query={{
                     ...toolsQuery,

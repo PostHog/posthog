@@ -3,7 +3,13 @@ import { actions, connect, kea, key, path, props, reducers, selectors } from 'ke
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, NodeKind, PathsQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    NodeKind,
+    PathsQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, ChartDisplayType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import toolsQueryTemplate from '../../backend/queries/tools.sql?raw'
@@ -199,6 +205,72 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                         },
                     ],
                 })
+            },
+        ],
+        buildToolHeatmapQuery: [
+            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
+            (
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[]
+            ): DataVisualizationNode => {
+                const heatmapSql = `
+-- Find pairwise tool co-occurrences across AI generations
+WITH tool_arrays AS (
+    -- Extract sorted, deduplicated tool lists from generations that called 2+ tools
+    SELECT arraySort(arrayDistinct(splitByChar(',', ifNull(properties.$ai_tools_called, '')))) as tools
+    FROM events
+    WHERE event = '$ai_generation'
+        AND length(splitByChar(',', ifNull(properties.$ai_tools_called, ''))) > 1
+        AND {filters}
+),
+tool_pairs AS (
+    -- Build cross product of tools within each generation, excluding self-pairs
+    SELECT
+        arrayJoin(
+            arrayFilter(
+                p -> tupleElement(p, 1) != tupleElement(p, 2),
+                arrayFlatten(arrayMap(a -> arrayMap(b -> tuple(a, b), tools), tools))
+            )
+        ) as pair
+    FROM tool_arrays
+)
+SELECT
+    tupleElement(pair, 1) as tool_a,
+    tupleElement(pair, 2) as tool_b,
+    count() as co_occurrences
+FROM tool_pairs
+GROUP BY tool_a, tool_b
+ORDER BY co_occurrences DESC
+LIMIT 200`
+
+                return {
+                    kind: NodeKind.DataVisualizationNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: heatmapSql,
+                        filters: {
+                            dateRange: {
+                                date_from: dateFilter.dateFrom || null,
+                                date_to: dateFilter.dateTo || null,
+                            },
+                            filterTestAccounts: shouldFilterTestAccounts,
+                            properties: propertyFilters,
+                        },
+                    },
+                    display: ChartDisplayType.TwoDimensionalHeatmap,
+                    chartSettings: {
+                        heatmap: {
+                            xAxisColumn: 'tool_a',
+                            yAxisColumn: 'tool_b',
+                            valueColumn: 'co_occurrences',
+                            xAxisLabel: 'Tool A',
+                            yAxisLabel: 'Tool B',
+                            gradientPreset: 'Blues',
+                            gradientScaleMode: 'relative',
+                        },
+                    },
+                }
             },
         ],
     }),
