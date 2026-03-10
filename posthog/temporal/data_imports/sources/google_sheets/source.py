@@ -39,7 +39,11 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         }
 
     def get_schemas(
-        self, config: GoogleSheetsSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: GoogleSheetsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
     ) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
 
@@ -55,6 +59,9 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                     incremental_fields=incremental_fields,
                 )
             )
+
+        if names is not None:
+            schemas = [s for s in schemas if s.name in names]
 
         return schemas
 

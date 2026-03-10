@@ -63,11 +63,13 @@ Make sure to grant the following read permissions:
             featureFlag="dwh_klaviyo",
         )
 
-    def get_schemas(self, config: KlaviyoSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: KlaviyoSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}
 
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None
@@ -77,6 +79,10 @@ Make sure to grant the following read permissions:
             )
             for endpoint in list(ENDPOINTS)
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: KlaviyoSourceConfig, team_id: int, schema_name: Optional[str] = None
