@@ -29,8 +29,6 @@ def get_detect_fn(kind: str) -> BatchDetectFn:
 
 def ensure_registry_loaded() -> None:
     global _registry_loaded
-    if _registry_loaded:
-        return
     with _registry_lock:
         if _registry_loaded:
             return
