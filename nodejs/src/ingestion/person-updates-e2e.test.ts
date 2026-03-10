@@ -56,6 +56,7 @@ const DEFAULT_TEAM: Team = {
     cookieless_server_hash_mode: null,
     available_features: [],
     drop_events_older_than_seconds: null,
+    extra_settings: { person_last_seen_at_enabled: true },
 }
 
 class EventBuilder {
@@ -210,7 +211,8 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             userId,
             userUuid,
             team.organization_id,
-            organizationMembershipId
+            organizationMembershipId,
+            { extra_settings: { person_last_seen_at_enabled: true } }
         )
 
         const fetchedTeam = await hub.teamManager.getTeam(team.id)
@@ -632,6 +634,63 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 expect(person).toBeDefined()
                 // last_seen_at should remain unchanged
                 expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
+            })
+        })
+
+        it('should not update last_seen_at when extra_settings.person_last_seen_at_enabled is not set', async () => {
+            const distinctId = new UUIDT().toString()
+            const baseTime = DateTime.now().startOf('hour')
+            const firstTimestamp = baseTime.toMillis()
+            const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
+
+            // Disable the setting on the team
+            await hub.postgres.query(
+                0, // COMMON_WRITE
+                `UPDATE posthog_team SET extra_settings = '{}' WHERE id = $1`,
+                [team.id],
+                'disable-last-seen'
+            )
+            hub.teamManager.teamCache.clear()
+
+            const disabledTeam = await hub.teamManager.getTeam(team.id)
+            if (!disabledTeam) {
+                throw new Error('Failed to fetch team')
+            }
+            team = disabledTeam
+
+            // First event creates the person (last_seen_at still set on creation)
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({ $set: { initial: true } })
+                        .withTimestamp(firstTimestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            let initialLastSeenAt: number | undefined
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                initialLastSeenAt = person!.last_seen_at?.toMillis()
+            })
+
+            // Second event 2 hours later should NOT update last_seen_at
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId).withEvent('pageview').withTimestamp(secondTimestamp).build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.last_seen_at?.toMillis()).toBe(initialLastSeenAt)
             })
         })
 
