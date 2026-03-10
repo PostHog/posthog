@@ -124,7 +124,18 @@ mod test {
     fn rule_bytecode() -> JsonValue {
         // return properties.test_value = 'test_value'
         json!([
-            "_H", 1, 32, "test_value", 32, "test_value", 32, "properties", 1, 2, 11, 38
+            "_H",
+            1,
+            32,
+            "test_value",
+            32,
+            "test_value",
+            32,
+            "properties",
+            1,
+            2,
+            11,
+            38
         ])
     }
 

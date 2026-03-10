@@ -1,7 +1,7 @@
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import { JsonType, UniversalFiltersGroup } from '~/types'
 
-type ErrorTrackingBaseRule = {
+export type ErrorTrackingBaseRule = {
     id: string
     filters: UniversalFiltersGroup
     order_key: number

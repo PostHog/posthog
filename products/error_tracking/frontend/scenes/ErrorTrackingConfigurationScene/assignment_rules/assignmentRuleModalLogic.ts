@@ -72,13 +72,13 @@ export const assignmentRuleModalLogic = kea<assignmentRuleModalLogicType>([
                         return null
                     }
 
-                    const response = await api.query({
+                    const response = (await api.query({
                         kind: NodeKind.EventsQuery,
                         event: '$exception',
                         select: ['count()', 'count(distinct properties.$exception_issue_id)'],
                         properties,
                         after: values.dateRange,
-                    })
+                    })) as Record<string, any>
 
                     return {
                         exceptionCount: response.results?.[0]?.[0] ?? 0,

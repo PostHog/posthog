@@ -72,7 +72,7 @@ export function AssignmentRuleModal(): JSX.Element {
                                         primaryButton: {
                                             status: 'danger',
                                             children: 'Delete',
-                                            onClick: () => deleteRule(null),
+                                            onClick: () => deleteRule(),
                                         },
                                         secondaryButton: { children: 'Cancel' },
                                     })
@@ -89,7 +89,7 @@ export function AssignmentRuleModal(): JSX.Element {
                         <LemonButton
                             type="primary"
                             disabledReason={saveDisabledReason}
-                            onClick={() => saveRule(null)}
+                            onClick={() => saveRule()}
                             loading={savingLoading}
                         >
                             Save

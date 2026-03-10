@@ -56,7 +56,7 @@ export function SuppressionRuleModal(): JSX.Element {
                                         primaryButton: {
                                             status: 'danger',
                                             children: 'Delete',
-                                            onClick: () => deleteRule(null),
+                                            onClick: () => deleteRule(),
                                         },
                                         secondaryButton: { children: 'Cancel' },
                                     })
@@ -73,7 +73,7 @@ export function SuppressionRuleModal(): JSX.Element {
                         <LemonButton
                             type="primary"
                             disabledReason={!hasFilters ? 'Add at least one filter' : undefined}
-                            onClick={() => saveRule(null)}
+                            onClick={() => saveRule()}
                             loading={savingLoading}
                         >
                             Save
