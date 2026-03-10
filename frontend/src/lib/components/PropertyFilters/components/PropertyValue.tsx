@@ -125,17 +125,27 @@ export function PropertyValue({
 
     // preload values if preloadValues prop is set
     useEffect(() => {
-        if (preloadValues && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
+        if (
+            !isGroupKeyProperty &&
+            preloadValues &&
+            propertyOptions?.status !== 'loading' &&
+            propertyOptions?.status !== 'loaded'
+        ) {
             load('')
         }
-    }, [preloadValues, load, propertyOptions?.status])
+    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
-        if (!isDateTimeProperty && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
+        if (
+            !isGroupKeyProperty &&
+            !isDateTimeProperty &&
+            propertyOptions?.status !== 'loading' &&
+            propertyOptions?.status !== 'loaded'
+        ) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
+    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, load, propertyOptions?.status])
 
     // set initial suggested values when options are loaded, but only if there is no search input
     // (to avoid overwriting suggestions based on search input)
@@ -237,7 +247,7 @@ export function PropertyValue({
         )
     }
 
-    if (isGroupKeyProperty) {
+    if (isGroupKeyProperty && editable) {
         return (
             <GroupKeySelect
                 value={value ?? null}
@@ -245,7 +255,6 @@ export function PropertyValue({
                 operator={operator}
                 onChange={setValue}
                 size={size}
-                editable={editable}
                 autoFocus={autoFocus}
                 forceSingleSelect={forceSingleSelect}
             />

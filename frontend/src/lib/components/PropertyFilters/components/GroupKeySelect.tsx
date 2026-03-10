@@ -14,7 +14,6 @@ export interface GroupKeySelectProps {
     operator: PropertyOperator
     onChange: (value: PropertyFilterValue) => void
     size?: 'xsmall' | 'small' | 'medium'
-    editable?: boolean
     autoFocus?: boolean
     forceSingleSelect?: boolean
 }
@@ -25,7 +24,6 @@ export function GroupKeySelect({
     operator,
     onChange,
     size,
-    editable = true,
     autoFocus = false,
     forceSingleSelect = false,
 }: GroupKeySelectProps): JSX.Element {
@@ -35,7 +33,7 @@ export function GroupKeySelect({
     )
 
     const logic = groupKeySelectLogic({ groupTypeIndex, value: currentValues })
-    const { groupOptions, groupsLoading, resolvedNames } = useValues(logic)
+    const { groupOptions, groupsLoading, resolvedNames, searchQuery } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
     const isMultiSelect = forceSingleSelect ? false : operator && isOperatorMulti(operator)
 
@@ -52,11 +50,6 @@ export function GroupKeySelect({
         return Array.from(optionMap.values())
     }, [groupOptions, currentValues, resolvedNames])
 
-    if (!editable) {
-        const formattedValues = currentValues.map((v) => resolvedNames[v] ?? v)
-        return <>{formattedValues.join(' or ')}</>
-    }
-
     return (
         <LemonInputSelect
             data-attr="prop-val"
@@ -66,7 +59,12 @@ export function GroupKeySelect({
             singleValueAsSnack
             allowCustomValues
             onChange={(nextVal) => (isMultiSelect ? onChange(nextVal) : onChange(nextVal[0]))}
-            onInputChange={(input) => setSearchQuery(input.trim())}
+            onInputChange={(input) => {
+                const trimmed = input.trim()
+                if (trimmed !== searchQuery) {
+                    setSearchQuery(trimmed)
+                }
+            }}
             placeholder="Search groups by name..."
             size={size}
             autoFocus={autoFocus}

@@ -33,11 +33,11 @@ async function resolveGroupNames(
                 )
                 return [groupKey, groupDisplayId(response.group_key, response.group_properties)] as const
             } catch {
-                return [groupKey, groupKey] as const
+                return null
             }
         })
     )
-    return Object.fromEntries(results)
+    return Object.fromEntries(results.filter((r): r is readonly [string, string] => r !== null))
 }
 
 export const groupKeySelectLogic = kea<groupKeySelectLogicType>([

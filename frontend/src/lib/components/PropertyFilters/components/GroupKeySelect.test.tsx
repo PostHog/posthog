@@ -113,28 +113,6 @@ describe('GroupKeySelect', () => {
         })
     })
 
-    it('renders read-only display when editable is false', async () => {
-        render(
-            <Provider>
-                <GroupKeySelect
-                    value="uuid-001"
-                    groupTypeIndex={0}
-                    operator={PropertyOperator.Exact}
-                    onChange={jest.fn()}
-                    editable={false}
-                />
-            </Provider>
-        )
-
-        // Should resolve and display the group name
-        await waitFor(() => {
-            expect(screen.getByText('Fjellride AB')).toBeInTheDocument()
-        })
-
-        // Should not render an input
-        expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-    })
-
     it('supports multi-select with exact operator', async () => {
         const onChange = jest.fn()
         render(
