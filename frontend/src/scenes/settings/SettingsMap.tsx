@@ -1029,7 +1029,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Suppression rules',
                 description:
                     'Drop exceptions by type or message before they create issues. Rules are evaluated both client-side and server-side.',
-                platformSupport: FEATURE_SUPPORT.errorTrackingSuppressionRules,
                 component: <SuppressionRules />,
                 keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
