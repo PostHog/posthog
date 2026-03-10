@@ -1,0 +1,40 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: CDP
+feature: hog_function_templates
+url_prefix: /cdp
+tools:
+    hog-function-templates-list:
+        operation: hog_function_templates_list
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List CDP function templates
+        description: >
+            List available CDP function templates. Returns templates with their name, description, type, inputs_schema,
+            and status. Use the type/types query parameter to filter (e.g. type=destination, type=email,
+            type=sms_provider). Use this to discover the correct template_id when creating workflow actions.
+        mcp_version: 1
+    hog-function-templates-retrieve:
+        operation: hog_function_templates_retrieve
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get CDP function template
+        description: >
+            Get a specific CDP function template by its template_id. Returns the full template definition including
+            inputs_schema, code, filters, and mapping templates.
+        mcp_version: 1

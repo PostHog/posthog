@@ -241,14 +241,28 @@ export class ApiClient {
                     }
 
                     if (errorData.type === 'validation_error' && errorData.code) {
-                        console.error(`[API] Validation error on ${method} ${url}: ${errorData.code}`)
-                        throw new Error(`Validation error: ${errorData.code}`)
+                        const stringify = (v: unknown): string =>
+                            typeof v === 'object' ? JSON.stringify(v) : String(v)
+                        const parts = [`Validation error: ${stringify(errorData.code)}`]
+                        if (errorData.attr) {
+                            parts.push(`field: ${stringify(errorData.attr)}`)
+                        }
+                        if (errorData.detail) {
+                            parts.push(`detail: ${stringify(errorData.detail)}`)
+                        }
+                        console.error(`[API] ${parts.join(', ')} on ${method} ${url}`)
+                        throw new Error(parts.join('\n'))
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
                     throw new Error(
                         `Request failed:\nURL: ${method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
                     )
+                }
+
+                // 204 No Content — nothing to parse
+                if (response.status === 204) {
+                    return { success: true, data: undefined as T }
                 }
 
                 const rawData = await response.json()

@@ -164,6 +164,36 @@
             "readOnlyHint": false
         }
     },
+    "hog-function-templates-list": {
+        "description": "List available CDP function templates. Returns templates with their name, description, type, inputs_schema, and status. Use the type/types query parameter to filter (e.g. type=destination, type=email, type=sms_provider). Use this to discover the correct template_id when creating workflow actions.",
+        "category": "CDP",
+        "feature": "hog_function_templates",
+        "summary": "List CDP function templates",
+        "title": "List CDP function templates",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-function-templates-retrieve": {
+        "description": "Get a specific CDP function template by its template_id. Returns the full template definition including inputs_schema, code, filters, and mapping templates.",
+        "category": "CDP",
+        "feature": "hog_function_templates",
+        "summary": "Get CDP function template",
+        "title": "Get CDP function template",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
@@ -237,6 +267,66 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "workflows-create": {
+        "description": "Create a new workflow. The actions array must contain exactly one action with type='trigger'; all other actions define the flow steps connected via the edges array. Workflows are created in 'draft' status; set status='active' to activate.",
+        "category": "Workflows",
+        "feature": "hog_flows",
+        "summary": "Create workflow",
+        "title": "Create workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-partial-update": {
+        "description": "Update workflow fields. Set status='active' to activate a draft workflow, or status='archived' to archive it. Only changed fields need to be included.",
+        "category": "Workflows",
+        "feature": "hog_flows",
+        "summary": "Update workflow",
+        "title": "Update workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-bulk-delete": {
+        "description": "Permanently delete multiple archived workflows by their IDs. Only archived workflows can be deleted. Returns the count of deleted workflows.",
+        "category": "Workflows",
+        "feature": "hog_flows",
+        "summary": "Bulk delete workflows",
+        "title": "Bulk delete workflows",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-destroy": {
+        "description": "Permanently delete a workflow by ID. Prefer archiving via workflows-partial-update (status='archived') to preserve audit history.",
+        "category": "Workflows",
+        "feature": "hog_flows",
+        "summary": "Delete workflow",
+        "title": "Delete workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     }
 }

@@ -1,6 +1,8 @@
 from django.db.models import Count, QuerySet
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.request import Request
 
@@ -48,6 +50,7 @@ class PublicHogFunctionTemplateViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
+    scope_object = "hog_function"
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
     queryset = HogFunctionTemplate.objects.all()
@@ -63,6 +66,9 @@ class PublicHogFunctionTemplateViewSet(
 
             queryset = queryset.filter(type__in=types)
 
+            if self.request.GET.get("template_id"):
+                queryset = queryset.filter(template_id=self.request.GET["template_id"])
+
             # Don't include deprecated templates when listing
             queryset = queryset.exclude(status="deprecated")
 
@@ -71,6 +77,25 @@ class PublicHogFunctionTemplateViewSet(
 
         return queryset
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "type",
+                OpenApiTypes.STR,
+                description="Filter by template type (e.g. destination, email, sms_provider, broadcast). Defaults to destination if neither type nor types is provided.",
+            ),
+            OpenApiParameter(
+                "types",
+                OpenApiTypes.STR,
+                description="Comma-separated list of template types to include (e.g. destination,email,sms_provider).",
+            ),
+            OpenApiParameter(
+                "template_id",
+                OpenApiTypes.STR,
+                description="Filter to a specific template by its template_id.",
+            ),
+        ]
+    )
     def list(self, request: Request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
 
