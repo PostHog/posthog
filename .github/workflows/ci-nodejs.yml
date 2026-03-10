@@ -71,23 +71,14 @@ jobs:
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
-            - name: Get pnpm store directory
-              id: pnpm-cache
-              shell: bash
-              run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-            - name: Restore pnpm store cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-                  key: pnpm-store-nodejs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: |
-                      pnpm-store-nodejs-${{ runner.os }}-
-
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version: 24.13.0
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -97,13 +88,6 @@ jobs:
               run: |
                   pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   bin/turbo --filter=@posthog/nodejs prepare
-
-            - name: Save pnpm store cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-                  key: pnpm-store-nodejs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Check formatting with prettier
               run: pnpm --filter=@posthog/nodejs format:check
@@ -127,23 +111,14 @@ jobs:
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
-            - name: Get pnpm store directory
-              id: pnpm-cache
-              shell: bash
-              run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-            - name: Restore pnpm store cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-                  key: pnpm-store-nodejs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: |
-                      pnpm-store-nodejs-${{ runner.os }}-
-
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version: 24.13.0
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -153,13 +128,6 @@ jobs:
               run: |
                   pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   bin/turbo --filter=@posthog/nodejs prepare
-
-            - name: Save pnpm store cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-                  key: pnpm-store-nodejs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Check builds correctly
               run: pnpm --filter=@posthog/nodejs build
@@ -260,23 +228,14 @@ jobs:
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
-            - name: Get pnpm store directory
-              id: pnpm-cache
-              shell: bash
-              run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-            - name: Restore pnpm store cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-                  key: pnpm-store-nodejs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: |
-                      pnpm-store-nodejs-${{ runner.os }}-
-
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version: 24.13.0
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Download MaxMind Database
               run: |
@@ -288,13 +247,6 @@ jobs:
                   npm_config_fetch_retry_mintimeout: 10000
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
-
-            - name: Save pnpm store cache
-              if: github.ref == 'refs/heads/master' && matrix.shard == 1
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-                  key: pnpm-store-nodejs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
