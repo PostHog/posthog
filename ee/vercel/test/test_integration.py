@@ -161,11 +161,25 @@ class TestVercelIntegration(TestCase):
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
-    def test_delete_installation(self):
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation(self, mock_license, mock_billing_manager):
+        mock_license.return_value = Mock()
+        mock_billing_manager.return_value = Mock()
+
         result = VercelIntegration.delete_installation(self.installation_id)
 
         assert result["finalized"]
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation_aborts_without_license(self, mock_license):
+        mock_license.return_value = None
+
+        with self.assertRaises(RuntimeError):
+            VercelIntegration.delete_installation(self.installation_id)
+
+        assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     @patch("ee.vercel.integration.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
@@ -185,21 +199,20 @@ class TestVercelIntegration(TestCase):
             self.organization, billing_provider=BillingProvider.VERCEL
         )
 
-    @patch("ee.vercel.integration.capture_exception")
     @patch("ee.vercel.integration.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
-    def test_delete_installation_continues_on_billing_failure(self, mock_license, mock_billing_manager, mock_capture):
-        """Deletion should complete even if billing deauthorization fails."""
+    def test_delete_installation_aborts_on_billing_failure(self, mock_license, mock_billing_manager):
+        """Deletion should not proceed if billing deauthorization fails, so Vercel retries the webhook."""
         mock_license.return_value = Mock()
         mock_manager_instance = Mock()
         mock_manager_instance.deauthorize.side_effect = Exception("Billing service error")
         mock_billing_manager.return_value = mock_manager_instance
 
-        result = VercelIntegration.delete_installation(self.installation_id)
+        with self.assertRaises(Exception) as context:
+            VercelIntegration.delete_installation(self.installation_id)
+        assert "Billing service error" in str(context.exception)
 
-        assert result["finalized"]
-        assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
-        mock_capture.assert_called_once()
+        assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     def test_delete_installation_not_found(self):
         with self.assertRaises(NotFound):

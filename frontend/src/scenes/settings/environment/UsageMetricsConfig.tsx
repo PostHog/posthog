@@ -15,8 +15,10 @@ import {
 } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { TeamMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -51,6 +53,10 @@ function UsageMetricsTable(): JSX.Element {
     const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
     const { removeUsageMetric, openModal, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
     const { reportUsageMetricsUpdateButtonClicked } = useActions(eventUsageLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const columns: LemonTableColumns<UsageMetric> = [
         {
@@ -88,6 +94,7 @@ function UsageMetricsTable(): JSX.Element {
                                     setUsageMetricValues(metric)
                                     reportUsageMetricsUpdateButtonClicked()
                                 },
+                                disabledReason: restrictedReason,
                             },
                             {
                                 label: 'Delete',
@@ -102,12 +109,14 @@ function UsageMetricsTable(): JSX.Element {
                                             onClick: () => {
                                                 removeUsageMetric(metric.id)
                                             },
+                                            disabledReason: restrictedReason,
                                         },
                                         secondaryButton: {
                                             children: 'Cancel',
                                         },
                                     })
                                 },
+                                disabledReason: restrictedReason,
                             },
                         ]}
                     >
@@ -237,6 +246,10 @@ export function UsageMetricsConfig(): JSX.Element {
     const { openModal } = useActions(usageMetricsConfigLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { reportUsageMetricsSettingsViewed } = useActions(eventUsageLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     useOnMountEffect(() => {
         reportUsageMetricsSettingsViewed()
@@ -250,7 +263,13 @@ export function UsageMetricsConfig(): JSX.Element {
                 Usage metrics are displayed in the person {groupsEnabled ? 'and group profiles' : 'profile'}.
             </p>
             <div className="flex flex-col gap-2 items-start">
-                <LemonButton type="primary" size="small" onClick={openModal} icon={<IconPlusSmall />}>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={openModal}
+                    icon={<IconPlusSmall />}
+                    disabledReason={restrictedReason}
+                >
                     Add metric
                 </LemonButton>
                 <UsageMetricsTable />

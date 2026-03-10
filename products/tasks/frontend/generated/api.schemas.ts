@@ -121,6 +121,7 @@ export interface PatchedTaskApi {
     readonly slug?: string
     /** @maxLength 255 */
     title?: string
+    title_manually_set?: boolean
     description?: string
     origin_product?: OriginProductEnumApi
     /**
@@ -162,6 +163,12 @@ export interface TaskRunCreateRequestApi {
 * `interactive` - interactive
 * `background` - background */
     mode?: TaskRunCreateRequestModeEnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
 }
 
 /**

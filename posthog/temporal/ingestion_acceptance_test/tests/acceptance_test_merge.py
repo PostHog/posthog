@@ -1,6 +1,5 @@
 """Merge test - verifies that $merge_dangerously merges two persons into one."""
 
-import time
 import uuid
 
 import structlog
@@ -21,17 +20,15 @@ class TestMergeDangerously(AcceptanceTest):
 
         # Capture both events before polling to reduce wall-clock time
         logger.info("test_merge: capturing event for Person A", distinct_id=distinct_id_a)
-        timestamp_a = time.time()
         event_uuid_a = self.client.capture_event(
-            event_name, distinct_id_a, {"$set": {"name": "Person A", "$test_timestamp": timestamp_a}}
+            event_name, distinct_id_a, {"$set": {"name": "Person A", "$test_version": 1}}
         )
 
         logger.info("test_merge: capturing event for Person B", distinct_id=distinct_id_b)
-        timestamp_b = time.time()
         event_uuid_b = self.client.capture_event(
             event_name,
             distinct_id_b,
-            {"$set": {"name": "Person B", "extra_prop": "from_b", "$test_timestamp": timestamp_b}},
+            {"$set": {"name": "Person B", "extra_prop": "from_b", "$test_version": 2}},
         )
 
         # Poll for both events
@@ -63,9 +60,8 @@ class TestMergeDangerously(AcceptanceTest):
         # Wait for merge to propagate - Person A should have updated timestamp
         # We need to set a new timestamp on Person A to detect when merge completes
         logger.info("test_merge: capturing post-merge event", distinct_id=distinct_id_a)
-        post_merge_timestamp = time.time()
         post_merge_event_uuid = self.client.capture_event(
-            "$test_post_merge", distinct_id_a, {"$set": {"$test_timestamp": post_merge_timestamp}}
+            "$test_post_merge", distinct_id_a, {"$set": {"$test_version": 3}}
         )
 
         logger.info("test_merge: querying for post-merge event", event_uuid=post_merge_event_uuid)
@@ -74,7 +70,7 @@ class TestMergeDangerously(AcceptanceTest):
 
         # Query Person A with the post-merge timestamp to ensure merge has propagated
         logger.info("test_merge: querying for merged person", distinct_id=distinct_id_a)
-        merged_person = self.client.query_person_by_distinct_id(distinct_id_a, min_timestamp=post_merge_timestamp)
+        merged_person = self.client.query_person_by_distinct_id(distinct_id_a, min_version=3)
         assert merged_person is not None, "Person not updated after merge within time budget"
 
         # After merge, Person A should have Person B's extra_prop (properties merge)

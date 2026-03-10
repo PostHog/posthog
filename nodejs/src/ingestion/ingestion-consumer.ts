@@ -36,7 +36,8 @@ import {
 } from './analytics'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
-import { EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
+import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
@@ -54,6 +55,7 @@ export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
     kafkaProducer: KafkaProducerWrapper
+    kafkaMetricsProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
@@ -91,7 +93,7 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
-    private topHog: TopHog
+    private topHog!: TopHog
 
     private joinedPipeline!: BatchPipeline<
         JoinedIngestionPipelineInput,
@@ -190,7 +192,7 @@ export class IngestionConsumer {
         this.kafkaProducer = this.deps.kafkaProducer
 
         this.topHog = new TopHog({
-            kafkaProducer: this.kafkaProducer!,
+            kafkaProducer: this.deps.kafkaMetricsProducer,
             topic: KAFKA_CLICKHOUSE_TOPHOG,
             pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
             lane: this.config.INGESTION_LANE ?? 'unknown',
@@ -213,12 +215,17 @@ export class IngestionConsumer {
                 this.kafkaOverflowProducer = producer
             }),
         ])
+
         this.topHog.start()
 
         // Initialize pipeline
         const outputs = new IngestionOutputs({
             [EVENTS_OUTPUT]: {
                 topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                producer: this.kafkaProducer!,
+            },
+            [AI_EVENTS_OUTPUT]: {
+                topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
                 producer: this.kafkaProducer!,
             },
         })
@@ -233,6 +240,10 @@ export class IngestionConsumer {
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             groupId: this.groupId,
             outputs,
+            splitAiEventsConfig: parseSplitAiEventsConfig(
+                this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
+                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS
+            ),
             perDistinctIdOptions: {
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,

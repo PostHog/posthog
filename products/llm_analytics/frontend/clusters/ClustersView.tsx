@@ -47,9 +47,9 @@ export function ClustersView(): JSX.Element {
     const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
 
     // Build a map from job_id to job name for run labels
-    const jobNameById: Record<number, string> = {}
+    const jobNameById: Record<string, string> = {}
     for (const job of jobs) {
-        jobNameById[job.id] = job.name
+        jobNameById[String(job.id)] = job.name
     }
 
     if (clusteringRunsLoading) {

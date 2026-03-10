@@ -7,8 +7,6 @@ import React from 'react'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
-import { RecordingSegment } from '~/types'
-
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
@@ -73,56 +71,15 @@ const SeekbarSources = React.memo(function SeekbarSourcesRaw({
     return <div className="PlayerSeekbar__sources">{items}</div>
 })
 
-// the seekbar and its children can be accidentally re-rendered as the player ticks
-const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
-    segment,
-    durationMs,
-}: {
-    segment: RecordingSegment
-    durationMs: number
-}): JSX.Element {
-    return (
-        <div
-            className={cn(
-                'PlayerSeekbar__segments__item',
-                segment.isActive && 'PlayerSeekbar__segments__item--active',
-                segment.kind === 'buffer' && 'PlayerSeekbar__segments__item--buffer',
-                segment.isLoading && 'PlayerSeekbar__segments__item--buffer-loading'
-            )}
-            title={segment.kind === 'buffer' ? undefined : segment.isActive ? 'Active period' : 'Inactive period'}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                width: `${(100 * segment.durationMs) / durationMs}%`,
-            }}
-        />
-    )
-})
-
-function SeekbarSegments(): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { segments, durationMs } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
-    return (
-        <div className="PlayerSeekbar__segments">
-            {segments?.map((segment: RecordingSegment) => (
-                <SeekbarSegment
-                    segment={segment}
-                    durationMs={durationMs}
-                    key={`${segment.startTimestamp}-${segment.endTimestamp}-${segment.windowId}-${segment.kind}`}
-                />
-            ))}
-        </div>
-    )
-}
-
 export function Seekbar(): JSX.Element {
     const { sessionRecordingId, logicProps, hasSnapshots } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
-    const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
+    const { endTimeMs, thumbLeftPos, isScrubbing } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
-    const { sessionPlayerData, sessionPlayerMetaData, effectiveSourceLoadingStates, snapshotStore } = useValues(
+    const { sessionPlayerData, sessionPlayerMetaData, effectiveSourceLoadingStates } = useValues(
         sessionRecordingDataCoordinatorLogic(logicProps)
     )
 
@@ -141,8 +98,6 @@ export function Seekbar(): JSX.Element {
 
     const allowPreviewScrubbing = useFeatureFlag('SEEKBAR_PREVIEW_SCRUBBING')
 
-    const useSnapshotStore = !!snapshotStore
-
     return (
         <div className="flex flex-col items-end mx-4 mt-2 h-8" data-attr="rrweb-controller">
             <PlayerSeekbarTicks
@@ -155,7 +110,6 @@ export function Seekbar(): JSX.Element {
             <div
                 className={cn('PlayerSeekbar', {
                     'PlayerSeekbar--scrubbing': isScrubbing,
-                    'PlayerSeekbar--sources': useSnapshotStore,
                 })}
                 ref={seekBarRef}
             >
@@ -165,31 +119,16 @@ export function Seekbar(): JSX.Element {
                     onMouseDown={handleDown}
                     onTouchStart={handleDown}
                 >
-                    {useSnapshotStore ? (
-                        <>
-                            <SeekbarSources
-                                sourceLoadingStates={effectiveSourceLoadingStates}
-                                recordingStartMs={sessionPlayerData.start?.valueOf() ?? 0}
-                                recordingEndMs={sessionPlayerData.end?.valueOf() ?? 0}
-                            />
-                            <div
-                                className="PlayerSeekbar__played"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}
-                            />
-                        </>
-                    ) : (
-                        <>
-                            <SeekbarSegments />
-                            <div
-                                className="PlayerSeekbar__currentbar"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}
-                            />
-                            {/* eslint-disable-next-line react/forbid-dom-props */}
-                            <div className="PlayerSeekbar__bufferbar" style={{ width: `${bufferPercent}%` }} />
-                        </>
-                    )}
+                    <SeekbarSources
+                        sourceLoadingStates={effectiveSourceLoadingStates}
+                        recordingStartMs={sessionPlayerData.start?.valueOf() ?? 0}
+                        recordingEndMs={sessionPlayerData.end?.valueOf() ?? 0}
+                    />
+                    <div
+                        className="PlayerSeekbar__played"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}
+                    />
 
                     <div
                         className="PlayerSeekbar__thumb"

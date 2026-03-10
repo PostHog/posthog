@@ -49,6 +49,13 @@ def validate_installation_auth(installation: MCPServerInstallation) -> tuple[boo
 
     Returns (True, None) if auth is valid, or (False, error_response) if not.
     """
+    if not installation.is_enabled:
+        return False, HttpResponse(
+            '{"error": "Server is disabled"}',
+            content_type="application/json",
+            status=403,
+        )
+
     sensitive = installation.sensitive_configuration or {}
 
     if sensitive.get("needs_reauth"):

@@ -316,7 +316,6 @@ export function SupportSettingsScene(): JSX.Element {
                 resourceType={{
                     type: 'conversation',
                 }}
-                className="mb-4"
             />
             <ScenesTabs />
             <SceneSection

@@ -44,6 +44,10 @@ export const GetBlockQuerySchema = z
         key: z.string({ required_error: 'Missing key query parameter' }).min(1, 'Invalid key query parameter'),
         start: nonNegativeIntString('start'),
         end: nonNegativeIntString('end'),
+        decompress: z
+            .enum(['true', 'false', '1', '0'])
+            .optional()
+            .transform((v) => v === 'true' || v === '1'),
     })
     .refine((data) => data.start <= data.end, {
         message: 'start must be less than or equal to end',

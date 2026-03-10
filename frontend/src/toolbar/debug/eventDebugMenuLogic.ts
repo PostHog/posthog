@@ -10,6 +10,36 @@ import { EventType } from '~/types'
 
 import type { eventDebugMenuLogicType } from './eventDebugMenuLogicType'
 
+function tryRegexMatch(text: string, pattern: string): boolean {
+    // If the pattern looks like /regex/ or /regex/flags, treat as regex
+    const regexMatch = pattern.match(/^\/(.+)\/([gimsuy]*)$/)
+    if (regexMatch) {
+        try {
+            const re = new RegExp(regexMatch[1], regexMatch[2])
+            return re.test(text)
+        } catch {
+            // Invalid regex, fall back to plain includes
+            return text.toLowerCase().includes(pattern.toLowerCase())
+        }
+    }
+    // Plain case-insensitive substring match
+    return text.toLowerCase().includes(pattern.toLowerCase())
+}
+
+const MAX_EVENTS = 5000
+
+export type EventCategory = 'posthog' | 'custom' | 'snapshot'
+
+export function classifyEvent(e: EventType): EventCategory {
+    if (e.event === '$snapshot') {
+        return 'snapshot'
+    }
+    if (e.event.startsWith('$') || Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.events).includes(e.event)) {
+        return 'posthog'
+    }
+    return 'custom'
+}
+
 export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
     path(['toolbar', 'debug', 'eventDebugMenuLogic']),
     connect(() => ({
@@ -19,12 +49,17 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         addEvent: (event: EventType) => ({ event }),
         markExpanded: (id: string | null | undefined) => ({ id }),
         setSearchText: (searchText: string) => ({ searchText }),
-        setSelectedEventType: (eventType: 'posthog' | 'custom' | 'snapshot', enabled: boolean) => ({
+        setSelectedEventType: (eventType: EventCategory, enabled: boolean) => ({
             eventType,
             enabled,
         }),
         setHidePostHogProperties: (hide: boolean) => ({ hide }),
         setHidePostHogFlags: (hide: boolean) => ({ hide }),
+        togglePinnedEvent: (eventId: string) => ({ eventId }),
+        toggleRelativeTimestamps: true,
+        togglePaused: true,
+        clearEvents: true,
+        exportEvents: true,
     }),
     reducers({
         hidePostHogProperties: [
@@ -39,25 +74,26 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
                 setHidePostHogFlags: (_, { hide }) => hide,
             },
         ],
+        relativeTimestamps: [
+            false,
+            {
+                toggleRelativeTimestamps: (state) => !state,
+            },
+        ],
         searchText: [
             '',
             {
                 setSearchText: (_, { searchText }) => searchText,
-                // reset search on toggle
-                setSearchVisible: () => '',
             },
         ],
         selectedEventTypes: [
-            ['posthog', 'custom'] as ('posthog' | 'custom' | 'snapshot')[],
+            ['posthog', 'custom'] as EventCategory[],
             {
                 setSelectedEventType: (state, { eventType, enabled }) => {
-                    const newTypes = [...state]
                     if (enabled) {
-                        newTypes.push(eventType)
-                    } else {
-                        newTypes.splice(newTypes.indexOf(eventType), 1)
+                        return state.includes(eventType) ? state : [...state, eventType]
                     }
-                    return newTypes
+                    return state.filter((t) => t !== eventType)
                 },
             },
         ],
@@ -66,14 +102,49 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             [] as EventType[],
             {
                 addEvent: (state, { event }) => {
-                    return [{ ...event, uuid: event.uuid || uuid() }, ...state]
+                    const next = [{ ...event, uuid: event.uuid || uuid() }, ...state]
+                    return next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next
                 },
+                clearEvents: () => [],
+            },
+        ],
+        // Events buffered while paused, prepended on resume
+        bufferedEvents: [
+            [] as EventType[],
+            {
+                addEvent: (state, { event }) => {
+                    const next = [{ ...event, uuid: event.uuid || uuid() }, ...state]
+                    return next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next
+                },
+                togglePaused: () => [],
+                clearEvents: () => [],
+            },
+        ],
+        isPaused: [
+            false,
+            {
+                togglePaused: (state) => !state,
             },
         ],
         expandedEvent: [
             null as string | null | undefined,
             {
                 markExpanded: (_, { id }) => id,
+            },
+        ],
+        pinnedEventIds: [
+            new Set<string>(),
+            {
+                togglePinnedEvent: (state, { eventId }) => {
+                    const next = new Set(state)
+                    if (next.has(eventId)) {
+                        next.delete(eventId)
+                    } else {
+                        next.add(eventId)
+                    }
+                    return next
+                },
+                clearEvents: () => new Set<string>(),
             },
         ],
     }),
@@ -86,50 +157,69 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
                 }
             },
         ],
+        // When paused, show a frozen snapshot; when live, show all events
+        visibleEvents: [
+            (s) => [s.events, s.bufferedEvents, s.isPaused],
+            (events, bufferedEvents, isPaused): EventType[] => {
+                if (isPaused) {
+                    // Show events minus anything buffered since pause
+                    return events.slice(bufferedEvents.length)
+                }
+                return events
+            },
+        ],
         searchFilteredEvents: [
-            (s) => [s.events, s.searchText],
-            (events, searchText) => {
-                return events.filter((e) => e.event.includes(searchText))
+            (s) => [s.visibleEvents, s.searchText],
+            (visibleEvents, searchText) => {
+                return visibleEvents.filter((e: EventType) => {
+                    if (searchText && !tryRegexMatch(e.event, searchText)) {
+                        return false
+                    }
+                    return true
+                })
             },
         ],
         searchFilteredEventsCount: [
             (s) => [s.searchFilteredEvents],
-            (searchFilteredEvents): { posthog: number; custom: number; snapshot: number } => {
-                const counts = { posthog: 0, custom: 0, snapshot: 0 }
-
-                searchFilteredEvents.forEach((e) => {
-                    if (e.event === '$snapshot') {
-                        counts.snapshot += 1
-                    } else if (
-                        e.event.startsWith('$') ||
-                        Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.events).includes(e.event)
-                    ) {
-                        counts.posthog += 1
-                    } else {
-                        counts.custom += 1
-                    }
+            (searchFilteredEvents): Record<EventCategory, number> => {
+                const counts: Record<EventCategory, number> = { posthog: 0, custom: 0, snapshot: 0 }
+                searchFilteredEvents.forEach((e: EventType) => {
+                    counts[classifyEvent(e)] += 1
                 })
-
                 return counts
             },
         ],
 
         activeFilteredEvents: [
-            (s) => [s.selectedEventTypes, s.searchFilteredEvents, s.searchText, s.isCollapsedEventRow],
+            (s) => [s.selectedEventTypes, s.searchFilteredEvents],
             (selectedEventTypes, searchFilteredEvents) => {
-                return searchFilteredEvents.filter((e) => {
-                    if (e.event === '$snapshot') {
-                        return selectedEventTypes.includes('snapshot')
-                    }
-                    if (
-                        e.event.startsWith('$') ||
-                        Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.events).includes(e.event)
-                    ) {
-                        return selectedEventTypes.includes('posthog')
-                    }
-
-                    return !!selectedEventTypes.includes('custom')
+                return searchFilteredEvents.filter((e: EventType) => {
+                    return selectedEventTypes.includes(classifyEvent(e))
                 })
+            },
+        ],
+
+        totalEventsCount: [(s) => [s.visibleEvents], (visibleEvents): number => visibleEvents.length],
+
+        bufferedCount: [(s) => [s.bufferedEvents], (bufferedEvents): number => bufferedEvents.length],
+
+        pinnedEvents: [
+            (s) => [s.activeFilteredEvents, s.pinnedEventIds],
+            (activeFilteredEvents, pinnedEventIds): EventType[] => {
+                if (pinnedEventIds.size === 0) {
+                    return []
+                }
+                return activeFilteredEvents.filter((e: EventType) => e.uuid && pinnedEventIds.has(e.uuid))
+            },
+        ],
+
+        unpinnedEvents: [
+            (s) => [s.activeFilteredEvents, s.pinnedEventIds],
+            (activeFilteredEvents, pinnedEventIds): EventType[] => {
+                if (pinnedEventIds.size === 0) {
+                    return activeFilteredEvents
+                }
+                return activeFilteredEvents.filter((e: EventType) => !e.uuid || !pinnedEventIds.has(e.uuid))
             },
         ],
 
@@ -169,6 +259,18 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
                     : posthogPropertiesFiltered
 
                 return posthogFlagsFiltered
+            },
+        ],
+
+        exportableEvents: [
+            (s) => [s.activeFilteredEvents],
+            (activeFilteredEvents): object[] => {
+                return activeFilteredEvents.map((e: EventType) => ({
+                    event: e.event,
+                    timestamp: e.timestamp,
+                    properties: e.properties,
+                    uuid: e.uuid,
+                }))
             },
         ],
     }),

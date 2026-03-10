@@ -7,6 +7,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 
+import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
@@ -19,15 +20,15 @@ describe('cohortEditLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/cohorts': [mockCohort],
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
             post: {
-                '/api/projects/:team/cohorts/': mockCohort,
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
             patch: {
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
         })
         initKeaTests()

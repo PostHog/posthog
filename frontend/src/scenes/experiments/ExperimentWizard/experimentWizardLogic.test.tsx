@@ -15,7 +15,7 @@ import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
 import { experimentsLogic } from '../experimentsLogic'
-import { experimentWizardLogic } from './experimentWizardLogic'
+import { experimentWizardLogic, stepStorageKey } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
 import { VariantsStep } from './steps/VariantsStep'
 
@@ -292,6 +292,116 @@ describe('experimentWizardLogic', () => {
             await expectLogic(logic).toMatchValues({
                 departedSteps: { about: true },
             })
+        })
+
+        it('preserves current step across unmount/remount', async () => {
+            logic.actions.nextStep()
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+        })
+
+        it('two tabs maintain independent step state', async () => {
+            const createLogic1 = createExperimentLogic({ tabId: 'tab-1' })
+            createLogic1.mount()
+            const wizardLogic1 = experimentWizardLogic({ tabId: 'tab-1' })
+            wizardLogic1.mount()
+
+            const createLogic2 = createExperimentLogic({ tabId: 'tab-2' })
+            createLogic2.mount()
+            const wizardLogic2 = experimentWizardLogic({ tabId: 'tab-2' })
+            wizardLogic2.mount()
+
+            // Advance tab 1 to variants, tab 2 to analytics
+            wizardLogic1.actions.setStep('variants')
+            wizardLogic2.actions.setStep('analytics')
+
+            await expectLogic(wizardLogic1).toMatchValues({ currentStep: 'variants' })
+            await expectLogic(wizardLogic2).toMatchValues({ currentStep: 'analytics' })
+
+            // Advancing tab 2 does not affect tab 1
+            wizardLogic2.actions.setStep('about')
+
+            await expectLogic(wizardLogic1).toMatchValues({ currentStep: 'variants' })
+            await expectLogic(wizardLogic2).toMatchValues({ currentStep: 'about' })
+
+            wizardLogic1.unmount()
+            createLogic1.unmount()
+            wizardLogic2.unmount()
+            createLogic2.unmount()
+        })
+
+        it('resets step to about on saveExperimentSuccess', async () => {
+            logic.actions.setStep('analytics')
+            await expectLogic(logic).toMatchValues({ currentStep: 'analytics' })
+
+            logic.actions.saveExperimentSuccess()
+
+            await expectLogic(logic).toMatchValues({
+                currentStep: 'about',
+                linkedFeatureFlag: null,
+                departedSteps: {},
+            })
+            expect(sessionStorage.getItem(stepStorageKey(TAB_ID))).toBeNull()
+        })
+
+        it('clears sessionStorage step on saveExperimentSuccess so remount starts fresh', async () => {
+            logic.actions.setStep('analytics')
+            expect(sessionStorage.getItem(stepStorageKey(TAB_ID))).toBe('analytics')
+
+            logic.actions.saveExperimentSuccess()
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'about' })
+        })
+
+        it('stale sessionStorage from previous session is cleared on fresh navigation', () => {
+            // Simulate stale state: step saved from a previous experiment session
+            sessionStorage.setItem(stepStorageKey(TAB_ID), 'analytics')
+
+            // Simulate what experimentSceneLogic does on fresh navigation to /experiments/new
+            sessionStorage.removeItem(stepStorageKey(TAB_ID))
+
+            // Now mount the wizard — should start on 'about'
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            expect(logic.values.currentStep).toBe('about')
+        })
+
+        it('tab switch preserves step when sessionStorage is not cleared', async () => {
+            logic.actions.setStep('variants')
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            // Simulate tab switch: unmount and remount without clearing sessionStorage
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
         })
     })
 

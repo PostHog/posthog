@@ -726,7 +726,9 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             }
 
             const updatedEvents = events.map((event) => {
-                const fullProperties = eventDetails[event.id]
+                // For whatever reason kea types eventDetails as `[x: number]: any`
+                // when loadEventDetails is keyed by UUID (string)
+                const fullProperties = eventDetails[event.id as unknown as number]
                 if (fullProperties) {
                     return {
                         ...event,
