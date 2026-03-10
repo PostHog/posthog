@@ -38,6 +38,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-sonnet-4-5",
                 "claude-sonnet-4-6",
                 "claude-haiku-4-5",
+                "bedrock/anthropic.claude-opus-4-5-20250929-v1:0",
+                "bedrock/anthropic.claude-opus-4-6-v1:0",
+                "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "bedrock/anthropic.claude-sonnet-4-6-v1:0",
+                "bedrock/anthropic.claude-haiku-4-5-20251001-v1:0",
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
@@ -53,6 +58,10 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-6",
                 "claude-sonnet-4-5",
                 "claude-haiku-4-5",
+                "bedrock/anthropic.claude-opus-4-5-20250929-v1:0",
+                "bedrock/anthropic.claude-opus-4-6-v1:0",
+                "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "bedrock/anthropic.claude-haiku-4-5-20251001-v1:0",
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
@@ -72,7 +81,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "slack-twig": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allowed_models=frozenset({"claude-haiku-4-5", "bedrock/anthropic.claude-haiku-4-5-20251001-v1:0"}),
         allow_api_keys=True,
     ),
     "growth": ProductConfig(
@@ -149,8 +158,7 @@ def check_product_access(
             return False, f"OAuth application not authorized for product '{product}'"
 
     if model and config.allowed_models is not None:
-        model_lower = model.lower()
-        if not any(model_lower.startswith(allowed) for allowed in config.allowed_models):
+        if model not in config.allowed_models:
             return False, f"Model '{model}' not allowed for product '{product}'"
 
     return True, None

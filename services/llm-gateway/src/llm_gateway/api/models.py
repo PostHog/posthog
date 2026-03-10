@@ -26,8 +26,8 @@ class ModelsResponse(BaseModel):
     data: list[ModelObject]
 
 
-def _build_response(product: str) -> ModelsResponse:
-    models = get_available_models(product)
+def _build_response(product: str, provider_filter: str | None = None) -> ModelsResponse:
+    models = get_available_models(product, provider_filter=provider_filter)
     return ModelsResponse(
         data=[
             ModelObject(
@@ -47,7 +47,18 @@ async def list_models() -> ModelsResponse:
     return _build_response("llm_gateway")
 
 
+@models_router.get("/bedrock/v1/models")
+async def list_bedrock_models() -> ModelsResponse:
+    return _build_response("llm_gateway", provider_filter="bedrock")
+
+
 @models_router.get("/{product}/v1/models")
 async def list_models_for_product(product: str) -> ModelsResponse:
     validate_product(product)
     return _build_response(product)
+
+
+@models_router.get("/{product}/bedrock/v1/models")
+async def list_bedrock_models_for_product(product: str) -> ModelsResponse:
+    validate_product(product)
+    return _build_response(product, provider_filter="bedrock")

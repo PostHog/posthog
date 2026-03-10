@@ -11,7 +11,7 @@ from llm_gateway.services.model_registry import (
     is_model_available,
 )
 
-PROVIDER_ENV_VARS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]
+PROVIDER_ENV_VARS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "AWS_REGION", "AWS_DEFAULT_REGION"]
 
 MOCK_COST_DATA: dict[str, ModelCost] = {
     "gpt-4o": {
@@ -86,6 +86,36 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
+    "bedrock/anthropic.claude-opus-4-5-20250929-v1:0": {
+        "litellm_provider": "bedrock",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "bedrock/anthropic.claude-opus-4-6-v1:0": {
+        "litellm_provider": "bedrock",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0": {
+        "litellm_provider": "bedrock",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "bedrock/anthropic.claude-sonnet-4-6-v1:0": {
+        "litellm_provider": "bedrock",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "bedrock/anthropic.claude-haiku-4-5-20251001-v1:0": {
+        "litellm_provider": "bedrock",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
     "gemini-2.0-flash": {
         "litellm_provider": "vertex_ai",
         "max_input_tokens": 1048576,
@@ -119,11 +149,13 @@ def create_mock_settings(
     openai: bool = True,
     anthropic: bool = True,
     gemini: bool = True,
+    bedrock: bool = False,
 ) -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test" if openai else None
     settings.anthropic_api_key = "sk-ant-test" if anthropic else None
     settings.gemini_api_key = "gemini-test" if gemini else None
+    settings.bedrock_region_name = "us-east-1" if bedrock else None
     return settings
 
 
@@ -172,7 +204,8 @@ class TestGetModel:
         "model_id,expected_provider",
         [
             ("gpt-4o", "openai"),
-            ("claude-3-5-sonnet-20241022", "anthropic"),
+            ("claude-sonnet-4-5", "anthropic"),
+            ("bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0", "bedrock"),
             ("gemini-2.0-flash", "vertex_ai"),
         ],
     )
@@ -194,6 +227,7 @@ class TestGetAvailableModels:
         models = get_available_models("llm_gateway")
         model_ids = {m.id for m in models}
         assert "gpt-4o" in model_ids
+        assert "claude-sonnet-4-5" in model_ids
         assert "claude-3-5-sonnet-20241022" in model_ids
         assert "gemini-2.0-flash" in model_ids
 
@@ -225,7 +259,7 @@ class TestProviderFiltering:
             assert providers == {"openai"}
             model_ids = {m.id for m in models}
             assert "gpt-4o" in model_ids
-            assert "claude-3-5-sonnet-20241022" not in model_ids
+            assert "claude-sonnet-4-5" not in model_ids
             assert "gemini-2.0-flash" not in model_ids
 
     def test_returns_empty_when_no_providers_configured(self):
@@ -244,6 +278,30 @@ class TestProviderFiltering:
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
             assert providers == {"openai", "anthropic"}
+
+    def test_bedrock_configuration_enables_anthropic_models(self):
+        with patch.dict(os.environ, {}, clear=False):
+            for var in PROVIDER_ENV_VARS:
+                os.environ.pop(var, None)
+            with patch(
+                "llm_gateway.services.model_registry.get_settings",
+                return_value=create_mock_settings(openai=False, anthropic=False, gemini=False, bedrock=True),
+            ):
+                models = get_available_models("llm_gateway")
+                providers = {m.provider for m in models}
+                assert providers == {"bedrock"}
+                model_ids = {m.id for m in models}
+                assert "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0" in model_ids
+
+    def test_provider_filter_returns_bedrock_raw_models(self):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(openai=True, anthropic=True, gemini=True, bedrock=True),
+        ):
+            models = get_available_models("llm_gateway", provider_filter="bedrock")
+            model_ids = {m.id for m in models}
+            assert "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0" in model_ids
+            assert "claude-sonnet-4-5" not in model_ids
 
 
 class TestIsModelAvailable:
@@ -281,4 +339,14 @@ class TestIsModelAvailable:
                 return_value=create_mock_settings(openai=False, anthropic=True, gemini=True),
             ):
                 assert is_model_available("gpt-4o", "llm_gateway") is False
-                assert is_model_available("claude-3-5-sonnet-20241022", "llm_gateway") is True
+                assert is_model_available("claude-sonnet-4-5", "llm_gateway") is True
+
+    def test_bedrock_model_available_when_bedrock_configured(self):
+        with patch.dict(os.environ, {}, clear=False):
+            for var in PROVIDER_ENV_VARS:
+                os.environ.pop(var, None)
+            with patch(
+                "llm_gateway.services.model_registry.get_settings",
+                return_value=create_mock_settings(openai=False, anthropic=False, gemini=False, bedrock=True),
+            ):
+                assert is_model_available("bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0", "llm_gateway") is True

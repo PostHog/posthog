@@ -119,13 +119,23 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
-            "claude-opus-4-5-20260101",
         ],
     )
-    def test_posthog_code_allows_configured_models_with_dated_variants(self, model: str):
+    def test_posthog_code_allows_configured_models(self, model: str):
         allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    def test_posthog_code_rejects_dated_variant_when_not_listed_exactly(self):
+        allowed, error = check_product_access(
+            "posthog_code",
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            "claude-opus-4-5-20260101",
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
     @pytest.mark.parametrize(
         "alias",

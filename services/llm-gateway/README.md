@@ -136,6 +136,12 @@ The gateway supports capturing additional event properties to PostHog via the `X
 ### Anthropic-compatible
 
 - `POST /v1/messages` - Anthropic Messages API
+- `POST /v1/messages/count_tokens` - Anthropic token counting API
+
+### Bedrock-compatible
+
+- `POST /bedrock/v1/messages` - Bedrock Anthropic Messages API
+- `POST /bedrock/v1/messages/count_tokens` - Bedrock Anthropic token counting API
 
 ### Product-scoped endpoints
 
@@ -143,12 +149,24 @@ For product-specific rate limits and tracking:
 
 - `POST /{product}/v1/chat/completions`
 - `POST /{product}/v1/messages`
+- `POST /{product}/bedrock/v1/messages`
 
 The product name is extracted from the first path segment and recorded as `ai_product` on `$ai_generation` events. See [Products](#products) for the full list and how to add one.
 
 ## Supported models
 
 All OpenAI, Anthropic and Gemini chat models are supported.
+The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's model map.
+Use `/bedrock/v1/models` to list Bedrock-specific model IDs only.
+
+## Bedrock configuration
+
+To use `/bedrock/v1/*` endpoints, configure:
+
+- `LLM_GATEWAY_BEDROCK_REGION_NAME` (required)
+
+Credentials are intentionally not loaded through `LLM_GATEWAY_*` settings in the gateway.
+Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, ECS task role, or pre-existing `AWS_*` env vars provisioned by deployment).
 
 ## Products
 
