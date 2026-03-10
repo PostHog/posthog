@@ -65,17 +65,30 @@ function getRegionFromRequest(request: Request): CloudRegion | null {
 }
 
 // Detect error codes and return appropriate responses
-const errorHandler = async (response: Response): Promise<Response> => {
+const onThenErrorHandler = async (response: Response): Promise<Response> => {
     if (!response.ok) {
         const body = await response.clone().text()
-        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-            return new Response('OAuth token is inactive', { status: 401 })
-        } else if (body.includes(ErrorCode.INVALID_API_KEY)) {
-            return new Response('Invalid API key', { status: 401 })
+        const errorResponse = generateErrorResponse(body)
+        if (errorResponse) {
+            return errorResponse
         }
     }
 
     return response
+}
+
+const onCatchErrorHandler = async (error: Error): Promise<Response> => {
+    return generateErrorResponse(error.message) || new Response('Internal server error', { status: 500 })
+}
+
+const generateErrorResponse = (message: string): Response | null => {
+    if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
+        return new Response('OAuth token is inactive', { status: 401 })
+    } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
+        return new Response('Invalid API key', { status: 401 })
+    }
+
+    return null
 }
 
 const handleRequest = async (
@@ -232,15 +245,19 @@ const handleRequest = async (
     const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
-    Object.assign(ctx.props, { features, region: regionParam, version, readOnly })
-    log.extend({ features, version })
+    const extraContextProps = { features, region: regionParam, version, readOnly }
+    Object.assign(ctx.props, extraContextProps)
+    log.extend(extraContextProps)
 
+    let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
-        return MCP.serve('/mcp').fetch(request, env, ctx).then(errorHandler)
+        server = MCP.serve('/mcp').fetch(request, env, ctx)
+    } else if (url.pathname.startsWith('/sse')) {
+        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 
-    if (url.pathname.startsWith('/sse')) {
-        return MCP.serveSSE('/sse').fetch(request, env, ctx).then(errorHandler)
+    if (server !== null) {
+        return server.then(onThenErrorHandler).catch(onCatchErrorHandler)
     }
 
     log.extend({ error: 'route_not_found' })

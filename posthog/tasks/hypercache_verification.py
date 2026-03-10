@@ -2,7 +2,7 @@
 Celery tasks for HyperCache verification.
 
 Provides separate tasks for verifying and fixing each HyperCache-backed cache
-(flags, team metadata). Split into separate tasks to:
+(flags, flag definitions, team metadata). Split into separate tasks to:
 - Give each cache its own time budget (avoiding timeouts)
 - Enable independent monitoring and metrics
 - Allow parallel execution when workers are available
@@ -10,11 +10,11 @@ Provides separate tasks for verifying and fixing each HyperCache-backed cache
 """
 
 import time
+from functools import partial
 from typing import Literal
 
 from django.conf import settings
 from django.core.cache import cache as django_cache
-from django.db import close_old_connections
 
 import structlog
 from celery import shared_task
@@ -25,7 +25,6 @@ from posthog.models.feature_flag.local_evaluation import (
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
     verify_team_flag_definitions,
 )
-from posthog.models.team.team import Team
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.storage.hypercache_verifier import _run_verification_for_cache
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
@@ -35,99 +34,58 @@ logger = structlog.get_logger(__name__)
 CacheType = Literal["flags", "team_metadata"]
 
 # Lock timeout matches time_limit to ensure lock is released if task is killed.
-# Reduced from 1 hour to 25 minutes to enable faster recovery when tasks crash
-# (OOM, deploy kills) without executing their finally block. With 30-minute
-# scheduling and 25-minute lock timeout, a crashed task's lock expires before
-# the next scheduled run, so at most 1 run is skipped after a crash.
+# With 30-minute scheduling and 25-minute lock timeout, a crashed task's lock
+# expires before the next scheduled run, so at most 1 run is skipped after a crash.
 LOCK_TIMEOUT_SECONDS = 25 * 60  # 25 minutes
 
-# Flag definitions verification has a 1-hour time limit (longer than the 25-minute limit
-# used by flags and team_metadata tasks) because it processes more data per team.
-# The lock timeout must match the task's time_limit to prevent concurrent executions.
-FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS = 60 * 60  # 1 hour
+# Flag definitions verification lock timeout matches time_limit (30 min) to ensure
+# the lock expires before the next scheduled run if a task crashes without executing
+# its finally block. Each variant runs hourly (without-cohorts at minute 10, with-cohorts
+# at minute 50), so a 30-minute lock expiry guarantees at most 1 run is skipped after a crash.
+FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 
 
-def _run_flag_definitions_verification() -> None:
+def _run_flag_definitions_verification(
+    config: HyperCacheManagementConfig,
+    include_cohorts: bool,
+    variant_name: str,
+) -> None:
     """
-    Run verification for the flag definitions cache.
+    Run verification for a flag definitions cache variant.
 
-    Handles:
-    - Distributed lock to prevent concurrent executions
+    Acquires a distributed lock keyed by variant_name and runs verification for
+    the given config. The with-cohorts and without-cohorts variants use separate
+    locks, allowing parallel execution when workers are available.
 
     Note: Unlike the flags cache (which uses FLAGS_REDIS_URL), the flag definitions
     cache uses the default cache backend (REDIS_URL). No special guard needed since
     Django's default cache is always available.
     """
-    cache_type = "flag_definitions"
-
+    cache_type = f"flag_definitions_{variant_name}"
     lock_key = f"posthog:hypercache_verification:{cache_type}:lock"
 
-    # Attempt to acquire lock - cache.add returns False if key already exists
-    # Use dedicated timeout that matches the task's 1-hour time limit
     if not django_cache.add(lock_key, "locked", timeout=FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS):
         logger.info("Skipping cache verification - already running", cache_type=cache_type)
         return
 
     try:
         logger.info("Starting cache verification", cache_type=cache_type)
-
         start_time = time.time()
+        verify_fn = partial(verify_team_flag_definitions, include_cohorts=include_cohorts)
 
-        variants: list[tuple[HyperCacheManagementConfig, bool, str]] = [
-            (FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, True, "with-cohorts"),
-            (FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, False, "without-cohorts"),
-        ]
-
-        errors: list[Exception] = []
-
-        for config, include_cohorts, variant_name in variants:
-
-            def verify_fn(
-                team: Team,
-                db_batch_data: dict | None = None,
-                cache_batch_data: dict | None = None,
-                verbose: bool = False,
-                _include_cohorts: bool = include_cohorts,
-            ) -> dict:
-                return verify_team_flag_definitions(
-                    team,
-                    db_batch_data=db_batch_data,
-                    cache_batch_data=cache_batch_data,
-                    include_cohorts=_include_cohorts,
-                    verbose=verbose,
-                )
-
-            try:
-                _run_verification_for_cache(
-                    config=config,
-                    verify_team_fn=verify_fn,
-                    cache_type=f"{cache_type}_{variant_name}",
-                    chunk_size=settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE,
-                )
-            except Exception as e:
-                logger.exception(
-                    "Failed cache verification",
-                    cache_type=cache_type,
-                    variant=variant_name,
-                    error=str(e),
-                )
-                capture_exception(e)
-                errors.append(e)
-                # Reset DB connections after a failure (e.g. SoftTimeLimitExceeded
-                # during an active query) so the next variant gets a clean connection
-                # instead of hitting "another command is already in progress".
-                close_old_connections()
+        try:
+            _run_verification_for_cache(
+                config=config,
+                verify_team_fn=verify_fn,
+                cache_type=cache_type,
+                chunk_size=settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE,
+            )
+        except Exception as e:
+            logger.exception("Failed cache verification", cache_type=cache_type, error=str(e))
+            capture_exception(e)
+            raise
 
         duration = time.time() - start_time
-        if errors:
-            logger.warning(
-                "Cache verification finished with errors",
-                cache_type=cache_type,
-                duration_seconds=duration,
-                failed_variants=len(errors),
-            )
-            raise errors[0]
-
         logger.info("Completed cache verification", cache_type=cache_type, duration_seconds=duration)
     finally:
         django_cache.delete(lock_key)
@@ -238,19 +196,48 @@ def verify_and_fix_team_metadata_cache_task(self: PushGatewayTask) -> None:
     base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
-    soft_time_limit=50 * 60,  # 50 min soft limit
-    time_limit=60 * 60,  # 1 hour hard limit (distributed lock prevents overlap)
+    soft_time_limit=25 * 60,  # 25 min soft limit
+    time_limit=30 * 60,  # 30 min hard limit (matches FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS)
 )
 def verify_and_fix_flag_definitions_cache_task(self: PushGatewayTask) -> None:
     """
-    Periodic task to verify the flag definitions HyperCache and fix issues.
+    Periodic task to verify the flag definitions (with-cohorts) HyperCache and fix issues.
 
-    Runs hourly at minute 50. Verifies both cache variants (with-cohorts and
-    without-cohorts) independently, fixing cache misses, mismatches, or expiry
-    tracking issues for each. Errors on one variant don't block the other.
+    Runs hourly at minute 50. Verifies all teams' flag definitions cache entries
+    that include cohort data, fixing cache misses, mismatches, or expiry tracking issues.
 
-    Uses a distributed lock to skip execution if a previous run is still in progress.
+    Uses a per-variant distributed lock to skip execution if a previous run is still in progress.
 
-    Metrics: posthog_hypercache_verify_fixes_total{cache_type="flag_definitions_<variant>", issue_type="..."}
+    Metrics: posthog_hypercache_verify_fixes_total{cache_type="flag_definitions_with-cohorts", issue_type="..."}
     """
-    _run_flag_definitions_verification()
+    _run_flag_definitions_verification(
+        config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
+        include_cohorts=True,
+        variant_name="with-cohorts",
+    )
+
+
+@shared_task(
+    bind=True,
+    base=PushGatewayTask,
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    soft_time_limit=25 * 60,  # 25 min soft limit
+    time_limit=30 * 60,  # 30 min hard limit (matches FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS)
+)
+def verify_and_fix_flag_definitions_without_cohorts_cache_task(self: PushGatewayTask) -> None:
+    """
+    Periodic task to verify the flag definitions (without-cohorts) HyperCache and fix issues.
+
+    Runs hourly at minute 10. Verifies all teams' flag definitions cache entries
+    that exclude cohort data, fixing cache misses, mismatches, or expiry tracking issues.
+
+    Uses a per-variant distributed lock to skip execution if a previous run is still in progress.
+
+    Metrics: posthog_hypercache_verify_fixes_total{cache_type="flag_definitions_without-cohorts", issue_type="..."}
+    """
+    _run_flag_definitions_verification(
+        config=FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
+        include_cohorts=False,
+        variant_name="without-cohorts",
+    )

@@ -37,6 +37,11 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, unknown> => ({
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action-list.html',
+        },
+    },
 })
 
 const ActionCreateSchema = ActionsCreateBody.omit({ deleted: true, last_calculated_at: true, _create_in_folder: true })
@@ -78,6 +83,11 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema, Schemas.Action & { 
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action.html',
+        },
+    },
 })
 
 const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true })
@@ -95,6 +105,11 @@ const actionGet = (): ToolBase<typeof ActionGetSchema, Schemas.Action & { _posth
             ...(result as any),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action.html',
+        },
     },
 })
 
@@ -138,6 +153,11 @@ const actionUpdate = (): ToolBase<typeof ActionUpdateSchema, Schemas.Action & { 
             ...(result as any),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/action.html',
+        },
     },
 })
 
