@@ -165,11 +165,17 @@ class TestCallbacksReceiveCorrectData:
 class TestEndUserIdExtraction:
     pytestmark = pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set")
 
-    def test_openai_user_param_is_not_used_as_end_user(self, openai_client: OpenAI) -> None:
-        """Verify that the 'user' parameter in OpenAI requests is NOT used as end_user_id.
-
-        The end_user_id is always the authenticated user's ID to prevent rate limit poisoning.
-        """
+    @pytest.mark.parametrize(
+        "user_param,expected_user_in_kwargs",
+        [
+            ("test-end-user-123", "test-end-user-123"),
+            (None, None),
+        ],
+    )
+    def test_end_user_id_is_always_auth_user(
+        self, openai_client: OpenAI, user_param: str | None, expected_user_in_kwargs: str | None
+    ) -> None:
+        """Verify end_user_id is always the authenticated user's ID, never the client-provided 'user' param."""
         received_data: dict[str, object] = {}
 
         async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
@@ -178,34 +184,16 @@ class TestEndUserIdExtraction:
 
         from llm_gateway.callbacks.rate_limiting import RateLimitCallback
 
-        with patch.object(RateLimitCallback, "_on_success", capture_on_success):
-            openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": "Say 'test'"}],
-                max_tokens=5,
-                user="test-end-user-123",
-            )
-
-        # end_user_id is always the authenticated user's ID (123 from conftest fixture),
-        # never the client-provided 'user' param
-        assert received_data.get("end_user_id") == "123"
-        assert received_data.get("user_in_kwargs") == "test-end-user-123"
-
-    def test_openai_request_without_user_param(self, openai_client: OpenAI) -> None:
-        """Verify that requests without 'user' parameter still have end_user_id from auth."""
-        received_data: dict[str, str | None] = {}
-
-        async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
-            received_data["end_user_id"] = end_user_id
-
-        from llm_gateway.callbacks.rate_limiting import RateLimitCallback
+        kwargs: dict[str, object] = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": "Say 'test'"}],
+            "max_tokens": 5,
+        }
+        if user_param is not None:
+            kwargs["user"] = user_param
 
         with patch.object(RateLimitCallback, "_on_success", capture_on_success):
-            openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": "Say 'test'"}],
-                max_tokens=5,
-            )
+            openai_client.chat.completions.create(**kwargs)
 
-        # end_user_id is always the authenticated user's ID (123 from conftest fixture)
         assert received_data.get("end_user_id") == "123"
+        assert received_data.get("user_in_kwargs") == expected_user_in_kwargs
