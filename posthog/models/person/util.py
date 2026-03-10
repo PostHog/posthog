@@ -27,7 +27,7 @@ from posthog.models.person.sql import (
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
@@ -238,11 +238,16 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[P
     if use_personhog():
         try:
             result = _fetch_persons_by_distinct_ids_via_personhog(team_id, distinct_ids)
-            PERSONHOG_ROUTING_TOTAL.labels(operation="get_persons_by_distinct_ids", source="personhog").inc()
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_persons_by_distinct_ids", source="personhog", client_name=get_client_name()
+            ).inc()
             return result
         except Exception:
             PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_persons_by_distinct_ids", source="personhog", error_type="grpc_error"
+                operation="get_persons_by_distinct_ids",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
             ).inc()
             logger.warning("personhog_get_persons_by_distinct_ids_failure", team_id=team_id, exc_info=True)
 
@@ -265,7 +270,9 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[P
             )
         )
     )
-    PERSONHOG_ROUTING_TOTAL.labels(operation="get_persons_by_distinct_ids", source="django_orm").inc()
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_persons_by_distinct_ids", source="django_orm", client_name=get_client_name()
+    ).inc()
     return list(persons)
 
 
@@ -298,15 +305,22 @@ def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person
     if use_personhog():
         try:
             result = _fetch_persons_by_uuids_via_personhog(team.pk, uuids)
-            PERSONHOG_ROUTING_TOTAL.labels(operation="get_persons_by_uuids", source="personhog").inc()
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_persons_by_uuids", source="personhog", client_name=get_client_name()
+            ).inc()
             return result
         except Exception:
             PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_persons_by_uuids", source="personhog", error_type="grpc_error"
+                operation="get_persons_by_uuids",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
             ).inc()
             logger.warning("personhog_get_persons_by_uuids_failure", team_id=team.pk, exc_info=True)
 
-    PERSONHOG_ROUTING_TOTAL.labels(operation="get_persons_by_uuids", source="django_orm").inc()
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_persons_by_uuids", source="django_orm", client_name=get_client_name()
+    ).inc()
     return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
 
 

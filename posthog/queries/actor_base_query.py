@@ -19,7 +19,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.queries.insight import insight_sync_execute
 
 logger = structlog.get_logger(__name__)
@@ -302,11 +302,13 @@ def get_people(
     if use_personhog():
         try:
             persons = _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit)
-            PERSONHOG_ROUTING_TOTAL.labels(operation="get_people", source="personhog").inc()
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_people", source="personhog", client_name=get_client_name()
+            ).inc()
             return persons, serialize_people(team, persons, value_per_actor_id)
         except Exception:
             PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_people", source="personhog", error_type="grpc_error"
+                operation="get_people", source="personhog", error_type="grpc_error", client_name=get_client_name()
             ).inc()
             logger.warning("personhog_get_people_failure", team_id=team.pk, exc_info=True)
 
@@ -328,7 +330,7 @@ def get_people(
         .order_by("-created_at", "uuid")
         .only("id", "is_identified", "created_at", "properties", "uuid", "team_id")
     )
-    PERSONHOG_ROUTING_TOTAL.labels(operation="get_people", source="django_orm").inc()
+    PERSONHOG_ROUTING_TOTAL.labels(operation="get_people", source="django_orm", client_name=get_client_name()).inc()
     return persons_qs, serialize_people(team, persons_qs, value_per_actor_id)
 
 
