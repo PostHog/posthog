@@ -207,8 +207,17 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
     listeners(({ actions, values, props }) => ({
         abortRun: () => {
+            posthog.capture('llma playground prompt aborted')
             const key = props.tabId ?? 'default'
             abortControllersByKey.get(key)?.abort()
+        },
+        setRateLimited: ({ retryAfterSeconds }) => {
+            posthog.capture('llma playground rate limited', { retry_after_seconds: retryAfterSeconds })
+        },
+        setSubscriptionRequired: ({ required }) => {
+            if (required) {
+                posthog.capture('llma playground subscription required')
+            }
         },
 
         submitPrompt: async (_: unknown, breakpoint: () => void) => {

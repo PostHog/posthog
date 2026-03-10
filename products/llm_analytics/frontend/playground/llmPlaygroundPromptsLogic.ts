@@ -622,6 +622,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             })
         },
         removePromptConfig: ({ promptId }) => {
+            posthog.capture('llma playground prompt config removed', {
+                prompt_count: values.promptConfigs.length,
+            })
             if (values.promptConfigs.length === 0) {
                 actions.setPromptConfigs([createPromptConfig({ id: INITIAL_PROMPT.id })])
                 actions.setActivePromptId(INITIAL_PROMPT.id)
@@ -631,6 +634,23 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             if (values.activePromptId === null || values.activePromptId === promptId) {
                 actions.setActivePromptId(values.promptConfigs[0]?.id ?? null)
             }
+        },
+
+        addMessage: () => {
+            posthog.capture('llma playground message added', {
+                message_count: values.activePromptConfig?.messages.length ?? 0,
+            })
+        },
+        deleteMessage: () => {
+            posthog.capture('llma playground message removed', {
+                message_count: values.activePromptConfig?.messages.length ?? 0,
+            })
+        },
+        setTools: ({ tools }) => {
+            posthog.capture('llma playground tools configured', {
+                action: tools ? 'set' : 'clear',
+                tool_count: tools?.length ?? 0,
+            })
         },
 
         setupPlaygroundFromEvent: async ({ payload }) => {
