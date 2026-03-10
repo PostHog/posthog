@@ -3,12 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 import { ExperimentStatsMethod } from '~/types'
 
-import { FEATURE_FLAGS } from '../../../lib/constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { StatsMethodModal } from './StatsMethodModal'
