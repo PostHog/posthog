@@ -11,6 +11,8 @@ declare namespace Cloudflare {
 		POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: string;
 		POSTHOG_UI_APPS_TOKEN: string;
 		INKEEP_API_KEY: string;
+		POSTHOG_ANALYTICS_API_KEY: string;
+		POSTHOG_ANALYTICS_HOST: string;
 		MCP_OBJECT: DurableObjectNamespace<import("./src/index").MCP>;
 	}
 }
