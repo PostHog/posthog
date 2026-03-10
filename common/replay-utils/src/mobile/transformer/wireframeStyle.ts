@@ -1,6 +1,5 @@
 import { wireframe, wireframeProgress } from '../mobile.types'
-// eslint-disable-next-line import/no-cycle
-import { dataURIOrPNG } from './transformers'
+import { dataURIOrPNG } from './data-uri'
 import { StyleOverride } from './types'
 
 function ensureTrailingSemicolon(styles: string): string {

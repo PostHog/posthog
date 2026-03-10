@@ -13,8 +13,7 @@ import {
     STATUS_BAR_ID,
     _isPositiveInteger,
     makePlaceholderElement,
-    // eslint-disable-next-line import/no-cycle
-} from './transformers'
+} from './shared'
 import { ConversionContext, ConversionResult } from './types'
 import { asStyleString, makeStylesString } from './wireframeStyle'
 

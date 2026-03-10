@@ -1,6 +1,7 @@
+import { SnapshotStore } from '@posthog/replay-utils'
+
 import { RecordingSegment, SessionRecordingSnapshotSource } from '~/types'
 
-import { SnapshotStore } from '../snapshot-store/SnapshotStore'
 import { convertSegmentKinds } from './segment-kind-conversion'
 
 function makeSources(count: number): SessionRecordingSnapshotSource[] {

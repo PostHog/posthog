@@ -1,7 +1,6 @@
 import { EventType, eventWithTime } from '@posthog/rrweb-types'
 
-import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
-
+import { RecordingSnapshot, SessionRecordingSnapshotSource } from '../types'
 import { SourceEntry, SourceLoadingState } from './types'
 
 export class SnapshotStore {

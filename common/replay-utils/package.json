@@ -1,0 +1,22 @@
+{
+    "name": "@posthog/replay-utils",
+    "version": "0.0.1",
+    "private": true,
+    "main": "src/index.ts",
+    "exports": {
+        ".": "./src/index.ts",
+        "./mobile/*": "./src/mobile/*"
+    },
+    "scripts": {
+        "test": "jest"
+    },
+    "dependencies": {
+        "@posthog/rrweb-types": "0.0.26",
+        "fflate": "^0.8.2"
+    },
+    "devDependencies": {
+        "@swc/core": "^1.11.29",
+        "@swc/jest": "^0.2.37",
+        "jest": "^29.7.0"
+    }
+}

@@ -1,4 +1,4 @@
-import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
+import { RecordingSnapshot, SessionRecordingSnapshotSource } from '../types'
 
 export interface SourceEntry {
     source: SessionRecordingSnapshotSource

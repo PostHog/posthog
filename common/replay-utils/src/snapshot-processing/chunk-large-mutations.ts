@@ -1,8 +1,8 @@
 import { EventType, IncrementalSource } from '@posthog/rrweb-types'
 
-import { RecordingSnapshot } from '~/types'
+import { RecordingSnapshot } from '../types'
 
-export const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
+export const MUTATION_CHUNK_SIZE = 5000
 
 export function chunkMutationSnapshot(snapshot: RecordingSnapshot): RecordingSnapshot[] {
     if (
@@ -36,15 +36,12 @@ export function chunkMutationSnapshot(snapshot: RecordingSnapshot): RecordingSna
             data: {
                 ...snapshot.data,
                 adds: adds.slice(startIdx, endIdx),
-                // Keep removes in the first chunk only
                 removes: isFirstChunk ? removes : [],
-                // Keep texts and attributes in the last chunk only
                 texts: isLastChunk ? texts : [],
                 attributes: isLastChunk ? attributes : [],
             },
         }
 
-        // If delay was present in the original snapshot, increment it by 1 for each chunk
         if ('delay' in snapshot) {
             chunkSnapshot.delay = snapshot.delay || 0
         }

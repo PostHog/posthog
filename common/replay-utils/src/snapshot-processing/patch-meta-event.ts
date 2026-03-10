@@ -1,8 +1,7 @@
 import { EventType } from '@posthog/rrweb-types'
 
-import { isObject } from 'lib/utils'
-
-import { RecordingSnapshot } from '~/types'
+import { RecordingSnapshot } from '../types'
+import { isObject } from '../utils'
 
 export interface ViewportResolution {
     width: string
@@ -16,13 +15,6 @@ export const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
         : undefined
 }
 
-/**
- * Extract dimensions from transformed mobile full snapshot data
- * This is a fallback when viewport data is not available from events
- *
- * By the time this function is called, mobile wireframes have already been transformed by mobileReplay.transformEventToWeb
- * The transformer creates a specific pattern: body element with data-rrweb-id containing an img element with data-rrweb-id and dimensions
- */
 export const extractDimensionsFromMobileSnapshot = (snapshot: RecordingSnapshot): ViewportResolution | undefined => {
     if (snapshot.type !== EventType.FullSnapshot) {
         return undefined
@@ -36,8 +28,6 @@ export const extractDimensionsFromMobileSnapshot = (snapshot: RecordingSnapshot)
             return undefined
         }
 
-        // Mobile transformed structure: Document -> [DocumentType, HTML] -> HTML -> [Head, Body]
-        // Use direct traversal instead of .find() for performance
         let htmlElement: any
         for (const child of node.childNodes) {
             if (child.type === 2 && child.tagName === 'html') {
@@ -62,7 +52,6 @@ export const extractDimensionsFromMobileSnapshot = (snapshot: RecordingSnapshot)
             return undefined
         }
 
-        // Find first img with required attributes (mobile screenshot)
         for (const child of bodyElement.childNodes) {
             if (
                 child.type === 2 &&

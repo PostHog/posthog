@@ -1,5 +1,3 @@
-import posthog from 'posthog-js'
-
 import {
     EventType,
     IncrementalSource,
@@ -12,9 +10,8 @@ import {
     removedNodeMutation,
 } from '@posthog/rrweb-types'
 
-import { isObject } from 'lib/utils'
-import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
-
+import { ReplayTelemetry } from '../../telemetry'
+import { isObject } from '../../utils'
 import {
     fullSnapshotEvent as MobileFullSnapshotEvent,
     MobileIncrementalSnapshotEvent,
@@ -46,7 +43,9 @@ import {
     wireframeText,
     wireframeToggle,
 } from '../mobile.types'
+import { dataURIOrPNG } from './data-uri'
 import { makeNavigationBar, makeOpenKeyboardPlaceholder, makeStatusBar } from './screen-chrome'
+import { BACKGROUND, KEYBOARD_ID, _isPositiveInteger, makePlaceholderElement } from './shared'
 import { ConversionContext, ConversionResult } from './types'
 import {
     asStyleString,
@@ -58,10 +57,8 @@ import {
     makeMinimalStyles,
     makePositionStyles,
     makeStylesString,
-    // eslint-disable-next-line import/no-cycle
 } from './wireframeStyle'
 
-export const BACKGROUND = '#f3f4ef'
 const FOREGROUND = '#35373e'
 
 /**
@@ -93,21 +90,12 @@ const HTML_DOC_TYPE_ID = 2
 const HTML_ELEMENT_ID = 3
 const HEAD_ID = 4
 const BODY_ID = 5
-// the nav bar should always be the last item in the body so that it is at the top of the stack
 const NAVIGATION_BAR_PARENT_ID = 7
-export const NAVIGATION_BAR_ID = 8
-// the keyboard so that it is still before the nav bar
 const KEYBOARD_PARENT_ID = 9
-export const KEYBOARD_ID = 10
 export const STATUS_BAR_PARENT_ID = 11
-export const STATUS_BAR_ID = 12
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
     return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
-}
-
-export function _isPositiveInteger(id: unknown): id is number {
-    return typeof id === 'number' && id > 0 && id % 1 === 0
 }
 
 function _isNullish(x: unknown): x is null | undefined {
@@ -122,7 +110,8 @@ export const makeCustomEvent = (
     mobileCustomEvent: (customEvent | keyboardEvent) & {
         timestamp: number
         delay?: number
-    }
+    },
+    telemetry: ReplayTelemetry
 ): (customEvent | incrementalSnapshotEvent) & {
     timestamp: number
     delay?: number
@@ -156,7 +145,7 @@ export const makeCustomEvent = (
                     },
                 })
             } else {
-                posthog.captureException(new Error('Failed to create keyboard placeholder'), { mobileCustomEvent })
+                telemetry.captureException(new Error('Failed to create keyboard placeholder'), { mobileCustomEvent })
             }
         } else {
             removes.push({
@@ -265,52 +254,15 @@ function makeWebViewElement(
     return makePlaceholderElement(labelledWireframe, children, context)
 }
 
-export function makePlaceholderElement(
-    wireframe: wireframe,
-    children: serializedNodeWithId[],
-    context: ConversionContext
-): ConversionResult<serializedNodeWithId> | null {
-    const txt = 'label' in wireframe && wireframe.label ? wireframe.label : wireframe.type || 'PLACEHOLDER'
-    return {
-        result: {
-            type: NodeType.Element,
-            tagName: 'div',
-            attributes: {
-                style: makeStylesString(wireframe, {
-                    verticalAlign: 'center',
-                    horizontalAlign: 'center',
-                    backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
-                    color: wireframe.style?.color || FOREGROUND,
-                    backgroundImage: PLACEHOLDER_SVG_DATA_IMAGE_URL,
-                    backgroundSize: 'auto',
-                    backgroundRepeat: 'unset',
-                    ...context.styleOverride,
-                }),
-                'data-rrweb-id': wireframe.id,
-            },
-            id: wireframe.id,
-            childNodes: [
-                {
-                    type: NodeType.Text,
-                    // since the text node is wrapped, we assign it a synthetic id
-                    id: context.idSequence.next().value,
-                    textContent: txt,
-                },
-                ...children,
-            ],
-        },
-        context,
-    }
-}
-
-export function dataURIOrPNG(src: string): string {
-    // replace all new lines in src
-    src = src.replace(/\r?\n|\r/g, '')
-    if (!src.startsWith('data:image/')) {
-        return 'data:image/png;base64,' + src
-    }
-    return src
-}
+export {
+    BACKGROUND,
+    KEYBOARD_ID,
+    NAVIGATION_BAR_ID,
+    STATUS_BAR_ID,
+    _isPositiveInteger,
+    makePlaceholderElement,
+} from './shared'
+export { dataURIOrPNG } from './data-uri'
 
 function makeImageElement(
     wireframe: wireframeImage | wireframeScreenshot,
@@ -367,7 +319,7 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
                 style: null, // radio buttons are styled by being combined with a label
                 ...(wireframe.checked ? { checked: wireframe.checked } : {}),
                 // radio value defaults to the string "on" if not specified
-                // we're not really submitting the form, so it doesn't matter 🤞
+                // we're not really submitting the form, so it doesn't matter
                 // radio name is used to correctly uncheck values when one is checked
                 // mobile doesn't really have it, and we will be checking based on snapshots,
                 // so we can ignore it for now
@@ -1180,7 +1132,7 @@ export const makeIncrementalEvent = (
             attributes: [],
             texts: [],
             adds: dedupeMutations(adds),
-            // TODO: this assumes that removes are processed before adds 🤞
+            // TODO: this assumes that removes are processed before adds
             removes: dedupeMutations(removes),
         }
     }
