@@ -408,14 +408,6 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
     try:
         slack = SlackIntegration(integration)
 
-        # Post disclaimer for new threads so users know messages will be synced
-        if not existing_conversation:
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text="Messages in this thread will be visible in PostHog.",
-            )
-
         # Check if conversation is already in progress
         if existing_conversation and existing_conversation.status in [
             Conversation.Status.IN_PROGRESS,
@@ -518,12 +510,21 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
         thinking_message = f"I'm {random.choice(THINKING_MESSAGES).lower()}..."
 
         # Build blocks for the initial message - only include "View chat in PostHog" if we have an existing conversation
-        initial_blocks: list[dict] = [
+        initial_blocks: list[dict] = []
+        if not conversation_id:
+            # First mention in this thread: include disclaimer so users know messages will be visible in PostHog
+            initial_blocks.append(
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": "_Messages in this thread will be visible in PostHog._"}],
+                }
+            )
+        initial_blocks.append(
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": thinking_message},
-            },
-        ]
+            }
+        )
         if conversation_id:
             conversation_url = f"{settings.SITE_URL}/project/{integration.team_id}/ai?chat={conversation_id}"
             initial_blocks.append(
@@ -563,6 +564,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             slack_thread_key=slack_thread_key,
             conversation_id=conversation_id,
             user_id=posthog_user.id,
+            is_new_conversation=not conversation_id,
         )
 
         # Deterministic workflow ID ensures only one workflow runs per Slack thread at a time
