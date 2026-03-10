@@ -48,7 +48,7 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from posthog.models import FeatureFlag, Tag, Team
+from posthog.models import FeatureFlag, Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
@@ -57,7 +57,6 @@ from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
-    FeatureFlagEvaluationTag,
     get_user_blast_radius,
     set_feature_flags_for_team_in_cache,
 )
@@ -417,11 +416,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         return EvaluationTagsChecker.is_enabled(self.context["request"])
 
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
-        """Update evaluation contexts for a feature flag using efficient diff logic.
-
-        Writes to both new (EvaluationContext) and old (Tag-based) tables
-        during the migration period.
-        """
+        """Update evaluation contexts for a feature flag using efficient diff logic."""
         if not obj:
             return
 
@@ -433,7 +428,6 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         deduped_names = list({tagify(t) for t in evaluation_tags or []})
         deduped_set = set(deduped_names)
 
-        # --- Write to new tables (EvaluationContext) ---
         current_context_names = set(
             FeatureFlagEvaluationContext.objects.filter(feature_flag=obj)
             .select_related("evaluation_context")
@@ -452,24 +446,6 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
             for name in to_add:
                 ctx, _ = EvaluationContext.objects.get_or_create(name=name, team_id=obj.team_id)
                 FeatureFlagEvaluationContext.objects.create(feature_flag=obj, evaluation_context=ctx)
-
-        # --- Dual-write to old tables (Tag-based) for backward compat ---
-        current_eval_tags = set(
-            FeatureFlagEvaluationTag.objects.filter(feature_flag=obj)
-            .select_related("tag")
-            .values_list("tag__name", flat=True)
-        )
-
-        old_to_add = deduped_set - current_eval_tags
-        old_to_remove = current_eval_tags - deduped_set
-
-        if old_to_remove:
-            FeatureFlagEvaluationTag.objects.filter(feature_flag=obj, tag__name__in=old_to_remove).delete()
-
-        if old_to_add:
-            for tag_name in old_to_add:
-                tag, _ = Tag.objects.get_or_create(name=tag_name, team_id=obj.team_id)
-                FeatureFlagEvaluationTag.objects.create(feature_flag=obj, tag=tag)
 
         if to_add or to_remove:
             try:
