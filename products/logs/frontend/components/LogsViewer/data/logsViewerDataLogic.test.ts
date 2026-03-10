@@ -85,6 +85,45 @@ describe('logsViewerDataLogic', () => {
         })
     })
 
+    describe('sparklineData selector', () => {
+        it.each([
+            ['null', null, { labels: [], dates: [], data: [] }],
+            ['an empty array', [], { labels: [], dates: [], data: [] }],
+            [
+                'valid data',
+                [
+                    { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
+                    { time: '2024-01-01T00:01:00Z', severity: 'error', count: 3 },
+                ],
+                { labels: expect.any(Array), dates: expect.any(Array), data: expect.any(Array) },
+            ],
+        ])('returns correct data when sparkline is %s', async (_, sparklineInput, expected) => {
+            logic.actions.setSparkline(sparklineInput as any[] | null)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.sparklineData).toEqual(expected)
+        })
+    })
+
+    describe('totalLogsMatchingFilters selector', () => {
+        it.each([
+            ['null', null, 0],
+            [
+                'valid data',
+                [
+                    { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
+                    { time: '2024-01-01T00:00:00Z', severity: 'error', count: 3 },
+                ],
+                8,
+            ],
+        ])('returns correct total when sparkline is %s', async (_, sparklineInput, expected) => {
+            logic.actions.setSparkline(sparklineInput as any[] | null)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.totalLogsMatchingFilters).toEqual(expected)
+        })
+    })
+
     describe('query failure event capture', () => {
         beforeEach(() => {
             jest.clearAllMocks()
