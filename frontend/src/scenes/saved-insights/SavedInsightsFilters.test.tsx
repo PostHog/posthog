@@ -142,15 +142,15 @@ describe('SavedInsightsFilters Unused button', () => {
         )
     }
 
-    it('calls setFilters with notOnDashboard: true when clicking Unused', async () => {
+    it('calls setFilters with notOnDashboard: true when clicking `Not on dashboards`', async () => {
         renderFilters()
-        await userEvent.click(screen.getByText('Unused'))
+        await userEvent.click(screen.getByText('Not on dashboards'))
         expect(setFilters).toHaveBeenCalledWith({ notOnDashboard: true })
     })
 
-    it('calls setFilters with notOnDashboard: false when clicking Unused while active', async () => {
+    it('calls setFilters with notOnDashboard: false when clicking `Not on dashboards` while active', async () => {
         renderFilters({ notOnDashboard: true })
-        await userEvent.click(screen.getByText('Unused'))
+        await userEvent.click(screen.getByText('Not on dashboards'))
         expect(setFilters).toHaveBeenCalledWith({ notOnDashboard: false })
     })
 })

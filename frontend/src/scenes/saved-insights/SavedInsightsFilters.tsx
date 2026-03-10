@@ -224,7 +224,7 @@ export function SavedInsightsFilters({
                             active={notOnDashboard || false}
                             onClick={() => setFilters({ notOnDashboard: !notOnDashboard })}
                             size="small"
-                            icon={<IconCircleDashed />}                            
+                            icon={<IconCircleDashed />}
                         >
                             Not on dashboards
                         </LemonButton>
