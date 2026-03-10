@@ -663,11 +663,14 @@ class ExperimentService:
                 }
             )
 
+        duplicate_description = source_experiment.description or ""
+        duplicate_type = source_experiment.type or "product"
+
         return self.create_experiment(
             name=duplicate_name,
             feature_flag_key=feature_flag_key,
-            description=source_experiment.description,
-            type=source_experiment.type,
+            description=duplicate_description,
+            type=duplicate_type,
             parameters=parameters,
             filters=source_experiment.filters,
             metrics=source_experiment.metrics,
