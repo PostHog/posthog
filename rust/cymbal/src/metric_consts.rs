@@ -108,7 +108,5 @@ pub const ISSUE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_issue_suppression
 pub const RULE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_rule_suppression_operator";
 pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_generator_operator";
 pub const RULE_SUPPRESSED_EVENTS: &str = "cymbal_rule_suppressed_events";
-pub const SUPPRESSION_RULES_FOUND: &str = "cymbal_suppression_rules_found";
 pub const SUPPRESSION_RULES_TRIED: &str = "cymbal_suppression_rules_tried";
 pub const SUPPRESSION_RULES_DISABLED: &str = "cymbal_suppression_rules_disabled";
-pub const SUPPRESSION_RULES_PROCESSING_TIME: &str = "cymbal_suppression_rules_processing_time";

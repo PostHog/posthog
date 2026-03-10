@@ -2,6 +2,7 @@ from typing import override
 
 import structlog
 import posthoganalytics
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
@@ -40,11 +41,13 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         json_filters = request.data.get("filters")
 
         if json_filters:
-            parsed_filters = PropertyGroupFilterValue(**json_filters)
+            try:
+                parsed_filters = PropertyGroupFilterValue(**json_filters)
+            except (PydanticValidationError, TypeError) as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             suppression_rule.filters = json_filters
             suppression_rule.bytecode = generate_byte_code(self.team, parsed_filters)
-
-        suppression_rule.disabled_data = None
+            suppression_rule.disabled_data = None
         suppression_rule.save()
 
         posthoganalytics.capture(
@@ -72,7 +75,10 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         if not json_filters:
             return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        parsed_filters = PropertyGroupFilterValue(**json_filters)
+        try:
+            parsed_filters = PropertyGroupFilterValue(**json_filters)
+        except (PydanticValidationError, TypeError) as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         bytecode = generate_byte_code(self.team, parsed_filters)
 
         suppression_rule = ErrorTrackingSuppressionRule.objects.create(

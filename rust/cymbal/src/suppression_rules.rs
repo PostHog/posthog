@@ -5,18 +5,9 @@ use common_types::TeamId;
 use hogvm::{ExecutionContext, Program, StepOutcome, VmError};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::PgConnection;
 use uuid::Uuid;
 
-use crate::{
-    error::UnhandledError,
-    metric_consts::{
-        SUPPRESSION_RULES_DISABLED, SUPPRESSION_RULES_FOUND, SUPPRESSION_RULES_PROCESSING_TIME,
-        SUPPRESSION_RULES_TRIED,
-    },
-    teams::TeamManager,
-    types::RawErrProps,
-};
+use crate::metric_consts::{SUPPRESSION_RULES_DISABLED, SUPPRESSION_RULES_TRIED};
 
 #[derive(Debug, Clone)]
 pub struct SuppressionRule {
@@ -120,79 +111,6 @@ impl SuppressionRule {
 
         Err(VmError::OutOfResource("steps".to_string()))
     }
-}
-
-pub async fn try_suppression_rules(
-    con: &mut PgConnection,
-    team_id: TeamId,
-    team_manager: &TeamManager,
-    exception_properties: &RawErrProps,
-) -> Result<Option<SuppressionRule>, UnhandledError> {
-    let mut props_json = serde_json::to_value(exception_properties)?;
-
-    if let Value::Object(ref mut props) = props_json {
-        let exception_list = &exception_properties.exception_list;
-        props.insert(
-            "$exception_types".to_string(),
-            serde_json::to_value(exception_list.get_unique_types())?,
-        );
-        props.insert(
-            "$exception_values".to_string(),
-            serde_json::to_value(exception_list.get_unique_messages())?,
-        );
-        props.insert(
-            "$exception_releases".to_string(),
-            serde_json::to_value(exception_list.get_release_map())?,
-        );
-        props.insert(
-            "$exception_sources".to_string(),
-            serde_json::to_value(exception_list.get_unique_sources())?,
-        );
-        props.insert(
-            "$exception_functions".to_string(),
-            serde_json::to_value(exception_list.get_unique_functions())?,
-        );
-        props.insert(
-            "$exception_handled".to_string(),
-            serde_json::to_value(exception_list.get_is_handled())?,
-        );
-    }
-
-    evaluate_suppression_rules(con, team_id, team_manager, props_json).await
-}
-
-pub async fn evaluate_suppression_rules(
-    con: &mut PgConnection,
-    team_id: TeamId,
-    team_manager: &TeamManager,
-    props: Value,
-) -> Result<Option<SuppressionRule>, UnhandledError> {
-    let timing = common_metrics::timing_guard(SUPPRESSION_RULES_PROCESSING_TIME, &[]);
-
-    let mut rules = team_manager
-        .get_suppression_rules(&mut *con, team_id)
-        .await?;
-
-    metrics::counter!(SUPPRESSION_RULES_FOUND).increment(rules.len() as u64);
-
-    rules.sort_unstable_by_key(|r| r.order_key);
-
-    for rule in rules {
-        match rule.try_match(&props) {
-            Ok(false) => continue,
-            Ok(true) => {
-                timing.label("outcome", "match").fin();
-                return Ok(Some(rule));
-            }
-            Err(err) => {
-                rule.disable(&mut *con, err.to_string(), props.clone())
-                    .await?
-            }
-        }
-    }
-
-    timing.label("outcome", "no_match").fin();
-    Ok(None)
 }
 
 #[cfg(test)]

@@ -54,6 +54,10 @@ impl ValueOperator for RuleSuppression {
                     rule.disable(&mut *conn, err.to_string(), props_json.clone())
                         .await
                         .map_err(UnhandledError::from)?;
+                    ctx.app_context
+                        .team_manager
+                        .suppression_rules
+                        .invalidate(&input.team_id);
                 }
             }
         }
