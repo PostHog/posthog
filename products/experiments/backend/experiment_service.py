@@ -5,6 +5,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from django.db import transaction
+
 import pydantic
 from rest_framework.exceptions import ValidationError
 
@@ -110,6 +112,7 @@ class ExperimentService:
                 except pydantic.ValidationError as e:
                     raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
+    @transaction.atomic
     def create_experiment(
         self,
         name: str,
@@ -437,6 +440,7 @@ class ExperimentService:
     # Update
     # ------------------------------------------------------------------
 
+    @transaction.atomic
     def update_experiment(
         self,
         experiment: Experiment,

@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -482,6 +483,25 @@ class TestExperimentService(APIBaseTest):
             "saved-secondary",
         }
 
+    def test_create_experiment_rolls_back_when_late_validation_fails(self):
+        service = self._service()
+
+        with (
+            patch.object(
+                ExperimentService,
+                "_validate_metric_ordering_on_create",
+                side_effect=ValidationError("ordering invalid"),
+            ),
+            self.assertRaises(ValidationError),
+        ):
+            service.create_experiment(
+                name="Rollback Create",
+                feature_flag_key="rollback-create-flag",
+            )
+
+        assert not Experiment.objects.filter(name="Rollback Create").exists()
+        assert not FeatureFlag.objects.filter(team=self.team, key="rollback-create-flag").exists()
+
     # ------------------------------------------------------------------
     # Status field
     # ------------------------------------------------------------------
@@ -777,6 +797,47 @@ class TestExperimentService(APIBaseTest):
         second_link = experiment.experimenttosavedmetric_set.first()
         assert second_link is not None
         assert second_link.saved_metric_id == sm2.id
+
+    def test_update_experiment_rolls_back_saved_metric_changes_on_validation_error(self):
+        self._create_flag(key="rollback-update")
+        sm1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM1",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+        )
+        sm2 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM2",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-2", "event": "$pageleave"},
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Rollback Update",
+            feature_flag_key="rollback-update",
+            saved_metrics_ids=[{"id": sm1.id, "metadata": {"type": "primary"}}],
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(
+                experiment,
+                {
+                    "saved_metrics_ids": [{"id": sm2.id, "metadata": {"type": "secondary"}}],
+                    "unknown_key": "value",
+                },
+            )
+
+        assert "Can't update keys" in str(ctx.exception)
+
+        link_ids = list(
+            Experiment.objects.get(id=experiment.id).experimenttosavedmetric_set.values_list(
+                "saved_metric_id", flat=True
+            )
+        )
+        assert link_ids == [sm1.id]
+
+        fresh_experiment = Experiment.objects.get(id=experiment.id)
+        assert fresh_experiment.primary_metrics_ordered_uuids == ["sm-1"]
+        assert fresh_experiment.secondary_metrics_ordered_uuids == []
 
     def test_update_experiment_restore_with_deleted_flag_raises(self):
         experiment = self._create_draft_experiment()
