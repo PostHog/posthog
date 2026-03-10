@@ -704,6 +704,12 @@ function EmailTemplaterModal(): JSX.Element {
         useActions(emailTemplaterLogic)
     const [fieldsHidden, setFieldsHidden] = useState(false)
 
+    useEffect(() => {
+        if (!isModalOpen) {
+            setFieldsHidden(false)
+        }
+    }, [isModalOpen])
+
     return (
         <>
             <LemonModal
