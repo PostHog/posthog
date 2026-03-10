@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.7.1
+
+- feat: track upload started and upload finished events
+
 # 0.7.0
 
 - feat: promote dsym, hermes, and proguard commands from experimental to top-level

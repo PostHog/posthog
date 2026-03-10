@@ -43,7 +43,7 @@ export const healthMenuLogic = kea<healthMenuLogicType>([
             (s) => [s.statusDescription, s.isFakeStatus, s.postHogStatus],
             (statusDescription, isFakeStatus, postHogStatus): string | null => {
                 if (isFakeStatus) {
-                    return `[DRILL] ${capitalizeFirstLetter(postHogStatus.replace(/_/g, ' '))}`
+                    return `[DRILL] ${capitalizeFirstLetter(postHogStatus.replace(/_/g, ' '))}`;
                 }
                 return statusDescription
             },

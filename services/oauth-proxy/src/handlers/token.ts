@@ -79,13 +79,20 @@ async function proxyWithMapping(
         if (mapping) {
             const regionalClientId = region === 'eu' ? mapping.eu_client_id : mapping.us_client_id
             if (regionalClientId) {
+                const proxySecret = mapping.us_client_secret
+                const regionalSecret = region === 'eu' ? mapping.eu_client_secret : mapping.us_client_secret
+                let clientSecretRewrite: { from: string; to: string } | undefined
+                if (proxySecret && regionalSecret && proxySecret !== regionalSecret) {
+                    clientSecretRewrite = { from: proxySecret, to: regionalSecret }
+                }
                 return proxyPostWithClientId(
                     request,
                     region,
                     '/oauth/token/',
                     proxyClientId,
                     regionalClientId,
-                    redirectUriRewrite
+                    redirectUriRewrite,
+                    clientSecretRewrite
                 )
             }
         }

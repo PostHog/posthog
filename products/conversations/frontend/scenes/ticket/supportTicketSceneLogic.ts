@@ -1,7 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -127,6 +127,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignee: (assignee: TicketAssignee) => ({ assignee }),
+        setTags: (tags: string[]) => ({ tags }),
 
         // Session context actions
         loadPerson: true,
@@ -178,18 +179,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
 
                     try {
-                        // Load all tickets for any of this person's distinct_ids (in parallel)
-                        const responses = await Promise.all(
-                            person.distinct_ids.map((distinctId: string) =>
-                                api.conversationsTickets.list({ distinct_id: distinctId })
-                            )
-                        )
-                        const allTickets = responses.flatMap((r) => r.results || [])
+                        const response = await api.conversationsTickets.list({
+                            distinct_ids: person.distinct_ids.join(','),
+                        })
+                        const allTickets = response.results || []
 
-                        // Deduplicate by ID and exclude current ticket
-                        const uniqueTickets = Array.from(
-                            new Map(allTickets.map((ticket) => [ticket.id, ticket])).values()
-                        ).filter((ticket) => ticket.id !== currentTicketId)
+                        // Exclude current ticket
+                        const uniqueTickets = allTickets.filter(
+                            (ticket) => ticket.ticket_number !== parseInt(currentTicketId.toString())
+                        )
 
                         // Sort by created_at descending (most recent first)
                         return uniqueTickets.sort(
@@ -239,6 +237,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 setAssignee: (_, { assignee }) => assignee,
                 setTicket: (_, { ticket }) => ticket?.assignee || null,
+            },
+        ],
+        tags: [
+            [] as string[],
+            {
+                setTags: (_, { tags }) => tags,
+                setTicket: (_, { ticket }) => ticket?.tags || [],
             },
         ],
         messages: [
@@ -300,17 +305,22 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     }),
     selectors({
         hasUnsavedChanges: [
-            (s) => [s.status, s.priority, s.assignee, s.ticket],
-            (status, priority, assignee, ticket): boolean => {
+            (s) => [s.status, s.priority, s.assignee, s.tags, s.ticket],
+            (status, priority, assignee, tags, ticket): boolean => {
                 if (!ticket) {
                     return false
                 }
                 return (
                     status !== ticket.status ||
                     priority !== ticket.priority ||
-                    JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)
+                    JSON.stringify(assignee) !== JSON.stringify(ticket.assignee) ||
+                    JSON.stringify([...tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort())
                 )
             },
+        ],
+        hasPendingWork: [
+            (s) => [s.hasUnsavedChanges, s.draftContent],
+            (hasUnsavedChanges, draftContent): boolean => hasUnsavedChanges || draftContent !== null,
         ],
         chatPanelWidth: [
             () => [],
@@ -437,6 +447,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     status: string
                     priority: string
                     assignee: TicketAssignee
+                    tags: string[]
                 }> = {}
 
                 if (values.status) {
@@ -446,6 +457,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     data.priority = values.priority
                 }
                 data.assignee = values.assignee
+                data.tags = values.tags
 
                 const ticket = await api.conversationsTickets.update(props.id.toString(), data)
                 actions.setTicket(ticket)
@@ -566,4 +578,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     beforeUnmount(({ cache }) => {
         cache.disposables.disposeAll()
     }),
+    beforeUnload(({ values }) => ({
+        enabled: () => values.hasPendingWork,
+        message: 'You have unsaved changes. Are you sure you want to leave?',
+    })),
 ])

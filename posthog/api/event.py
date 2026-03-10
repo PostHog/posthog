@@ -533,6 +533,7 @@ class EventViewSet(
                     search_value=query_params.value,
                     event_names=query_params.event_names or None,
                 ),
+                request=self.request,
             )
             execution_mode = execution_mode_from_refresh(refresh)
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:

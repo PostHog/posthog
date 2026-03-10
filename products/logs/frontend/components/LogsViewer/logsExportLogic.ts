@@ -29,7 +29,7 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
 }
 
 function exportTimestamp(): string {
-    return new Date().toISOString().slice(0, 19).replace(/:/g, '-')
+    return new Date().toISOString().slice(0, 19).replace(/:/g, '-');
 }
 
 export function getExportColumns(attributeColumns: string[]): string[] {

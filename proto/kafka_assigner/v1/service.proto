@@ -34,6 +34,10 @@ service KafkaAssigner {
 message RegisterRequest {
   // Unique consumer name (e.g., pod name or hostname).
   string consumer_name = 1;
+  // Kafka topic this consumer wants partitions for.
+  // The assigner ensures a TopicConfig exists in etcd for this topic,
+  // fetching the partition count from Kafka if needed.
+  string topic = 2;
 }
 
 // AssignmentCommand is a server-pushed command on the Register stream.

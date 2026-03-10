@@ -13,17 +13,17 @@ export function formatPrompt(template: string, vars: Record<string, string>): st
         .trim()
 }
 
-const MAX_USER_AGENT_LENGTH = 1000
+const MAX_HEADER_VALUE_LENGTH = 1000
 
-export function sanitizeUserAgent(userAgent?: string): string | undefined {
-    if (!userAgent) {
+export function sanitizeHeaderValue(value?: string): string | undefined {
+    if (!value) {
         return undefined
     }
     // Strip control characters, then trim and truncate
-    const sanitised = userAgent
+    const sanitised = value
         .replace(/[\x00-\x1f\x7f]/g, '')
         .trim()
-        .slice(0, MAX_USER_AGENT_LENGTH)
+        .slice(0, MAX_HEADER_VALUE_LENGTH)
     return sanitised || undefined
 }
 

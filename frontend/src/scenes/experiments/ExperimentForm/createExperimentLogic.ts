@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -91,6 +92,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
             featureFlagLogic,
             ['featureFlags'],
+            projectLogic,
+            ['currentProjectId'],
         ],
         actions: [
             eventUsageLogic,
@@ -368,7 +371,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 }
 
                 const response = (await api.create(
-                    `api/projects/@current/experiments`,
+                    `api/projects/${values.currentProjectId}/experiments`,
                     experimentPayload
                 )) as Experiment
 
@@ -383,11 +386,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     // This ensures we have the full experiment data including feature_flag, etc.
                     actions.setExperiment(response)
 
-                    const isWizard = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]
-                    actions.reportExperimentCreated(response, {
-                        creation_source: isWizard ? 'wizard' : 'classic_form',
-                        has_linked_flag: !!response.feature_flag?.id,
-                    })
                     actions.addProductIntent({
                         product_type: ProductKey.EXPERIMENTS,
                         intent_context: ProductIntentContext.EXPERIMENT_CREATED,

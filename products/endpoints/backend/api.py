@@ -1223,6 +1223,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             user=cast(User, request.user),
             is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             cache_age_seconds=cache_age_seconds,
+            request=request,
         )
 
         if isinstance(result, BaseModel):
@@ -1546,6 +1547,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         ff_result = posthoganalytics.feature_enabled(
             "endpoints-ducklake-execution",
             user_email,
+            person_properties={"email": str(user_email)},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )

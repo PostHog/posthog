@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -388,6 +389,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
         assert response.status_code == status.HTTP_200_OK
 
+    @pytest.mark.requires_secrets
     def test_does_not_interfere_with_other_auth_methods(self):
         from django.utils import timezone
 
