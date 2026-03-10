@@ -102,6 +102,7 @@ async fn test_get_persons_by_distinct_ids_in_team() {
         version: 1,
         is_identified: true,
         is_user_id: None,
+        last_seen_at: None,
     };
 
     // Each PersonWithDistinctIds maps one distinct_id to one person
