@@ -401,18 +401,43 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert "do not belong to your team" in response.json()["detail"]
 
     def test_backfill_picks_same_integration_as_delivery(self, mock_sync):
-        """The data migration must pick the same integration that
+        """The data migration must assign the same integration that
         get_slack_integration_for_team returns (the one with the lowest id)."""
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module("posthog.migrations.1040_subscription_integration")
+
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync.return_value = mock_client
+
         integration_a = Integration.objects.create(team=self.team, kind="slack", config={"a": 1})
         Integration.objects.create(team=self.team, kind="slack", config={"b": 2})
 
+        # Create a slack subscription without an integration
+        from django.utils import timezone
+
+        sub = Subscription.objects.create(
+            team=self.team,
+            insight=self.insight,
+            target_type="slack",
+            target_value="C1234|#general",
+            frequency="weekly",
+            interval=1,
+            start_date=timezone.now(),
+            title="Slack Sub",
+        )
+        assert sub.integration_id is None
+
+        # Run the actual backfill migration function
+        migration.backfill_subscription_integration(apps, None)
+
+        sub.refresh_from_db()
         delivery_integration = get_slack_integration_for_team(self.team.id)
-        assert delivery_integration is not None
 
-        # The backfill query mirrors get_slack_integration_for_team:
-        # Integration.objects.filter(team_id=..., kind="slack").order_by("id").first()
-        backfill_integration = Integration.objects.filter(team_id=self.team.id, kind="slack").order_by("id").first()
-
-        assert backfill_integration is not None
-        assert backfill_integration.id == delivery_integration.id
-        assert backfill_integration.id == integration_a.id
+        # Backfill chose the same integration that delivery would use at runtime
+        assert sub.integration_id == delivery_integration.id
+        # Both picked the integration with the lowest id (integration_a, not integration_b)
+        assert sub.integration_id == integration_a.id
