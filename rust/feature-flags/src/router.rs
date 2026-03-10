@@ -297,8 +297,10 @@ fn resolve_rate_limit_capacities(
         (Some(warn_capacity), enforce_capacity)
     } else if log_only {
         // Backwards compat: log-only mode → use enforce_capacity as warn capacity,
-        // set enforce very high so it never blocks
-        (Some(enforce_capacity), u32::MAX)
+        // set enforce very high so it never blocks.
+        // Note: u32::MAX overflows governor's internal nanos arithmetic,
+        // so we use a large-but-safe value instead.
+        (Some(enforce_capacity), 1_000_000)
     } else {
         // Backwards compat: enforced mode → no warn tier
         (None, enforce_capacity)
@@ -555,7 +557,7 @@ mod tests {
     fn test_resolve_rate_limit_log_only_backwards_compat() {
         let (warn, enforce) = resolve_rate_limit_capacities(0, 200, true);
         assert_eq!(warn, Some(200));
-        assert_eq!(enforce, u32::MAX);
+        assert_eq!(enforce, 1_000_000);
     }
 
     #[test]
