@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -82,7 +83,7 @@ def _connection_context(
     return source, source_ids, database
 
 
-def _inline_join_field(tables: dict[str, object], join: object) -> None:
+def _inline_join_field(tables: Mapping[str, object], join: object) -> None:
     source_table_name = getattr(join, "source_table_name", None)
     joining_table_name = getattr(join, "joining_table_name", None)
     field_name = getattr(join, "field_name", None)
@@ -122,7 +123,7 @@ def _inline_join_field(tables: dict[str, object], join: object) -> None:
     )
 
 
-def _streamline_join_fields(tables: dict[str, object]) -> None:
+def _streamline_join_fields(tables: Mapping[str, object]) -> None:
     for table in tables.values():
         fields = getattr(table, "fields", None)
         if not isinstance(fields, dict):
@@ -228,8 +229,9 @@ def process_query_model(
         assert database is not None
         serialized_tables = database.serialize(HogQLContext(team_id=team.pk, team=team, database=database, user=user))
         filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
-        if set(filtered_tables.keys()) != set(serialized_tables.keys()):
-            prune_database_for_connection(database, set(filtered_tables.keys()))
+        allowed_table_names = set(filtered_tables.keys())
+        if source_ids or allowed_table_names != set(serialized_tables.keys()):
+            prune_database_for_connection(database, allowed_table_names)
         return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
