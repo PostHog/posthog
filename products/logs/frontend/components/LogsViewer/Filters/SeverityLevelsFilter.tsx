@@ -50,7 +50,7 @@ export const SeverityLevelsFilter = ({ value, onChange }: SeverityLevelsFilterPr
                 {value.length === 0 || value.length === SEVERITY_OPTIONS.length
                     ? 'All levels'
                     : value.length === 1
-                      ? SEVERITY_OPTIONS.find((o) => o.key === value[0])?.label
+                      ? (SEVERITY_OPTIONS.find((o) => o.key === value[0])?.label ?? value[0])
                       : `${value.length} levels`}
             </LemonButton>
         </LemonDropdown>
