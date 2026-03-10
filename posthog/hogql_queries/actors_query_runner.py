@@ -1,10 +1,7 @@
 import re
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
-from typing import TYPE_CHECKING, Any, Optional
-
-if TYPE_CHECKING:
-    from rest_framework.request import Request
+from typing import Any, Optional
 
 from posthoganalytics import feature_enabled
 

@@ -43,11 +43,13 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         request: Optional["Request"] = None,
+        just_summarize: bool = False,
     ):
         super().__init__(
             query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, request=request
         )
 
+        self.just_summarize = just_summarize
         self.context = FunnelQueryContext(
             query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
         )
@@ -121,7 +123,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
         if funnelVizType == FunnelVizType.TRENDS:
-            return FunnelTrendsUDF(context=self.context)
+            return FunnelTrendsUDF(context=self.context, just_summarize=self.just_summarize)
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvertUDF(context=self.context)
         else:
