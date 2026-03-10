@@ -11,8 +11,6 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaField,
-    DatabaseSchemaPostHogTable,
     DataWarehouseEventsModifier,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
@@ -29,13 +27,14 @@ from posthog.hogql.database.models import (
     LazyTable,
     StringDatabaseField,
     Table,
+    TableNode,
 )
+from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.source_scoping import filter_schema_tables_for_connection
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.organization import Organization
@@ -112,43 +111,33 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         for table_name in posthog_table_names:
             assert serialized_database.get(table_name) is not None
 
-    def test_filter_schema_tables_for_connection_removes_lazy_joins_to_hidden_direct_tables(self):
-        class DirectTableStub:
-            type = "data_warehouse"
-
-            def __init__(self):
-                self.source = type(
-                    "SourceStub",
-                    (),
-                    {"access_method": ExternalDataSource.AccessMethod.DIRECT},
-                )()
-
-        tables: dict[str, DatabaseSchemaPostHogTable | DirectTableStub] = {
-            "events": DatabaseSchemaPostHogTable(
-                id="events",
-                name="events",
-                fields={
-                    "dashboard": DatabaseSchemaField(
-                        name="dashboard",
-                        hogql_value="dashboard",
-                        type="lazy_table",
-                        schema_valid=True,
-                        table="postgres.ph3.posthog_dashboard",
-                        fields=["id"],
-                        id="dashboard",
-                    )
-                },
-            ),
-            "postgres.ph3.posthog_dashboard": DirectTableStub(),
-        }
-        filtered_tables = filter_schema_tables_for_connection(
-            tables,
-            None,
+    def test_apply_schema_scope_removes_lazy_joins_to_hidden_direct_tables(self):
+        database = Database()
+        events = PostgresTable(
+            name="events",
+            fields={
+                "dashboard": LazyJoin(
+                    from_field=["dashboard_id"],
+                    to_field=["id"],
+                    join_table="direct_table",
+                    join_function=lambda *_args: None,
+                )
+            },
+            postgres_table_name="events",
         )
+        direct_table = PostgresTable(name="direct_table", fields={}, postgres_table_name="direct_table")
 
-        assert "postgres.ph3.posthog_dashboard" not in filtered_tables
-        events_table = cast(DatabaseSchemaPostHogTable, filtered_tables["events"])
-        assert "dashboard" not in events_table.fields
+        database.tables.add_child(TableNode(name="events", table=events))
+        database.tables.add_child(TableNode(name="direct_table", table=direct_table))
+        database._warehouse_table_names = ["direct_table"]
+        database._direct_access_warehouse_table_names = {"direct_table"}
+        database._connection_scope = "exclude_direct"
+
+        database.apply_schema_scope()
+
+        assert database.has_table("events")
+        assert not database.has_table("direct_table")
+        assert "dashboard" not in cast(PostgresTable, database.get_table("events")).fields
 
     def test_serialize_database_deleted_saved_query(self):
         saved_query_name = "deleted_saved_query"

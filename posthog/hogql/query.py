@@ -1,5 +1,5 @@
 import dataclasses
-from typing import ClassVar, Optional, Union, cast
+from typing import ClassVar, Literal, Optional, Union, cast
 
 import psycopg
 from opentelemetry import trace
@@ -150,7 +150,9 @@ class HogQLQueryExecutor:
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
     clickhouse_prepared_ast: Optional[ast.AST] = None
+    clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
+    direct_postgres_context: Optional[HogQLContext] = None
     direct_postgres_sql: Optional[str] = None
     direct_postgres_source_id: Optional[str] = None
     direct_postgres_values: dict[str, object] | None = None
@@ -158,6 +160,12 @@ class HogQLQueryExecutor:
     user: Optional[User] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
+
+    @dataclasses.dataclass(frozen=True)
+    class _PreparedExecution:
+        sql: str
+        context: HogQLContext
+        engine: Literal["clickhouse", "direct_postgres"]
 
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
@@ -366,34 +374,46 @@ class HogQLQueryExecutor:
 
         return settings
 
-    def _maybe_prepare_direct_postgres_query(self) -> None:
-        query_type = self._get_select_query_type()
-        if query_type is None:
-            return
+    def _prepare_direct_postgres_query(self) -> _PreparedExecution | None:
+        try:
+            query_type = self._get_select_query_type()
+        except (QueryError, ResolutionError, AttributeError):
+            if self.connection_id is None:
+                return None
+            raise
 
-        direct_source_ids = self._extract_direct_postgres_sources_from_type(query_type)
+        if query_type is None:
+            return None
+
+        base_table_types = self._extract_base_table_types_from_type(query_type)
+        direct_source_ids = {
+            table_type.table.external_data_source_id
+            for table_type in base_table_types
+            if isinstance(table_type.table, DirectPostgresTable)
+        }
 
         if len(direct_source_ids) == 0:
             if self.connection_id is not None:
                 raise ExposedHogQLError("Table not found in the selected connection.")
-            return
-
-        if self.connection_id is None:
-            raise ExposedHogQLError("Direct Postgres queries require selecting a connection.")
+            return None
 
         if len(direct_source_ids) > 1:
             raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
 
-        if self.connection_id not in direct_source_ids:
-            raise ExposedHogQLError("The query references a different source than the selected connection.")
-
         has_non_direct_tables = any(
-            not isinstance(table_type.table, DirectPostgresTable)
-            for table_type in self._extract_base_table_types_from_type(query_type)
+            not isinstance(table_type.table, DirectPostgresTable) for table_type in base_table_types
         )
-
         if has_non_direct_tables:
+            if self.connection_id is None:
+                return None
             raise ExposedHogQLError("Direct Postgres queries cannot be joined with PostHog or warehouse-synced tables.")
+
+        if self.connection_id is None:
+            raise ExposedHogQLError("Direct Postgres queries require selecting a connection.")
+
+        direct_source_id = next(iter(direct_source_ids))
+        if self.connection_id != direct_source_id:
+            raise ExposedHogQLError("The query references a different source than the selected connection.")
 
         direct_context = dataclasses.replace(
             self.context,
@@ -418,33 +438,15 @@ class HogQLQueryExecutor:
             dialect="postgres",
             pretty=self.pretty if self.pretty is not None else True,
         )
+        self.direct_postgres_context = direct_context
         self.direct_postgres_values = direct_context.values
-        self.direct_postgres_source_id = next(iter(direct_source_ids))
+        self.direct_postgres_source_id = direct_source_id
 
-    def _should_use_direct_postgres(self) -> bool:
-        try:
-            query_type = self._get_select_query_type()
-        except (QueryError, ResolutionError, AttributeError):
-            return False
-        if query_type is None:
-            return False
-
-        direct_source_ids = self._extract_direct_postgres_sources_from_type(query_type)
-        if len(direct_source_ids) == 0:
-            return False
-
-        if len(direct_source_ids) > 1:
-            raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
-
-        has_non_direct_tables = any(
-            not isinstance(table_type.table, DirectPostgresTable)
-            for table_type in self._extract_base_table_types_from_type(query_type)
+        return self._PreparedExecution(
+            sql=self.direct_postgres_sql,
+            context=direct_context,
+            engine="direct_postgres",
         )
-
-        if has_non_direct_tables:
-            return False
-
-        return True
 
     def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
         if self.select_query.type is not None:
@@ -586,6 +588,29 @@ class HogQLQueryExecutor:
             else:
                 raise
 
+    def _prepare_execution(self) -> _PreparedExecution:
+        self._parse_query()
+        self._process_variables()
+        self._process_placeholders()
+        self._apply_limit()
+        with self.timings.measure("_generate_hogql"):
+            self._generate_hogql()
+
+        direct_execution = self._prepare_direct_postgres_query()
+        if direct_execution is not None:
+            return direct_execution
+
+        with self.timings.measure("_generate_clickhouse_sql"):
+            self._generate_clickhouse_sql()
+
+        assert self.clickhouse_sql is not None
+        assert self.clickhouse_context is not None
+        return self._PreparedExecution(
+            sql=self.clickhouse_sql,
+            context=self.clickhouse_context,
+            engine="clickhouse",
+        )
+
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
         assert self.clickhouse_sql
@@ -652,37 +677,14 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
-        self._parse_query()
-        self._process_variables()
-        self._process_placeholders()
-        self._apply_limit()
-        with self.timings.measure("_generate_hogql"):
-            self._generate_hogql()
-        if self.connection_id is not None or self._should_use_direct_postgres():
-            self._maybe_prepare_direct_postgres_query()
-            if self.direct_postgres_sql is not None:
-                return self.direct_postgres_sql, self.context
-        with self.timings.measure("_generate_clickhouse_sql"):
-            self._generate_clickhouse_sql()
-        assert self.clickhouse_sql
-        return self.clickhouse_sql, self.clickhouse_context
+        prepared_execution = self._prepare_execution()
+        return prepared_execution.sql, prepared_execution.context
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
-        self._parse_query()
-        self._process_variables()
-        self._process_placeholders()
-        self._apply_limit()
-        with self.timings.measure("_generate_hogql"):
-            self._generate_hogql()
+        prepared_execution = self._prepare_execution()
 
-        if self.connection_id is not None or self._should_use_direct_postgres():
-            self._maybe_prepare_direct_postgres_query()
-        if self.direct_postgres_sql is None:
-            with self.timings.measure("_generate_clickhouse_sql"):
-                self._generate_clickhouse_sql()
-
-        if self.direct_postgres_sql is not None:
+        if prepared_execution.engine == "direct_postgres":
             self._execute_direct_postgres_query()
         elif self.clickhouse_sql is not None:
             self._execute_clickhouse_query()

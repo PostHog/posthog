@@ -12,7 +12,6 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor, postgres_error_to_message, postgres_oid_to_clickhouse_type
 
@@ -85,85 +84,6 @@ class TestDirectPostgresQuery(APIBaseTest):
         source_ids = executor._extract_direct_postgres_sources_from_type(query_type)
 
         self.assertEqual(source_ids, {"source-id"})
-
-    @parameterized.expand(
-        [
-            (
-                "all_direct_tables",
-                {
-                    "postgres.ph3.ph3_postgres_posthog_activitylog": _build_direct_table_type,
-                },
-                True,
-            ),
-            (
-                "mixed_direct_and_non_direct_tables",
-                {
-                    "postgres.ph3.ph3_postgres_posthog_activitylog": _build_direct_table_type,
-                    "raw.posthog_group": lambda _test_case: ast.TableType(
-                        table=PostgresTable(name="raw.posthog_group", fields={}, postgres_table_name="posthog_group")
-                    ),
-                },
-                False,
-            ),
-            (
-                "mixed_direct_and_aliased_non_direct_tables",
-                {
-                    "postgres.ph3.ph3_postgres_posthog_activitylog": _build_direct_table_type,
-                    "events": lambda _test_case: ast.TableAliasType(
-                        alias="e",
-                        table_type=ast.TableType(
-                            table=PostgresTable(name="events", fields={}, postgres_table_name="events")
-                        ),
-                    ),
-                },
-                False,
-            ),
-        ]
-    )
-    def test_should_use_direct_postgres(self, _name: str, table_factories, expected: bool):
-        executor = HogQLQueryExecutor(query="SELECT 1", team=self.team)
-        query_type = ast.SelectQueryType(
-            tables={table_name: table_factory(self) for table_name, table_factory in table_factories.items()}
-        )
-        executor.select_query = ast.SelectQuery(type=query_type, select=[ast.Constant(value=1)])
-
-        self.assertEqual(executor._should_use_direct_postgres(), expected)
-
-    def test_should_use_direct_postgres_returns_false_when_hidden_without_connection(self):
-        source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="source_id",
-            connection_id="connection_id",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type="Postgres",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-            prefix="ph3",
-            job_inputs={
-                "host": "localhost",
-                "port": 5432,
-                "database": "postgres",
-                "user": "postgres",
-                "password": "postgres",
-                "schema": "ph3",
-            },
-        )
-
-        DataWarehouseTable.objects.create(
-            name="ph3_postgres_without_team_id",
-            format="Parquet",
-            team=self.team,
-            external_data_source=source,
-            url_pattern="",
-            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
-        )
-
-        executor = HogQLQueryExecutor(
-            query="SELECT * FROM postgres.ph3.without_team_id",
-            team=self.team,
-        )
-
-        executor._parse_query()
-        self.assertEqual(executor._should_use_direct_postgres(), False)
 
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
         source = ExternalDataSource.objects.create(
