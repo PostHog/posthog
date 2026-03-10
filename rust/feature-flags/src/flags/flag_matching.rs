@@ -1886,6 +1886,10 @@ impl FeatureFlagMatcher {
             .filter_map(|flag| flag.get_group_type_index())
             .collect();
 
+        if required_type_indexes.is_empty() {
+            return Ok(HashMap::new());
+        }
+
         let types_to_indexes = self.group_type_mapping_cache.get_group_types_to_indexes()?;
 
         let group_type_to_key: HashMap<GroupTypeIndex, String> = self
