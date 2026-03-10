@@ -367,6 +367,7 @@ export const FEATURE_FLAGS = {
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
     DASHBOARD_TILE_REDESIGN: 'dashboard-tile-redesign', // owner: @sam #team-product-analytics
+    DASHBOARD_INSIGHT_CARD_COLOR: 'dashboard-insight-card-color', // owner: @mattp, #team-analytics-platform, Dashboard insight card colored border (replaces header ribbon), 2026-03-10.
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys
