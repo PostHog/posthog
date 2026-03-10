@@ -2936,6 +2936,12 @@ const api = {
         ): Promise<CustomerJourneyApi> {
             return await new ApiRequest().customerJourneys().create({ data })
         },
+        async update(
+            id: CustomerJourneyApi['id'],
+            data: Partial<Pick<CustomerJourneyApi, 'name' | 'description'>>
+        ): Promise<CustomerJourneyApi> {
+            return await new ApiRequest().customerJourneysDetail(id).update({ data })
+        },
         async delete(id: CustomerJourneyApi['id']): Promise<void> {
             return await new ApiRequest().customerJourneysDetail(id).delete()
         },

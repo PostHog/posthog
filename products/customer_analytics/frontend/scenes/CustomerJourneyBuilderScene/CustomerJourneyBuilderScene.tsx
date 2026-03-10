@@ -17,7 +17,7 @@ export const scene: SceneExport = {
 }
 
 export function CustomerJourneyBuilderScene(): JSX.Element {
-    const { journeyName, journeyDescription, isSaving } = useValues(journeyBuilderLogic)
+    const { journeyName, journeyDescription, isSaving, isEditMode } = useValues(journeyBuilderLogic)
     const { setJourneyName, setJourneyDescription, saveJourney } = useActions(journeyBuilderLogic)
 
     return (
@@ -41,7 +41,7 @@ export function CustomerJourneyBuilderScene(): JSX.Element {
                         onClick={() => saveJourney()}
                         data-attr="journey-builder-save"
                     >
-                        Save
+                        {isEditMode ? 'Update' : 'Save'}
                     </LemonButton>
                 }
             />

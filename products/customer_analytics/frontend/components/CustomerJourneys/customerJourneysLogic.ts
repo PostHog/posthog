@@ -51,6 +51,19 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 const response = await api.customerJourneys.list()
                 return response.results
             },
+            updateJourney: async ({
+                journeyId,
+                name,
+                description,
+            }: {
+                journeyId: string
+                name: string
+                description?: string
+            }): Promise<CustomerJourneyApi[]> => {
+                await api.customerJourneys.update(journeyId, { name, description })
+                const response = await api.customerJourneys.list()
+                return response.results
+            },
             deleteJourney: async (journeyId: string): Promise<CustomerJourneyApi[]> => {
                 await api.customerJourneys.delete(journeyId)
                 return values.journeys.filter((j) => j.id !== journeyId)
@@ -86,6 +99,14 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         addJourneyFailure: ({ error }) => {
             posthog.captureException(error)
             lemonToast.error(error || 'Failed to create customer journey')
+        },
+        updateJourneySuccess: ({ journeys }) => {
+            lemonToast.success('Customer journey updated')
+            actions.selectFirstJourneyIfNeeded(journeys)
+        },
+        updateJourneyFailure: ({ error }) => {
+            posthog.captureException(error)
+            lemonToast.error(error || 'Failed to update customer journey')
         },
         deleteJourneySuccess: ({ journeys }) => {
             lemonToast.success('Customer journey deleted')
