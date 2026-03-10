@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
 import {
@@ -7,6 +7,7 @@ import {
     IconPencil,
     IconPlay,
     IconPlus,
+    IconRevert,
     IconStack,
     IconTrash,
     IconWrench,
@@ -25,10 +26,12 @@ import {
     LemonTextArea,
     Spinner,
     Link,
+    LemonDivider,
 } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -46,12 +49,16 @@ import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '
 import { modelPickerLogic } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
+    getLinkedSourceLabel,
     llmPlaygroundPromptsLogic,
     type Message,
     type MessageRole,
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
+import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
+
+// Cap inline JSON previews at 20 lines so they don't dominate the layout
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -92,37 +99,60 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
-    logic: llmPlaygroundRunLogic,
+    logic: llmPlaygroundPromptsLogic,
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
-export function LLMAnalyticsPlaygroundScene(): JSX.Element {
-    useMountedLogic(llmPlaygroundRunLogic)
+export function LLMAnalyticsPlaygroundScene({ tabId }: { tabId?: string }): JSX.Element {
+    const promptsLogic = llmPlaygroundPromptsLogic({ tabId })
+    const modelLogic = llmPlaygroundModelLogic({ tabId })
+    const runLogic = llmPlaygroundRunLogic({ tabId })
+
+    // Attach child logics to the prompts logic so they persist across tab switches
+    useAttachedLogic(modelLogic, promptsLogic)
+    useAttachedLogic(runLogic, promptsLogic)
 
     return (
-        <SceneContent className="h-full">
-            <SceneTitleSection
-                name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
-                description="Test and experiment with LLM prompts in a sandbox environment."
-                resourceType={{ type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics' }}
-                actions={<PlaygroundHeaderActions />}
-            />
-            <div className="flex h-full flex-1 flex-col min-h-0">
-                <PlaygroundLayout />
-            </div>
-        </SceneContent>
+        <BindLogic logic={llmPlaygroundPromptsLogic} props={{ tabId }}>
+            <BindLogic logic={llmPlaygroundModelLogic} props={{ tabId }}>
+                <BindLogic logic={llmPlaygroundRunLogic} props={{ tabId }}>
+                    <SceneContent className="h-full">
+                        <SceneTitleSection
+                            name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
+                            description="Test and experiment with LLM prompts in a sandbox environment."
+                            resourceType={{
+                                type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics',
+                            }}
+                            actions={<PlaygroundHeaderActions />}
+                        />
+                        <div className="flex h-full flex-1 flex-col min-h-0">
+                            <PlaygroundLayout />
+                        </div>
+                    </SceneContent>
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
     )
 }
 
 function PlaygroundHeaderActions(): JSX.Element {
     const { hasRunnablePrompts, promptConfigs } = useValues(llmPlaygroundPromptsLogic)
-    const { addPromptConfig } = useActions(llmPlaygroundPromptsLogic)
+    const { addPromptConfig, resetPlayground } = useActions(llmPlaygroundPromptsLogic)
     const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
     const { submitPrompt, abortRun } = useActions(llmPlaygroundRunLogic)
     const firstPromptId = promptConfigs[0]?.id
 
     return (
         <>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconRevert />}
+                onClick={resetPlayground}
+                disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                tooltip="Reset playground to default state"
+                data-attr="llma-playground-reset"
+            />
             <LemonButton
                 type="secondary"
                 size="small"
@@ -204,15 +234,25 @@ function SubscriptionRequiredBanner(): JSX.Element | null {
 }
 
 function PlaygroundLayout(): JSX.Element {
+    const { sourceSetupLoading } = useValues(llmPlaygroundPromptsLogic)
+
     return (
         <div className="flex flex-1 min-h-0 flex-col gap-4">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
-                <div className="h-full min-h-0 overflow-y-auto">
-                    <PromptConfigsSection />
-                </div>
+                {sourceSetupLoading ? (
+                    <div className="h-full min-h-0 p-4 space-y-3">
+                        <LemonSkeleton className="h-8 w-56" />
+                        <LemonSkeleton className="h-28 w-full" />
+                        <LemonSkeleton className="h-28 w-full" />
+                    </div>
+                ) : (
+                    <div className="h-full min-h-0 overflow-y-auto">
+                        <PromptConfigsSection />
+                    </div>
+                )}
             </section>
         </div>
     )
@@ -743,7 +783,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { promptConfigs, editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
+    const { promptConfigs, editModal, collapsedSections, linkedSource } = useValues(llmPlaygroundPromptsLogic)
     const { setSystemPrompt, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
@@ -754,6 +794,8 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const showEditModal = editModal?.type === 'system' && editModal.promptId === promptId
     const collapsed = !!collapsedSections[`system:${promptId}`]
     const hasOtherPrompts = promptConfigs.length > 1
+
+    const linkedContextLabel = getLinkedSourceLabel(linkedSource)
 
     const copySystemPromptToOtherPrompts = (): void => {
         if (!hasOtherPrompts) {
@@ -771,6 +813,8 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
         <>
             <div className="border rounded p-4 py-2 relative group border-l-4 border-l-[var(--color-purple-500)]">
                 <div className="absolute top-2 right-2 flex items-center gap-1">
+                    <PlaygroundSaveMenu prompt={prompt} />
+                    <LemonDivider vertical className="h-5 mx-0.5" />
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}
@@ -807,6 +851,11 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                     <LemonTag type="completion" size="small">
                         System
                     </LemonTag>
+                    {linkedContextLabel ? (
+                        <LemonTag type="highlight" size="small" className="max-w-[260px] truncate">
+                            Editing {linkedContextLabel}
+                        </LemonTag>
+                    ) : null}
                     {collapsed && (
                         <span className="text-xs text-muted truncate flex-1">
                             {prompt.systemPrompt
