@@ -232,10 +232,36 @@ export interface ThresholdDetectorConfigApi {
     upper_bound?: number | null
 }
 
+export type EnsembleOperatorApi = (typeof EnsembleOperatorApi)[keyof typeof EnsembleOperatorApi]
+
+export const EnsembleOperatorApi = {
+    And: 'and',
+    Or: 'or',
+} as const
+
+export type EnsembleDetectorConfigApiType =
+    (typeof EnsembleDetectorConfigApiType)[keyof typeof EnsembleDetectorConfigApiType]
+
+export const EnsembleDetectorConfigApiType = {
+    Ensemble: 'ensemble',
+} as const
+
+export interface EnsembleDetectorConfigApi {
+    /** Sub-detector configurations (minimum 2) */
+    detectors: (ZScoreDetectorConfigApi | MADDetectorConfigApi | ThresholdDetectorConfigApi)[]
+    /** How to combine sub-detector results */
+    operator: EnsembleOperatorApi
+    type?: EnsembleDetectorConfigApiType
+}
+
 /**
  * Detector configuration types
  */
-export type DetectorConfigApi = ZScoreDetectorConfigApi | MADDetectorConfigApi | ThresholdDetectorConfigApi
+export type DetectorConfigApi =
+    | EnsembleDetectorConfigApi
+    | ZScoreDetectorConfigApi
+    | MADDetectorConfigApi
+    | ThresholdDetectorConfigApi
 
 /**
  * * `hourly` - hourly
