@@ -1,11 +1,21 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test.client import Client as HttpClient
+from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.models.integration import PRIVATE_CHANNEL_WITHOUT_ACCESS, EmailIntegration, Integration, SlackIntegration
+from posthog.models.integration import (
+    PRIVATE_CHANNEL_WITHOUT_ACCESS,
+    EmailIntegration,
+    Integration,
+    SlackIntegration,
+    StripeIntegration,
+)
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
@@ -800,3 +810,145 @@ class TestStripeIntegration:
         )
 
         assert response.status_code == status.HTTP_201_CREATED
+
+
+class TestStripeIntegrationOAuthTokens:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+        self.oauth_app = OAuthApplication.objects.create(
+            name="PostHog for Stripe",
+            client_id="stripe_oauth_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+        )
+
+    def _create_integration_with_tokens(self) -> tuple[Integration, OAuthAccessToken, OAuthRefreshToken]:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={"account_name": "Test (acct_123)"},
+            sensitive_config={"access_token": "sk_live_test"},
+            integration_id="acct_123",
+            created_by=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=self.oauth_app,
+            token="ph_access_token_test",
+            user=self.user,
+            expires=timezone.now() + timedelta(days=365),
+            scope=StripeIntegration.SCOPES,
+            scoped_teams=[self.team.pk],
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=self.oauth_app,
+            token="ph_refresh_token_test",
+            user=self.user,
+            access_token=access_token,
+            scoped_teams=[self.team.pk],
+        )
+        return integration, access_token, refresh_token
+
+    @patch("posthog.models.integration.settings")
+    def test_destroy_oauth_tokens_deletes_tokens(self, mock_settings):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        integration, access_token, refresh_token = self._create_integration_with_tokens()
+        stripe_int = StripeIntegration(integration)
+
+        stripe_int._destroy_posthog_oauth_tokens()
+
+        assert not OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
+        assert not OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
+
+    @patch("posthog.models.integration.settings")
+    def test_destroy_oauth_tokens_only_affects_same_team(self, mock_settings):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        integration, _, _ = self._create_integration_with_tokens()
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_access_token = OAuthAccessToken.objects.create(
+            application=self.oauth_app,
+            token="ph_access_other",
+            user=self.user,
+            expires=timezone.now() + timedelta(days=365),
+            scope=StripeIntegration.SCOPES,
+            scoped_teams=[other_team.pk],
+        )
+        other_refresh_token = OAuthRefreshToken.objects.create(
+            application=self.oauth_app,
+            token="ph_refresh_other",
+            user=self.user,
+            access_token=other_access_token,
+            scoped_teams=[other_team.pk],
+        )
+
+        stripe_int = StripeIntegration(integration)
+        stripe_int._destroy_posthog_oauth_tokens()
+
+        assert OAuthAccessToken.objects.filter(pk=other_access_token.pk).exists()
+        assert OAuthRefreshToken.objects.filter(pk=other_refresh_token.pk).exists()
+
+    @patch("posthog.models.integration.settings")
+    def test_destroy_oauth_tokens_noop_when_no_oauth_app(self, mock_settings):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = None
+        integration, access_token, refresh_token = self._create_integration_with_tokens()
+        stripe_int = StripeIntegration(integration)
+
+        stripe_int._destroy_posthog_oauth_tokens()
+
+        assert OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
+        assert OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
+
+    @patch("posthog.models.integration.StripeClient")
+    @patch("posthog.models.integration.settings")
+    def test_write_posthog_secrets_uses_account_scope(self, mock_settings, MockStripeClient):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_APP_SECRET_KEY = "sk_test"
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={},
+            sensitive_config={},
+            integration_id="acct_456",
+            created_by=self.user,
+        )
+        stripe_int = StripeIntegration(integration)
+        stripe_int.write_posthog_secrets(self.team.pk, self.user)
+
+        calls = mock_client.apps.secrets.create.call_args_list
+        assert len(calls) == 3
+        for call in calls:
+            assert call.kwargs["params"]["scope"] == {"type": "account"}
+            assert call.kwargs["options"] == {"stripe_account": "acct_456"}
+
+    @patch("posthog.models.integration.StripeClient")
+    @patch("posthog.models.integration.settings")
+    def test_clear_posthog_secrets_uses_account_scope(self, mock_settings, MockStripeClient):
+        mock_settings.STRIPE_APP_SECRET_KEY = "sk_test"
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = None
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={},
+            sensitive_config={},
+            integration_id="acct_789",
+            created_by=self.user,
+        )
+        stripe_int = StripeIntegration(integration)
+        stripe_int.clear_posthog_secrets()
+
+        calls = mock_client.apps.secrets.delete_where.call_args_list
+        assert len(calls) == 3
+        for call in calls:
+            assert call.kwargs["params"]["scope"] == {"type": "account"}
+            assert call.kwargs["options"] == {"stripe_account": "acct_789"}
