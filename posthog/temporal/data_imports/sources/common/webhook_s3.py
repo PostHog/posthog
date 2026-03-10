@@ -91,9 +91,9 @@ class WebhookSourceManager:
                     data = await f.read()
                     table = pq.read_table(pa.BufferReader(data))
 
-                table = self._validate_webhook_table(table)
+                table = await self._validate_webhook_table(table)
                 if table.num_rows == 0:
-                    await self._logger.awarning("webhook_file_has_no_valid_rows", path=path)
+                    await self._logger.adebug("webhook_file_has_no_valid_rows", path=path)
                     await s3._rm(path)
                     continue
 
@@ -106,7 +106,7 @@ class WebhookSourceManager:
 
                 await s3._rm(path)
 
-    def _validate_webhook_table(self, table: pa.Table) -> pa.Table:
+    async def _validate_webhook_table(self, table: pa.Table) -> pa.Table:
         expected_team_id = self._inputs.team_id
         expected_schema_id = str(self._inputs.schema_id)
 
@@ -117,7 +117,7 @@ class WebhookSourceManager:
         filtered = table.filter(valid_mask)
         dropped = table.num_rows - filtered.num_rows
         if dropped > 0:
-            self._logger.warning(
+            await self._logger.adebug(
                 "webhook_rows_filtered",
                 dropped=dropped,
                 expected_team_id=expected_team_id,
