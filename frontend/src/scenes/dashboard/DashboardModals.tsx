@@ -16,13 +16,16 @@ import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { DeleteDashboardModal } from './DeleteDashboardModal'
 import { DuplicateDashboardModal } from './DuplicateDashboardModal'
 
-export function DashboardModals({
-    dashboard,
-}: {
-    dashboard: DashboardType<QueryBasedInsightModel>
-}): JSX.Element {
-    const { dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, showTextTileModal, textTileId, terraformModalOpen } =
-        useValues(dashboardLogic)
+export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryBasedInsightModel> }): JSX.Element {
+    const {
+        dashboardMode,
+        canEditDashboard,
+        showSubscriptions,
+        subscriptionId,
+        showTextTileModal,
+        textTileId,
+        terraformModalOpen,
+    } = useValues(dashboardLogic)
     const { setTerraformModalOpen } = useActions(dashboardLogic)
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
@@ -32,7 +35,7 @@ export function DashboardModals({
             <SubscriptionsModal
                 isOpen={showSubscriptions}
                 closeModal={() => push(urls.dashboard(dashboard.id))}
-                dashboardId={dashboard.id}
+                dashboard={dashboard}
                 subscriptionId={subscriptionId}
             />
             <SharingModal
