@@ -1,7 +1,14 @@
 use crate::{
-    api::{auth, errors::FlagError},
+    api::{
+        auth,
+        errors::{ClientFacingError, FlagError},
+    },
     flags::{
-        flag_analytics::increment_request_count, flag_request::FlagRequestType,
+        flag_analytics::{
+            increment_request_count, PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
+            SURVEY_TARGETING_FLAG_PREFIX,
+        },
+        flag_request::FlagRequestType,
         flag_service::FlagService,
     },
     handler::types::Library,
@@ -87,24 +94,13 @@ pub async fn flags_definitions(
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
-    // Record usage for billing with library tracking
-    if !*state.config.skip_writes {
-        let library = Library::from_headers(&headers);
-        if let Err(e) = increment_request_count(
-            state.redis_client.clone(),
-            team.id,
-            1,
-            FlagRequestType::FlagDefinitions,
-            Some(library),
-        )
+    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior
+    if state
+        .feature_flags_billing_limiter
+        .is_limited(&params.token)
         .await
-        {
-            inc(
-                "flag_request_redis_error",
-                &[("error".to_string(), e.to_string())],
-                1,
-            );
-        }
+    {
+        return Err(FlagError::ClientFacing(ClientFacingError::BillingLimit));
     }
 
     let client_etag = extract_etag_from_header(headers.get("if-none-match"));
@@ -136,6 +132,26 @@ pub async fn flags_definitions(
 
     // Retrieve cached response from HyperCache (always with cohorts)
     let cached_response = get_from_cache(&state, &team_key, team.id).await?;
+
+    // Record usage for billing, filtering out non-billable flags (surveys, product tours)
+    if !*state.config.skip_writes && has_billable_flags(&cached_response) {
+        let library = Library::from_headers(&headers);
+        if let Err(e) = increment_request_count(
+            state.redis_client.clone(),
+            team.id,
+            1,
+            FlagRequestType::FlagDefinitions,
+            Some(library),
+        )
+        .await
+        {
+            inc(
+                "flag_request_redis_error",
+                &[("error".to_string(), e.to_string())],
+                1,
+            );
+        }
+    }
 
     Ok(ok_response_with_etag(
         cached_response,
@@ -362,9 +378,81 @@ async fn authenticate_flag_definitions(
     Err(FlagError::NoAuthenticationProvided)
 }
 
+/// Checks whether the cached flag definitions contain any billable flags.
+///
+/// Returns false if all flags are survey or product tour targeting flags,
+/// matching Django's `local_evaluation` billing filter. The cached response
+/// has a `"flags"` array where each entry has a `"key"` field.
+fn has_billable_flags(response: &Value) -> bool {
+    let Some(flags) = response.get("flags").and_then(|f| f.as_array()) else {
+        return false;
+    };
+
+    flags.iter().any(|flag| {
+        let key = flag.get("key").and_then(|k| k.as_str()).unwrap_or("");
+        !key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
+            && !key.starts_with(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_has_billable_flags_regular_flags() {
+        let response = json!({"flags": [{"key": "my-feature"}, {"key": "another-flag"}]});
+        assert!(has_billable_flags(&response));
+    }
+
+    #[test]
+    fn test_has_billable_flags_only_survey_flags() {
+        let response = json!({"flags": [
+            {"key": "survey-targeting-abc"},
+            {"key": "survey-targeting-xyz"},
+        ]});
+        assert!(!has_billable_flags(&response));
+    }
+
+    #[test]
+    fn test_has_billable_flags_only_product_tour_flags() {
+        let response = json!({"flags": [
+            {"key": "product-tour-targeting-abc"},
+            {"key": "product-tour-targeting-xyz"},
+        ]});
+        assert!(!has_billable_flags(&response));
+    }
+
+    #[test]
+    fn test_has_billable_flags_mixed_survey_and_regular() {
+        let response = json!({"flags": [
+            {"key": "survey-targeting-abc"},
+            {"key": "my-feature"},
+        ]});
+        assert!(has_billable_flags(&response));
+    }
+
+    #[test]
+    fn test_has_billable_flags_empty_flags_array() {
+        let response = json!({"flags": []});
+        assert!(!has_billable_flags(&response));
+    }
+
+    #[test]
+    fn test_has_billable_flags_no_flags_key() {
+        let response = json!({"cohorts": {}});
+        assert!(!has_billable_flags(&response));
+    }
+
+    #[test]
+    fn test_has_billable_flags_only_survey_and_tour_flags() {
+        let response = json!({"flags": [
+            {"key": "survey-targeting-abc"},
+            {"key": "product-tour-targeting-xyz"},
+        ]});
+        assert!(!has_billable_flags(&response));
+    }
 
     #[test]
     fn test_extract_etag_from_header_weak() {
