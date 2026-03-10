@@ -8,7 +8,6 @@ import dart from 'highlight.js/lib/languages/dart'
 import elixir from 'highlight.js/lib/languages/elixir'
 import go from 'highlight.js/lib/languages/go'
 import groovy from 'highlight.js/lib/languages/groovy'
-import html from 'highlight.js/lib/languages/html'
 import http from 'highlight.js/lib/languages/http'
 import java from 'highlight.js/lib/languages/java'
 import javascript from 'highlight.js/lib/languages/javascript'
@@ -21,6 +20,7 @@ import ruby from 'highlight.js/lib/languages/ruby'
 import sql from 'highlight.js/lib/languages/sql'
 import swift from 'highlight.js/lib/languages/swift'
 import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import { useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
@@ -48,7 +48,7 @@ lowlight.register({
     javascript,
     json,
     kotlin,
-    html,
+    xml,
     objectivec,
     php,
     python,
@@ -76,10 +76,10 @@ export enum Language {
     Go = 'go',
     JSON = 'json',
     YAML = 'yaml',
-    HTML = 'html',
+    HTML = 'xml',
     XML = 'xml',
     HTTP = 'http',
-    Markup = 'html',
+    Markup = 'xml',
     SQL = 'sql',
     Kotlin = 'kotlin',
     Groovy = 'groovy',

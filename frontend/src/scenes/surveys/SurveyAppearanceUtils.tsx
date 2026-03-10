@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { toHtml } from 'hast-util-to-html'
-import html from 'highlight.js/lib/languages/html'
+import xml from 'highlight.js/lib/languages/xml'
 import { useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
 import { useMemo, useRef } from 'react'
@@ -11,7 +11,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionDescriptionContentType } from '~/types'
 
 const lowlight = createLowlight(common)
-lowlight.register({ html })
+lowlight.register({ xml })
 
 const CODE_FONT_FAMILY = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
 
@@ -39,9 +39,7 @@ function HighlightedTextArea({
     const showPlaceholder = !displayValue && placeholder
     const highlighted = useMemo(
         () =>
-            lowlight.registered('html')
-                ? lowlight.highlight('html', displayValue)
-                : lowlight.highlightAuto(displayValue),
+            lowlight.registered('xml') ? lowlight.highlight('xml', displayValue) : lowlight.highlightAuto(displayValue),
         [displayValue]
     )
 
