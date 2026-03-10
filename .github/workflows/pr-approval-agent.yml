@@ -34,13 +34,13 @@ jobs:
                   app_id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
                   private_key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
 
-            # Run script from base branch — a PR cannot modify the approval
-            # script to auto-approve itself
-            - name: Checkout base branch
+            # Always run the approval script from master — hardcoded so a PR
+            # targeting a non-master branch can't supply a tampered script.
+            - name: Checkout master
               uses: actions/checkout@v6
               with:
                   token: ${{ steps.app-token.outputs.token }}
-                  ref: ${{ github.event.pull_request.base.ref }}
+                  ref: master
                   fetch-depth: 0
 
             - name: Fetch PR head ref

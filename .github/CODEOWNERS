@@ -33,8 +33,8 @@ posthog/hogql/** @PostHog/hogql
 CODEOWNERS @PostHog/team-security
 
 # PR approval agent — can auto-approve PRs, so changes need review
-.github/workflows/pr-approval-agent.yml @PostHog/team-devex
-tools/pr-approval-agent/** @PostHog/team-devex
+.github/workflows/pr-approval-agent.yml @PostHog/team-security
+tools/pr-approval-agent/** @PostHog/team-security
 
 # Ingestion team owns persons migrations
 rust/persons_migrations/** @PostHog/team-ingestion

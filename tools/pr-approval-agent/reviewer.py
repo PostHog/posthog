@@ -55,15 +55,17 @@ VERDICT_SCHEMA = {
 
 
 def _parse_verdict(text: str) -> dict:
-    """Parse structured verdict JSON from agent output."""
+    """Parse structured verdict JSON from agent output.
+
+    output_format constrains the model to the VERDICT_SCHEMA, so the text
+    should always be valid JSON. If it isn't, we crash intentionally — the
+    caller catches RuntimeError and falls back to ESCALATE. We must NOT
+    try to extract JSON from markdown wrappers because that is the exact
+    code path a prompt injection would exploit.
+    """
     text = text.strip()
     if not text:
         raise RuntimeError("Reviewer agent returned no output")
-    # output_format should guarantee valid JSON, but handle edge cases
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0].strip()
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0].strip()
     try:
         result = json.loads(text)
     except json.JSONDecodeError:
