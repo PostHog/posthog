@@ -215,12 +215,19 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 setExperimentsTab: (state, { tabKey }) => tabKey ?? state,
             },
         ],
+        hasLoadedExperiments: [
+            false,
+            {
+                loadExperimentsSuccess: () => true,
+                loadExperimentsFailure: () => true,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setExperimentsFilters: async (_, breakpoint) => {
             // Only debounce after the first load — the debounce is for search input,
             // but the initial load from urlToAction should fire immediately.
-            if (values.experiments.results.length > 0 || values.experimentsLoading) {
+            if (values.hasLoadedExperiments || values.experimentsLoading) {
                 await breakpoint(300)
             }
             actions.loadExperiments()
