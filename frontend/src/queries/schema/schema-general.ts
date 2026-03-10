@@ -773,14 +773,14 @@ export interface ActionsNode extends EntityNode {
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode
 
-export interface GroupNode extends EntityNode {
+export interface GroupNode<T = EventsNode | ActionsNode | DataWarehouseNode> extends EntityNode {
     kind: NodeKind.GroupNode
     /** Group of entities combined with AND/OR operator */
     operator: FilterLogicalOperator
     /** Entities to combine in this group */
-    nodes: AnyEntityNode[]
+    nodes: T[]
     limit?: integer
     /** Columns to order by */
     orderBy?: string[]
@@ -1403,7 +1403,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode | GroupNode)[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -1431,7 +1431,7 @@ export interface CalendarHeatmapQuery extends InsightsQueryBase<CalendarHeatmapR
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
     /** Properties specific to the trends insight */
     calendarHeatmapFilter?: CalendarHeatmapFilter
     /**  Whether we should be comparing against a specific conversion goal */
@@ -1520,7 +1520,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode | GroupNode)[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -1733,7 +1733,7 @@ export interface StickinessQuery extends Omit<
      */
     intervalCount?: integer
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
     /** Compare to date range */
@@ -3498,7 +3498,7 @@ export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
     kind: NodeKind.FunnelCorrelationActorsQuery
     source: FunnelCorrelationQuery
     funnelCorrelationPersonConverted?: boolean
-    funnelCorrelationPersonEntity?: AnyEntityNode
+    funnelCorrelationPersonEntity?: EventsNode | ActionsNode | DataWarehouseNode
     funnelCorrelationPropertyValues?: AnyPropertyFilter[]
 }
 
