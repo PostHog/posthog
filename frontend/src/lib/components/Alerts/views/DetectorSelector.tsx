@@ -61,9 +61,7 @@ export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JS
     return (
         <div className="space-y-4">
             <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Detector type
-                </label>
+                <label className="text-xs font-semibold text-secondary mb-1 block">Detector type</label>
                 <LemonSelect
                     value={detectorType}
                     onChange={handleTypeChange}
@@ -133,9 +131,7 @@ function ThresholdConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Upper bound
-                </label>
+                <label className="text-xs font-semibold text-secondary mb-1 block">Upper bound</label>
                 <LemonInput
                     type="number"
                     value={config.upper_bound ?? undefined}
@@ -145,9 +141,7 @@ function ThresholdConfig({
                 />
             </div>
             <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Lower bound
-                </label>
+                <label className="text-xs font-semibold text-secondary mb-1 block">Lower bound</label>
                 <LemonInput
                     type="number"
                     value={config.lower_bound ?? undefined}
@@ -172,7 +166,7 @@ function SensitivityInput({
 }): JSX.Element {
     return (
         <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
+            <label className="text-xs font-semibold text-secondary mb-1 block">
                 Sensitivity (anomaly probability threshold)
             </label>
             <LemonInput
@@ -198,9 +192,7 @@ function WindowSizeInput({
 }): JSX.Element {
     return (
         <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                Window size (data points)
-            </label>
+            <label className="text-xs font-semibold text-secondary mb-1 block">Window size (data points)</label>
             <LemonInput
                 type="number"
                 min={5}
@@ -258,9 +250,7 @@ function PreprocessingSection({
                     content: (
                         <div className="space-y-3">
                             <div>
-                                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                                    Differencing
-                                </label>
+                                <label className="text-xs font-semibold text-secondary mb-1 block">Differencing</label>
                                 <LemonSelect
                                     value={preprocessing.diffs_n ?? 0}
                                     onChange={(val) => updatePreprocessing({ diffs_n: val || undefined })}
@@ -275,7 +265,7 @@ function PreprocessingSection({
                                 </p>
                             </div>
                             <div>
-                                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
+                                <label className="text-xs font-semibold text-secondary mb-1 block">
                                     Smoothing window
                                 </label>
                                 <LemonInput

@@ -261,7 +261,7 @@ export function EditAlertModal({
                                                 if (value === 'detector') {
                                                     setAlertFormValue('detector_config', {
                                                         type: 'zscore',
-                                                        threshold: 3.0,
+                                                        threshold: 0.9,
                                                         window: 30,
                                                     })
                                                 } else {
@@ -272,10 +272,14 @@ export function EditAlertModal({
                                                 {
                                                     value: 'threshold',
                                                     label: 'Threshold',
+                                                    tooltip:
+                                                        'Alert when a value goes above or below a fixed threshold you define.',
                                                 },
                                                 {
                                                     value: 'detector',
                                                     label: 'Anomaly detection',
+                                                    tooltip:
+                                                        'Automatically detect unusual changes using statistical methods. No manual thresholds needed.',
                                                 },
                                             ]}
                                         />

@@ -4,6 +4,8 @@ from typing import Any
 
 import numpy as np
 
+from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
+
 
 @dataclass
 class DetectionResult:
@@ -51,8 +53,6 @@ class BaseDetector(ABC):
 
     def preprocess(self, data: np.ndarray) -> np.ndarray:
         """Apply preprocessing pipeline to data."""
-        from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
-
         return preprocess_data(data, self.preprocessing_config)
 
     @classmethod

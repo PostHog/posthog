@@ -1,12 +1,13 @@
-import logging
 from typing import TYPE_CHECKING, Any
+
+import structlog
 
 from posthog.schema import DetectorType
 
 if TYPE_CHECKING:
     from posthog.tasks.alerts.detectors.base import BaseDetector
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _DETECTOR_REGISTRY: dict[str, type["BaseDetector"]] = {}
 
