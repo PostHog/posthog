@@ -331,14 +331,14 @@ where
     /// The algorithm works by repeatedly finding all nodes that have no remaining dependencies (out-degree == 0),
     /// evaluating them as one stage, and then decrementing the remaining dependencies of their dependents.
     pub fn evaluation_stages(&self) -> Result<Vec<Vec<&T>>, T::Error> {
-        let out_degree = self.build_evaluation_maps()?;
+        let out_degree = self.build_evaluation_maps();
         Self::compute_stages(&self.graph, out_degree)
     }
 
     /// Like `evaluation_stages`, but consumes the graph and returns owned values.
     /// Avoids cloning flags when they need to be moved into another context (e.g. rayon).
     pub fn into_evaluation_stages(self) -> Result<Vec<Vec<T>>, T::Error> {
-        let out_degree = self.build_evaluation_maps()?;
+        let out_degree = self.build_evaluation_maps();
         let stage_indices = Self::compute_stage_indices(&self.graph, out_degree)?;
         let (nodes, _) = self.graph.into_nodes_edges();
         let mut node_slots: Vec<Option<T>> = nodes.into_iter().map(|n| Some(n.weight)).collect();
@@ -364,7 +364,7 @@ where
         self.graph.node_indices().map(|idx| &self.graph[idx])
     }
 
-    fn build_evaluation_maps(&self) -> Result<HashMap<NodeIndex, usize>, T::Error> {
+    fn build_evaluation_maps(&self) -> HashMap<NodeIndex, usize> {
         use petgraph::Direction::Outgoing;
         let node_count = self.graph.node_count();
         let mut out_degree: HashMap<NodeIndex, usize> = HashMap::with_capacity(node_count);
@@ -372,7 +372,7 @@ where
             let deg = self.graph.edges_directed(node_idx, Outgoing).count();
             out_degree.insert(node_idx, deg);
         }
-        Ok(out_degree)
+        out_degree
     }
 
     fn compute_stage_indices(
