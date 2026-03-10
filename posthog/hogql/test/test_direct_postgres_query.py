@@ -12,11 +12,7 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.errors import (
-    ExposedHogQLError,
-    NotImplementedError as HogQLNotImplementedError,
-)
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor, postgres_error_to_message, postgres_oid_to_clickhouse_type
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
@@ -88,88 +84,6 @@ class TestDirectPostgresQuery(APIBaseTest):
         source_ids = executor._extract_direct_postgres_sources_from_type(query_type)
 
         self.assertEqual(source_ids, {"source-id"})
-
-    @parameterized.expand(
-        [
-            (
-                "all_direct_tables",
-                {
-                    "postgres.ph3.ph3_postgres_posthog_activitylog": _build_direct_table_type,
-                },
-                True,
-            ),
-            (
-                "mixed_direct_and_non_direct_tables",
-                {
-                    "postgres.ph3.ph3_postgres_posthog_activitylog": _build_direct_table_type,
-                    "raw.posthog_group": lambda _test_case: ast.TableType(
-                        table=PostgresTable(name="raw.posthog_group", fields={}, postgres_table_name="posthog_group")
-                    ),
-                },
-                False,
-            ),
-            (
-                "mixed_direct_and_aliased_non_direct_tables",
-                {
-                    "postgres.ph3.ph3_postgres_posthog_activitylog": _build_direct_table_type,
-                    "events": lambda _test_case: ast.TableAliasType(
-                        alias="e",
-                        table_type=ast.TableType(
-                            table=PostgresTable(name="events", fields={}, postgres_table_name="events")
-                        ),
-                    ),
-                },
-                False,
-            ),
-        ]
-    )
-    def test_should_use_direct_postgres(self, _name: str, table_factories, expected: bool):
-        executor = HogQLQueryExecutor(query="SELECT 1", team=self.team)
-        query_type = ast.SelectQueryType(
-            tables={table_name: table_factory(self) for table_name, table_factory in table_factories.items()}
-        )
-        executor.select_query = ast.SelectQuery(type=query_type, select=[ast.Constant(value=1)])
-
-        self.assertEqual(executor._should_use_direct_postgres(), expected)
-
-    def test_should_use_direct_postgres_resolves_query_type_when_missing(self):
-        source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="source_id",
-            connection_id="connection_id",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type="Postgres",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-            prefix="ph3",
-            job_inputs={
-                "host": "localhost",
-                "port": 5432,
-                "database": "postgres",
-                "user": "postgres",
-                "password": "postgres",
-                "schema": "ph3",
-            },
-        )
-
-        DataWarehouseTable.objects.create(
-            name="ph3_postgres_without_team_id",
-            format="Parquet",
-            team=self.team,
-            external_data_source=source,
-            url_pattern="",
-            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
-        )
-
-        executor = HogQLQueryExecutor(
-            query="SELECT * FROM postgres.ph3.without_team_id",
-            team=self.team,
-        )
-
-        executor._parse_query()
-        executor._generate_hogql()
-
-        self.assertIsNone(executor.select_query.type)
-        self.assertEqual(executor._should_use_direct_postgres(), True)
 
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
         source = ExternalDataSource.objects.create(
@@ -288,10 +202,10 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor = HogQLQueryExecutor(query="SELECT * FROM postgres.ph3.without_team_id", team=self.team)
 
-        with self.assertRaises(ExposedHogQLError) as error:
+        with self.assertRaises(QueryError) as error:
             executor.generate_clickhouse_sql()
 
-        self.assertEqual(str(error.exception), "Direct Postgres queries require selecting a connection.")
+        self.assertEqual(str(error.exception), "Unknown table `postgres.ph3.without_team_id`.")
 
     def test_mixed_direct_and_clickhouse_query_without_connection_rejects_clickhouse_printing(self):
         source = ExternalDataSource.objects.create(
@@ -326,10 +240,10 @@ class TestDirectPostgresQuery(APIBaseTest):
             team=self.team,
         )
 
-        with self.assertRaises(HogQLNotImplementedError) as error:
+        with self.assertRaises(QueryError) as error:
             executor.generate_clickhouse_sql()
 
-        self.assertEqual(str(error.exception), "Direct Postgres tables cannot be printed to ClickHouse SQL")
+        self.assertEqual(str(error.exception), "Unknown table `postgres.ph3.posthog_dashboard`.")
 
     def test_selected_connection_prioritizes_matching_direct_source_for_canonical_table_name(self):
         first_source = ExternalDataSource.objects.create(
@@ -420,10 +334,53 @@ class TestDirectPostgresQuery(APIBaseTest):
             connection_id=str(source.id),
         )
 
-        with self.assertRaises(ExposedHogQLError) as error:
+        with self.assertRaises(QueryError) as error:
             executor.execute()
 
-        self.assertEqual(str(error.exception), "Table not found in the selected connection.")
+        self.assertEqual(str(error.exception), "Unknown table `persons`.")
+
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_selected_connection_allows_table_less_sql(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "value"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT 1 AS value",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        response = executor.execute()
+
+        self.assertEqual(response.results, [(1,)])
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert executor.direct_postgres_sql is not None
+        self.assertIn("1 AS value", executor.direct_postgres_sql)
+        self.assertIn("LIMIT 100", executor.direct_postgres_sql)
 
     def test_selected_connection_rejects_disabled_direct_tables(self):
         source = ExternalDataSource.objects.create(

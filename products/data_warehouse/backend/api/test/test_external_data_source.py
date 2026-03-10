@@ -12,9 +12,22 @@ import psycopg
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import (
+    Option,
+    SourceFieldFileUploadConfig,
+    SourceFieldFileUploadJsonFormatConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
+)
+
 from posthog.models import Team
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -34,6 +47,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_warehouse.backend.api.external_data_source import credentials_touched
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -60,6 +74,127 @@ class TestExternalDataSource(APIBaseTest):
     def _create_external_data_schema(self, source_id) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(
             name="Customers", team_id=self.team.pk, source_id=source_id, table=None
+        )
+
+    def test_credentials_touched_handles_nested_fields(self):
+        fields: list[FieldType] = [
+            SourceFieldInputConfig(
+                name="password",
+                label="Password",
+                placeholder="Password",
+                required=True,
+                type=SourceFieldInputConfigType.PASSWORD,
+            ),
+            SourceFieldSwitchGroupConfig(
+                name="advanced",
+                label="Advanced",
+                default=False,
+                fields=[
+                    SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string",
+                        placeholder="postgres://",
+                        required=False,
+                        type=SourceFieldInputConfigType.TEXT,
+                    )
+                ],
+            ),
+            SourceFieldSelectConfig(
+                name="auth_method",
+                label="Auth method",
+                defaultValue="basic",
+                required=True,
+                options=[
+                    Option(
+                        label="Basic",
+                        value="basic",
+                        fields=[
+                            SourceFieldInputConfig(
+                                name="api_key",
+                                label="API key",
+                                placeholder="API key",
+                                required=False,
+                                type=SourceFieldInputConfigType.PASSWORD,
+                            )
+                        ],
+                    )
+                ],
+            ),
+            SourceFieldFileUploadConfig(
+                name="service_account",
+                label="Service account",
+                required=False,
+                fileFormat=SourceFieldFileUploadJsonFormatConfig(format=".json", keys=["private_key", "client_email"]),
+            ),
+            SourceFieldOauthConfig(name="oauth_token", label="OAuth token", required=False, kind="oauth2"),
+        ]
+
+        assert credentials_touched(
+            {
+                "advanced": {"connection_string": ""},
+            },
+            fields,
+        )
+
+        assert credentials_touched(
+            {
+                "auth_method": {"selection": "basic", "api_key": "api-secret"},
+            },
+            fields,
+        )
+
+        assert credentials_touched(
+            {
+                "service_account": {"private_key": "pem", "client_email": ""},
+            },
+            fields,
+        )
+
+        assert credentials_touched({"oauth_token": None}, fields)
+
+    def test_credentials_touched_ignores_non_credential_fields(self):
+        fields: list[FieldType] = [
+            SourceFieldInputConfig(
+                name="host",
+                label="Host",
+                placeholder="db.example.com",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+            ),
+            SourceFieldSwitchGroupConfig(
+                name="use_custom_region",
+                label="Use custom region",
+                default=False,
+                fields=[
+                    SourceFieldInputConfig(
+                        name="region",
+                        label="Region",
+                        placeholder="us-east1",
+                        required=True,
+                        type=SourceFieldInputConfigType.TEXT,
+                    )
+                ],
+            ),
+        ]
+
+        assert not credentials_touched({"host": "db.example.com"}, fields)
+        assert not credentials_touched({"use_custom_region": {"enabled": True, "region": "us-east1"}}, fields)
+
+    def test_credentials_touched_handles_ssh_tunnel_updates(self):
+        fields: list[FieldType] = [SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="SSH tunnel")]
+
+        assert credentials_touched(
+            {
+                "ssh_tunnel": {"auth": {"password": "secret"}},
+            },
+            fields,
+        )
+
+        assert not credentials_touched(
+            {
+                "ssh_tunnel": {"enabled": True},
+            },
+            fields,
         )
 
     @patch(
@@ -1812,7 +1947,7 @@ class TestExternalDataSource(APIBaseTest):
                             "host": "ssh.example.com",
                             "port": 22,
                             "auth_type": {
-                                "selection": "username_password",
+                                "selection": "password",
                                 "username": "testuser",
                                 "password": "testpass",
                                 "passphrase": "testphrase",
@@ -1831,7 +1966,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["ssh_tunnel"]["enabled"] == "True"
         assert source.job_inputs["ssh_tunnel"]["host"] == "ssh.example.com"
         assert source.job_inputs["ssh_tunnel"]["port"] == "22"
-        assert source.job_inputs["ssh_tunnel"]["auth"]["type"] == "username_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["type"] == "password"
         assert source.job_inputs["ssh_tunnel"]["auth"]["username"] == "testuser"
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "testpass"
         assert source.job_inputs["ssh_tunnel"]["auth"]["passphrase"] == "testphrase"
@@ -1851,7 +1986,7 @@ class TestExternalDataSource(APIBaseTest):
         assert ssh_tunnel["host"] == "ssh.example.com"
         assert ssh_tunnel["port"] == "22"
         assert "auth" in ssh_tunnel
-        assert ssh_tunnel["auth"]["selection"] == "username_password"
+        assert ssh_tunnel["auth"]["selection"] == "password"
         assert ssh_tunnel["auth"]["username"] == "testuser"
         # Sensitive fields should not be included in response (to prevent them being echoed back)
         assert "password" not in ssh_tunnel["auth"]

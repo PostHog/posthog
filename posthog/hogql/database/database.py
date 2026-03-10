@@ -257,7 +257,6 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
     _connection_id: str | None = None
-    _connection_scope: Literal["all", "exclude_direct", "connection"] = "all"
     _direct_access_warehouse_table_names: set[str] = set()
 
     _timezone: str | None
@@ -276,7 +275,6 @@ class Database(BaseModel):
         self._view_table_names = []
         self._denied_tables = set()
         self._connection_id = None
-        self._connection_scope = "all"
         self._direct_access_warehouse_table_names = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
@@ -326,7 +324,7 @@ class Database(BaseModel):
             if table.name == table_name:
                 warehouse_table_names.append(table_name)
 
-        if self._connection_scope == "connection":
+        if self._is_direct_query():
             return sorted(set(warehouse_table_names))
 
         return (
@@ -378,8 +376,8 @@ class Database(BaseModel):
         for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
 
-    def has_schema_scope(self) -> bool:
-        return self._connection_scope != "all"
+    def _is_direct_query(self) -> bool:
+        return self._connection_id is not None
 
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
@@ -437,18 +435,9 @@ class Database(BaseModel):
         self._view_table_names = [name for name in self._view_table_names if name in allowed_table_names]
         self._remove_lazy_joins_to_disallowed_tables(allowed_table_names)
 
-    def apply_connection_scope(self) -> None:
-        if self._connection_scope != "connection":
-            return
-
-        self.prune_to_table_names(set(self._warehouse_table_names))
-
     def apply_schema_scope(self) -> None:
-        if self._connection_scope == "connection":
-            self.apply_connection_scope()
-            return
-
-        if self._connection_scope != "exclude_direct":
+        if self._is_direct_query():
+            self.prune_to_table_names(set(self._warehouse_table_names))
             return
 
         allowed_table_names = set(self.tables.resolve_all_table_names())
@@ -520,7 +509,7 @@ class Database(BaseModel):
         # PostHog tables
         posthog_table_names = (
             []
-            if self._connection_scope == "connection"
+            if self._is_direct_query()
             else self.get_posthog_table_names(include_hidden=include_hidden_posthog_tables)
         )
         for table_name in posthog_table_names:
@@ -539,7 +528,7 @@ class Database(BaseModel):
             tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
 
         # System tables
-        system_tables = [] if self._connection_scope == "connection" else self.get_system_table_names()
+        system_tables = [] if self._is_direct_query() else self.get_system_table_names()
         for table_key in system_tables:
             if include_only and table_key not in include_only:
                 continue
@@ -557,7 +546,7 @@ class Database(BaseModel):
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
         warehouse_table_names = self.get_warehouse_table_names()
-        views = [] if self._connection_scope == "connection" else self.get_view_names()
+        views = [] if self._is_direct_query() else self.get_view_names()
 
         warehouse_tables_query = (
             DataWarehouseTable.raw_objects.select_related("credential", "external_data_source")
@@ -574,7 +563,7 @@ class Database(BaseModel):
             .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id)
             .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
         )
-        if self._connection_scope == "connection":
+        if self._is_direct_query():
             warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
         elif warehouse_table_names:
             warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names)
@@ -582,7 +571,7 @@ class Database(BaseModel):
             warehouse_tables_query = warehouse_tables_query.none()
 
         warehouse_tables_with_data = list(warehouse_tables_query.all())
-        if self._connection_scope == "connection":
+        if self._is_direct_query():
             warehouse_tables_with_data = [
                 warehouse_table
                 for warehouse_table in warehouse_tables_with_data
@@ -592,7 +581,7 @@ class Database(BaseModel):
                     view_names=set(views),
                 )
             ]
-        allowed_warehouse_table_names = set(warehouse_table_names) if self._connection_scope == "connection" else None
+        allowed_warehouse_table_names = set(warehouse_table_names) if self._is_direct_query() else None
 
         # Process warehouse tables
         for warehouse_table in warehouse_tables_with_data:
@@ -630,11 +619,9 @@ class Database(BaseModel):
                     last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
                 )
 
-            # Temp until we migrate all table names in the DB to use dot notation
             table_key = get_data_warehouse_table_name(
                 warehouse_table.external_data_source,
                 warehouse_table.name,
-                use_direct_database_names=self._connection_scope == "connection",
             )
 
             if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
@@ -797,10 +784,7 @@ class Database(BaseModel):
 
         with timings.measure("database"):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
-            if connection_id is None:
-                database._connection_scope = "exclude_direct"
-            else:
-                database._connection_scope = "connection"
+            if connection_id is not None:
                 database._connection_id = connection_id
 
         with timings.measure("filter_system_tables_for_user"):
@@ -1015,7 +999,7 @@ class Database(BaseModel):
                     .select_related("credential", "external_data_source")
                     .prefetch_related(_active_external_data_schemas_prefetch())
                 )
-                if database._connection_scope == "connection":
+                if database._is_direct_query():
                     tables = [
                         table
                         for table in tables
@@ -1043,7 +1027,7 @@ class Database(BaseModel):
                     if table.external_data_source:
                         if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
                             database._direct_access_warehouse_table_names.add(table.name)
-                        if database._connection_scope != "connection":
+                        if not database._is_direct_query():
                             warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
                     else:
                         self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
@@ -1053,7 +1037,6 @@ class Database(BaseModel):
                         table_key = get_data_warehouse_table_name(
                             table.external_data_source,
                             table.name,
-                            use_direct_database_names=database._connection_scope == "connection",
                         )
                         table_chain = table_key.split(".")
 
@@ -1297,10 +1280,11 @@ class Database(BaseModel):
         return database
 
 
-def get_data_warehouse_table_name(
-    source: ExternalDataSource | None, table_name: str, *, use_direct_database_names: bool = False
-):
+def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
     if source is None:
+        return table_name
+
+    if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
         return table_name
 
     source_type = source.source_type.lower()
@@ -1318,9 +1302,6 @@ def get_data_warehouse_table_name(
         if table_name_stripped.lower().startswith(known_prefix):
             table_name_stripped = table_name_stripped[len(known_prefix) :]
             break
-
-    if source.access_method == ExternalDataSource.AccessMethod.DIRECT and use_direct_database_names:
-        return table_name_stripped
 
     if prefix:
         return f"{source_type}.{prefix}.{table_name_stripped}".lower()
