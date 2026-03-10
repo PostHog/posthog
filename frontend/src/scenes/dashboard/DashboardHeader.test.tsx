@@ -28,16 +28,14 @@ const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     tags: [],
     created_at: '2020-01-01T00:00:00Z',
     created_by: { id: 1, first_name: 'Test', last_name: 'User', email: 'test@posthog.com', uuid: 'abc' },
+    last_accessed_at: '2020-01-01T00:00:00Z',
     is_shared: false,
     deleted: false,
     creation_mode: 'default',
     user_access_level: AccessControlLevel.Editor,
     filters: {},
     variables: {},
-    restriction_level: 0,
-    effective_restriction_level: 0,
-    effective_privilege_level: 0,
-} as any
+}
 
 function makeDashboard(overrides: Record<string, any> = {}): DashboardType<QueryBasedInsightModel> {
     return { ...MOCK_DASHBOARD, ...overrides }
