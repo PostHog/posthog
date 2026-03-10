@@ -1,4 +1,17 @@
-import { BuiltLogic, actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BuiltLogic,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -15,7 +28,12 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
+import {
+    SCRATCHPAD_NOTEBOOK,
+    drainPendingNotebookOperations,
+    notebooksModel,
+    openNotebook,
+} from '~/models/notebooksModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
 import {
@@ -912,6 +930,10 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
     })),
+
+    afterMount(({ props }) => {
+        drainPendingNotebookOperations(props.shortId)
+    }),
 
     beforeUnmount(() => {
         const hashParams = router.values.currentLocation.hashParams

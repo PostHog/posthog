@@ -22,6 +22,24 @@ import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
 
+// Queue for operations that arrive before the Notebook component mounts its
+// kea logic. `openNotebook` pushes here; `notebookLogic.afterMount` drains.
+const pendingNotebookOperations = new Map<string, ((logic: BuiltLogic<notebookLogicType>) => void)[]>()
+
+export function drainPendingNotebookOperations(shortId: string): void {
+    const ops = pendingNotebookOperations.get(shortId)
+    if (!ops?.length) {
+        return
+    }
+    pendingNotebookOperations.delete(shortId)
+    const logic = notebookLogic.findMounted({ shortId })
+    if (logic) {
+        for (const op of ops) {
+            op(logic)
+        }
+    }
+}
+
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     id: 'scratchpad',
     short_id: 'scratchpad',
@@ -49,24 +67,13 @@ export const openNotebook = async (
     }
 
     if (onOpen) {
-        // Wait for the Notebook component to mount its logic instance before
-        // dispatching operations. Previously we mounted a temporary instance
-        // and called onOpen immediately, but async listeners (like
-        // insertAfterLastNode) were killed when we unmounted the temporary
-        // instance before they could complete.
-        let called = false
-        const startTime = Date.now()
-        while (Date.now() - startTime < 5000) {
-            const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
-            if (mountedLogic) {
-                onOpen(mountedLogic)
-                called = true
-                break
-            }
-            await new Promise((resolve) => setTimeout(resolve, 50))
-        }
-        if (!called) {
-            console.warn('openNotebook: timed out waiting for logic to mount', notebookId)
+        const mountedLogic = notebookLogic.findMounted({ shortId: notebookId })
+        if (mountedLogic) {
+            onOpen(mountedLogic)
+        } else {
+            const ops = pendingNotebookOperations.get(notebookId) || []
+            ops.push(onOpen)
+            pendingNotebookOperations.set(notebookId, ops)
         }
     }
 }
