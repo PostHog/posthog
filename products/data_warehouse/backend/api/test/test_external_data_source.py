@@ -787,6 +787,7 @@ class TestExternalDataSource(APIBaseTest):
                 name="restored_table",
                 supports_incremental=False,
                 supports_append=False,
+                metadata={"channel_id": "C123"},
             ),
         ]
         source = self._create_external_data_source()
@@ -821,6 +822,50 @@ class TestExternalDataSource(APIBaseTest):
         self.assertFalse(restored_schema.deleted)
         self.assertTrue(restored_schema.should_sync)
         self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
+        self.assertEqual(restored_schema.sync_type_config.get("channel_id"), "C123")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_renames_schema_by_stable_channel_id(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="renamed_channel",
+                supports_incremental=False,
+                supports_append=False,
+                metadata={"channel_id": "C999"},
+            ),
+        ]
+        source = self._create_external_data_source()
+        existing_schema = ExternalDataSchema.objects.create(
+            name="old_channel_name",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            should_sync=True,
+            sync_type_config={"channel_id": "C999"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["added"], 0)
+        self.assertEqual(response.json()["deleted"], 0)
+        self.assertEqual(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="renamed_channel", deleted=False
+            ).count(),
+            1,
+        )
+        self.assertFalse(
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="old_channel_name", deleted=False
+            ).exists()
+        )
+
+        renamed_schema = ExternalDataSchema.objects.get(pk=existing_schema.pk)
+        self.assertEqual(renamed_schema.name, "renamed_channel")
+        self.assertEqual(renamed_schema.sync_type_config.get("channel_id"), "C999")
 
     def test_refresh_schemas_returns_400_when_no_job_inputs(self):
         source = self._create_external_data_source()
