@@ -76,7 +76,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
             "HTTP_API_VERSION": "0.1d",
         }
         django_request._stream = io.BytesIO(body)
-        django_request._read_started = False
+        django_request._read_started = False  # type: ignore[attr-defined]
 
         drf_request = Request(django_request, parsers=[JSONParser()])
         _ = drf_request.data
@@ -112,7 +112,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
             "HTTP_STRIPE_SIGNATURE": f"t={ts},v1={sig}",
         }
         django_request._stream = io.BytesIO(body)
-        django_request._read_started = False
+        django_request._read_started = False  # type: ignore[attr-defined]
 
         drf_request = Request(django_request, parsers=[JSONParser()])
         result = verify_stripe_signature(drf_request)
@@ -135,7 +135,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         }
         django_request._body = body
         django_request._stream = io.BytesIO(b"")
-        django_request._read_started = True
+        django_request._read_started = True  # type: ignore[attr-defined]
 
         drf_request = Request(django_request, parsers=[JSONParser()])
         result = verify_stripe_signature(drf_request)
