@@ -2157,6 +2157,11 @@ export enum InsightColor {
     Blue = 'blue',
     Green = 'green',
     Purple = 'purple',
+    Red = 'red',
+    Orange = 'orange',
+    Teal = 'teal',
+    Cyan = 'cyan',
+    Pink = 'pink',
 }
 
 export interface Cacheable {

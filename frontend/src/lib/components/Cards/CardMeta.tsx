@@ -28,6 +28,8 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     ribbonColor?: InsightColor | null
+    /** Whether to show the legacy header ribbon for the card color. */
+    showRibbon?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
@@ -54,11 +56,14 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     metaDescriptionText?: string
     /** When provided, makes title/description editable in the compact popover. */
     onMetaSave?: (updates: { name?: string; description?: string }) => void
+    /** Optional extra classes to apply to the primary header section. */
+    headerClassName?: string
 }
 
 export function CardMeta({
     compact,
     ribbonColor,
+    showRibbon = true,
     showEditingControls,
     showDetailsControls,
     content: meta,
@@ -77,6 +82,7 @@ export function CardMeta({
     popoverTopHeading,
     metaDescriptionText,
     onMetaSave,
+    headerClassName,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -113,8 +119,9 @@ export function CardMeta({
                 areDetailsShown && 'CardMeta--details-shown'
             )}
         >
-            <div className="CardMeta__primary" ref={compact ? undefined : primaryRef}>
-                {ribbonColor &&
+            <div className={clsx('CardMeta__primary', headerClassName)} ref={compact ? undefined : primaryRef}>
+                {showRibbon &&
+                    ribbonColor &&
                     ribbonColor !==
                         InsightColor.White /* White has historically meant no color synonymously to null */ && (
                         <div className={clsx('CardMeta__ribbon', ribbonColor)} />

@@ -51,6 +51,7 @@ import {
 } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
+import { INSIGHT_COLOR_CLASSES } from './insightColorClasses'
 import { InsightDetails } from './InsightDetails'
 import { InsightMoveToDashboardMenu } from './InsightMoveToDashboardMenu'
 
@@ -130,11 +131,24 @@ export function InsightMeta({
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
 
+    const insightCardColorVariant = featureFlags[FEATURE_FLAGS.DASHBOARD_INSIGHT_CARD_COLOR]
+    const isFullVariant = insightCardColorVariant === 'full'
+    const isBorderOnlyVariant = insightCardColorVariant === 'border_only'
+    const isHeaderVariant = insightCardColorVariant === 'header'
+
+    // Text color:
+    // - full variant: date text (and associated header text) uses the accent color
+    // - all other variants: default foreground color
+    const dateColorClass: string | undefined =
+        isFullVariant && ribbonColor ? INSIGHT_COLOR_CLASSES[ribbonColor]?.text : undefined
+    const headerClassName = isHeaderVariant && ribbonColor ? INSIGHT_COLOR_CLASSES[ribbonColor]?.headerBg : undefined
+
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
         hasTileOverrides: Object.keys(tile?.filters_overrides ?? {}).length > 0,
         resolvedDateRange: insightData?.resolved_date_range,
+        colorClassName: dateColorClass,
     }
 
     const summary = useSummarizeInsight()(insight.query)
@@ -201,6 +215,8 @@ export function InsightMeta({
             <CardMeta
                 compact={showCompactTile}
                 ribbonColor={ribbonColor}
+                // For header variant, keep the legacy ribbon; hide it only for full/border-only variants.
+                showRibbon={!isFullVariant && !isBorderOnlyVariant}
                 showEditingControls={false}
                 showDetailsControls={false}
                 setAreDetailsShown={setAreDetailsShown}
@@ -219,6 +235,7 @@ export function InsightMeta({
                     />
                 }
                 metaDetails={null}
+                headerClassName={headerClassName}
                 samplingFactor={samplingFactor}
             />
         )
@@ -235,6 +252,8 @@ export function InsightMeta({
         <CardMeta
             compact={showCompactTile}
             ribbonColor={ribbonColor}
+            // For header variant, keep the legacy ribbon; hide it only for full/border-only variants.
+            showRibbon={!isFullVariant && !isBorderOnlyVariant}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
             setAreDetailsShown={setAreDetailsShown}
@@ -290,6 +309,7 @@ export function InsightMeta({
                 ) : null
             }
             samplingFactor={samplingFactor}
+            headerClassName={headerClassName}
             moreButtons={
                 <>
                     {/* Insight related */}
@@ -351,25 +371,35 @@ export function InsightMeta({
                             )}
                             {updateColor && (
                                 <LemonMenu
-                                    items={Object.values(InsightColor).map((availableColor) => ({
-                                        label: (
-                                            <span className="flex items-center gap-2">
-                                                {availableColor !== InsightColor.White ? (
-                                                    <Splotch color={availableColor as string as SplotchColor} />
-                                                ) : null}
-                                                <span>
-                                                    {availableColor !== InsightColor.White
-                                                        ? capitalizeFirstLetter(availableColor)
-                                                        : 'No color'}
+                                    items={Object.values(InsightColor)
+                                        .filter((c) => c !== InsightColor.Black)
+                                        .map((availableColor) => ({
+                                            label: (
+                                                <span className="flex items-center gap-2">
+                                                    {availableColor !== InsightColor.White ? (
+                                                        <Splotch color={availableColor as string as SplotchColor} />
+                                                    ) : null}
+                                                    <span>
+                                                        {availableColor !== InsightColor.White
+                                                            ? capitalizeFirstLetter(availableColor)
+                                                            : 'No color'}
+                                                    </span>
                                                 </span>
-                                            </span>
-                                        ),
-                                        key: availableColor,
-                                        active: availableColor === (ribbonColor || InsightColor.White),
-                                        onClick: () => {
-                                            updateColor?.(availableColor)
-                                        },
-                                    }))}
+                                            ),
+                                            key: availableColor,
+                                            active:
+                                                availableColor ===
+                                                (ribbonColor === null
+                                                    ? InsightColor.White
+                                                    : ribbonColor || InsightColor.White),
+                                            onClick: () => {
+                                                if (availableColor === InsightColor.White) {
+                                                    updateColor?.(null)
+                                                } else {
+                                                    updateColor?.(availableColor)
+                                                }
+                                            },
+                                        }))}
                                     placement="right-start"
                                     fallbackPlacements={['left-start']}
                                     closeParentPopoverOnClickInside

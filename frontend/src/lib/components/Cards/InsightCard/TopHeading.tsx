@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText } from 'lib/utils'
 import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
@@ -31,12 +33,14 @@ export function TopHeading({
     hasTileOverrides,
     resolvedDateRange,
     showInsightType = true,
+    colorClassName,
 }: {
     query: Node | null
     lastRefresh?: string | null
     hasTileOverrides?: boolean | null
     resolvedDateRange?: ResolvedDateRangeResponse | null
     showInsightType?: boolean
+    colorClassName?: string
 }): JSX.Element {
     const insightType = getInsightType(query)
 
@@ -55,21 +59,26 @@ export function TopHeading({
             query == undefined || isInsightQueryNode(query) || isInsightVizNode(query) ? 'Last 7 days' : null
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
+    const dateClassName = clsx('whitespace-nowrap', colorClassName)
 
     const resolvedDateTooltip = formatResolvedDateRange(resolvedDateRange)
 
     return (
         <div className="flex items-center gap-1">
-            {showInsightType && <span title={insightType?.description}>{insightType?.name}</span>}
+            {showInsightType && (
+                <span className={colorClassName} title={insightType?.description}>
+                    {insightType?.name}
+                </span>
+            )}
             {dateText ? (
                 <>
-                    {showInsightType && <span>•</span>}
+                    {showInsightType && <span className={colorClassName}>•</span>}
                     {resolvedDateTooltip ? (
                         <Tooltip title={resolvedDateTooltip}>
-                            <span className="whitespace-nowrap">{dateText}</span>
+                            <span className={dateClassName}>{dateText}</span>
                         </Tooltip>
                     ) : (
-                        <span className="whitespace-nowrap">{dateText}</span>
+                        <span className={dateClassName}>{dateText}</span>
                     )}
                 </>
             ) : null}

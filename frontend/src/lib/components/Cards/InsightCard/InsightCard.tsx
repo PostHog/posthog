@@ -43,6 +43,7 @@ import {
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { EditModeEdgeOverlay } from './EditModeEdgeOverlay'
+import { INSIGHT_COLOR_CLASSES } from './insightColorClasses'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
@@ -164,6 +165,10 @@ function InsightCardInternal(
             ? true
             : IS_STORYBOOK || placement === DashboardPlacement.Export || (inView && isPageVisible)
 
+    const insightCardColorVariant = featureFlags[FEATURE_FLAGS.DASHBOARD_INSIGHT_CARD_COLOR]
+    const isFullVariant = insightCardColorVariant === 'full'
+    const isBorderOnlyVariant = insightCardColorVariant === 'border_only'
+
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
     const { theme } = useValues(themeLogic)
@@ -240,6 +245,8 @@ function InsightCardInternal(
                 'InsightCard border',
                 highlighted && 'InsightCard--highlighted',
                 areDetailsShown && 'InsightCard--details-shown',
+                isFullVariant && ribbonColor && INSIGHT_COLOR_CLASSES[ribbonColor]?.border,
+                isBorderOnlyVariant && ribbonColor && INSIGHT_COLOR_CLASSES[ribbonColor]?.leftBorder,
                 className
             )}
             data-attr="insight-card"
