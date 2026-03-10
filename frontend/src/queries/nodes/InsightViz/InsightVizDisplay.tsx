@@ -219,7 +219,7 @@ export function InsightVizDisplay({
             !disableTable
         ) {
             return (
-                <SceneSection title="Detailed results" className="mt-4">
+                <SceneSection title={<h2 className="font-semibold text-lg m-0">Detailed results</h2>} className="mt-4">
                     <FunnelStepsTable />
                 </SceneSection>
             )
