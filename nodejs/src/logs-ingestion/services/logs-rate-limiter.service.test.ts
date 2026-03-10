@@ -598,7 +598,7 @@ describe('LogsRateLimiterService', () => {
             it('should allow more throughput when batch spans time (backfill scenario)', async () => {
                 // Simulate backfill: first batch drains the bucket
                 const t0 = new Date('2024-01-01T00:00:00Z').toISOString()
-                const messages1 = [createMessageWithHeaders(1, 10240, [{ created_at: t0 }])] // 10KB = full bucket
+                const messages1 = [createMessageWithHeaders(1, 10000, [{ created_at: t0 }])] // 10KB = full bucket
                 const result1 = await rateLimiter.filterMessages(messages1)
                 expect(result1.allowed).toHaveLength(1)
 
