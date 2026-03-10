@@ -115,7 +115,7 @@ describe('CyclotronJobInputsValidation', () => {
             })
 
             it('should reject string value for boolean type when templating is disabled', () => {
-                const inputs = { active: { value: 'true' } }
+                const inputs = { active: { value: '{true}' } }
                 const schema: CyclotronJobInputSchemaType[] = [
                     { key: 'active', type: 'boolean', label: 'Active', templating: false },
                 ]

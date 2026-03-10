@@ -273,12 +273,14 @@ function DictionaryField({
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
     const value = input.value ?? {}
-    const [entries, setEntries] = useState<[string, string][]>(() => Object.entries(value))
-    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
+    const [entries, setEntries] = useState<[string, any][]>(() => Object.entries(value))
+    const prevFilteredEntriesRef = useRef<[string, any][]>(entries)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
-        const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+        const filteredEntries = entries.filter(
+            ([key, val]) => key.trim() !== '' || typeof val !== 'string' || val.trim() !== ''
+        )
 
         // Compare with previous filtered entries to avoid unnecessary updates
         if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
