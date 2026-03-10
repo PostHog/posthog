@@ -4,16 +4,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import {
-    HealthCheckResult,
-    HealthCheckResultError,
-    PluginServerService,
-    PluginsServerConfig,
-    RedisPool,
-} from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
+import { HealthCheckResult, HealthCheckResultError, PluginServerService, PluginsServerConfig } from '../types'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { TeamManager } from '../utils/team-manager'
@@ -24,8 +15,7 @@ import {
     TestingJoinedIngestionPipelineInput,
     createTestingJoinedIngestionPipeline,
 } from './analytics/testing-joined-ingestion-pipeline'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
-import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
+import { EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
@@ -35,28 +25,16 @@ import { ok } from './pipelines/results'
 export type IngestionTestingConsumerFullConfig = Pick<
     PluginsServerConfig,
     | 'KAFKA_CLIENT_RACK'
-    // Testing-specific consumer group, consume, overflow, and DLQ topics
-    | 'INGESTION_TESTING_CONSUMER_CONSUME_TOPIC'
-    | 'INGESTION_TESTING_CONSUMER_GROUP_ID'
-    | 'INGESTION_TESTING_CONSUMER_OVERFLOW_TOPIC'
-    | 'INGESTION_TESTING_CONSUMER_DLQ_TOPIC'
-    | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
-    | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
-    | 'EVENT_SCHEMA_ENFORCEMENT_ENABLED'
-    | 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'
-    | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
+    | 'INGESTION_CONSUMER_CONSUME_TOPIC'
+    | 'INGESTION_CONSUMER_GROUP_ID'
+    | 'INGESTION_CONSUMER_DLQ_TOPIC'
     | 'CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC'
-    | 'CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC'
     | 'CLICKHOUSE_HEATMAPS_KAFKA_TOPIC'
-    | 'INGESTION_AI_EVENT_SPLITTING_ENABLED'
-    | 'INGESTION_AI_EVENT_SPLITTING_TEAMS'
     | 'KAFKA_BATCH_START_LOGGING_ENABLED'
 >
 
 export interface IngestionTestingConsumerDeps {
-    postgres: PostgresRouter
-    redisPool: RedisPool
-    /** Single producer for all output (events, overflow, DLQ, internal messages) — writes to WarpStream */
+    /** Single producer for all output (events, DLQ, internal messages) — writes to WarpStream */
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
 }
@@ -66,15 +44,9 @@ export class IngestionTestingConsumer {
     protected groupId: string
     protected topic: string
     protected dlqTopic: string
-    protected overflowTopic?: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
     protected kafkaProducer?: KafkaProducerWrapper
-    private tokenDistinctIdsToDrop: string[] = []
-    private tokenDistinctIdsToSkipPersons: string[] = []
-    private tokenDistinctIdsToForceOverflow: string[] = []
-    private eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
 
     private joinedPipeline!: BatchPipeline<
@@ -90,33 +62,13 @@ export class IngestionTestingConsumer {
         overrides: Partial<
             Pick<
                 PluginsServerConfig,
-                | 'INGESTION_TESTING_CONSUMER_CONSUME_TOPIC'
-                | 'INGESTION_TESTING_CONSUMER_GROUP_ID'
-                | 'INGESTION_TESTING_CONSUMER_OVERFLOW_TOPIC'
-                | 'INGESTION_TESTING_CONSUMER_DLQ_TOPIC'
+                'INGESTION_CONSUMER_CONSUME_TOPIC' | 'INGESTION_CONSUMER_GROUP_ID' | 'INGESTION_CONSUMER_DLQ_TOPIC'
             >
         > = {}
     ) {
-        this.groupId = overrides.INGESTION_TESTING_CONSUMER_GROUP_ID ?? config.INGESTION_TESTING_CONSUMER_GROUP_ID
-        this.topic =
-            overrides.INGESTION_TESTING_CONSUMER_CONSUME_TOPIC ?? config.INGESTION_TESTING_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic =
-            overrides.INGESTION_TESTING_CONSUMER_OVERFLOW_TOPIC ?? config.INGESTION_TESTING_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = overrides.INGESTION_TESTING_CONSUMER_DLQ_TOPIC ?? config.INGESTION_TESTING_CONSUMER_DLQ_TOPIC
-        this.tokenDistinctIdsToDrop = config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
-        this.tokenDistinctIdsToSkipPersons = config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
-            (x) => !!x
-        )
-        this.tokenDistinctIdsToForceOverflow = config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
-            (x) => !!x
-        )
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
-            pipeline: 'analytics',
-            staticDropEventTokens: this.tokenDistinctIdsToDrop,
-            staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
-            staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
-        })
-        this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres)
+        this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? config.INGESTION_CONSUMER_GROUP_ID
+        this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? config.INGESTION_CONSUMER_CONSUME_TOPIC
+        this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? config.INGESTION_CONSUMER_DLQ_TOPIC
 
         this.name = `ingestion-testing-consumer-${this.topic}`
 
@@ -138,38 +90,23 @@ export class IngestionTestingConsumer {
     }
 
     public async start(): Promise<void> {
-        // All output (events, overflow, DLQ) goes to WarpStream via the single producer
         const outputs = new IngestionOutputs({
             [EVENTS_OUTPUT]: {
                 topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 producer: this.kafkaProducer!,
             },
-            [AI_EVENTS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
-            },
         })
 
         const joinedPipelineConfig: TestingJoinedIngestionPipelineConfig = {
-            eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            overflowEnabled: this.overflowEnabled(),
-            overflowTopic: this.overflowTopic || '',
             dlqTopic: this.dlqTopic,
-            preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             groupId: this.groupId,
             outputs,
-            splitAiEventsConfig: parseSplitAiEventsConfig(
-                this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
-                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS
-            ),
             perDistinctIdOptions: {
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             },
         }
         const joinedPipelineDeps: TestingJoinedIngestionPipelineDeps = {
             kafkaProducer: this.kafkaProducer!,
-            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
         }
@@ -267,12 +204,5 @@ export class IngestionTestingConsumer {
         while ((await this.joinedPipeline.next()) !== null) {
             // Continue until all results are processed
         }
-    }
-
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_TESTING_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_TESTING_CONSUMER_OVERFLOW_TOPIC !== this.topic
-        )
     }
 }

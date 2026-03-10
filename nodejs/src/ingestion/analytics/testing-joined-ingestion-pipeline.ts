@@ -2,37 +2,28 @@ import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { AiEventOutput, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
-import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
+import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
-import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
 import {
     TestingPerDistinctIdPipelineConfig,
     TestingPerDistinctIdPipelineInput,
     createTestingPerDistinctIdPipeline,
 } from './testing-per-distinct-id-pipeline'
 import {
-    TestingPostTeamPreprocessingSubpipelineConfig,
     TestingPostTeamPreprocessingSubpipelineInput,
     createTestingPostTeamPreprocessingSubpipeline,
 } from './testing-post-team-preprocessing-subpipeline'
+import { createTestingPreTeamPreprocessingSubpipeline } from './testing-pre-team-preprocessing-subpipeline'
 
 export interface TestingJoinedIngestionPipelineConfig {
-    eventSchemaEnforcementEnabled: boolean
-    overflowEnabled: boolean
-    overflowTopic: string
     dlqTopic: string
-    preservePartitionLocality: boolean
     groupId: string
-    outputs: IngestionOutputs<EventOutput | AiEventOutput>
-    splitAiEventsConfig: SplitAiEventsStepConfig
+    outputs: IngestionOutputs<EventOutput>
     perDistinctIdOptions: {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
@@ -40,8 +31,6 @@ export interface TestingJoinedIngestionPipelineConfig {
 
 export interface TestingJoinedIngestionPipelineDeps {
     kafkaProducer: KafkaProducerWrapper
-    eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    eventSchemaEnforcementManager: EventSchemaEnforcementManager
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
 }
@@ -97,19 +86,9 @@ export function createTestingJoinedIngestionPipeline<
     config: TestingJoinedIngestionPipelineConfig,
     deps: TestingJoinedIngestionPipelineDeps
 ) {
-    const {
-        eventSchemaEnforcementEnabled,
-        overflowEnabled,
-        overflowTopic,
-        dlqTopic,
-        preservePartitionLocality,
-        groupId,
-        outputs,
-        splitAiEventsConfig,
-        perDistinctIdOptions,
-    } = config
+    const { dlqTopic, groupId, outputs, perDistinctIdOptions } = config
 
-    const { kafkaProducer, eventIngestionRestrictionManager, eventSchemaEnforcementManager, promiseScheduler } = deps
+    const { kafkaProducer, promiseScheduler } = deps
 
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
@@ -117,15 +96,9 @@ export function createTestingJoinedIngestionPipeline<
         promiseScheduler,
     }
 
-    const postTeamConfig: TestingPostTeamPreprocessingSubpipelineConfig = {
-        eventSchemaEnforcementManager,
-        eventSchemaEnforcementEnabled,
-    }
-
     const perEventConfig: TestingPerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
         outputs,
-        splitAiEventsConfig,
         kafkaProducer,
         groupId,
     }
@@ -139,18 +112,14 @@ export function createTestingJoinedIngestionPipeline<
         .messageAware((b) =>
             b
                 .sequentially((b) =>
-                    createPreTeamPreprocessingSubpipeline(b, {
+                    createTestingPreTeamPreprocessingSubpipeline(b, {
                         teamManager: deps.teamManager,
-                        eventIngestionRestrictionManager,
-                        overflowEnabled,
-                        overflowTopic,
-                        preservePartitionLocality,
                     })
                 )
                 .filterMap(addTeamToContext, (b) =>
                     b
                         .teamAware((b) =>
-                            createTestingPostTeamPreprocessingSubpipeline(b, postTeamConfig)
+                            createTestingPostTeamPreprocessingSubpipeline(b)
                                 .filterMap(mapToPerEventInput, (b) =>
                                     b
                                         .groupBy(getTokenAndDistinctId)

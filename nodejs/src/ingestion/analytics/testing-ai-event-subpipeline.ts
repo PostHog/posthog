@@ -7,10 +7,9 @@ import { createProcessAiEventStep } from '../ai/pipelines/steps/process-ai-event
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createDisablePersonProcessingWithFakePersonStep } from '../event-processing/disable-person-processing-with-fake-person-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
-import { AiEventOutput, EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
+import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
-import { SplitAiEventsStepConfig, createSplitAiEventsStep } from '../event-processing/split-ai-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface TestingAiEventSubpipelineInput {
@@ -21,8 +20,7 @@ export interface TestingAiEventSubpipelineInput {
 }
 
 export interface TestingAiEventSubpipelineConfig {
-    outputs: IngestionOutputs<EventOutput | AiEventOutput>
-    splitAiEventsConfig: SplitAiEventsStepConfig
+    outputs: IngestionOutputs<EventOutput>
     groupId: string
 }
 
@@ -30,7 +28,7 @@ export function createTestingAiEventSubpipeline<TInput extends TestingAiEventSub
     builder: StartPipelineBuilder<TInput, TContext>,
     config: TestingAiEventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { outputs, splitAiEventsConfig, groupId } = config
+    const { outputs, groupId } = config
 
     // Compared to ai-event-subpipeline.ts:
     // CHANGED: createNormalizeProcessPersonFlagStep → createDisablePersonProcessingWithFakePersonStep
@@ -46,6 +44,5 @@ export function createTestingAiEventSubpipeline<TInput extends TestingAiEventSub
         .pipe(createProcessAiEventStep())
         .pipe(createPrepareEventStep())
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
-        .pipe(createSplitAiEventsStep(splitAiEventsConfig))
         .pipe(createEmitEventStep({ outputs, groupId }))
 }

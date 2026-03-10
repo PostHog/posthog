@@ -271,8 +271,6 @@ export class PluginServer {
                     )
 
                     const consumer = new IngestionTestingConsumer(this.config, {
-                        postgres: this.postgres!,
-                        redisPool: this.redisPool!,
                         kafkaProducer: kafkaWarpStreamProducer,
                         teamManager,
                     })

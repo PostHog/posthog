@@ -3,8 +3,7 @@ import { Message } from 'node-rdkafka'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { AI_EVENT_TYPES } from '../ai'
-import { AiEventOutput, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
-import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
+import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import {
     ClientIngestionWarningSubpipelineInput,
@@ -23,8 +22,7 @@ export interface TestingPerDistinctIdPipelineConfig {
     options: {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
-    outputs: IngestionOutputs<EventOutput | AiEventOutput>
-    splitAiEventsConfig: SplitAiEventsStepConfig
+    outputs: IngestionOutputs<EventOutput>
     kafkaProducer: KafkaProducerWrapper
     groupId: string
 }
@@ -50,7 +48,7 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
     builder: StartPipelineBuilder<TInput, TContext>,
     config: TestingPerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, outputs, splitAiEventsConfig, kafkaProducer, groupId } = config
+    const { options, outputs, kafkaProducer, groupId } = config
 
     return builder.retry(
         (e) =>
@@ -66,7 +64,6 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
                     .branch('ai', (b) =>
                         createTestingAiEventSubpipeline(b, {
                             outputs,
-                            splitAiEventsConfig,
                             groupId,
                         })
                     )

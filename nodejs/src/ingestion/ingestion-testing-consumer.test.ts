@@ -8,7 +8,6 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
 import { IngestionTestingConsumer } from './ingestion-testing-consumer'
 
@@ -140,11 +139,10 @@ describe('IngestionTestingConsumer', () => {
 
     describe('general', () => {
         it('should have the correct config', () => {
-            expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-testing-consumer-ingestion-events_test"`)
-            expect(ingester['groupId']).toMatchInlineSnapshot(`"ingestion-events_testing"`)
-            expect(ingester['topic']).toMatchInlineSnapshot(`"ingestion-events_test"`)
-            expect(ingester['dlqTopic']).toMatchInlineSnapshot(`"ingestion-events_testing-dlq_test"`)
-            expect(ingester['overflowTopic']).toMatchInlineSnapshot(`"ingestion-events_testing-overflow_test"`)
+            expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-testing-consumer-events_plugin_ingestion_test"`)
+            expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
+            expect(ingester['topic']).toMatchInlineSnapshot(`"events_plugin_ingestion_test"`)
+            expect(ingester['dlqTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_dlq_test"`)
         })
 
         it('should process a standard event', async () => {
@@ -360,46 +358,6 @@ describe('IngestionTestingConsumer', () => {
             expect(eventMessages[0].value.event).toBe('$ai_generation')
         })
 
-        it('should split AI events when splitting is enabled', async () => {
-            await ingester.stop()
-            hub.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
-            hub.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
-            ingester = await createIngestionTestingConsumer(hub)
-
-            const events = [
-                createEvent({
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_model: 'gpt-4',
-                        $ai_provider: 'openai',
-                        $ai_input_tokens: 100,
-                        $ai_output_tokens: 50,
-                        $ai_input: 'What is the meaning of life?',
-                        $ai_output: 'The meaning of life is 42.',
-                    },
-                }),
-            ]
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
-            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
-            const aiEventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_ai_events_json_test')
-
-            // Main events topic: stripped of large AI properties
-            expect(eventsTopicMessages).toHaveLength(1)
-            const mainProps = parseJSON(eventsTopicMessages[0].value.properties as any)
-            expect(mainProps.$ai_model).toBe('gpt-4')
-            expect(mainProps.$ai_input).toBeUndefined()
-            expect(mainProps.$ai_output).toBeUndefined()
-
-            // AI events topic: full event with all properties
-            expect(aiEventsTopicMessages).toHaveLength(1)
-            const aiProps = parseJSON(aiEventsTopicMessages[0].value.properties as any)
-            expect(aiProps.$ai_model).toBe('gpt-4')
-            expect(aiProps.$ai_input).toBe('What is the meaning of life?')
-            expect(aiProps.$ai_output).toBe('The meaning of life is 42.')
-        })
-
         it('should not produce person messages for AI events', async () => {
             const events = [
                 createEvent({
@@ -422,11 +380,6 @@ describe('IngestionTestingConsumer', () => {
 
     describe('all subpipelines in one batch', () => {
         it('should route different event types to their correct subpipelines', async () => {
-            await ingester.stop()
-            hub.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
-            hub.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
-            ingester = await createIngestionTestingConsumer(hub)
-
             const events = [
                 createEvent({ event: '$pageview', distinct_id: 'user-1' }),
                 createEvent({
@@ -461,17 +414,13 @@ describe('IngestionTestingConsumer', () => {
 
             const allMessages = mockProducerObserver.getProducedKafkaMessages()
 
-            // Regular event → clickhouse_events_json
+            // Regular event + AI event → clickhouse_events_json (no AI splitting in testing pipeline)
             const eventMessages = allMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
-            expect(eventMessages).toHaveLength(2) // pageview + ai_generation (main copy)
+            expect(eventMessages).toHaveLength(2) // pageview + ai_generation
 
             // Heatmap → clickhouse_heatmap_events
             const heatmapMessages = allMessages.filter((m) => m.topic === 'clickhouse_heatmap_events_test')
             expect(heatmapMessages).toHaveLength(1)
-
-            // AI split → clickhouse_ai_events_json
-            const aiMessages = allMessages.filter((m) => m.topic === 'clickhouse_ai_events_json_test')
-            expect(aiMessages).toHaveLength(1)
 
             // Client ingestion warning → clickhouse_ingestion_warnings
             const warningMessages = allMessages.filter((m) => m.topic === 'clickhouse_ingestion_warnings_test')
