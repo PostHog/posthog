@@ -7,7 +7,7 @@ import structlog
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from tenacity import retry, retry_if_exception_type, stop_after_attempt
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -18,31 +18,25 @@ from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, mess
 logger = structlog.get_logger(__name__)
 
 
-class SlackRateLimitError(Exception):
-    def __init__(self, retry_after: int = 1):
-        self.retry_after = retry_after
-        super().__init__(f"Rate limited, retry after {retry_after}s")
-
-
-def _wait_for_retry_after(retry_state: Any) -> float:
-    exc = retry_state.outcome.exception()
-    if isinstance(exc, SlackRateLimitError):
-        return float(exc.retry_after)
-    return 1.0
+class SlackRetryableError(Exception):
+    pass
 
 
 @retry(
-    retry=retry_if_exception_type(SlackRateLimitError),
+    retry=retry_if_exception_type(
+        (SlackRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    ),
     stop=stop_after_attempt(5),
-    wait=_wait_for_retry_after,
+    wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
     response = external_requests.get(url, **kwargs)
     if response.status_code == 429:
-        retry_after = int(response.headers.get("Retry-After", 1))
-        logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
-        raise SlackRateLimitError(retry_after)
+        logger.warning("Slack API rate limited", url=url)
+        raise SlackRetryableError("Slack: rate limited")
+    if response.status_code >= 500:
+        raise SlackRetryableError(f"Slack: server error {response.status_code}")
     return response
 
 
