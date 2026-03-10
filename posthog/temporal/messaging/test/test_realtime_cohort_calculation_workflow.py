@@ -695,7 +695,7 @@ class TestRealtimeCohortSelectionActivity:
             # Should be unique
             assert len(set(result.cohort_ids)) == 3
             # Order is preserved from random sampling (not sorted)
-            assert set(result.cohort_ids) == set(result.cohort_ids)  # Just check uniqueness
+            assert len(result.cohort_ids) == len(set(result.cohort_ids))  # Check uniqueness
 
     @pytest.mark.asyncio
     async def test_selection_activity_random_variability(self):
