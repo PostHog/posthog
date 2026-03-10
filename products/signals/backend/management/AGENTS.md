@@ -51,6 +51,28 @@ python manage.py summarize_single_session <session_id> [--team-id N] [--user-id 
 
 Uses first team/user if omitted. Runs `execute_summarize_session` with `video_validation_enabled='full'`.
 
+## Bulk report operations
+
+Delete or re-ingest all signal reports for a team using the proper Temporal workflows
+(`SignalReportDeletionWorkflow` / `SignalReportReingestionWorkflow`). Unlike `cleanup_signals`
+(which removes **all** signal data and terminates Temporal workflows), this command only
+affects signal reports and processes each one through its dedicated workflow.
+
+Defaults to re-ingestion. Skips reports where a workflow is already running.
+Each workflow has a 30-minute execution timeout.
+
+```bash
+# Re-ingest all reports for a team (default action)
+python manage.py delete_all_signal_reports_for_team --team-id 1
+
+# Delete all reports instead
+python manage.py delete_all_signal_reports_for_team --team-id 1 --action delete
+
+# Dry run — list affected reports without starting any workflows
+python manage.py delete_all_signal_reports_for_team --team-id 1 --dry-run
+python manage.py delete_all_signal_reports_for_team --team-id 1 --action delete --dry-run
+```
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
