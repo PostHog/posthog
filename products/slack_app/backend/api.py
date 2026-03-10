@@ -510,21 +510,12 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
         thinking_message = f"I'm {random.choice(THINKING_MESSAGES).lower()}..."
 
         # Build blocks for the initial message - only include "View chat in PostHog" if we have an existing conversation
-        initial_blocks: list[dict] = []
-        if not conversation_id:
-            # First mention in this thread: include disclaimer so users know messages will be visible in PostHog
-            initial_blocks.append(
-                {
-                    "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": "_Messages in this thread will be visible in PostHog._"}],
-                }
-            )
-        initial_blocks.append(
+        initial_blocks: list[dict] = [
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": thinking_message},
             }
-        )
+        ]
         if conversation_id:
             conversation_url = f"{settings.SITE_URL}/project/{integration.team_id}/ai?chat={conversation_id}"
             initial_blocks.append(
@@ -537,6 +528,14 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                             "url": conversation_url,
                         }
                     ],
+                }
+            )
+        if not conversation_id:
+            # First mention in this thread: include disclaimer so users know messages will be visible in PostHog
+            initial_blocks.append(
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": "_Messages in this thread will be visible in PostHog._"}],
                 }
             )
 

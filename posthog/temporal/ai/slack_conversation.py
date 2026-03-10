@@ -369,6 +369,13 @@ def _build_slack_message_blocks(
     """Build Slack message blocks from text."""
     blocks: list[dict] = []
 
+    text = _absolutize_markdown_links(text)
+    mrkdwn_text = mrkdown_converter.convert(text)
+    paragraphs = mrkdwn_text.split("\n\n")
+    for para in paragraphs:
+        if para.strip():
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": para}})
+
     if show_disclaimer:
         blocks.append(
             {
@@ -376,13 +383,6 @@ def _build_slack_message_blocks(
                 "elements": [{"type": "mrkdwn", "text": "_Messages in this thread will be visible in PostHog._"}],
             }
         )
-
-    text = _absolutize_markdown_links(text)
-    mrkdwn_text = mrkdown_converter.convert(text)
-    paragraphs = mrkdwn_text.split("\n\n")
-    for para in paragraphs:
-        if para.strip():
-            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": para}})
 
     if conversation_url:
         blocks.append(
