@@ -24,7 +24,7 @@ class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, Clickho
         # Use TRUNCATE without RESTART IDENTITY to avoid resetting PG sequences.
         # Other NonAtomicBaseTest subclasses (e.g. search_issues tests) rely on
         # incrementing team_ids to isolate their CH data from earlier test runs.
-        for db_name in self._databases_names(include_mirrors=False):
+        for db_name in self._databases_names(include_mirrors=False):  # type: ignore[attr-defined]
             if db_name in ("persons_db_writer", "persons_db_reader"):
                 conn = connections[db_name]
                 with conn.cursor() as cursor:
