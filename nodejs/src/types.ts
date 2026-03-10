@@ -6,13 +6,17 @@ import { Message } from 'node-rdkafka'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
+import type { CdpConfig } from './cdp/config'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
-import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
+import type { CommonConfig } from './common/config'
 import { InternalCaptureService } from './common/services/internal-capture'
 import { InternalFetchService } from './common/services/internal-fetch'
+import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
+import type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
@@ -26,50 +30,24 @@ export { Element } from '~/plugin-scaffold' // Re-export Element from scaffoldin
 
 type Brand<K, T> = K & { __brand: T }
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
-
-export enum KafkaSecurityProtocol {
-    Plaintext = 'PLAINTEXT',
-    SaslPlaintext = 'SASL_PLAINTEXT',
-    Ssl = 'SSL',
-    SaslSsl = 'SASL_SSL',
-}
-
-export enum KafkaSaslMechanism {
-    Plain = 'plain',
-    ScramSha256 = 'scram-sha-256',
-    ScramSha512 = 'scram-sha-512',
-}
-
-export enum PluginServerMode {
-    ingestion_v2 = 'ingestion-v2',
-    local_cdp = 'local-cdp',
-    recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
-    recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
-    cdp_processed_events = 'cdp-processed-events',
-    cdp_person_updates = 'cdp-person-updates',
-    cdp_data_warehouse_events = 'cdp-data-warehouse-events',
-    cdp_internal_events = 'cdp-internal-events',
-    cdp_cyclotron_worker = 'cdp-cyclotron-worker',
-    cdp_precalculated_filters = 'cdp-precalculated-filters',
-    cdp_cohort_membership = 'cdp-cohort-membership',
-    cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
-    cdp_api = 'cdp-api',
-    cdp_legacy_on_event = 'cdp-legacy-on-event',
-    evaluation_scheduler = 'evaluation-scheduler',
-    ingestion_logs = 'ingestion-logs',
-    cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
-    cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
-    cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
-    recording_api = 'recording-api',
-}
-
-export const stringToPluginServerMode = Object.fromEntries(
-    Object.entries(PluginServerMode).map(([key, value]) => [
-        value,
-        PluginServerMode[key as keyof typeof PluginServerMode],
-    ])
-) as Record<string, PluginServerMode>
+// Re-export config types from domain-specific files, this is to avoid mass refactors, we can eventually update it
+export { CdpConfig } from './cdp/config'
+export {
+    CommonConfig,
+    KafkaSaslMechanism,
+    KafkaSecurityProtocol,
+    LogLevel,
+    PluginServerMode,
+    stringToPluginServerMode,
+} from './common/config'
+export {
+    IngestionConsumerConfig,
+    IngestionLane,
+    PersonBatchWritingDbWriteMode,
+    PersonBatchWritingMode,
+} from './ingestion/config'
+export { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+export { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
 interface HealthCheckResultResponse {
     service: string
@@ -132,427 +110,13 @@ export type PluginServerService = {
     healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
-export type CdpConfig = {
-    CDP_WATCHER_COST_ERROR: number // The max cost of an erroring function
-    CDP_WATCHER_HOG_COST_TIMING: number // The max cost of a slow function
-    CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: number // The lower bound in ms where the timing cost is not incurred
-    CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: number // The upper bound in ms where the timing cost is fully incurred
-    CDP_WATCHER_ASYNC_COST_TIMING: number // The max cost of a slow async function
-    CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS: number // The lower bound in ms where the async timing cost is not incurred
-    CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS: number // The upper bound in ms where the async timing cost is fully incurred
-    CDP_WATCHER_THRESHOLD_DEGRADED: number // Percentage of the bucket where we count it as degraded
-    CDP_WATCHER_BUCKET_SIZE: number // The total bucket size
-    CDP_WATCHER_TTL: number // The expiry for the rate limit key
-    CDP_WATCHER_STATE_LOCK_TTL: number // The expiry for the state lock key preventing transitions too fast
-    CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
-    CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
-    CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
-    CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: boolean // If true then degraded functions will be automatically disabled
-    CDP_WATCHER_SEND_EVENTS: boolean // If true then the watcher will send events to posthog for messaging
-    CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: number // How long to buffer results before observing them
-    CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: number // How many results to buffer before observing them
-    CDP_RATE_LIMITER_BUCKET_SIZE: number // The total bucket size
-    CDP_RATE_LIMITER_REFILL_RATE: number // The number of tokens to be refilled per second
-    CDP_RATE_LIMITER_TTL: number // The expiry for the rate limit key
-    CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
-    DISABLE_OPENTELEMETRY_TRACING: boolean
-    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
-    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean // If true then scheduled jobs will be routed to postgres even if they are mapped to kafka
-
-    CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
-    CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
-    CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
-
-    CDP_CYCLOTRON_BATCH_DELAY_MS: number
-    CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
-    CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
-    CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
-    CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
-    CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
-    CDP_REDIS_HOST: string
-    CDP_REDIS_PORT: number
-    CDP_REDIS_PASSWORD: string
-
-    CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
-    CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
-    CDP_FETCH_RETRIES: number
-    CDP_FETCH_BACKOFF_BASE_MS: number
-    CDP_FETCH_BACKOFF_MAX_MS: number
-    CDP_OVERFLOW_QUEUE_ENABLED: boolean
-
-    HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
-    HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
-
-    CDP_EMAIL_TRACKING_URL: string
-
-    // Cyclotron (CDP job queue)
-    CYCLOTRON_DATABASE_URL: string
-    CYCLOTRON_SHARD_DEPTH_LIMIT: number
-    CYCLOTRON_SHADOW_DATABASE_URL?: string
-    CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
-    CYCLOTRON_NODE_DATABASE_URL?: string
-    CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, fetches consumed messages via HTTP to measure WarpStream read latency
-    CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
-    CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: number // Number of parallel individual single-record fetches (0 to disable)
-    CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: number // Number of parallel batch fetch requests (0 to disable)
-    CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: number // Records per batch fetch request
-    CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: string // Base URL for WarpStream HTTP fetch endpoint (e.g. 'https://warpstream.example.com')
-
-    // Cyclotron Node (node postgres job queue)
-    CYCLOTRON_NODE_MAX_CONNECTIONS: number
-    CYCLOTRON_NODE_IDLE_TIMEOUT_MS: number
-    CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE: number
-    CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: number
-    CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
-    CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
-    CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
-
-    // SES (Workflows email sending)
-    SES_ENDPOINT: string
-    SES_ACCESS_KEY_ID: string
-    SES_SECRET_ACCESS_KEY: string
-    SES_REGION: string
-}
-
-/**
- * The mode of db batch writes to use for person batch writing
- * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
- * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
- */
-export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
-export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
-
-/** The lane for ingestion consumers */
-export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
-
-export type IngestionConsumerConfig = {
-    /** The lane this consumer is processing (e.g. main, overflow, historical, async) */
-    INGESTION_LANE: IngestionLane | null
-
-    // Kafka consumer config
-    INGESTION_CONSUMER_GROUP_ID: string
-    INGESTION_CONSUMER_CONSUME_TOPIC: string
-    INGESTION_CONSUMER_DLQ_TOPIC: string
-    /** If set then overflow routing is enabled and the topic is used for overflow events */
-    INGESTION_CONSUMER_OVERFLOW_TOPIC: string
-
-    // Ingestion pipeline config
-    INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
-    INGESTION_BATCH_SIZE: number // kafka consumer batch size
-    INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled
-    INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of token or token:distinct_id to force overflow
-    INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether Kafka message keys should be preserved when rerouted to overflow
-
-    // Person batch writing config
-    PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
-    /** When true, use batch SQL queries for person updates. When false, use individual queries. */
-    PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
-    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean
-    PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
-    PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
-    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
-    PERSONS_PREFETCH_ENABLED: boolean
-
-    // Person properties config
-    PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
-    PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number
-    PERSON_PROPERTIES_TRIM_TARGET_BYTES: number
-    PERSON_PROPERTIES_UPDATE_ALL: boolean
-    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
-
-    // Person merge config
-    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
-    PERSON_MERGE_ASYNC_TOPIC: string
-    PERSON_MERGE_ASYNC_ENABLED: boolean
-    PERSON_MERGE_SYNC_BATCH_SIZE: number
-
-    // Group batch writing config
-    GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
-    GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
-    GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
-
-    // Event overflow config
-    EVENT_OVERFLOW_BUCKET_CAPACITY: number
-    EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
-
-    // Stateful overflow config
-    /** If true, use stateful overflow redirect with Redis. If false, use stateless MemoryRateLimiter. */
-    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
-    /** TTL in seconds for overflow flags in Redis (default: 300 = 5 minutes) */
-    INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
-    /** TTL in seconds for local cache entries (default: 60 = 1 minute) */
-    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
-
-    // Per-token/distinct_id restrictions
-    DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
-    SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
-    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
-
-    // Pipeline step config
-    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
-    EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
-    KAFKA_BATCH_START_LOGGING_ENABLED: boolean
-
-    // AI event splitting config
-    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
-    /** '*' for all teams, or comma-separated team IDs */
-    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
-
-    // Clickhouse topics
-    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
-    CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
-    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-
-    // Cookieless server hash mode config
-    COOKIELESS_DISABLED: boolean
-    COOKIELESS_FORCE_STATELESS_MODE: boolean
-    COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
-    COOKIELESS_SESSION_TTL_SECONDS: number
-    COOKIELESS_SALT_TTL_SECONDS: number
-    COOKIELESS_SESSION_INACTIVITY_MS: number
-    COOKIELESS_IDENTIFIES_TTL_SECONDS: number
-    COOKIELESS_REDIS_HOST: string
-    COOKIELESS_REDIS_PORT: number
-}
-
-export type LogsIngestionConsumerConfig = {
-    LOGS_INGESTION_CONSUMER_GROUP_ID: string
-    LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: string
-    LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: string
-    LOGS_INGESTION_CONSUMER_DLQ_TOPIC: string
-    LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
-    LOGS_REDIS_HOST: string
-    LOGS_REDIS_PORT: number
-    LOGS_REDIS_PASSWORD: string
-    LOGS_REDIS_TLS: boolean
-    LOGS_LIMITER_ENABLED_TEAMS: string
-    LOGS_LIMITER_DISABLED_FOR_TEAMS: string
-    LOGS_LIMITER_BUCKET_SIZE_KB: number
-    LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: number
-    LOGS_LIMITER_TTL_SECONDS: number
-    LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
-    LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
-    REDIS_URL: string
-    REDIS_POOL_MIN_SIZE: number
-    REDIS_POOL_MAX_SIZE: number
-    KAFKA_CLIENT_RACK: string | undefined
-}
-
-export type SessionRecordingApiConfig = {
-    SESSION_RECORDING_API_REDIS_HOST: string
-    SESSION_RECORDING_API_REDIS_PORT: number
-    SESSION_RECORDING_KMS_ENDPOINT: string | undefined
-    SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
-}
-
-export type SessionRecordingConfig = {
-    // local directory might be a volume mount or a directory on disk (e.g. in local dev)
-    SESSION_RECORDING_LOCAL_DIRECTORY: string
-    SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
-    SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
-    SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
-    SESSION_RECORDING_BUFFER_AGE_JITTER: number
-    SESSION_RECORDING_REMOTE_FOLDER: string
-    SESSION_RECORDING_REDIS_PREFIX: string
-    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
-    SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
-    SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
-    SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: boolean
-    // a single partition which will output many more log messages to the console
-    // useful when that partition is lagging unexpectedly
-    // allows comma separated list of partition numbers or '*' for all
-    SESSION_RECORDING_DEBUG_PARTITION: string | undefined
-    // overflow detection, updating Redis for capture to move the traffic away
-    SESSION_RECORDING_OVERFLOW_ENABLED: boolean
-    SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
-    SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
-    SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: number
-    SESSION_RECORDING_MAX_PARALLEL_FLUSHES: number
-
-    POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
-    POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
-
-    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
-    SESSION_RECORDING_MAX_BATCH_AGE_MS: number
-    SESSION_RECORDING_V2_S3_BUCKET: string
-    SESSION_RECORDING_V2_S3_PREFIX: string
-    SESSION_RECORDING_V2_S3_ENDPOINT: string
-    SESSION_RECORDING_V2_S3_REGION: string
-    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
-    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
-    SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
-    SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
-    SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
-    SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
-    SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
-    SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
-    SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: number
-    /** When true, rate limiting will drop messages that exceed the limit. When false, dry run mode (metrics only) */
-    SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: boolean
-    /** When false, skips all Redis calls for session filtering. Use to bypass Redis during outages */
-    SESSION_RECORDING_SESSION_FILTER_ENABLED: boolean
-    /** TTL in milliseconds for the in-memory session tracker cache */
-    SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
-    /** TTL in milliseconds for the in-memory session filter cache */
-    SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
-    // Kafka consumer config (overrides hardcoded defaults when set)
-    INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
-    INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
-    INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: string
-    INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: string
-}
-
 export interface PluginsServerConfig
-    extends CdpConfig,
+    extends CommonConfig,
+        CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
         SessionRecordingConfig,
-        SessionRecordingApiConfig {
-    CONTINUOUS_PROFILING_ENABLED: boolean
-    PYROSCOPE_SERVER_ADDRESS: string
-    PYROSCOPE_APPLICATION_NAME: string
-    INSTRUMENT_THREAD_PERFORMANCE: boolean
-    OTEL_EXPORTER_OTLP_ENDPOINT: string
-    OTEL_SDK_DISABLED: boolean
-    OTEL_TRACES_SAMPLER_ARG: number
-    OTEL_MAX_SPANS_PER_GROUP: number
-    OTEL_MIN_SPAN_DURATION_MS: number
-    DISABLE_OPENTELEMETRY_TRACING: boolean
-    TASKS_PER_WORKER: number // number of parallel tasks per worker thread
-    TASK_TIMEOUT: number // how many seconds until tasks are timed out
-    DATABASE_URL: string // Postgres database URL
-    DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
-    PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
-    BEHAVIORAL_COHORTS_DATABASE_URL: string // Optional read-write Postgres database for behavioral cohorts
-    PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
-    PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
-    POSTGRES_CONNECTION_POOL_SIZE: number
-    POSTHOG_DB_NAME: string | null
-    POSTHOG_DB_USER: string
-    POSTHOG_DB_PASSWORD: string
-    POSTHOG_POSTGRES_HOST: string
-    POSTHOG_POSTGRES_PORT: number
-    POSTGRES_BEHAVIORAL_COHORTS_HOST: string
-    POSTGRES_BEHAVIORAL_COHORTS_USER: string
-    POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
-    // Redis url pretty much only used locally / self hosted
-    REDIS_URL: string
-    // Redis params for the ingestion services
-    INGESTION_REDIS_HOST: string
-    INGESTION_REDIS_PORT: number
-    // Redis params for the core posthog (django+celery) services
-    POSTHOG_REDIS_PASSWORD: string
-    POSTHOG_REDIS_HOST: string
-    POSTHOG_REDIS_PORT: number
-    // Common redis params
-    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
-    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
-
-    CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
-    CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
-    CONSUMER_LOOP_STALL_THRESHOLD_MS: number // Threshold in ms after which the consumer loop is considered stalled
-    CONSUMER_LOG_STATS_LEVEL: LogLevel // Log level for consumer statistics
-    CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
-    CONSUMER_MAX_BACKGROUND_TASKS: number
-    CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
-    CONSUMER_AUTO_CREATE_TOPICS: boolean
-
-    // Kafka params - identical for client and producer
-    KAFKA_HOSTS: string // comma-delimited Kafka hosts
-    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
-    KAFKA_CLIENT_RACK: string | undefined
-
-    // Other methods that are generally only used by self-hosted users
-    KAFKA_CLIENT_CERT_B64: string | undefined
-    KAFKA_CLIENT_CERT_KEY_B64: string | undefined
-    KAFKA_TRUSTED_CERT_B64: string | undefined
-    KAFKA_SASL_MECHANISM: KafkaSaslMechanism | undefined
-    KAFKA_SASL_USER: string | undefined
-    KAFKA_SASL_PASSWORD: string | undefined
-
-    APP_METRICS_FLUSH_FREQUENCY_MS: number
-    APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
-    BASE_DIR: string // base path for resolving local plugins
-    LOG_LEVEL: LogLevel
-    HTTP_SERVER_PORT: number
-    SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
-    MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
-    DISTINCT_ID_LRU_SIZE: number
-    EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the service can go without ingesting events before the healthcheck fails
-    SITE_URL: string
-    TEMPORAL_HOST: string
-    TEMPORAL_PORT: string | undefined
-    TEMPORAL_NAMESPACE: string
-    TEMPORAL_CLIENT_ROOT_CA: string | undefined
-    TEMPORAL_CLIENT_CERT: string | undefined
-    TEMPORAL_CLIENT_KEY: string | undefined
-    PERSON_INFO_CACHE_TTL: number
-    KAFKA_HEALTHCHECK_SECONDS: number
-    PLUGIN_SERVER_MODE: PluginServerMode | null
-    /** Comma-separated list of capability groups for local dev: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags */
-    NODEJS_CAPABILITY_GROUPS: string | null
-    PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
-    INGESTION_PIPELINE: string | null
-    PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
-    /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
-    CLOUD_DEPLOYMENT: string | null
-    EXTERNAL_REQUEST_TIMEOUT_MS: number
-    EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
-    EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
-    EXTERNAL_REQUEST_CONNECTIONS: number
-    OUTBOUND_PROXY_URL: string
-    OUTBOUND_PROXY_ENABLED: boolean
-    RELOAD_PLUGIN_JITTER_MAX_MS: number
-    CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
-    LAZY_LOADER_DEFAULT_BUFFER_MS: number
-    LAZY_LOADER_MAX_SIZE: number
-    CAPTURE_INTERNAL_URL: string
-
-    ENCRYPTION_SALT_KEYS: string
-
-    // posthog
-    POSTHOG_API_KEY: string
-    POSTHOG_HOST_URL: string
-
-    // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
-    OTEL_SERVICE_NAME: string | null
-    OTEL_SERVICE_ENVIRONMENT: string | null
-
-    // Internal API authentication
-    INTERNAL_API_BASE_URL: string
-    INTERNAL_API_SECRET: string
-
-    // Destination Migration Diffing
-    DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
-
-    PROPERTY_DEFS_CONSUMER_GROUP_ID: string
-    PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
-    PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
-    PROPERTY_DEFS_WRITE_DISABLED: boolean
-
-    // Shared between ingestion and CDP (used by hog transformer in both)
-    CDP_HOG_WATCHER_SAMPLE_RATE: number
-    CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
-    CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
-
-    // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
-    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
-
-    // SES (Workflows email sending)
-    SES_ENDPOINT: string
-    SES_ACCESS_KEY_ID: string
-    SES_SECRET_ACCESS_KEY: string
-    SES_REGION: string
-
-    // Pod termination
-    POD_TERMINATION_ENABLED: boolean
-    POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
-    POD_TERMINATION_JITTER_MINUTES: number
-}
+        SessionRecordingApiConfig {}
 
 export interface HubServices {
     postgres: PostgresRouter
