@@ -775,7 +775,10 @@ describe('Recording API encryption integration', () => {
                 decryptor
             )
 
-            const recordingApi = new RecordingApi({} as RecordingApiConfig, {} as PostgresRouter)
+            const recordingApi = new RecordingApi(
+                { SITE_URL: 'https://us.posthog.com' } as RecordingApiConfig,
+                {} as PostgresRouter
+            )
             await recordingApi.start(recordingService)
 
             app = express()
@@ -854,6 +857,181 @@ describe('Recording API encryption integration', () => {
 
                 expect(res.status).toBe(404)
                 expect(res.body.error).toBe('Block not found')
+            })
+
+            it('should return decompressed JSONL when decompress=true', async () => {
+                const sessionId = 'http-decompress-1'
+                const teamId = 1
+                const originalEvents = [
+                    { type: 2, data: { content: 'hello' } },
+                    { type: 3, data: { content: 'world' } },
+                ]
+
+                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const blockData = await createBlockData(originalEvents)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+
+                mockS3Send.mockResolvedValue({
+                    Body: { transformToByteArray: () => Promise.resolve(encrypted) },
+                })
+
+                const res = await supertest(app)
+                    .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
+                    .query({
+                        key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                        start: '0',
+                        end: String(encrypted.length - 1),
+                        decompress: 'true',
+                    })
+
+                expect(res.status).toBe(200)
+                expect(res.headers['content-type']).toContain('application/jsonl')
+                expect(res.headers['cache-control']).toBe('public, max-age=2592000, immutable')
+
+                const lines = res.text.trim().split('\n')
+                expect(lines).toHaveLength(2)
+                expect(parseJSON(lines[0])[1]).toEqual(originalEvents[0])
+                expect(parseJSON(lines[1])[1]).toEqual(originalEvents[1])
+            })
+
+            it('should return compressed data when decompress is not set', async () => {
+                const sessionId = 'http-no-decompress-1'
+                const teamId = 1
+                const originalEvents = [{ type: 2, data: { content: 'compressed' } }]
+
+                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const blockData = await createBlockData(originalEvents)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+
+                mockS3Send.mockResolvedValue({
+                    Body: { transformToByteArray: () => Promise.resolve(encrypted) },
+                })
+
+                const res = await supertest(app)
+                    .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
+                    .query({
+                        key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                        start: '0',
+                        end: String(encrypted.length - 1),
+                    })
+
+                expect(res.status).toBe(200)
+                expect(res.headers['content-type']).toContain('application/octet-stream')
+                expect(Buffer.from(res.body).equals(blockData)).toBe(true)
+            })
+        })
+
+        describe('CORS', () => {
+            it('should set CORS headers for the matching deployment origin', async () => {
+                mockS3Send.mockResolvedValue({ Body: null })
+
+                const res = await supertest(app)
+                    .get('/api/projects/1/recordings/session-1/block')
+                    .set('Origin', 'https://us.posthog.com')
+                    .query({
+                        key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                        start: '0',
+                        end: '100',
+                    })
+
+                expect(res.headers['access-control-allow-origin']).toBe('https://us.posthog.com')
+                expect(res.headers['vary']).toContain('Origin')
+            })
+
+            it('should not set CORS headers for non-matching origins', async () => {
+                mockS3Send.mockResolvedValue({ Body: null })
+
+                const res = await supertest(app)
+                    .get('/api/projects/1/recordings/session-1/block')
+                    .set('Origin', 'https://evil.example.com')
+                    .query({
+                        key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                        start: '0',
+                        end: '100',
+                    })
+
+                expect(res.headers['access-control-allow-origin']).toBeUndefined()
+            })
+
+            it('should handle OPTIONS preflight', async () => {
+                const res = await supertest(app)
+                    .options('/api/projects/1/recordings/session-1/block')
+                    .set('Origin', 'https://us.posthog.com')
+
+                expect(res.status).toBe(204)
+                expect(res.headers['access-control-allow-origin']).toBe('https://us.posthog.com')
+                expect(res.headers['access-control-allow-methods']).toBe('GET')
+                expect(res.headers['access-control-allow-headers']).toBe('X-Internal-Api-Secret')
+                expect(res.headers['access-control-max-age']).toBe('86400')
+            })
+
+            it('should not set CORS headers when SITE_URL is empty', async () => {
+                const noSiteUrlService = new RecordingService(
+                    { send: mockS3Send, destroy: jest.fn() } as unknown as S3Client,
+                    'test-bucket',
+                    'session_recordings',
+                    keyStore,
+                    decryptor
+                )
+                const noSiteUrlApi = new RecordingApi({ SITE_URL: '' } as RecordingApiConfig, {} as PostgresRouter)
+                await noSiteUrlApi.start(noSiteUrlService)
+
+                const noSiteUrlApp = express()
+                noSiteUrlApp.use('/', noSiteUrlApi.router())
+                const noSiteUrlServer = noSiteUrlApp.listen(0, () => {})
+
+                try {
+                    mockS3Send.mockResolvedValue({ Body: null })
+
+                    const res = await supertest(noSiteUrlApp)
+                        .get('/api/projects/1/recordings/session-1/block')
+                        .set('Origin', 'https://us.posthog.com')
+                        .query({
+                            key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                            start: '0',
+                            end: '100',
+                        })
+
+                    expect(res.headers['access-control-allow-origin']).toBeUndefined()
+                } finally {
+                    noSiteUrlServer.close()
+                }
+            })
+
+            it('should allow localhost origin for local development', async () => {
+                const localService = new RecordingService(
+                    { send: mockS3Send, destroy: jest.fn() } as unknown as S3Client,
+                    'test-bucket',
+                    'session_recordings',
+                    keyStore,
+                    decryptor
+                )
+                const localApi = new RecordingApi(
+                    { SITE_URL: 'http://localhost:8000' } as RecordingApiConfig,
+                    {} as PostgresRouter
+                )
+                await localApi.start(localService)
+
+                const localApp = express()
+                localApp.use('/', localApi.router())
+                const localServer = localApp.listen(0, () => {})
+
+                try {
+                    mockS3Send.mockResolvedValue({ Body: null })
+
+                    const res = await supertest(localApp)
+                        .get('/api/projects/1/recordings/session-1/block')
+                        .set('Origin', 'http://localhost:8000')
+                        .query({
+                            key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                            start: '0',
+                            end: '100',
+                        })
+
+                    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8000')
+                } finally {
+                    localServer.close()
+                }
             })
         })
     })

@@ -842,13 +842,13 @@ def _get_full_repo_names(integration: Integration) -> list[str]:
 
     for record in github_records:
         github = GitHubIntegration(record)
-        org = github.organization()
 
         page = 1
         while True:
-            repo_names = github.list_repositories(page=page)
-            for name in repo_names:
-                all_repos.add(f"{org}/{name}")
+            repo_entries = github.list_repositories(page=page)
+            for repo in repo_entries:
+                full_name = repo["full_name"]
+                all_repos.add(full_name)
                 if len(all_repos) >= _MAX_GITHUB_REPOS:
                     logger.warning(
                         "github_repo_list_capped",
@@ -859,7 +859,7 @@ def _get_full_repo_names(integration: Integration) -> list[str]:
                     cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
                     return result
 
-            if len(repo_names) < _GITHUB_REPOS_PER_PAGE:
+            if len(repo_entries) < _GITHUB_REPOS_PER_PAGE:
                 break
             page += 1
 
@@ -1239,7 +1239,12 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         logger.info("twig_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
 
-    all_repos = _get_full_repo_names(integration)
+    try:
+        all_repos = _get_full_repo_names(integration)
+    except Exception:
+        logger.exception("twig_repo_picker_options_repo_fetch_error", integration_id=integration.id)
+        return JsonResponse({"options": []})
+
     if not all_repos:
         logger.info("twig_repo_picker_options_no_repos", context_token=context_token, integration_id=integration.id)
         return JsonResponse({"options": []})

@@ -19,7 +19,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     path(['scenes', 'project-homepage', 'ai-first', 'aiFirstHomepageLogic']),
 
     connect(() => ({
-        values: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['threadLogicKey']],
+        values: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['threadLogicKey', 'conversationId']],
         actions: [maxLogic({ tabId: HOMEPAGE_TAB_ID }), ['openConversation', 'startNewConversation', 'setQuestion']],
     })),
 
@@ -64,6 +64,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 returnToIdle: () => '',
             },
         ],
+        threadStarted: [
+            false,
+            {
+                submitQuery: (_, { mode }) => mode === 'ai',
+                returnToIdle: () => false,
+            },
+        ],
         hoveredSuggestion: [
             null as string | null,
             {
@@ -83,7 +90,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     listeners(({ actions, values }) => ({
         submitQuery: async ({ mode }, breakpoint) => {
-            if (mode === 'ai') {
+            if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
             }
 
@@ -121,16 +128,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                     urls.projectHomepage(),
                     { mode, chat: values.threadLogicKey || undefined },
                     undefined,
-                    { replace: true },
+                    { replace: false },
                 ]
             }
             return [urls.projectHomepage(), { mode, q: query || undefined }, undefined, { replace: false }]
         },
         enterAiMode: () => {
             return [urls.projectHomepage(), { mode: 'ai' }, undefined, { replace: false }]
-        },
-        returnToIdle: () => {
-            return [urls.projectHomepage(), {}, undefined, { replace: true }]
         },
     })),
 

@@ -166,7 +166,7 @@ export function OnboardingMax(): JSX.Element {
     return (
         <BindLogic logic={maxLogic} props={{ tabId: ONBOARDING_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <AIConsentPopoverWrapper>
+                <AIConsentPopoverWrapper ignoreDismissal>
                     <div className="flex flex-col items-center min-h-[calc(100vh-var(--scene-layout-header-height))]">
                         {!threadVisible ? (
                             <OnboardingWelcome />
