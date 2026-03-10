@@ -132,7 +132,7 @@ export function NavTabChat(): JSX.Element {
                                             <Combobox.Group items={group.items}>
                                                 <Combobox.GroupLabel
                                                     render={
-                                                        <Collapsible.Trigger className="sticky top-0 bg-surface-tertiary z-5 pl-3" />
+                                                        <Collapsible.Trigger className="sticky top-0 bg-surface-tertiary z-4 pl-3" />
                                                     }
                                                 >
                                                     {group.value}
