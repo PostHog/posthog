@@ -179,10 +179,12 @@ if (legacyChanged) {
         products = allProducts
         runLegacy = true
     } else if (missProducts.length > 0) {
-        // Only isolated products changed — check contract-check cache
+        // Only isolated products changed — check contract-check cache for those specific products
+        const missProductSet = new Set(missProducts)
         const contractMisses = contractTasks
             .filter((t) => t.cache?.status === 'MISS')
             .map((t) => packageToProduct(t.package))
+            .filter((p) => missProductSet.has(p))
         if (contractMisses.length > 0) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(contractMisses)} — Django will run`)
             runLegacy = true

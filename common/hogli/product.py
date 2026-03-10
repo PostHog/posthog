@@ -281,7 +281,7 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
             scripts = {}
 
         # backend:test is required for all products with backend/
-        # backend:contract-check is only required for isolated products (have turbo.json)
+        # backend:contract-check is only required for isolated products (have facade/contracts.py)
         required_scripts = ["backend:test"]
         if is_isolated:
             required_scripts.append("backend:contract-check")
