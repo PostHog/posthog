@@ -23,7 +23,6 @@ from posthog.schema import (
     ErrorTrackingIssueFilter,
     ErrorTrackingQuery,
     FilterLogicalOperator,
-    OrderBy1,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -168,7 +167,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
         filterTestAccounts=False,
         searchQuery=None,
         filterGroup=None,
-        orderBy=OrderBy1.LAST_SEEN,
+        orderBy="last_seen",  # type: ignore[arg-type]
         status=None,
         volumeResolution=1,
         withAggregations=False,
@@ -463,10 +462,10 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_ordering(self):
-        results = self._calculate(orderBy=OrderBy1.LAST_SEEN)["results"]
+        results = self._calculate(orderBy="last_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
-        results = self._calculate(orderBy=OrderBy1.FIRST_SEEN)["results"]
+        results = self._calculate(orderBy="first_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
     @freeze_time("2022-01-10T12:11:00")
@@ -492,7 +491,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @snapshot_clickhouse_queries
     def test_overrides_aggregation(self):
         self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)
-        results = self._calculate(withAggregations=True, orderBy=OrderBy1.OCCURRENCES)["results"]
+        results = self._calculate(withAggregations=True, orderBy="occurrences")["results"]
         self.assertEqual(len(results), 2)
 
         # count is (2 x issue_one) + (1 x issue_three)
