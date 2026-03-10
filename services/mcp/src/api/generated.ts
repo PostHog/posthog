@@ -886,7 +886,14 @@ export namespace Schemas {
       Group: 'group',
     } as const;
 
+    /**
+     * @nullable
+     */
+    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null | null;
+
     export interface GroupPropertyFilter {
+      /** @nullable */
+      group_key_names?: GroupPropertyFilterGroupKeyNames;
       /** @nullable */
       group_type_index?: number | null;
       key: string;
