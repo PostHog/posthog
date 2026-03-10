@@ -822,7 +822,7 @@ export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null 
 
 export interface HogQLQueryApi {
     /**
-     * Optional external data source id for running against a specific source
+     * Optional direct external data source id for running against a specific source
      * @nullable
      */
     connectionId?: string | null
