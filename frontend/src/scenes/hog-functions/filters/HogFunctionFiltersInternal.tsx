@@ -84,7 +84,6 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 '$exception_sources',
                 '$exception_functions',
                 '$exception_handled',
-                '$exception_level',
             ]
     }
 

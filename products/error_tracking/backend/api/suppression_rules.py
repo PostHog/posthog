@@ -47,7 +47,7 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
                 return Response({"error": "Invalid filters"}, status=status.HTTP_400_BAD_REQUEST)
             suppression_rule.filters = json_filters
             suppression_rule.bytecode = generate_byte_code(self.team, parsed_filters)
-            suppression_rule.disabled_data = None
+        suppression_rule.disabled_data = None
         suppression_rule.save()
 
         posthoganalytics.capture(
