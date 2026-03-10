@@ -13,11 +13,7 @@ export function RetentionTimeWindowModePicker(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const handleChange = (timeWindowMode?: RetentionFilter['timeWindowMode']): void => {
-        const updates: Partial<RetentionFilter> = { timeWindowMode }
-        if (timeWindowMode === '24_hour_windows') {
-            updates.cumulative = false
-        }
-        updateInsightFilter(updates)
+        updateInsightFilter({ timeWindowMode })
     }
 
     return (

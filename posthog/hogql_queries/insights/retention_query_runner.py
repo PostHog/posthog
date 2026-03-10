@@ -103,6 +103,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         Called after __init__ and after dashboard filters are applied.
         This ensures cohort optimizations work for both direct filters and dashboard-level filters.
         """
+        if self.query.retentionFilter and self.query.retentionFilter.timeWindowMode == "24_hour_windows":
+            self.query.retentionFilter.cumulative = False
+
         self.update_hogql_modifiers()
 
     def update_hogql_modifiers(self) -> None:
