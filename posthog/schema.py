@@ -7529,7 +7529,7 @@ class ZScoreDetectorConfig(BaseModel):
     )
     threshold: float | None = Field(
         default=None,
-        description="Z-score threshold for anomaly detection (default: 3.0)",
+        description=("Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"),
     )
     type: Literal["zscore"] = "zscore"
     window: int | None = Field(
@@ -12227,7 +12227,7 @@ class MADDetectorConfig(BaseModel):
     )
     threshold: float | None = Field(
         default=None,
-        description="Modified z-score threshold for anomaly detection (default: 3.5)",
+        description=("Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"),
     )
     type: Literal["mad"] = "mad"
     window: int | None = Field(

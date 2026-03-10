@@ -3872,7 +3872,7 @@ export interface PreprocessingConfig {
 
 export interface ZScoreDetectorConfig {
     type: 'zscore'
-    /** Z-score threshold for anomaly detection (default: 3.0) */
+    /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
     threshold?: number
     /** Rolling window size for calculating mean/std (default: 30) */
     window?: integer
@@ -3882,7 +3882,7 @@ export interface ZScoreDetectorConfig {
 
 export interface MADDetectorConfig {
     type: 'mad'
-    /** Modified z-score threshold for anomaly detection (default: 3.5) */
+    /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
     threshold?: number
     /** Rolling window size for calculating median/MAD (default: 30) */
     window?: integer

@@ -19852,7 +19852,7 @@
                     "description": "Preprocessing transforms applied before detection"
                 },
                 "threshold": {
-                    "description": "Modified z-score threshold for anomaly detection (default: 3.5)",
+                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
                     "type": "number"
                 },
                 "type": {
@@ -35918,7 +35918,7 @@
                     "description": "Preprocessing transforms applied before detection"
                 },
                 "threshold": {
-                    "description": "Z-score threshold for anomaly detection (default: 3.0)",
+                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
                     "type": "number"
                 },
                 "type": {

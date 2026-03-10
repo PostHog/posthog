@@ -45,10 +45,10 @@ export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JS
 
         switch (type) {
             case DetectorType.ZSCORE:
-                onChange({ type: 'zscore', threshold: 3.0, window: 30 } as ZScoreDetectorConfig)
+                onChange({ type: 'zscore', threshold: 0.9, window: 30 } as ZScoreDetectorConfig)
                 break
             case DetectorType.MAD:
-                onChange({ type: 'mad', threshold: 3.5, window: 30 } as MADDetectorConfig)
+                onChange({ type: 'mad', threshold: 0.9, window: 30 } as MADDetectorConfig)
                 break
             case DetectorType.THRESHOLD:
                 onChange({ type: 'threshold' } as ThresholdDetectorConfig)
@@ -94,23 +94,11 @@ function ZScoreConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Threshold (standard deviations)
-                </label>
-                <LemonInput
-                    type="number"
-                    min={1}
-                    max={10}
-                    step={0.5}
-                    value={config.threshold ?? 3.0}
-                    onChange={(val) => onChange({ ...config, threshold: val ? parseFloat(String(val)) : 3.0 })}
-                    fullWidth
-                />
-                <p className="text-xs text-muted mt-1">
-                    Points more than this many standard deviations from the mean are flagged. Higher = fewer alerts.
-                </p>
-            </div>
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                description="Anomaly probability threshold. Points with a probability above this are flagged. Higher = fewer alerts."
+            />
             <WindowSizeInput config={config} onChange={onChange} />
         </div>
     )
@@ -125,23 +113,11 @@ function MADConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                    Threshold (modified z-score)
-                </label>
-                <LemonInput
-                    type="number"
-                    min={1}
-                    max={10}
-                    step={0.5}
-                    value={config.threshold ?? 3.5}
-                    onChange={(val) => onChange({ ...config, threshold: val ? parseFloat(String(val)) : 3.5 })}
-                    fullWidth
-                />
-                <p className="text-xs text-muted mt-1">
-                    Like z-score but uses median instead of mean, making it robust to outliers. Higher = fewer alerts.
-                </p>
-            </div>
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                description="Anomaly probability threshold. Like z-score but uses median instead of mean, making it robust to outliers. Higher = fewer alerts."
+            />
             <WindowSizeInput config={config} onChange={onChange} />
         </div>
     )
@@ -181,6 +157,34 @@ function ThresholdConfig({
                 />
             </div>
             <p className="text-xs text-muted">Values outside these bounds are flagged as anomalies.</p>
+        </div>
+    )
+}
+
+function SensitivityInput({
+    value,
+    onChange,
+    description,
+}: {
+    value: number
+    onChange: (value: number) => void
+    description: string
+}): JSX.Element {
+    return (
+        <div>
+            <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
+                Sensitivity (anomaly probability threshold)
+            </label>
+            <LemonInput
+                type="number"
+                min={0.5}
+                max={0.99}
+                step={0.05}
+                value={value}
+                onChange={(val) => onChange(val ? parseFloat(String(val)) : 0.9)}
+                fullWidth
+            />
+            <p className="text-xs text-muted mt-1">{description}</p>
         </div>
     )
 }
