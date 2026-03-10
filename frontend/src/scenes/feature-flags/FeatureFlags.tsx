@@ -682,6 +682,7 @@ export function FeatureFlags(): JSX.Element {
                                         placement: 'bottom-end',
                                         className: 'new-feature-flag-overlay',
                                         actionable: true,
+                                        closeOnClickInside: false,
                                         overlay: <OverlayForNewFeatureFlagMenu />,
                                     },
                                     'data-attr': 'new-feature-flag-dropdown',

@@ -1073,6 +1073,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
 
