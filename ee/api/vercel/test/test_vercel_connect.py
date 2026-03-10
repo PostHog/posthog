@@ -4,14 +4,15 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import TestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.api.vercel.vercel_connect import _get_connect_cache_key
+from ee.api.vercel.vercel_connect import _get_connect_cache_key, _validate_next_url
 from ee.vercel.client import OAuthTokenResponse
 
 CACHED_SESSION_DATA = {
@@ -99,52 +100,22 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         parsed = parse_qs(urlparse(location).query)
         assert "session" in parsed
         assert "next" not in parsed
-
-    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
-    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_malicious_next_url_is_stripped(self, mock_client_class):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
-            access_token="tok_123",
-            token_type="Bearer",
-            installation_id="icfg_new",
-            user_id="usr_1",
-        )
-
-        response = self.client.get(self.url, {"code": "good_code", "next": "https://evil.com/phish"})
-
-        assert response.status_code == 302
-        location = response["Location"]
-        assert "evil.com" not in location
-        parsed = parse_qs(urlparse(location).query)
-        assert "next" not in parsed
-
-    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
-    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_javascript_uri_is_stripped(self, mock_client_class):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
-            access_token="tok_123",
-            token_type="Bearer",
-            installation_id="icfg_new",
-            user_id="usr_1",
-        )
-
-        response = self.client.get(self.url, {"code": "good_code", "next": "javascript:alert(document.cookie)"})
-
-        assert response.status_code == 302
-        location = response["Location"]
-        assert "javascript" not in location
-        parsed = parse_qs(urlparse(location).query)
         session_key = parsed["session"][0]
         cached_data = cache.get(_get_connect_cache_key(session_key))
-        assert cached_data["next_url"] == ""
+        assert cached_data["next_url"] == "https://vercel.com/done"
 
+    @parameterized.expand(
+        [
+            ("evil_domain", "https://evil.com/phish"),
+            ("javascript_uri", "javascript:alert(document.cookie)"),
+            ("data_uri", "data:text/html,<script>alert(1)</script>"),
+            ("vbscript_uri", "vbscript:MsgBox('xss')"),
+            ("protocol_relative", "//evil.com/path"),
+        ]
+    )
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_data_uri_is_stripped(self, mock_client_class):
+    def test_malicious_next_url_is_rejected(self, _name, malicious_url, mock_client_class):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
@@ -154,12 +125,11 @@ class TestVercelConnectCallback(VercelConnectTestBase):
             user_id="usr_1",
         )
 
-        response = self.client.get(self.url, {"code": "good_code", "next": "data:text/html,<script>alert(1)</script>"})
+        response = self.client.get(self.url, {"code": "good_code", "next": malicious_url})
 
         assert response.status_code == 302
-        location = response["Location"]
-        assert "data:" not in location
-        parsed = parse_qs(urlparse(location).query)
+        parsed = parse_qs(urlparse(response["Location"]).query)
+        assert "next" not in parsed
         session_key = parsed["session"][0]
         cached_data = cache.get(_get_connect_cache_key(session_key))
         assert cached_data["next_url"] == ""
@@ -461,3 +431,24 @@ class TestVercelConnectCallbackSessionBinding(VercelConnectTestBase):
         assert complete_response.status_code == status.HTTP_201_CREATED
         assert complete_response.json()["status"] == "linked"
         assert "vercel_connect_session" not in self.client.session
+
+
+class TestValidateNextUrl(TestCase):
+    @parameterized.expand(
+        [
+            ("valid_vercel", "https://vercel.com/done", "https://vercel.com/done"),
+            ("valid_www_vercel", "https://www.vercel.com/path", "https://www.vercel.com/path"),
+            ("http_vercel", "http://vercel.com/path", "http://vercel.com/path"),
+            ("empty_string", "", ""),
+            ("javascript_uri", "javascript:alert(1)", ""),
+            ("data_uri", "data:text/html,<script>alert(1)</script>", ""),
+            ("vbscript_uri", "vbscript:MsgBox('xss')", ""),
+            ("evil_domain", "https://evil.com/phish", ""),
+            ("protocol_relative", "//evil.com", ""),
+            ("mixed_case_scheme", "JavaScript:alert(1)", ""),
+            ("ftp_scheme", "ftp://vercel.com/file", ""),
+            ("no_hostname", "https://", ""),
+        ]
+    )
+    def test_validate_next_url(self, _name, url, expected):
+        assert _validate_next_url(url) == expected
