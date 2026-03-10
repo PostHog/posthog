@@ -290,7 +290,7 @@ jobs:
               run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Save pnpm store cache
-              if: github.ref == 'refs/heads/master'
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
