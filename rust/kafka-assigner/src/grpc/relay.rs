@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use etcd_client::EventType;
 use tokio::sync::mpsc::error::TrySendError;
@@ -11,6 +12,9 @@ use crate::store::{self, KafkaAssignerStore};
 use crate::types::{
     AssignmentEvent, HandoffPhase, HandoffState, PartitionAssignment, TopicPartition,
 };
+
+const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
+const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
 /// Watches etcd for assignment and handoff changes, relaying commands
 /// to consumers connected to this instance.
@@ -27,11 +31,61 @@ pub async fn run_relay(
     registry: Arc<ConsumerRegistry>,
     cancel: CancellationToken,
 ) -> Result<()> {
-    tokio::try_join!(
-        relay_assignments(store.clone(), registry.clone(), cancel.clone()),
-        relay_handoffs(store.clone(), registry.clone(), cancel.clone()),
-    )?;
+    // Run both watch loops independently so one failing doesn't stop the other.
+    // Each loop self-heals on transient etcd errors with exponential backoff.
+    tokio::join!(
+        relay_with_reconnect("assignments", &store, &registry, &cancel, |s, r, c| {
+            Box::pin(relay_assignments(s, r, c))
+        }),
+        relay_with_reconnect("handoffs", &store, &registry, &cancel, |s, r, c| {
+            Box::pin(relay_handoffs(s, r, c))
+        }),
+    );
     Ok(())
+}
+
+async fn relay_with_reconnect<F>(
+    name: &str,
+    store: &Arc<KafkaAssignerStore>,
+    registry: &Arc<ConsumerRegistry>,
+    cancel: &CancellationToken,
+    relay_fn: F,
+) where
+    F: Fn(
+        Arc<KafkaAssignerStore>,
+        Arc<ConsumerRegistry>,
+        CancellationToken,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>>,
+{
+    let mut backoff = INITIAL_BACKOFF;
+
+    loop {
+        match relay_fn(
+            Arc::clone(store),
+            Arc::clone(registry),
+            cancel.clone(),
+        )
+        .await
+        {
+            Ok(()) => return, // Clean shutdown via cancellation
+            Err(e) => {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                tracing::error!(
+                    relay = name,
+                    error = %e,
+                    backoff_secs = backoff.as_secs(),
+                    "relay watch failed, reconnecting"
+                );
+                tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    _ = tokio::time::sleep(backoff) => {}
+                }
+                backoff = (backoff * 2).min(MAX_BACKOFF);
+            }
+        }
+    }
 }
 
 /// Watch assignment changes and push `Assignment` events to affected consumers.

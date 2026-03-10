@@ -131,7 +131,7 @@ impl KafkaAssignerService {
                 })?
                 .map_err(|e| {
                     tracing::error!(topic, error = %e, "failed to fetch partition count");
-                    Status::internal(format!("failed to fetch partition count: {e}"))
+                    Status::internal("failed to fetch Kafka metadata")
                 })?;
 
                 let config = TopicConfig {
@@ -195,24 +195,34 @@ impl KafkaAssigner for KafkaAssignerService {
         // Create the channel that bridges the registry to the gRPC stream.
         let (event_tx, event_rx) = mpsc::channel::<AssignmentEvent>(self.stream_channel_size);
 
-        // If the consumer already owns partitions (e.g. reconnecting), send them
-        // as the first message. New consumers get an empty set — skip the no-op.
+        // Always send an Assignment snapshot as the first message to satisfy
+        // the stream contract (service.proto). Consumers rely on receiving a
+        // snapshot before any Warm/Release commands.
         let assignments = self
             .store
             .list_assignments()
             .await
             .map_err(|e| Status::internal(format!("failed to list assignments: {e}")))?;
         let owned = convert::consumer_partitions(&consumer_name, &assignments);
-        if !owned.is_empty() {
-            let initial = AssignmentEvent::Assignment {
-                assigned: owned,
-                unassigned: vec![],
-            };
-            event_tx
-                .send(initial)
-                .await
-                .map_err(|_| Status::internal("failed to send initial assignment"))?;
-        }
+        let initial = AssignmentEvent::Assignment {
+            assigned: owned,
+            unassigned: vec![],
+        };
+        event_tx
+            .send(initial)
+            .await
+            .map_err(|_| Status::internal("failed to send initial assignment"))?;
+
+        // Register in the local consumer registry BEFORE replaying
+        // handoffs. This ensures there is no window where a live handoff
+        // PUT from the relay is dropped (no sender) AND is also absent
+        // from the replay snapshot. Duplicates are safe since warm/release
+        // handling is idempotent.
+        self.registry.register(ConsumerConnection {
+            consumer_name: consumer_name.clone(),
+            command_tx: event_tx.clone(),
+            lease_id,
+        });
 
         // Replay pending handoffs that involve this consumer.
         // The relay only forwards etcd watch events, so if a handoff was
@@ -255,13 +265,6 @@ impl KafkaAssigner for KafkaAssignerService {
                 .await
                 .map_err(|_| Status::internal("failed to send pending releases"))?;
         }
-
-        // Register in the local consumer registry.
-        self.registry.register(ConsumerConnection {
-            consumer_name: consumer_name.clone(),
-            command_tx: event_tx,
-            lease_id,
-        });
 
         tracing::info!(consumer = %consumer_name, "consumer registered via gRPC");
 
