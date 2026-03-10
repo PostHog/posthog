@@ -18,7 +18,10 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
-from posthog.hogql.direct_connection import create_database_for_connection_source, require_direct_connection_source
+from posthog.hogql.direct_connection import (
+    create_database_for_connection_source,
+    get_direct_connection_source_none_or_raise,
+)
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
@@ -250,7 +253,7 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
     def _generate_hogql(self):
-        source = require_direct_connection_source(
+        source = get_direct_connection_source_none_or_raise(
             self.team,
             self.connection_id,
             error_factory=ExposedHogQLError,

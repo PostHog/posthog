@@ -20,7 +20,7 @@ def get_direct_connection_source(team: "Team", connection_id: str | None) -> Ext
     return get_direct_external_data_source_for_connection(team_id=team.pk, connection_id=connection_id)
 
 
-def require_direct_connection_source(
+def get_direct_connection_source_none_or_raise(
     team: "Team",
     connection_id: str | None,
     *,
@@ -58,7 +58,7 @@ def resolve_database_for_connection(
     timings: HogQLTimings | None = None,
     error_factory: Callable[[str], Exception],
 ) -> tuple[ExternalDataSource | None, Database]:
-    source = require_direct_connection_source(team, connection_id, error_factory=error_factory)
+    source = get_direct_connection_source_none_or_raise(team, connection_id, error_factory=error_factory)
     database = create_database_for_connection_source(
         team,
         user=user,
