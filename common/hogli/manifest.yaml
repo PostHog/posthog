@@ -290,6 +290,9 @@ build:
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
+    build:openapi-mcp-types:
+        cmd: pnpm --filter=@posthog/mcp run generate-mcp-types
+        description: Generate full TypeScript type namespace for MCP from OpenAPI schema
     build:openapi-mcp:
         cmd: pnpm --filter=@posthog/mcp run generate-orval-schemas
         description: Generate Orval Zod schemas for MCP tool handlers
@@ -300,6 +303,7 @@ build:
         steps:
             - build:openapi-schema
             - build:openapi-types
+            - build:openapi-mcp-types
             - build:openapi-mcp
             - build:openapi-mcp-tools
         description: Generate OpenAPI schema and TypeScript types from the backend
