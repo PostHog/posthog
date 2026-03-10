@@ -185,7 +185,7 @@ const constructValuesEndpoint = (
     return (
         path +
         (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
-        (refresh ? '&refresh=' + encodeURIComponent(refresh) : '') +
+        (refresh ? '&refresh=' + refresh : '') +
         eventParams
     )
 }

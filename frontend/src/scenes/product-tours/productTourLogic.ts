@@ -80,7 +80,7 @@ function buildHogQLDateFilter(
  * Escapes special characters in SQL strings to prevent injection
  */
 function escapeSqlString(value: string): string {
-    return value.replace(/['\\]/g, '\\$&');
+    return value.replace(/['\\]/g, '\\$&')
 }
 
 export type LaunchValidationIssueType = 'missing_element' | 'missing_selector'

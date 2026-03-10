@@ -499,13 +499,17 @@ describe('the property definitions model', () => {
 
             // Intercept only the 2000ms polling timer; let all other timers run normally
             const originalSetTimeout = global.setTimeout.bind(global)
-            jest.spyOn(global, 'setTimeout').mockImplementation((fn, delay, ...args) => {
+            jest.spyOn(global, 'setTimeout').mockImplementation(((
+                fn: TimerHandler,
+                delay?: number,
+                ...args: unknown[]
+            ) => {
                 if (delay === 2000) {
                     pollCallback = () => (fn as (...a: unknown[]) => unknown)(...args)
                     return 0 as unknown as ReturnType<typeof setTimeout>
                 }
-                return originalSetTimeout(fn as TimerHandler, delay, ...args)
-            })
+                return originalSetTimeout(fn, delay, ...args)
+            }) as typeof setTimeout)
 
             useMocks({
                 get: {
