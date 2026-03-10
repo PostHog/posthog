@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test.client import Client as HttpClient
+from django.utils import timezone
 
 from rest_framework import status
 

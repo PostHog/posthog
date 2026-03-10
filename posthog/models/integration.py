@@ -3057,10 +3057,11 @@ class StripeIntegration:
             try:
                 client.apps.secrets.create(
                     params={
-                        "scope": {"type": "user", "user": stripe_user_id},
+                        "scope": {"type": "account"},
                         "name": name,
                         "payload": payload,
-                    }
+                    },
+                    options={"stripe_account": stripe_user_id},
                 )
             except Exception as e:
                 capture_exception(e)
@@ -3072,9 +3073,7 @@ class StripeIntegration:
                 )
 
     def clear_posthog_secrets(self) -> None:
-        """Best-effort clear of PostHog secrets from Stripe when the integration is deleted."""
-        from stripe import StripeClient
-
+        """Best-effort clear of PostHog secrets from Stripe and revoke local OAuth tokens."""
         stripe_user_id = self.integration.integration_id
         if not stripe_user_id:
             raise ValueError("Missing stripe_user_id on integration")
@@ -3085,9 +3084,10 @@ class StripeIntegration:
             try:
                 client.apps.secrets.delete_where(
                     params={
-                        "scope": {"type": "user", "user": stripe_user_id},
+                        "scope": {"type": "account"},
                         "name": name,
-                    }
+                    },
+                    options={"stripe_account": stripe_user_id},
                 )
             except Exception as e:
                 capture_exception(e)
@@ -3097,6 +3097,23 @@ class StripeIntegration:
                     stripe_user_id=stripe_user_id,
                     error=str(e),
                 )
+
+        self._destroy_posthog_oauth_tokens()
+
+    def _destroy_posthog_oauth_tokens(self) -> None:
+        """Delete the local OAuth access and refresh tokens created for this Stripe integration."""
+        oauth_app = self._get_posthog_oauth_app()
+        if not oauth_app:
+            return
+
+        team_id = self.integration.team_id
+        access_tokens = OAuthAccessToken.objects.filter(
+            application=oauth_app,
+            scoped_teams__contains=[team_id],
+        )
+        # Delete refresh tokens first since their FK to access_token is SET_NULL
+        OAuthRefreshToken.objects.filter(access_token__in=access_tokens).delete()
+        access_tokens.delete()
 
     def _get_posthog_oauth_app(self):
         if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
