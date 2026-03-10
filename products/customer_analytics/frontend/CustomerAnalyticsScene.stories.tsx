@@ -2,6 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -18,8 +19,9 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-01-15',
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS],
         testOptions: {
-            waitForSelector: '.PayGateMini,.InsightCard',
+            waitForSelector: '[data-attr="customer-analytics-config"]',
         },
     },
     decorators: [
@@ -84,7 +86,4 @@ export const B2BModeWithoutGroups: StoryFn = () => {
 }
 B2BModeWithoutGroups.parameters = {
     pageUrl: urls.customerAnalyticsDashboard(),
-    testOptions: {
-        waitForSelector: '.PayGateMini',
-    },
 }
