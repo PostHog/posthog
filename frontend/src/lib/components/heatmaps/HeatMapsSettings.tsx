@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -88,6 +88,31 @@ export const HeatmapsSettings = ({
     heatmapFixedPositionMode,
     setHeatmapFixedPositionMode,
 }: HeatmapsSettingsProps): JSX.Element => {
+    // Local state for edge margin sliders to prevent high-frequency updates during drag
+    const [localEdgeMarginLeft, setLocalEdgeMarginLeft] = useState(heatmapFilters?.edgeMarginLeft ?? 0)
+    const [localEdgeMarginRight, setLocalEdgeMarginRight] = useState(heatmapFilters?.edgeMarginRight ?? 0)
+
+    // Sync local state when external value changes
+    useEffect(() => {
+        setLocalEdgeMarginLeft(heatmapFilters?.edgeMarginLeft ?? 0)
+    }, [heatmapFilters?.edgeMarginLeft])
+
+    useEffect(() => {
+        setLocalEdgeMarginRight(heatmapFilters?.edgeMarginRight ?? 0)
+    }, [heatmapFilters?.edgeMarginRight])
+
+    const commitEdgeMarginLeft = (): void => {
+        if (localEdgeMarginLeft !== (heatmapFilters?.edgeMarginLeft ?? 0)) {
+            patchHeatmapFilters?.({ edgeMarginLeft: localEdgeMarginLeft })
+        }
+    }
+
+    const commitEdgeMarginRight = (): void => {
+        if (localEdgeMarginRight !== (heatmapFilters?.edgeMarginRight ?? 0)) {
+            patchHeatmapFilters?.({ edgeMarginRight: localEdgeMarginRight })
+        }
+    }
+
     return (
         <>
             <SectionSetting
@@ -216,30 +241,40 @@ export const HeatmapsSettings = ({
                     }
                 >
                     <div className="space-y-2">
-                        <div className="flex items-center gap-2">
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div
+                            className="flex items-center gap-2"
+                            onMouseUp={commitEdgeMarginLeft}
+                            onTouchEnd={commitEdgeMarginLeft}
+                        >
                             <span className="text-xs w-20">Left margin:</span>
                             <LemonSlider
                                 className="flex-1"
                                 min={0}
                                 max={100}
                                 step={1}
-                                value={heatmapFilters?.edgeMarginLeft ?? 0}
-                                onChange={(value) => patchHeatmapFilters?.({ edgeMarginLeft: value })}
+                                value={localEdgeMarginLeft}
+                                onChange={setLocalEdgeMarginLeft}
                             />
-                            <code className="w-10 text-xs text-right">{heatmapFilters?.edgeMarginLeft ?? 0}px</code>
+                            <code className="w-10 text-xs text-right">{localEdgeMarginLeft}px</code>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div
+                            className="flex items-center gap-2"
+                            onMouseUp={commitEdgeMarginRight}
+                            onTouchEnd={commitEdgeMarginRight}
+                        >
                             <span className="text-xs w-20">Right margin:</span>
                             <LemonSlider
                                 className="flex-1"
                                 min={0}
                                 max={100}
                                 step={1}
-                                value={heatmapFilters?.edgeMarginRight ?? 0}
-                                onChange={(value) => patchHeatmapFilters?.({ edgeMarginRight: value })}
+                                value={localEdgeMarginRight}
+                                onChange={setLocalEdgeMarginRight}
                             />
-                            <code className="w-10 text-xs text-right">{heatmapFilters?.edgeMarginRight ?? 0}px</code>
+                            <code className="w-10 text-xs text-right">{localEdgeMarginRight}px</code>
                         </div>
 
                         <div className="flex items-center gap-2">

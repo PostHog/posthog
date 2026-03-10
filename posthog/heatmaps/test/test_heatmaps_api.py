@@ -664,12 +664,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "exclude_out_of_bounds": "true"}, 1)
 
     @freezegun.freeze_time("2025-03-31")
-    def test_exclude_out_of_bounds_default_true(self) -> None:
-        # By default, exclude_out_of_bounds is True
+    def test_exclude_out_of_bounds_default_false(self) -> None:
+        # By default, exclude_out_of_bounds is False (preserves backward compatibility)
         self._create_heatmap_event("session_1", "click", x=176, y=20, viewport_width=160)
         self._create_heatmap_event("session_2", "click", x=160, y=20, viewport_width=160)
 
-        self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 1)
+        self._assert_heatmap_result_count({"date_from": "2023-03-08"}, 2)
 
     @freezegun.freeze_time("2025-03-31")
     def test_exclude_out_of_bounds_false_includes_outside_clicks(self) -> None:
