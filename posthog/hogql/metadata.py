@@ -27,8 +27,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
 
-from products.data_warehouse.backend.models import ExternalDataSource
-from products.data_warehouse.backend.models.external_data_source import get_external_data_source_for_connection
+from products.data_warehouse.backend.models.external_data_source import get_direct_external_data_source_for_connection
 
 
 def get_hogql_metadata(
@@ -49,7 +48,7 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
-    source = get_external_data_source_for_connection(team_id=team.pk, connection_id=query.connectionId)
+    source = get_direct_external_data_source_for_connection(team_id=team.pk, connection_id=query.connectionId)
     if query.connectionId and source is None:
         response.isValid = False
         response.errors = [HogQLNotice(message="Invalid connectionId for this team")]
@@ -61,9 +60,7 @@ def get_hogql_metadata(
             team=team,
             user=user,
             modifiers=query_modifiers,
-            direct_query_source_id=str(source.id)
-            if source.access_method == ExternalDataSource.AccessMethod.DIRECT
-            else None,
+            direct_query_source_id=str(source.id),
         )
         serialized_tables = database.serialize(HogQLContext(team_id=team.pk, team=team, database=database, user=user))
         filtered_tables = filter_schema_tables_for_connection(
@@ -110,7 +107,7 @@ def get_hogql_metadata(
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
 
-            if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+            if source:
                 prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,

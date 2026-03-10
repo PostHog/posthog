@@ -28,11 +28,6 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.hogql.source_scoping import (
-    connection_source_identifiers,
-    filter_schema_tables_for_connection,
-    prune_database_for_connection,
-)
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
@@ -248,6 +243,18 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
     def _generate_hogql(self):
+        if self.connection_id is not None:
+            from products.data_warehouse.backend.models.external_data_source import (
+                get_direct_external_data_source_for_connection,
+            )
+
+            source = get_direct_external_data_source_for_connection(
+                team_id=self.team.pk, connection_id=self.connection_id
+            )
+            if source is None:
+                raise ExposedHogQLError("Invalid connectionId for this team")
+            self.selected_direct_source_id = str(source.id)
+
         database = self.context.database
         if database is None or self.selected_direct_source_id is not None:
             database = Database.create_for(
@@ -257,23 +264,6 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 direct_query_source_id=self.selected_direct_source_id,
             )
-        if self.connection_id is not None and self.selected_direct_source_id is None:
-            from products.data_warehouse.backend.models.external_data_source import (
-                get_external_data_source_for_connection,
-            )
-
-            source = get_external_data_source_for_connection(team_id=self.team.pk, connection_id=self.connection_id)
-            if source is None:
-                raise ExposedHogQLError("Invalid connectionId for this team")
-
-            serialized_tables = database.serialize(
-                HogQLContext(team_id=self.team.pk, team=self.team, database=database, user=self.user)
-            )
-            filtered_tables = filter_schema_tables_for_connection(
-                serialized_tables,
-                connection_source_identifiers(source),
-            )
-            prune_database_for_connection(database, set(filtered_tables.keys()))
 
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -485,11 +475,7 @@ class HogQLQueryExecutor:
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
         try:
-            source = (
-                ExternalDataSource.objects.get(team=self.team, id=self.connection_id)
-                if self.connection_id is not None
-                else ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
-            )
+            source = ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
         except ExternalDataSource.DoesNotExist as e:
             raise ExposedHogQLError("Connection not found or has been deleted") from e
 
@@ -678,7 +664,11 @@ class HogQLQueryExecutor:
         self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
-        if self.connection_id is not None or self._should_use_direct_postgres():
+        if (
+            self.connection_id is not None
+            or self.selected_direct_source_id is not None
+            or self._should_use_direct_postgres()
+        ):
             self._maybe_prepare_direct_postgres_query()
             if self.direct_postgres_sql is not None:
                 return self.direct_postgres_sql, self.context
@@ -696,7 +686,11 @@ class HogQLQueryExecutor:
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
 
-        if self.connection_id is not None or self._should_use_direct_postgres():
+        if (
+            self.connection_id is not None
+            or self.selected_direct_source_id is not None
+            or self._should_use_direct_postgres()
+        ):
             self._maybe_prepare_direct_postgres_query()
         if self.direct_postgres_sql is None:
             with self.timings.measure("_generate_clickhouse_sql"):

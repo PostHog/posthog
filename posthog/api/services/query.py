@@ -45,7 +45,7 @@ from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.data_warehouse.backend.models import DataWarehouseJoin, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_source import get_external_data_source_for_connection
+from products.data_warehouse.backend.models.external_data_source import get_direct_external_data_source_for_connection
 
 from common.hogvm.python.debugger import color_bytecode
 
@@ -53,7 +53,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _validated_source_for_connection(team: Team, connection_id: str | None) -> ExternalDataSource | None:
-    source = get_external_data_source_for_connection(team_id=team.pk, connection_id=connection_id)
+    source = get_direct_external_data_source_for_connection(team_id=team.pk, connection_id=connection_id)
     if connection_id and source is None:
         raise ValidationError("Invalid connectionId for this team")
     return source
@@ -64,9 +64,7 @@ def _database_for_connection_source(team: Team, user: User | None, source: Exter
         team=team,
         modifiers=create_default_modifiers_for_team(team),
         user=user,
-        direct_query_source_id=str(source.id)
-        if source and source.access_method == ExternalDataSource.AccessMethod.DIRECT
-        else None,
+        direct_query_source_id=str(source.id) if source else None,
     )
 
 

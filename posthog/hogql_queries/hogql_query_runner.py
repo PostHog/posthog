@@ -25,8 +25,7 @@ from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.data_warehouse.backend.models import ExternalDataSource
-from products.data_warehouse.backend.models.external_data_source import get_external_data_source_for_connection
+from products.data_warehouse.backend.models.external_data_source import get_direct_external_data_source_for_connection
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -103,15 +102,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # p95 duration of HogQL query is 2.78sec
             self.settings.max_execution_time = 10
 
-        selected_source_id: str | None = None
+        selected_source_id = self.query.connectionId
         if self.query.connectionId:
-            source = get_external_data_source_for_connection(
+            source = get_direct_external_data_source_for_connection(
                 team_id=self.team.pk, connection_id=self.query.connectionId
             )
             if source is None:
                 raise ExposedHogQLError("Invalid connectionId for this team")
-            if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-                selected_source_id = str(source.id)
 
         response = func(
             query_type="HogQLQuery",

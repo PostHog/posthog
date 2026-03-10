@@ -357,7 +357,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(metadata.isValid)
         self.assertTrue(any("posthog_user" in (error.message or "") for error in metadata.errors))
 
-    def test_metadata_with_warehouse_connection_does_not_allow_other_source_tables(self):
+    def test_metadata_rejects_non_direct_connection_id(self):
         selected_source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
@@ -368,39 +368,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             prefix="stripe",
         )
-        other_source = ExternalDataSource.objects.create(
-            source_id="other-upstream-source",
-            connection_id="other-connection",
-            destination_id="destination-2",
-            team=self.team,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.HUBSPOT,
-            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
-            prefix="hubspot",
-        )
-
-        DataWarehouseTable.objects.create(
-            name="stripe_customers",
-            format="Parquet",
-            team=self.team,
-            external_data_source=selected_source,
-            url_pattern="s3://test/stripe_customers",
-            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
-        )
-        DataWarehouseTable.objects.create(
-            name="hubspot_deals",
-            format="Parquet",
-            team=self.team,
-            external_data_source=other_source,
-            url_pattern="s3://test/hubspot_deals",
-            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
-        )
-
         metadata = get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata",
                 language=HogLanguage.HOG_QL,
-                query="SELECT * FROM hubspot.deals LIMIT 1",
+                query="SELECT 1",
                 response=None,
                 connectionId=str(selected_source.id),
             ),
@@ -408,7 +380,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertFalse(metadata.isValid)
-        self.assertTrue(any("hubspot.deals" in (error.message or "") for error in metadata.errors))
+        self.assertEqual([error.message for error in metadata.errors], ["Invalid connectionId for this team"])
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):

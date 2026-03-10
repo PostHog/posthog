@@ -47,7 +47,8 @@ class TestQueryService(APIBaseTest):
             destination_id="destination-1",
             team=self.team,
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
         other_source = ExternalDataSource.objects.create(
             source_id="other-upstream-source",
@@ -55,7 +56,8 @@ class TestQueryService(APIBaseTest):
             destination_id="destination-2",
             team=self.team,
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.HUBSPOT,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
 
         mock_database = MagicMock()
@@ -172,7 +174,8 @@ class TestQueryService(APIBaseTest):
             destination_id="destination-1",
             team=self.team,
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
 
         mock_database = MagicMock()
@@ -496,7 +499,7 @@ class TestQueryService(APIBaseTest):
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.Database.create_for")
-    def test_hogql_autocomplete_with_connection_filters_other_source_tables(
+    def test_hogql_autocomplete_with_direct_connection_filters_other_source_tables(
         self,
         mock_create_for: MagicMock,
         mock_get_hogql_autocomplete: MagicMock,
@@ -507,7 +510,8 @@ class TestQueryService(APIBaseTest):
             destination_id="destination-1",
             team=self.team,
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
         other_source = ExternalDataSource.objects.create(
             source_id="other-upstream-source",
@@ -515,7 +519,8 @@ class TestQueryService(APIBaseTest):
             destination_id="destination-2",
             team=self.team,
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.HUBSPOT,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
 
         database = Database()
@@ -541,7 +546,7 @@ class TestQueryService(APIBaseTest):
                 format="Parquet",
                 id="selected_table_id",
                 name="selected_table",
-                url_pattern="warehouse://selected",
+                url_pattern="direct://postgres",
                 schema=DatabaseSchemaSchema(
                     id="schema-selected",
                     name="selected_table",
@@ -561,7 +566,7 @@ class TestQueryService(APIBaseTest):
                 format="Parquet",
                 id="other_table_id",
                 name="other_table",
-                url_pattern="warehouse://other",
+                url_pattern="direct://postgres",
                 schema=DatabaseSchemaSchema(
                     id="schema-other",
                     name="other_table",
@@ -762,7 +767,43 @@ class TestQueryService(APIBaseTest):
             team=self.team,
             status=ExternalDataSource.Status.COMPLETED,
             source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
             deleted=True,
+        )
+
+        if query_cls is HogQLAutocomplete:
+            query = HogQLAutocomplete(
+                kind="HogQLAutocomplete",
+                query="SELECT * FROM ",
+                language=HogLanguage.HOG_QL,
+                startPosition=14,
+                endPosition=14,
+                connectionId=str(source.id),
+            )
+        else:
+            query = DatabaseSchemaQuery(connectionId=str(source.id))
+
+        with self.assertRaises(ValidationError) as error:
+            process_query_model(self.team, query)
+
+        self.assertEqual(cast(list[str], error.exception.detail)[0], "Invalid connectionId for this team")
+
+    @parameterized.expand(
+        [
+            ("autocomplete", HogQLAutocomplete),
+            ("schema", DatabaseSchemaQuery),
+        ]
+    )
+    def test_query_service_rejects_non_direct_connection_ids(self, _label: str, query_cls):
+        query: HogQLAutocomplete | DatabaseSchemaQuery
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
         )
 
         if query_cls is HogQLAutocomplete:

@@ -145,3 +145,13 @@ def get_external_data_source_for_connection(team_id: int, connection_id: str | N
         return None
 
     return ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True).filter(id=source_uuid).first()
+
+
+def get_direct_external_data_source_for_connection(
+    team_id: int, connection_id: str | None
+) -> ExternalDataSource | None:
+    source = get_external_data_source_for_connection(team_id=team_id, connection_id=connection_id)
+    if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+        return None
+
+    return source
