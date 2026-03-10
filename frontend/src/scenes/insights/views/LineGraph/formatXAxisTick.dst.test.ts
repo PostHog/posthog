@@ -1,15 +1,22 @@
-import { execSync } from 'child_process'
-import path from 'path'
+// This test must be run with TZ=America/New_York to reproduce the DST bug.
+// Use: pnpm --filter=@posthog/frontend test:tz
+// It is excluded from the default jest run (which forces TZ=UTC).
+import { createXAxisTickCallback } from './formatXAxisTick'
 
-describe('createXAxisTickCallback (DST)', () => {
-    it('does not shift dates around US DST spring-forward transition', () => {
-        // Jest's config sets TZ=UTC before test files load, so the DST bug
-        // can't be reproduced in-process. Run the real test in a subprocess
-        // with TZ=America/New_York — jest.config.ts respects a pre-set TZ.
-        const testFile = path.resolve(__dirname, 'formatXAxisTick.dst.inner.test.ts')
-        const jestBin = path.resolve(__dirname, '../../../../../node_modules/.bin/jest')
-        const cwd = path.resolve(__dirname, '../../../../..')
-        const cmd = `TZ=America/New_York ${jestBin} ${testFile} --no-coverage --no-cache`
-        execSync(cmd, { cwd, timeout: 30000, stdio: 'pipe' })
-    }, 30000)
+it('does not shift dates around US DST spring-forward transition', () => {
+    // Sanity check: if TZ is UTC both code paths produce the same result,
+    // so the test would pass even with the buggy code.
+    expect(Intl.DateTimeFormat().resolvedOptions().timeZone).not.toBe('UTC')
+
+    // US DST spring-forward is March 8, 2026. When the browser timezone
+    // differs from the project timezone, dayjs.tz() can mis-parse dates
+    // near the transition, causing e.g. Mar 8 to show as Mar 7.
+    const callback = createXAxisTickCallback({
+        interval: 'day',
+        allDays: ['2026-03-07', '2026-03-08', '2026-03-09'],
+        timezone: 'US/Pacific',
+    })
+    expect(callback('ignored', 0)).toBe('Mar 7')
+    expect(callback('ignored', 1)).toBe('Mar 8')
+    expect(callback('ignored', 2)).toBe('Mar 9')
 })
