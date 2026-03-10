@@ -283,9 +283,11 @@ class EnterpriseExperimentsViewSet(
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related(
+        Prefetch(
+            "feature_flag__flag_evaluation_contexts",
+            queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+        ),
         "feature_flag",
-        "feature_flag__flag_evaluation_contexts",
-        "feature_flag__flag_evaluation_contexts__evaluation_context",
         "created_by",
         "holdout",
         "experimenttosavedmetric_set",

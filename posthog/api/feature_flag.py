@@ -404,7 +404,9 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
                 for item in raw:
                     if not isinstance(item, str) or len(item) > 255:
                         raise serializers.ValidationError("Invalid evaluation context name.")
-                attrs["evaluation_tags"] = raw
+                # Deduplicate: silently collapse duplicates rather than erroring,
+                # since the backend would deduplicate anyway via _attempt_set_evaluation_tags.
+                attrs["evaluation_tags"] = list(dict.fromkeys(raw))
 
         return attrs
 
@@ -466,6 +468,8 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
                 for ec in obj.flag_evaluation_contexts.select_related("evaluation_context").all()
             ]
 
+        # Deprecated: evaluation_tags is kept for backward compatibility.
+        # Use evaluation_contexts instead. Will be removed in a future release.
         ret["evaluation_tags"] = context_names
         ret["evaluation_contexts"] = context_names
 
@@ -1615,12 +1619,12 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
 
     def _get_context_names(self, feature_flag: FeatureFlag) -> list[str]:
         try:
-            # Check for ArrayAgg annotation first
-            names = getattr(feature_flag, "evaluation_tag_names", None)
-            if names is not None:
-                return names or []
+            # Check for _evaluation_tag_names cache attribute (set by Redis/local evaluation)
+            cached = getattr(feature_flag, "_evaluation_tag_names", None)
+            if cached is not None:
+                return cached or []
 
-            # Check prefetch cache
+            # Check prefetch cache (set by queryset.prefetch_related)
             if (
                 hasattr(feature_flag, "_prefetched_objects_cache")
                 and "flag_evaluation_contexts" in feature_flag._prefetched_objects_cache
