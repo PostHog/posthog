@@ -789,6 +789,8 @@ export interface EventsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** Cursor for fetching the next page of results */
+    nextCursor?: string
 }
 
 export type CachedEventsQueryResponse = CachedQueryResponse<EventsQueryResponse>
@@ -5004,6 +5006,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'RedditAds',
     'BingAds',
     'SnapchatAds',
+    'PinterestAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -5138,6 +5141,17 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'conversion_subscribe_value',
         ] as const,
     },
+    PinterestAds: {
+        sourceType: 'PinterestAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_analytics',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['analytics'] as const,
+        defaultSources: ['pinterest'] as const,
+        primarySource: 'pinterest',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
@@ -5149,6 +5163,8 @@ export type TikTokAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['Ti
 export type RedditAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['defaultSources'][number]
 export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['defaultSources'][number]
 export type SnapchatAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['defaultSources'][number]
+export type PinterestAdsDefaultSources =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['defaultSources'][number]
 
 export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
 export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
@@ -5157,6 +5173,7 @@ export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['Tik
 export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
 export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
 export type SnapchatAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableKeywords'][number]
+export type PinterestAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableKeywords'][number]
 
 export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
 export type LinkedinAdsTableExclusions =
@@ -5167,6 +5184,8 @@ export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['R
 export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
 export type SnapchatAdsTableExclusions =
     (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableExclusions'][number]
+export type PinterestAdsTableExclusions =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableExclusions'][number]
 
 // Conversion fields for Snapchat Ads - extracted as types so they generate as StrEnum in Python
 export type SnapchatAdsConversionFields =

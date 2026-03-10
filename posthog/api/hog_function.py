@@ -88,11 +88,18 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
 
 class HogFunctionMaskingSerializer(serializers.Serializer):
     ttl = serializers.IntegerField(
-        required=True, min_value=60, max_value=60 * 60 * 24
-    )  # NOTE: 24 hours max for now - we might increase this later
-    threshold = serializers.IntegerField(required=False, allow_null=True)
-    hash = serializers.CharField(required=True)
-    bytecode = serializers.JSONField(required=False, allow_null=True)
+        required=True,
+        min_value=60,
+        max_value=60 * 60 * 24,
+        help_text="Time-to-live in seconds for the masking cache (60–86400).",
+    )
+    threshold = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Optional threshold count before masking applies."
+    )
+    hash = serializers.CharField(required=True, help_text="Hog expression used to compute the masking hash.")
+    bytecode = serializers.JSONField(
+        required=False, allow_null=True, help_text="Compiled bytecode for the hash expression. Auto-generated."
+    )
 
     def validate(self, attrs):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
@@ -102,12 +109,32 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
-    masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
-    type = serializers.ChoiceField(choices=HogFunctionType.choices, required=False, allow_null=True)
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(required=True), required=False)
-    inputs = InputsSerializer(required=False)
-    mappings = serializers.ListField(child=MappingsSerializer(), required=False, allow_null=True)
-    filters = HogFunctionFiltersSerializer(required=False)
+    masking = HogFunctionMaskingSerializer(
+        required=False,
+        allow_null=True,
+        help_text="PII masking configuration with TTL, threshold, and hash expression.",
+    )
+    type = serializers.ChoiceField(
+        choices=HogFunctionType.choices,
+        required=False,
+        allow_null=True,
+        help_text="Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.",
+    )
+    inputs_schema = serializers.ListField(
+        child=InputsSchemaItemSerializer(required=True),
+        required=False,
+        help_text="Schema defining the configurable input parameters for this function.",
+    )
+    inputs = InputsSerializer(required=False, help_text="Values for each input defined in inputs_schema.")
+    mappings = serializers.ListField(
+        child=MappingsSerializer(),
+        required=False,
+        allow_null=True,
+        help_text="Event-to-destination field mappings. Only for destination and site_destination types.",
+    )
+    filters = HogFunctionFiltersSerializer(
+        required=False, help_text="Event filters that control which events trigger this function."
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -149,11 +176,25 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "status",
         ]
         extra_kwargs = {
-            "hog": {"required": False},
+            "hog": {
+                "required": False,
+                "help_text": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+            },
             "inputs_schema": {"required": False},
-            "template_id": {"write_only": True},
-            "deleted": {"write_only": True},
+            "template_id": {
+                "write_only": True,
+                "help_text": "ID of the template to create this function from.",
+            },
+            "deleted": {
+                "write_only": True,
+                "help_text": "Soft-delete flag. Set to true to archive the function.",
+            },
             "type": {"required": True},
+            "name": {"help_text": "Display name for the function."},
+            "description": {"help_text": "Human-readable description of what this function does."},
+            "enabled": {"help_text": "Whether the function is active and processing events."},
+            "icon_url": {"help_text": "URL for the function's icon displayed in the UI."},
+            "execution_order": {"help_text": "Execution priority for transformations. Lower values run first."},
         }
 
     # NOTE: All pre-validation should be done here such as loading the template info etc.
@@ -370,13 +411,23 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
-    configuration = HogFunctionSerializer(write_only=True)
-    globals = serializers.DictField(write_only=True, required=False)
-    clickhouse_event = serializers.DictField(write_only=True, required=False)
-    mock_async_functions = serializers.BooleanField(default=True, write_only=True)
-    status = serializers.CharField(read_only=True)
-    logs = serializers.ListField(read_only=True)
-    invocation_id = serializers.CharField(required=False, allow_null=True)
+    configuration = HogFunctionSerializer(write_only=True, help_text="Full function configuration to test.")
+    globals = serializers.DictField(
+        write_only=True, required=False, help_text="Mock global variables available during test invocation."
+    )
+    clickhouse_event = serializers.DictField(
+        write_only=True, required=False, help_text="Mock ClickHouse event data to test the function with."
+    )
+    mock_async_functions = serializers.BooleanField(
+        default=True,
+        write_only=True,
+        help_text="When true (default), async functions like fetch() are simulated.",
+    )
+    status = serializers.CharField(read_only=True, help_text="Invocation result status.")
+    logs = serializers.ListField(read_only=True, help_text="Execution logs from the test invocation.")
+    invocation_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Optional invocation ID for correlation."
+    )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
