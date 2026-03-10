@@ -541,7 +541,7 @@ export function buildAggregateQuery(
                 ${responseExpr} AS label,
                 count() AS cnt
             FROM events
-            WHERE ${baseWhere} AND ${responseExpr} != ''
+            WHERE ${baseWhere} AND isNotNull(${responseExpr})
             GROUP BY label`)
 
             if (question.type === SurveyQuestionType.SingleChoice && question.optional) {
@@ -557,7 +557,7 @@ export function buildAggregateQuery(
                 count() AS cnt
             FROM events
             WHERE ${baseWhere}
-            GROUP BY label HAVING label != ''`)
+            GROUP BY label HAVING isNotNull(label) AND label != ''`)
 
             branches.push(`SELECT '${question.id}' AS question_id,
                 '__total__' AS label,
@@ -577,7 +577,7 @@ export function buildAggregateQuery(
                 '__total__' AS label,
                 count() AS cnt
             FROM events
-            WHERE ${baseWhere} AND ${responseExpr} != ''`)
+            WHERE ${baseWhere} AND isNotNull(${responseExpr})`)
         }
     }
 
