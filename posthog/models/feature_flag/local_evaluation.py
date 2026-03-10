@@ -346,7 +346,7 @@ def _apply_flag_dependency_transformation(
         flags_list = cast(list[dict[str, Any]], response_data["flags"])
         transformed_flags = _transform_flag_property_dependencies(flags_list, flag_id_to_key)
 
-        logger.info("Flag dependency transformation completed")
+        logger.debug("Flag dependency transformation completed")
         return {**response_data, "flags": transformed_flags}
     except Exception as e:
         logger.warning(

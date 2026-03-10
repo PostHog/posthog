@@ -171,7 +171,7 @@ async def create_realtime_cohort_calculation_schedule_with_id(
             else None,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=interval_minutes))]),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.BUFFER_ONE),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if await a_schedule_exists(client, schedule_id):

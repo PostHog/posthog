@@ -418,7 +418,11 @@ function generateToolCode(
     let handlerBody = ''
     handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
 
-    const hasBody = composition.bodyFieldNames.length > 0
+    // Soft-delete overrides the HTTP method: use PATCH { deleted: true } instead of DELETE.
+    // This is necessary for endpoints backed by ForbidDestroyModel (e.g. actions).
+    const isSoftDelete = config.soft_delete === true
+
+    const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
     const hasQuery = composition.queryParamNames.length > 0
 
     if (hasBody) {
@@ -428,10 +432,13 @@ function generateToolCode(
         }
     }
 
+    const httpMethod = isSoftDelete ? 'PATCH' : resolved.method
     handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
-    handlerBody += `            method: '${resolved.method}',\n`
+    handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
-    if (hasBody) {
+    if (isSoftDelete) {
+        handlerBody += `            body: { deleted: true },\n`
+    } else if (hasBody) {
         handlerBody += `            body,\n`
     }
     if (hasQuery) {

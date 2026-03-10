@@ -12,7 +12,7 @@ import { HealthCheckResult, HealthCheckResultError, PluginsServerConfig } from '
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { cdpJobSizeKb } from './shared'
+import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
 import { WarpstreamFetchTester } from './warpstream-fetch-tester'
 
 export class CyclotronJobQueueKafka {
@@ -95,11 +95,12 @@ export class CyclotronJobQueueKafka {
             invocations.map(async (x) => {
                 const serialized = serializeInvocation(x)
 
-                const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
-                    ? await compress(JSON.stringify(serialized))
-                    : JSON.stringify(serialized)
+                const jsonString = JSON.stringify(serialized)
+                cdpJobSizeKb.labels('kafka').observe(jsonString.length / 1024)
 
-                cdpJobSizeKb.labels('kafka').observe(value.length / 1024)
+                const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA ? await compress(jsonString) : jsonString
+
+                cdpJobSizeCompressedKb.labels('kafka').observe(value.length / 1024)
 
                 const headers: Record<string, string> = {
                     // NOTE: Later we should remove hogFunctionId as it is no longer used

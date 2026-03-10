@@ -438,42 +438,46 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
-    check-idor-coverage:
+    # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
+    # Consolidates checks that previously each spun up their own runner.
+    repo-checks:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        timeout-minutes: 5
-        name: Check IDOR semgrep rule coverage
+        timeout-minutes: 10
+        name: Repo checks
         runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Lint product structure
+              run: ./bin/hogli product:lint --all
+
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
 
-    check-operator-parity:
-        needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
-        timeout-minutes: 2
-        name: Check operator parity across languages
-        runs-on: depot-ubuntu-latest
-        steps:
-            - uses: actions/checkout@v6
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.12.12
             - name: Check operator parity
               run: python .github/scripts/check-operator-parity.py
 
+            - name: Check module boundaries (tach)
+              run: tach check
+
+    # Migration validation and OpenAPI type generation.
+    # This job needs Docker + DB — it checks out master first to run baseline
+    # migrations, then checks out the PR branch. All steps after the PR checkout
+    # require Django + DB. Lightweight checks belong in repo-checks above.
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
@@ -510,9 +514,6 @@ jobs:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-
-            - name: Lint product structure
-              run: ./bin/hogli product:lint --all
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -582,9 +583,6 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Check module boundaries (tach)
-              run: tach check
 
             - name: Check migrations and post SQL comment
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
@@ -1555,8 +1553,7 @@ jobs:
                 turbo-discover,
                 turbo-tests,
                 handle-snapshots,
-                check-idor-coverage,
-                check-operator-parity,
+                repo-checks,
             ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
@@ -1588,15 +1585,9 @@ jobs:
                     exit 1
                   fi
 
-                  # Check IDOR coverage - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-idor-coverage.result }}" != "success" && "${{ needs.check-idor-coverage.result }}" != "skipped" ]]; then
-                    echo "IDOR coverage check failed."
-                    exit 1
-                  fi
-
-                  # Check operator parity - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-operator-parity.result }}" != "success" && "${{ needs.check-operator-parity.result }}" != "skipped" ]]; then
-                    echo "Operator parity check failed."
+                  # Check repo checks (product lint, IDOR, operator parity, tach)
+                  if [[ "${{ needs.repo-checks.result }}" != "success" && "${{ needs.repo-checks.result }}" != "skipped" ]]; then
+                    echo "Repo checks failed."
                     exit 1
                   fi
 

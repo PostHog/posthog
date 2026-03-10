@@ -543,6 +543,14 @@ export function buildAggregateQuery(
             FROM events
             WHERE ${baseWhere} AND ${responseExpr} != ''
             GROUP BY label`)
+
+            if (question.type === SurveyQuestionType.SingleChoice && question.optional) {
+                branches.push(`SELECT '${question.id}' AS question_id,
+                    '__no_response__' AS label,
+                    count() AS cnt
+                FROM events
+                WHERE ${baseWhere} AND ${responseExpr} = ''`)
+            }
         } else if (question.type === SurveyQuestionType.MultipleChoice) {
             branches.push(`SELECT '${question.id}' AS question_id,
                 trim(BOTH '"\\'' FROM arrayJoin(${responseExpr})) AS label,
@@ -556,6 +564,14 @@ export function buildAggregateQuery(
                 count() AS cnt
             FROM events
             WHERE ${baseWhere} AND length(${responseExpr}) > 0`)
+
+            if (question.optional) {
+                branches.push(`SELECT '${question.id}' AS question_id,
+                    '__no_response__' AS label,
+                    count() AS cnt
+                FROM events
+                WHERE ${baseWhere} AND length(${responseExpr}) = 0`)
+            }
         } else if (question.type === SurveyQuestionType.Open) {
             branches.push(`SELECT '${question.id}' AS question_id,
                 '__total__' AS label,
