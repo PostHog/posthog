@@ -131,7 +131,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database.tables.add_child(TableNode(name="direct_table", table=direct_table))
         database._warehouse_table_names = ["direct_table"]
         database._direct_access_warehouse_table_names = {"direct_table"}
-        database._connection_scope = "exclude_direct"
 
         database.apply_schema_scope()
 

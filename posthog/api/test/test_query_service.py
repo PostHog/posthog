@@ -340,7 +340,6 @@ class TestQueryService(APIBaseTest):
         )
         database._warehouse_table_names = ["direct_table"]
         database._direct_access_warehouse_table_names = {"direct_table"}
-        database._connection_scope = "exclude_direct"
         database.apply_schema_scope()
         mock_resolve_database_for_connection.return_value = (None, database)
 
@@ -391,9 +390,8 @@ class TestQueryService(APIBaseTest):
             )
         )
         database._connection_id = str(source.id)
-        database._connection_scope = "connection"
         database._warehouse_table_names = ["posthog_dashboard"]
-        database.apply_connection_scope()
+        database.apply_schema_scope()
         mock_resolve_database_for_connection.return_value = (source, database)
 
         def _mock_autocomplete(*args, **kwargs):
@@ -447,9 +445,8 @@ class TestQueryService(APIBaseTest):
             children_conflict_mode="override",
         )
         database._connection_id = str(selected_source.id)
-        database._connection_scope = "connection"
         database._warehouse_table_names = ["selected_table"]
-        database.apply_connection_scope()
+        database.apply_schema_scope()
         mock_resolve_database_for_connection.return_value = (selected_source, database)
 
         def _mock_autocomplete(*args, **kwargs):
@@ -512,9 +509,8 @@ class TestQueryService(APIBaseTest):
             children_conflict_mode="override",
         )
         database._connection_id = str(source.id)
-        database._connection_scope = "connection"
         database._warehouse_table_names = ["selected_table"]
-        database.apply_connection_scope()
+        database.apply_schema_scope()
         mock_resolve_database_for_connection.return_value = (source, database)
 
         def _mock_autocomplete(*args, **kwargs):

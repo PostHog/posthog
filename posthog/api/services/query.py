@@ -151,10 +151,9 @@ def process_query_model(
         )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
-        table_names = set(serialized_tables.keys()) if database.has_schema_scope() else None
+        table_names = set(serialized_tables.keys())
         joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-        if table_names is not None:
-            joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
+        joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
 
         join_models: list[DataWarehouseViewLink] = []
         for join in joins.iterator():
