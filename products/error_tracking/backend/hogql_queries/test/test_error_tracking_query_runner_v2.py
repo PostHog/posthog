@@ -6,8 +6,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from django.db import connections
-
 from products.error_tracking.backend.hogql_queries.test.test_error_tracking_query_runner import (
     ErrorTrackingQueryRunnerTestsMixin,
 )
@@ -19,30 +17,6 @@ from ee.models.rbac.role import Role
 class TestErrorTrackingQueryRunnerV2(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, NonAtomicBaseTest):
     __test__ = True
     use_v2 = True
-
-    # we have to do this manually there because standard django test class runs in a django transaction hence data is invisibile to CH via PH connector.
-    # I had to change the base test class to NonAtomicBaseTest to allow this. And that's why I have to tear down the data manually.
-    def _fixture_teardown(self):
-        current_team_id = getattr(self.team, "id", None) if hasattr(self, "team") else None
-
-        with connections["default"].cursor() as cursor:
-            cursor.execute("""
-                TRUNCATE
-                    posthog_errortrackingissueassignment,
-                    posthog_errortrackingissuefingerprintv2,
-                    posthog_errortrackingissue,
-                    posthog_organizationmembership,
-                    posthog_user,
-                    posthog_team,
-                    posthog_project,
-                    posthog_organization
-                CASCADE
-            """)
-
-        if current_team_id:
-            with connections["persons_db_writer"].cursor() as cursor:
-                cursor.execute(f"DELETE FROM posthog_persondistinctid WHERE team_id = {current_team_id}")
-                cursor.execute(f"DELETE FROM posthog_person WHERE team_id = {current_team_id}")
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
