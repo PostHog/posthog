@@ -82,47 +82,44 @@ def _connection_context(
     return source, source_ids, database
 
 
-def _schema_join_field_type(table_type: str | None) -> DatabaseSerializedFieldType:
-    if table_type in {"view", "materialized_view", "managed_view"}:
-        return DatabaseSerializedFieldType.VIEW
-    return DatabaseSerializedFieldType.LAZY_TABLE
+def _inline_join_field(tables: dict[str, object], join: object) -> None:
+    source_table_name = getattr(join, "source_table_name", None)
+    joining_table_name = getattr(join, "joining_table_name", None)
+    field_name = getattr(join, "field_name", None)
+    if not source_table_name or not joining_table_name or not field_name:
+        return
 
+    source_table = tables.get(source_table_name)
+    joining_table = tables.get(joining_table_name)
+    if source_table is None or joining_table is None:
+        return
 
-def _denormalize_schema_joins_into_tables(tables: dict[str, object], joins: list[object]) -> None:
-    for join in joins:
-        source_table_name = getattr(join, "source_table_name", None)
-        joining_table_name = getattr(join, "joining_table_name", None)
-        field_name = getattr(join, "field_name", None)
-        if not source_table_name or not joining_table_name or not field_name:
-            continue
+    source_fields = getattr(source_table, "fields", None)
+    joining_fields = getattr(joining_table, "fields", None)
+    if not isinstance(source_fields, dict) or not isinstance(joining_fields, dict):
+        return
 
-        source_table = tables.get(source_table_name)
-        joining_table = tables.get(joining_table_name)
-        if source_table is None or joining_table is None:
-            continue
-
-        source_fields = getattr(source_table, "fields", None)
-        joining_fields = getattr(joining_table, "fields", None)
-        if not isinstance(source_fields, dict) or not isinstance(joining_fields, dict):
-            continue
-
-        hogql_value = (
-            f"`{field_name}`"
-            if any(character in field_name for character in HOGQL_CHARACTERS_TO_BE_WRAPPED)
-            else field_name
-        )
-        field_type = _schema_join_field_type(getattr(joining_table, "type", None))
-        source_fields[field_name] = DatabaseSchemaField(
-            name=field_name,
-            hogql_value=hogql_value,
-            type=field_type,
-            schema_valid=True,
-            table=getattr(joining_table, "name", joining_table_name),
-            fields=list(joining_fields.keys()),
-            id=str(getattr(joining_table, "id", field_name))
-            if field_type == DatabaseSerializedFieldType.VIEW
-            else field_name,
-        )
+    field_type = (
+        DatabaseSerializedFieldType.VIEW
+        if getattr(joining_table, "type", None) in {"view", "materialized_view", "managed_view"}
+        else DatabaseSerializedFieldType.LAZY_TABLE
+    )
+    hogql_value = (
+        f"`{field_name}`"
+        if any(character in field_name for character in HOGQL_CHARACTERS_TO_BE_WRAPPED)
+        else field_name
+    )
+    source_fields[field_name] = DatabaseSchemaField(
+        name=field_name,
+        hogql_value=hogql_value,
+        type=field_type,
+        schema_valid=True,
+        table=getattr(joining_table, "name", joining_table_name),
+        fields=list(joining_fields.keys()),
+        id=str(getattr(joining_table, "id", field_name))
+        if field_type == DatabaseSerializedFieldType.VIEW
+        else field_name,
+    )
 
 
 def process_query_dict(
@@ -234,12 +231,11 @@ def process_query_model(
         joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
         if table_names is not None:
             joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
-        join_list = list(joins.iterator())
-        _denormalize_schema_joins_into_tables(filtered_tables, join_list)
 
-        return DatabaseSchemaQueryResponse(
-            tables=filtered_tables,
-            joins=[
+        join_models: list[DataWarehouseViewLink] = []
+        for join in joins.iterator():
+            _inline_join_field(filtered_tables, join)
+            join_models.append(
                 DataWarehouseViewLink.model_validate(
                     {
                         "id": str(join.id),
@@ -251,8 +247,11 @@ def process_query_model(
                         "created_at": join.created_at.isoformat(),
                     }
                 )
-                for join in join_list
-            ],
+            )
+
+        return DatabaseSchemaQueryResponse(
+            tables=filtered_tables,
+            joins=join_models,
         )
 
     try:
