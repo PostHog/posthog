@@ -453,7 +453,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         from django.apps import apps
         from django.utils import timezone
 
-        migration = importlib.import_module("posthog.migrations.1040_subscription_integration")
+        migration = importlib.import_module("posthog.migrations.1041_backfill_subscription_integration")
 
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock()
