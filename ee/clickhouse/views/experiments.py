@@ -855,6 +855,8 @@ class EnterpriseExperimentsViewSet(
                     queryset = queryset.order_by(F("computed_status").asc())
             else:
                 queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
 
         return queryset
 
