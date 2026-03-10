@@ -4169,6 +4169,7 @@ export interface EventDefinition {
     verified_at?: string
     verified_by?: string
     is_action?: boolean
+    is_data_warehouse?: boolean
     hidden?: boolean
     default_columns?: string[]
     enforcement_mode?: SchemaEnforcementMode
@@ -4793,6 +4794,7 @@ export interface SubscriptionType {
     insight?: number
     dashboard?: number
     dashboard_export_insights?: number[]
+    integration_id?: number | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'

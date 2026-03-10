@@ -167,6 +167,38 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
         })
+
+        it.each(['javascript:alert(1)//', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox'])(
+            'rejects uiHost with dangerous scheme: %s',
+            (maliciousHost) => {
+                const logic = toolbarConfigLogic.build({
+                    uiHost: maliciousHost,
+                    apiURL: 'https://fallback.example.com',
+                    posthog: { config: {} } as any,
+                } as any)
+                logic.mount()
+                // Should fall through to apiURL instead of using the malicious value
+                expect(logic.values.uiHost).toBe('https://fallback.example.com')
+            }
+        )
+
+        it('accepts valid https uiHost', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://app.posthog.com',
+                apiURL: 'https://fallback.example.com',
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://app.posthog.com')
+        })
+
+        it('accepts valid http uiHost', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'http://localhost:8000',
+                apiURL: 'https://fallback.example.com',
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('http://localhost:8000')
+        })
     })
 
     describe('OAuth localStorage restoration', () => {

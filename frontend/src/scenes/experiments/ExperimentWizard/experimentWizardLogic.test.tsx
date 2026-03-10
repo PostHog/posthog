@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -551,7 +553,7 @@ describe('experimentWizardLogic', () => {
             useMocks({
                 ...apiMocks,
                 post: {
-                    '/api/projects/@current/experiments/': async (req: any) => {
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/`]: async (req: any) => {
                         capturedPayload = await req.json()
                         return [
                             200,
