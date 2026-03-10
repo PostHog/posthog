@@ -413,7 +413,7 @@ describe('the property definitions model', () => {
     })
 
     describe('loadPropertyValues', () => {
-        it('includes is_polling=true in the URL when isPolling is true', async () => {
+        it('includes refresh=force_cache in the URL when polling', async () => {
             let capturedUrl: string | undefined
 
             useMocks({
@@ -431,14 +431,14 @@ describe('the property definitions model', () => {
                     type: PropertyDefinitionType.Event,
                     newInput: undefined,
                     propertyKey: 'browser',
-                    isPolling: true,
+                    refresh: 'force_cache',
                 })
             }).toFinishAllListeners()
 
-            expect(capturedUrl).toContain('is_polling=true')
+            expect(capturedUrl).toContain('refresh=force_cache')
         })
 
-        it('does not include is_polling in the URL when isPolling is false', async () => {
+        it('does not include refresh in the URL by default', async () => {
             let capturedUrl: string | undefined
 
             useMocks({
@@ -456,14 +456,13 @@ describe('the property definitions model', () => {
                     type: PropertyDefinitionType.Event,
                     newInput: undefined,
                     propertyKey: 'browser',
-                    isPolling: false,
                 })
             }).toFinishAllListeners()
 
-            expect(capturedUrl).not.toContain('is_polling')
+            expect(capturedUrl).not.toContain('refresh=')
         })
 
-        it('sends is_polling=true in the URL on the follow-up poll after a refreshing response', async () => {
+        it('sends refresh=force_cache on the follow-up poll after a refreshing response', async () => {
             let pollCallback: (() => void) | null = null
             const capturedUrls: string[] = []
 
@@ -502,7 +501,7 @@ describe('the property definitions model', () => {
             await expectLogic(logic, () => pollCallback!()).toFinishAllListeners()
 
             expect(capturedUrls).toHaveLength(2)
-            expect(capturedUrls[1]).toContain('is_polling=true')
+            expect(capturedUrls[1]).toContain('refresh=force_cache')
         })
     })
 })

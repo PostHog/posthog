@@ -177,42 +177,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("default", "", "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS"),
-            (
-                "force_refresh_false",
-                "force_refresh=false",
-                "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS",
-            ),
-            ("force_refresh_true", "force_refresh=true", "CALCULATE_BLOCKING_ALWAYS"),
+            ("refresh_force_blocking", "refresh=force_blocking", "CALCULATE_BLOCKING_ALWAYS"),
+            ("refresh_force_cache", "refresh=force_cache", "CACHE_ONLY_NEVER_CALCULATE"),
+            ("refresh_async", "refresh=async", "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE"),
         ]
     )
     @freeze_time("2020-01-10")
-    def test_person_property_values_force_refresh(self, _name, param, expected_mode_name):
-        from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryResponse
-        from posthog.hogql_queries.query_runner import ExecutionMode
-
-        _create_person(distinct_ids=["u1"], team=self.team, properties={"country": "US"})
-        flush_persons_and_events()
-
-        url = "/api/person/values/?key=country"
-        if param:
-            url += f"&{param}"
-
-        with mock.patch(
-            "posthog.hogql_queries.property_values_query_runner.PropertyValuesQueryRunner.run",
-            return_value=PropertyValuesQueryResponse(results=[]),
-        ) as mock_run:
-            self.client.get(url)
-            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name])
-
-    @parameterized.expand(
-        [
-            ("not_set", "", "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS"),
-            ("false", "is_polling=false", "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS"),
-            ("true", "is_polling=true", "CACHE_ONLY_NEVER_CALCULATE"),
-        ]
-    )
-    @freeze_time("2020-01-10")
-    def test_person_property_values_is_polling(self, _name, param, expected_mode_name):
+    def test_person_property_values_refresh(self, _name, param, expected_mode_name):
         from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryResponse
         from posthog.hogql_queries.query_runner import ExecutionMode
 

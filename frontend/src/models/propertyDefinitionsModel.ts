@@ -154,8 +154,7 @@ const constructValuesEndpoint = (
     eventNames: string[] | undefined,
     newInput: string | undefined,
     properties?: { key: string; values: string | string[] }[],
-    forceRefresh?: boolean,
-    isPolling?: boolean
+    refresh?: string
 ): string => {
     let basePath: string
 
@@ -186,8 +185,7 @@ const constructValuesEndpoint = (
     return (
         path +
         (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
-        (forceRefresh ? '&force_refresh=true' : '') +
-        (isPolling ? '&is_polling=true' : '') +
+        (refresh ? '&refresh=' + encodeURIComponent(refresh) : '') +
         eventParams
     )
 }
@@ -215,8 +213,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             propertyKey: string
             eventNames?: string[]
             properties?: { key: string; values: string | string[] }[]
-            forceRefresh?: boolean
-            isPolling?: boolean
+            refresh?: string
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[], allowCustomValues: boolean, refreshing?: boolean) => ({
@@ -404,7 +401,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         },
 
         loadPropertyValues: async (
-            { endpoint, type, newInput, propertyKey, eventNames, properties, forceRefresh, isPolling },
+            { endpoint, type, newInput, propertyKey, eventNames, properties, refresh },
             breakpoint
         ) => {
             if (['cohort'].includes(type)) {
@@ -414,7 +411,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 return
             }
 
-            if (!forceRefresh && localOptions[getPropertyKey(type, propertyKey)]) {
+            if (refresh !== 'force_blocking' && localOptions[getPropertyKey(type, propertyKey)]) {
                 actions.setOptions(propertyKey, localOptions[getPropertyKey(type, propertyKey)], false)
                 return
             }
@@ -441,8 +438,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     eventNames,
                     newInput,
                     properties,
-                    forceRefresh,
-                    isPolling
+                    refresh
                 ),
                 methodOptions
             )
@@ -468,7 +464,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         propertyKey,
                         eventNames,
                         properties,
-                        isPolling: true,
+                        refresh: 'force_cache',
                     })
                 }, 2000)
             } else if (cache.pollingTimeouts[propertyKey]) {
