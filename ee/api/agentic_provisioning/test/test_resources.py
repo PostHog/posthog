@@ -81,4 +81,4 @@ class TestProvisioningResources(StripeProvisioningTestBase):
             f"/api/agentic/provisioning/resources/{self.team.id}",
             token=token,
         )
-        assert res.json()["service_id"] == "product_analytics"
+        assert res.json()["service_id"] == "posthog"

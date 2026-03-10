@@ -567,7 +567,7 @@ def provisioning_resources_create(request: Request) -> Response:
     except Team.DoesNotExist:
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
-    resolved_service_id = service_id or "product_analytics"
+    resolved_service_id = service_id or POSTHOG_SERVICE_ID
     cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
 
     region = get_instance_region() or "US"
@@ -634,9 +634,15 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     except Team.DoesNotExist:
         return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
-    team.reset_token_and_save(user=user, is_impersonated_session=False)
+    try:
+        team.reset_token_and_save(user=user, is_impersonated_session=False)
+    except Exception:
+        logger.exception("agentic_provisioning.rotate_credentials.reset_token_failed", team_id=team_id)
+        return _error_response(
+            "credential_rotation_failed", "Failed to rotate credentials", resource_id=resource_id, status=500
+        )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or "product_analytics"
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -696,7 +702,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             status=404,
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or "product_analytics"
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
