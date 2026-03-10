@@ -17,6 +17,8 @@ export interface ErrorTrackingAssignmentRuleApi {
      */
     order_key: number
     disabled_data?: unknown | null
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingAssignmentRuleListApi {
@@ -38,6 +40,8 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
      */
     order_key?: number
     disabled_data?: unknown | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof IntegrationKindApi]
@@ -127,6 +131,8 @@ export interface ErrorTrackingGroupingRuleApi {
      */
     order_key: number
     disabled_data?: unknown | null
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingGroupingRuleListApi {
@@ -148,6 +154,8 @@ export interface PatchedErrorTrackingGroupingRuleApi {
      */
     order_key?: number
     disabled_data?: unknown | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 /**
@@ -266,6 +274,8 @@ export interface ErrorTrackingSuppressionRuleApi {
      */
     order_key: number
     disabled_data?: unknown | null
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingSuppressionRuleListApi {
@@ -286,6 +296,8 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
      */
     order_key?: number
     disabled_data?: unknown | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 export interface ErrorTrackingSymbolSetApi {
