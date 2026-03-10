@@ -26,7 +26,6 @@ from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
-from oauthlib.common import generate_token
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework import status
@@ -43,6 +42,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
+from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
 from posthog.security.outbound_proxy import external_requests
@@ -2773,7 +2773,7 @@ class StripeIntegration:
             logger.warning("PostHog OAuth app not found, cannot write secrets to Stripe")
             return
 
-        access_token_value = generate_token()
+        access_token_value = generate_random_oauth_access_token(None)
         access_token = OAuthAccessToken.objects.create(
             application=oauth_app,
             token=access_token_value,
@@ -2783,7 +2783,7 @@ class StripeIntegration:
             scoped_teams=[team_id],
         )
 
-        refresh_token_value = generate_token()
+        refresh_token_value = generate_random_oauth_refresh_token(None)
         OAuthRefreshToken.objects.create(
             application=oauth_app,
             token=refresh_token_value,
