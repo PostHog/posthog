@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Local MCP server for PostHog dev environment process observability.
+
+Exposes the process status JSON files and log files written by bin/process-monitor
+as MCP tools so coding agents can inspect the dev environment without needing
+direct terminal access.
+
+Requires log mode to be enabled: `hogli dev:setup --log`
+
+Run via Claude Code's .mcp.json (invoked automatically by the MCP client):
+  uv run python bin/dev-env-mcp-server
+"""
+
+from __future__ import annotations
+
+import glob
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP(
+    "posthog-dev-env",
+    instructions=(
+        "Tools for inspecting the local PostHog dev environment. "
+        "Log mode must be enabled (`hogli dev:setup --log`) for status and log files to exist."
+    ),
+)
+
+_LOG_GLOB = "/tmp/posthog-*.log"
+_STATUS_GLOB = "/tmp/posthog-*.json"
+_STATUS_DIR = Path("/tmp")
+
+
+def _process_names_from_status() -> list[str]:
+    """Return process names that have a status file."""
+    files = sorted(glob.glob(_STATUS_GLOB))
+    names = []
+    for f in files:
+        stem = Path(f).stem  # e.g. "posthog-backend"
+        name = stem.removeprefix("posthog-")
+        if name:
+            names.append(name)
+    return names
+
+
+def _read_status(process_name: str) -> dict[str, Any]:
+    """Read and parse the JSON status file for a process."""
+    path = _STATUS_DIR / f"posthog-{process_name}.json"
+    if not path.exists():
+        return {"error": f"No status file for '{process_name}'. Is log mode enabled? Run: hogli dev:setup --log"}
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        return {"error": f"Could not read status file: {exc}"}
+
+
+@mcp.tool()
+def get_process_status(process: str = "") -> dict[str, Any]:
+    """Get the status of one or all dev environment processes.
+
+    Returns pid, running state, readiness, exit code, and a tail of recent log lines
+    for each process. Processes are tracked by bin/process-monitor when log mode is
+    enabled via `hogli dev:setup --log`.
+
+    Args:
+        process: Process name (e.g. 'backend', 'frontend', 'celery-worker').
+                 Leave empty to get status for all processes.
+    """
+    if process:
+        return {process: _read_status(process)}
+
+    names = _process_names_from_status()
+    if not names:
+        return {
+            "error": (
+                "No process status files found at /tmp/posthog-*.json. "
+                "Enable log mode with: hogli dev:setup --log"
+            )
+        }
+    return {name: _read_status(name) for name in names}
+
+
+@mcp.tool()
+def get_process_logs(process: str, lines: int = 100, grep: str = "") -> dict[str, Any]:
+    """Get recent log output from a dev environment process.
+
+    Args:
+        process: Process name (e.g. 'backend', 'frontend', 'celery-worker').
+        lines: Number of recent lines to return (default 100, max 500).
+        grep: Optional regex pattern to filter lines (e.g. 'ERROR', 'warning').
+    """
+    lines = min(max(lines, 1), 500)
+    log_file = _STATUS_DIR / f"posthog-{process}.log"
+
+    if not log_file.exists():
+        return {
+            "process": process,
+            "error": (
+                f"No log file at {log_file}. "
+                "Enable log mode with: hogli dev:setup --log"
+            ),
+        }
+
+    try:
+        content = log_file.read_text(errors="replace")
+    except OSError as exc:
+        return {"process": process, "error": str(exc)}
+
+    all_lines = content.splitlines()
+
+    if grep:
+        try:
+            pattern = re.compile(grep)
+            matched = [ln for ln in all_lines if pattern.search(ln)]
+        except re.error as exc:
+            return {"process": process, "error": f"Invalid grep pattern: {exc}"}
+        tail = matched[-lines:]
+        return {
+            "process": process,
+            "grep": grep,
+            "total_matched": len(matched),
+            "returned_lines": len(tail),
+            "logs": tail,
+        }
+
+    tail = all_lines[-lines:]
+    return {
+        "process": process,
+        "total_lines": len(all_lines),
+        "returned_lines": len(tail),
+        "logs": tail,
+    }
+
+
+if __name__ == "__main__":
+    mcp.run()

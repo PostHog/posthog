@@ -86,9 +86,9 @@ metadata:
                 output and easy process management.
         phrocs:
             name: phrocs
-            about: PostHog's custom Bubble Tea process runner. Replaces mprocs with a
-                PostHog-branded TUI — per-process sidebar, scrollable output, PTY support,
-                and hogli-aware keybindings. Built from common/phrocs/ on first run.
+            about: "PostHog's custom Bubble Tea process runner. Replaces mprocs with a PostHog-branded\
+                \ TUI \u2014 per-process sidebar, scrollable output, PTY support, and hogli-aware\
+                \ keybindings. Built from common/phrocs/ on first run."
 devenv:
     dev:setup: null
     dev:generate: null
@@ -640,6 +640,14 @@ tools:
     phrocs:
         bin_script: phrocs
         description: Run phrocs directly with a custom mprocs-format YAML config
+        hidden: true
+    dev:env:mcp:server:
+        bin_script: dev-env-mcp-server
+        description: 'TODO: add description for dev-env-mcp-server'
+        hidden: true
+    process:monitor:
+        bin_script: process-monitor
+        description: 'TODO: add description for process-monitor'
         hidden: true
 utilities:
     nuke:

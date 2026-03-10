@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Process monitor for hogli dev environment.
+
+Wraps a dev process to:
+- Log stdout/stderr to /tmp/posthog-{name}.log
+- Write/update a JSON status file at /tmp/posthog-{name}.json
+- Track process state: starting → running → ready → stopped/crashed
+- Detect the mprocs ready_pattern in output
+
+Usage:
+  bin/process-monitor --name backend --ready-pattern 'Listening at' -- bash -c '...'
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import signal
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ProcessMonitor:
+    def __init__(self, name: str, ready_pattern: str, log_file: Path, status_file: Path) -> None:
+        self.name = name
+        self.ready_re = re.compile(ready_pattern) if ready_pattern else None
+        self.log_file = log_file
+        self.status_file = status_file
+        self.proc: subprocess.Popen[str] | None = None
+        self.status: dict = {
+            "process": name,
+            "pid": None,
+            "status": "starting",
+            "ready": False,
+            "exit_code": None,
+            "started_at": _utcnow(),
+            "ready_at": None,
+        }
+
+    def _write_status(self) -> None:
+        # Atomic write via rename so readers never see a partial file.
+        tmp = self.status_file.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps(self.status, indent=2))
+            tmp.rename(self.status_file)
+        except OSError:
+            pass
+
+    def _handle_signal(self, signum: int, frame: object) -> None:
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+
+    def run(self, command: list[str]) -> int:
+        signal.signal(signal.SIGTERM, self._handle_signal)
+        signal.signal(signal.SIGINT, self._handle_signal)
+
+        self._write_status()
+
+        exit_code = 1
+        try:
+            with open(self.log_file, "w", buffering=1) as log_fp:
+                self.proc = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+                self.status["pid"] = self.proc.pid
+                self.status["status"] = "running"
+                self._write_status()
+
+                assert self.proc.stdout
+                for line in self.proc.stdout:
+                    # Forward to our stdout so phrocs/mprocs TUI still works.
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                    log_fp.write(line)
+                    log_fp.flush()
+
+                    if self.ready_re and not self.status["ready"]:
+                        if self.ready_re.search(line.rstrip()):
+                            self.status["ready"] = True
+                            self.status["ready_at"] = _utcnow()
+                            self._write_status()
+
+                self.proc.wait()
+                exit_code = self.proc.returncode
+
+        except Exception as exc:
+            self.status["status"] = "crashed"
+            self.status["exit_code"] = 1
+            self.status["error"] = str(exc)
+            self._write_status()
+            raise
+
+        # SIGTERM produces returncode -15; treat as a clean stop.
+        self.status["status"] = "stopped" if exit_code in (0, -15) else "crashed"
+        self.status["exit_code"] = exit_code
+        self._write_status()
+        return exit_code
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Process monitor: tees output to log + writes JSON status file."
+    )
+    parser.add_argument("--name", required=True, help="Process name (used in file paths)")
+    parser.add_argument("--ready-pattern", default="", help="Regex pattern that signals readiness")
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to run (after --)")
+    args = parser.parse_args()
+
+    command = args.command
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        parser.error("No command provided after --")
+
+    monitor = ProcessMonitor(
+        name=args.name,
+        ready_pattern=args.ready_pattern,
+        log_file=Path(f"/tmp/posthog-{args.name}.log"),
+        status_file=Path(f"/tmp/posthog-{args.name}.json"),
+    )
+    sys.exit(monitor.run(command))
+
+
+if __name__ == "__main__":
+    main()
