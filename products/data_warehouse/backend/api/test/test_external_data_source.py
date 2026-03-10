@@ -1799,25 +1799,30 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Update with SSH tunnel config
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
-            data={
-                "job_inputs": {
-                    "ssh_tunnel": {
-                        "enabled": True,
-                        "host": "ssh.example.com",
-                        "port": 22,
-                        "auth_type": {
-                            "selection": "username_password",
-                            "username": "testuser",
-                            "password": "testpass",
-                            "passphrase": "testphrase",
-                            "private_key": "testkey",
-                        },
-                    }
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            return_value=(True, None),
+        ) as mock_validate_credentials:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+                data={
+                    "job_inputs": {
+                        "ssh_tunnel": {
+                            "enabled": True,
+                            "host": "ssh.example.com",
+                            "port": 22,
+                            "auth_type": {
+                                "selection": "username_password",
+                                "username": "testuser",
+                                "password": "testpass",
+                                "passphrase": "testphrase",
+                                "private_key": "testkey",
+                            },
+                        }
+                    },
                 },
-            },
-        )
+            )
+        mock_validate_credentials.assert_called_once()
 
         assert response.status_code == 200
 
@@ -2001,7 +2006,11 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["host"] == "new-host.example.com"  # Host was updated
         assert source.job_inputs["password"] == "original_password"  # Password preserved
 
-    def test_update_with_new_password_updates_password(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_new_password_updates_password(self, mock_validate_credentials):
         """Test that explicitly providing a new password does update it."""
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -2037,6 +2046,45 @@ class TestExternalDataSource(APIBaseTest):
         # Verify password was actually updated
         source.refresh_from_db()
         assert source.job_inputs["password"] == "new_password"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(False, "should not be called"),
+    )
+    def test_update_with_non_credential_changes_does_not_revalidate(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_host_only",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "new-host.example.com",
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["host"] == "new-host.example.com"
+        mock_validate_credentials.assert_not_called()
 
     def test_update_source_without_ssh_tunnel_does_not_crash(self):
         """Regression test: updating a source that has no ssh_tunnel should not crash."""
@@ -2407,25 +2455,30 @@ class TestExternalDataSource(APIBaseTest):
         assert job_inputs["auth_type"]["private_key"] == ""
 
         # Update the source with a new auth type
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
-            data={
-                "job_inputs": {
-                    "role": "my_role",
-                    "schema": "my_schema",
-                    "database": "my_database",
-                    "warehouse": "my_warehouse",
-                    "account_id": "my_account_id",
-                    "auth_type": {
-                        "selection": "keypair",
-                        "user": "my_username",
-                        "private_key": "my_private_key",
-                        "passphrase": "my_passphrase",
-                        "password": "",
-                    },
-                }
-            },
-        )
+        with patch(
+            "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+            return_value=(True, None),
+        ) as mock_validate_credentials:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
+                data={
+                    "job_inputs": {
+                        "role": "my_role",
+                        "schema": "my_schema",
+                        "database": "my_database",
+                        "warehouse": "my_warehouse",
+                        "account_id": "my_account_id",
+                        "auth_type": {
+                            "selection": "keypair",
+                            "user": "my_username",
+                            "private_key": "my_private_key",
+                            "passphrase": "my_passphrase",
+                            "password": "",
+                        },
+                    }
+                },
+            )
+        mock_validate_credentials.assert_called_once()
 
         assert response.status_code == 200, response.json()
 

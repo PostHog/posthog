@@ -147,8 +147,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         assert "postgres.ph3.posthog_dashboard" not in filtered_tables
-        events_table = filtered_tables["events"]
-        assert isinstance(events_table, DatabaseSchemaPostHogTable)
+        events_table = cast(DatabaseSchemaPostHogTable, filtered_tables["events"])
         assert "dashboard" not in events_table.fields
 
     def test_serialize_database_deleted_saved_query(self):

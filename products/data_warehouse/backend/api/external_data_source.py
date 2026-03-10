@@ -14,7 +14,16 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSwitchGroupConfig
+from posthog.schema import (
+    ProductKey,
+    SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
+)
 
 from posthog.hogql.database.database import Database
 
@@ -62,6 +71,8 @@ from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+MISSING = object()
+CREDENTIAL_LIKE_FIELD_NAMES = {"connection_string"}
 
 
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
@@ -73,6 +84,77 @@ def get_password_field_names(fields: list[FieldType]) -> set[str]:
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             password_fields.update(get_password_field_names(field.fields))
     return password_fields
+
+
+def normalize_credential_value(value: Any) -> Any:
+    if value is MISSING or value is None or value == "":
+        return None
+    return value
+
+
+def get_credential_fingerprint(data: dict[str, Any], fields: list[FieldType]) -> dict[tuple[str, ...], Any]:
+    fingerprint: dict[tuple[str, ...], Any] = {}
+
+    for field in fields:
+        if isinstance(field, SourceFieldInputConfig):
+            if field.type == SourceFieldInputConfigType.PASSWORD or field.name in CREDENTIAL_LIKE_FIELD_NAMES:
+                fingerprint[(field.name,)] = normalize_credential_value(data.get(field.name, MISSING))
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            nested_data = data.get(field.name, {})
+            if not isinstance(nested_data, dict):
+                nested_data = {}
+            for path, value in get_credential_fingerprint(nested_data, field.fields).items():
+                fingerprint[(field.name, *path)] = value
+        elif isinstance(field, SourceFieldSelectConfig):
+            nested_data = data.get(field.name, {})
+            if not isinstance(nested_data, dict):
+                nested_data = {}
+
+            fingerprint[(field.name, "selection")] = normalize_credential_value(nested_data.get("selection", MISSING))
+            for option in field.options:
+                if not option.fields:
+                    continue
+                for path, value in get_credential_fingerprint(nested_data, option.fields).items():
+                    fingerprint[(field.name, *path)] = value
+        elif isinstance(field, (SourceFieldFileUploadConfig, SourceFieldOauthConfig)):
+            value = data.get(field.name, MISSING)
+            if isinstance(field, SourceFieldFileUploadConfig) and isinstance(value, dict):
+                value = {key: normalize_credential_value(value.get(key, MISSING)) for key in field.fileFormat.keys}
+            else:
+                value = normalize_credential_value(value)
+            fingerprint[(field.name,)] = value
+        elif isinstance(field, SourceFieldSSHTunnelConfig):
+            ssh_tunnel_data = data.get(field.name, {})
+            if not isinstance(ssh_tunnel_data, dict):
+                ssh_tunnel_data = {}
+
+            auth_data = ssh_tunnel_data.get("auth") or ssh_tunnel_data.get("auth_type") or {}
+            if not isinstance(auth_data, dict):
+                auth_data = {}
+
+            fingerprint[(field.name, "auth", "selection")] = normalize_credential_value(
+                auth_data.get("type", auth_data.get("selection", MISSING))
+            )
+            fingerprint[(field.name, "auth", "username")] = normalize_credential_value(
+                auth_data.get("username", MISSING)
+            )
+            fingerprint[(field.name, "auth", "password")] = normalize_credential_value(
+                auth_data.get("password", MISSING)
+            )
+            fingerprint[(field.name, "auth", "passphrase")] = normalize_credential_value(
+                auth_data.get("passphrase", MISSING)
+            )
+            fingerprint[(field.name, "auth", "private_key")] = normalize_credential_value(
+                auth_data.get("private_key", MISSING)
+            )
+
+    return fingerprint
+
+
+def credentials_changed(
+    existing_job_inputs: dict[str, Any], new_job_inputs: dict[str, Any], fields: list[FieldType]
+) -> bool:
+    return get_credential_fingerprint(existing_job_inputs, fields) != get_credential_fingerprint(new_job_inputs, fields)
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -310,7 +392,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             raise ValidationError("Access method cannot be changed. Create a new source instead.")
 
         validated_data.pop("access_method", None)
-        should_validate_credentials = "job_inputs" in validated_data
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
         if instance.is_direct_postgres:
@@ -328,6 +409,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
         password_fields = get_password_field_names(source.get_source_config.fields)
+        should_validate_credentials = False
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
@@ -363,6 +445,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 merged_ssh_tunnel["auth"] = merged_auth
 
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
+
+        if "job_inputs" in validated_data:
+            should_validate_credentials = credentials_changed(
+                existing_job_inputs, new_job_inputs, source.get_source_config.fields
+            )
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
