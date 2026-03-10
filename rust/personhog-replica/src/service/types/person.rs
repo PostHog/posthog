@@ -20,7 +20,7 @@ impl From<storage::Person> for Person {
             created_at: person.created_at.timestamp_millis(),
             version: person.version.unwrap_or(0),
             is_identified: person.is_identified,
-            is_user_id: person.is_user_id.unwrap_or(false),
+            is_user_id: person.is_user_id,
         }
     }
 }
