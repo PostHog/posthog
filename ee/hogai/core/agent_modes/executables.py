@@ -56,6 +56,7 @@ from ee.hogai.utils.types.base import NodePath
 
 from .compaction_manager import AnthropicConversationCompactionManager
 
+# @TODO: Is HumanMessage an Anthropic convention?
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
@@ -115,6 +116,8 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             prompt_builder_class=prompt_builder_class,
             node_path=node_path,
         )
+        # @TODO: add support for OpenAI. The method within here is a token counter.
+        # The rest is an ABC that may be generally implemented.
         self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -182,8 +185,10 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         # Mark the longest default prefix as cacheable
         add_cache_control(system_prompts[0], ttl="1h")
 
+        # @NOTE: this is where the LLM is invoked, so this kicks off dependant calls.
         message = await model.ainvoke(system_prompts + langchain_messages, config)
 
+        # @NOTE: message processing will need to be updated.
         generated_messages = self._process_output_message(message)
 
         # Set new tool call count
@@ -218,6 +223,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             for tool_call in last_message.tool_calls
         ]
 
+    # @TODO: add support for the LLM gateway, which uses OpenAI models in addition to Anthropic models.
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         model_name = "claude-sonnet-4-6"
         if self._has_legacy_summarize_sessions_messages(state.messages):
@@ -252,6 +258,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
         return base_model.bind_tools(tools, parallel_tool_calls=True)
 
+    # @TODO: add support for OpenAI based on the model used by the LLM gateway.
     def _construct_messages(
         self,
         messages: Sequence[AssistantMessageUnion],
@@ -304,6 +311,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         tool_result_messages: Mapping[str, AssistantToolCallMessage],
     ) -> list[BaseMessage]:
         """Convert a conversation window to a list of Langchain messages."""
+        # @TODO: Add support for OpenAI messages.
         return convert_to_anthropic_messages(messages, tool_result_messages)
 
     def _add_cache_control_to_last_message(self, messages: list[BaseMessage]) -> list[BaseMessage]:

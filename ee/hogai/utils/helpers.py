@@ -144,6 +144,7 @@ def should_output_assistant_message(candidate_message: Any) -> bool:
     return True
 
 
+# @TODO: add support for OpenAI tools.
 def convert_tool_messages_to_dict(messages: Sequence[AssistantMessageUnion]) -> Mapping[str, AssistantToolCallMessage]:
     """Converts `AssistantToolCallMessage` messages to a dictionary mapping tool call id to message."""
     return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
@@ -267,6 +268,7 @@ def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, An
     return thinking
 
 
+# @TODO: if required, add support for OpenAI messages.
 def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantMessage]:
     _create_blank_assistant_message = lambda: AssistantMessage(
         content="", id=None if isinstance(message, AIMessageChunk) else str(uuid4()), tool_calls=[]
