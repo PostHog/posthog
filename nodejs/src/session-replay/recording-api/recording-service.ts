@@ -104,8 +104,19 @@ export class RecordingService {
             RecordingApiMetrics.observeGetBlock('success', (performance.now() - startTime) / 1000, sessionState)
 
             if (decompress) {
-                const decompressed = (await snappy.uncompress(data, { asBuffer: true })) as Buffer
-                return { ok: true, data: decompressed }
+                try {
+                    const decompressed = (await snappy.uncompress(data, { asBuffer: true })) as Buffer
+                    return { ok: true, data: decompressed }
+                } catch (decompressError) {
+                    logger.error('[RecordingService] Failed to decompress block', {
+                        sessionId,
+                        teamId,
+                        key,
+                        dataSize: data.length,
+                        error: serializeError(decompressError),
+                    })
+                    throw decompressError
+                }
             }
             return { ok: true, data }
         } catch (error) {

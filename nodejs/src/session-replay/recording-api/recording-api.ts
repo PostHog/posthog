@@ -195,6 +195,7 @@ export class RecordingApi {
     private handleCorsPreflightForBlock = (req: express.Request, res: express.Response): void => {
         this.setCorsHeaders(req, res)
         res.set('Access-Control-Allow-Methods', 'GET')
+        res.set('Access-Control-Allow-Headers', 'X-Internal-Api-Secret')
         res.set('Access-Control-Max-Age', '86400')
         res.status(204).end()
     }

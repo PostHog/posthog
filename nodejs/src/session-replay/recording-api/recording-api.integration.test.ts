@@ -961,6 +961,7 @@ describe('Recording API encryption integration', () => {
                 expect(res.status).toBe(204)
                 expect(res.headers['access-control-allow-origin']).toBe('https://us.posthog.com')
                 expect(res.headers['access-control-allow-methods']).toBe('GET')
+                expect(res.headers['access-control-allow-headers']).toBe('X-Internal-Api-Secret')
                 expect(res.headers['access-control-max-age']).toBe('86400')
             })
 
