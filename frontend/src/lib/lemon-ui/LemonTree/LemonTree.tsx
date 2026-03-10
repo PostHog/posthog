@@ -501,7 +501,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                     absolute right-0
                                                                     opacity-0
                                                                     group-hover/lemon-tree-button-group:opacity-100
-                                                                    transition-[opacity] duration-100 ease-initial
+                                                                    data-[state=open]:opacity-100
                                                                 "
                                                             >
                                                                 <IconEllipsis className="text-tertiary size-3 group-hover/lemon-tree-button-group:text-primary z-10" />
