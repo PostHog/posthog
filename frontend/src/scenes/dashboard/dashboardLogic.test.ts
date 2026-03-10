@@ -5,7 +5,7 @@ import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -340,6 +340,40 @@ describe('dashboardLogic', () => {
                 filters: {},
                 variables: {},
             })
+        })
+
+        it('discarding edit mode restores original layouts', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialDashboard = logic.values.dashboard
+            expect(initialDashboard).not.toBeNull()
+
+            const firstTile = initialDashboard!.tiles[0]
+            const originalLayouts = logic.values.dashboardLayouts[firstTile.id]
+
+            expect(originalLayouts).not.toBeUndefined()
+
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            const editedTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
+            expect(editedTileLayouts).not.toEqual(originalLayouts)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
+            expect(restoredTileLayouts).toEqual(originalLayouts)
         })
     })
 

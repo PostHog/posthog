@@ -18,6 +18,7 @@
 import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import {
@@ -68,7 +69,14 @@ interface OpenApiOperation {
             'application/json'?: { schema: OpenApiSchema | { $ref: string } }
         }
     }
-    responses?: Record<string, { content?: { 'application/json'?: { schema: OpenApiSchema | { $ref: string } } } }>
+    responses?: Record<
+        string,
+        {
+            content?: {
+                'application/json'?: { schema: OpenApiSchema | { $ref: string } }
+            }
+        }
+    >
     summary?: string
     description?: string
 }
@@ -122,7 +130,11 @@ function findOperation(spec: OpenApiSpec, operationId: string): ResolvedOperatio
             if (opBase !== base) {
                 continue
             }
-            const resolved = { method: method.toUpperCase(), path: urlPath, operation: op }
+            const resolved = {
+                method: method.toUpperCase(),
+                path: urlPath,
+                operation: op,
+            }
             if (urlPath.startsWith('/api/projects/')) {
                 return resolved
             }
@@ -207,6 +219,7 @@ function operationIdToPascal(operationId: string): string {
 
 interface SchemaComposition {
     orvalImports: string[]
+    toolInputsImports: string[]
     schemaExpr: string
     pathParamNames: string[]
     queryParamNames: string[]
@@ -336,10 +349,49 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         }
     }
 
-    // param_overrides (description tweaks) are applied in the tool definitions JSON,
-    // not in the Zod schema — Orval's OpenAPI-derived descriptions are used at runtime.
+    // param_overrides with description tweaks are applied in the tool definitions JSON.
+    // param_overrides with input_schema replace individual fields in the Zod schema.
+    const toolInputsImports: string[] = []
+    if (config.param_overrides) {
+        const schemaOverrides: string[] = []
+        for (const [paramName, override] of Object.entries(config.param_overrides)) {
+            if (override.input_schema) {
+                toolInputsImports.push(override.input_schema)
+                schemaOverrides.push(`${paramName}: ${override.input_schema}`)
+            }
+        }
+        if (schemaOverrides.length > 0) {
+            schemaExpr = `(${schemaExpr}).extend({ ${schemaOverrides.join(', ')} })`
+        }
+    }
 
-    return { orvalImports, schemaExpr, pathParamNames, queryParamNames, bodyFieldNames }
+    return {
+        orvalImports,
+        toolInputsImports,
+        schemaExpr,
+        pathParamNames,
+        queryParamNames,
+        bodyFieldNames,
+    }
+}
+
+// ------------------------------------------------------------------
+// Code generation helpers
+// ------------------------------------------------------------------
+
+/** Extract path parameter names from a URL pattern (e.g., {id} from /api/projects/{project_id}/actions/{id}/) */
+function extractPathParams(urlPattern: string): string[] {
+    const matches = urlPattern.match(/\{(\w+)\}/g) ?? []
+    return matches.map((m) => m.slice(1, -1)).filter((name) => name !== 'project_id')
+}
+
+/** Build a template literal expression for the API path, interpolating project_id and path params */
+function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPrefix = ''): string {
+    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}')}\``
+    for (const pn of pathParamNames) {
+        pathExpr = pathExpr.replace(`{${pn}}`, `\${${paramAccessPrefix}${pn}}`)
+    }
+    return pathExpr
 }
 
 // ------------------------------------------------------------------
@@ -400,19 +452,21 @@ function generateToolCode(
     category: CategoryConfig,
     spec: OpenApiSpec,
     knownTypes: Set<string>
-): { code: string; orvalImports: string[]; responseType: string | undefined } {
+): { code: string; orvalImports: string[]; toolInputsImports: string[]; responseType: string | undefined } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
+
+    // When input_schema is set, use the named export from tool-inputs instead of Orval
+    if (config.input_schema) {
+        return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
+    }
+
     const composition = composeToolSchema(config, resolved, spec)
     const responseType = resolveResponseType(resolved.operation, knownTypes)
 
     const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
 
-    // Build path interpolation
-    let pathExpr = `\`${resolved.path.replace('{project_id}', '${projectId}')}\``
-    for (const pn of composition.pathParamNames) {
-        pathExpr = pathExpr.replace(`{${pn}}`, `\${params.${pn}}`)
-    }
+    const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.')
 
     // Build handler body
     let handlerBody = ''
@@ -482,7 +536,77 @@ ${handlerBody}    },
 ${metaBlock}})
 `
 
-    return { code, orvalImports: composition.orvalImports, responseType }
+    return {
+        code,
+        orvalImports: composition.orvalImports,
+        toolInputsImports: composition.toolInputsImports,
+        responseType,
+    }
+}
+
+function generateCustomSchemaToolCode(
+    toolName: string,
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    category: CategoryConfig,
+    schemaName: string,
+    factoryName: string,
+    knownTypes: Set<string>
+): { code: string; orvalImports: string[]; toolInputsImports: string[]; responseType: string | undefined } {
+    const pathParamNames = extractPathParams(resolved.path)
+
+    const pathExpr = buildPathExpr(resolved.path, pathParamNames)
+
+    const useBody = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
+    const responseType = resolveResponseType(resolved.operation, knownTypes)
+
+    let handlerBody = ''
+    handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+
+    if (pathParamNames.length > 0) {
+        const destructured = pathParamNames.map((p) => `${p}, `).join('')
+        if (useBody) {
+            handlerBody += `        const { ${destructured}...body } = params\n`
+        } else {
+            handlerBody += `        const { ${destructured}...query } = params\n`
+        }
+    }
+
+    handlerBody += `        const result = await context.api.request({\n`
+    handlerBody += `            method: '${resolved.method}',\n`
+    handlerBody += `            path: ${pathExpr},\n`
+    if (pathParamNames.length > 0) {
+        if (useBody) {
+            handlerBody += `            body,\n`
+        } else {
+            handlerBody += `            query,\n`
+        }
+    } else if (useBody) {
+        handlerBody += `            body: params,\n`
+    } else {
+        handlerBody += `            query: params,\n`
+    }
+    handlerBody += `        })\n`
+
+    handlerBody += buildEnrichment(config, category)
+
+    const code = `
+const ${schemaName} = ${config.input_schema}
+
+const ${factoryName} = (): ToolBase<typeof ${schemaName}> => ({
+    name: '${toolName}',
+    schema: ${schemaName},
+    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+${handlerBody}    },
+})
+`
+
+    return {
+        code,
+        orvalImports: [],
+        toolInputsImports: config.input_schema ? [config.input_schema] : [],
+        responseType,
+    }
 }
 
 // ------------------------------------------------------------------
@@ -521,11 +645,12 @@ function generateCategoryFile(
     }
 
     const allOrvalImports = new Set<string>()
+    const allToolInputsImports = new Set<string>()
     const toolCodes: string[] = []
     let hasResponseType = false
 
     for (const [name, config, resolved] of enabledTools) {
-        const { code, orvalImports, responseType } = generateToolCode(
+        const { code, orvalImports, toolInputsImports, responseType } = generateToolCode(
             name,
             config,
             resolved,
@@ -536,6 +661,9 @@ function generateCategoryFile(
         toolCodes.push(code)
         for (const imp of orvalImports) {
             allOrvalImports.add(imp)
+        }
+        for (const imp of toolInputsImports) {
+            allToolInputsImports.add(imp)
         }
         if (responseType) {
             hasResponseType = true
@@ -551,11 +679,16 @@ function generateCategoryFile(
 
     const schemasImportLine = hasResponseType ? `\nimport type { Schemas } from '@/api/generated'\n` : ''
 
+    const toolInputsImportLine =
+        allToolInputsImports.size > 0
+            ? `import { ${[...allToolInputsImports].sort().join(', ')} } from '@/schema/tool-inputs'\n`
+            : ''
+
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${schemasImportLine}${orvalImportLine}${toolCodes.join('')}
+${schemasImportLine}${toolInputsImportLine}${orvalImportLine}${toolCodes.join('')}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
@@ -569,7 +702,10 @@ ${mapEntries}
 // ------------------------------------------------------------------
 
 function generateDefinitionsJson(
-    categories: { config: CategoryConfig; enabledTools: [string, EnabledToolConfig, ResolvedOperation][] }[]
+    categories: {
+        config: CategoryConfig
+        enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+    }[]
 ): Record<string, unknown> {
     const definitions: Record<string, unknown> = {}
     for (const { config: category, enabledTools } of categories) {
@@ -627,7 +763,9 @@ function discoverDefinitions(): DefinitionSource[] {
 
     // Product definitions: products/*/mcp/tools.yaml (or any .yaml in mcp/)
     if (fs.existsSync(PRODUCTS_DIR)) {
-        for (const product of fs.readdirSync(PRODUCTS_DIR, { withFileTypes: true })) {
+        for (const product of fs.readdirSync(PRODUCTS_DIR, {
+            withFileTypes: true,
+        })) {
             if (!product.isDirectory() || product.name.startsWith('_')) {
                 continue
             }
@@ -671,8 +809,10 @@ function main(): void {
 
     fs.mkdirSync(GENERATED_DIR, { recursive: true })
 
-    const allCategories: { config: CategoryConfig; enabledTools: [string, EnabledToolConfig, ResolvedOperation][] }[] =
-        []
+    const allCategories: {
+        config: CategoryConfig
+        enabledTools: [string, EnabledToolConfig, ResolvedOperation][]
+    }[] = []
     const generatedModules: string[] = []
 
     for (const def of definitionSources) {
@@ -731,4 +871,20 @@ ${spreads}
     })
 }
 
-main()
+// Export for testing
+export { composeToolSchema, extractPathParams, generateCategoryFile, generateCustomSchemaToolCode, generateToolCode }
+export type { OpenApiSpec, ResolvedOperation }
+
+// Run main when executed directly
+function stripExt(filePath: string): string {
+    return filePath.replace(/\.[jt]s$/, '')
+}
+
+const isDirectRun =
+    typeof process !== 'undefined' &&
+    process.argv[1] &&
+    stripExt(path.resolve(process.argv[1])) === stripExt(fileURLToPath(import.meta.url))
+
+if (isDirectRun) {
+    main()
+}
