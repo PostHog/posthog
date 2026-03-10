@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
@@ -52,11 +54,7 @@ const LogsSceneContent = (): JSX.Element => {
                 }}
                 actions={
                     <>
-                        {hasLogs && (
-                            <LemonButton size="small" type="secondary" id="logs-feedback-button">
-                                Send feedback
-                            </LemonButton>
-                        )}
+                        {hasLogs && <LogsSceneFeedbackButton />}
                         <LemonButton size="small" type="secondary" icon={<IconGear />} onClick={openLogsSettings}>
                             Settings
                         </LemonButton>
@@ -97,15 +95,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
-                actions={
-                    <>
-                        {hasLogs && (
-                            <LemonButton size="small" type="secondary" id="logs-feedback-button">
-                                Send feedback
-                            </LemonButton>
-                        )}
-                    </>
-                }
+                actions={<>{hasLogs && <LogsSceneFeedbackButton />}</>}
             />
             {teamHasLogsCheckFailed && (
                 <LemonBanner
@@ -140,5 +130,18 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />
             )}
         </>
+    )
+}
+
+const LogsSceneFeedbackButton = (): JSX.Element => {
+    return (
+        <LemonButton
+            size="small"
+            type="secondary"
+            icon={<IconFeedback />}
+            onClick={() => posthog.displaySurvey('019a7d95-3810-0000-34dc-404a58075f17')}
+        >
+            Feedback
+        </LemonButton>
     )
 }
