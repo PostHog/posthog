@@ -320,7 +320,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         iconOnly: size === 'narrow',
                                         disabled: isEmptyFolder,
                                         className: cn(
-                                            'group/lemon-tree-button gap-[5px]',
+                                            'group/lemon-tree-button gap-[5px] min-w-0 pr-0 group-hover/lemon-tree-button-group:pr-[30px]',
                                             'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
                                             {
                                                 'bg-fill-button-tertiary-hover':
@@ -497,9 +497,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             <ButtonPrimitive
                                                                 iconOnly
                                                                 isSideActionRight
-                                                                className="z-2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                                                                className="
+                                                                    absolute right-0
+                                                                    opacity-0
+                                                                    group-hover/lemon-tree-button-group:opacity-100
+                                                                    transition-[opacity] duration-100 ease-initial
+                                                                "
                                                             >
-                                                                <IconEllipsis className="size-3 text-tertiary" />
+                                                                <IconEllipsis className="text-tertiary size-3 group-hover/lemon-tree-button-group:text-primary z-10" />
                                                             </ButtonPrimitive>
                                                         )}
                                                     </DropdownMenuTrigger>
