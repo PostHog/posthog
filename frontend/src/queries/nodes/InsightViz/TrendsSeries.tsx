@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
@@ -19,6 +19,12 @@ import { ChartDisplayType, FilterType } from '~/types'
 
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
+
+const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
+    { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },
+    { key: 'created_at_field', label: 'Created at', allowHogQL: true },
+    { key: 'aggregation_target_field', label: 'Aggregation target', allowHogQL: true },
+]
 
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -122,6 +128,7 @@ export function TrendsSeries(): JSX.Element | null {
                 ]}
                 hideDeleteBtn={series?.length === 1}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
+                dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}
             />
         </>
     )
