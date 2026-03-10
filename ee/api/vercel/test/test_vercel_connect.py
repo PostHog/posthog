@@ -118,6 +118,48 @@ class TestVercelConnectCallback(VercelConnectTestBase):
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_javascript_uri_is_stripped(self, mock_client_class):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
+            access_token="tok_123",
+            token_type="Bearer",
+            installation_id="icfg_new",
+            user_id="usr_1",
+        )
+
+        response = self.client.get(self.url, {"code": "good_code", "next": "javascript:alert(document.cookie)"})
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "javascript" not in location
+
+        # Verify the cached session has empty next_url
+        parsed = parse_qs(urlparse(location).query)
+        session_key = parsed["session"][0]
+        cached_data = cache.get(_get_connect_cache_key(session_key))
+        assert cached_data["next_url"] == ""
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_data_uri_is_stripped(self, mock_client_class):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
+            access_token="tok_123",
+            token_type="Bearer",
+            installation_id="icfg_new",
+            user_id="usr_1",
+        )
+
+        response = self.client.get(self.url, {"code": "good_code", "next": "data:text/html,<script>alert(1)</script>"})
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "data:" not in location
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_unauthenticated_user_redirected_to_login(self, mock_client_class):
         self.client.logout()
         mock_client = MagicMock()
@@ -322,7 +364,48 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "different user" in response.json()["detail"]
+
+    def test_complete_binds_user_if_session_info_was_not_called(self):
+        session_key = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {"session": session_key, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_complete_rejects_unbound_session_for_different_user(self):
+        other_user = self._create_user("other2@posthog.com")
+        session_key = _seed_session()
+
+        # First user binds via complete
+        self.client.post(
+            self.url,
+            {"session": session_key, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        # Seed a fresh unbound session for the second attempt
+        session_key2 = _seed_session(session_key="test-session-2")
+
+        # First user binds session_key2 via complete
+        self.client.post(
+            self.url,
+            {"session": session_key2, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        # Other user tries to use session_key2
+        self.client.force_login(other_user)
+        response = self.client.post(
+            self.url,
+            {"session": session_key2, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
