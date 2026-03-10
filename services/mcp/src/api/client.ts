@@ -60,8 +60,7 @@ import {
     ListSurveysInputSchema,
     UpdateSurveyInputSchema,
 } from '../schema/surveys.js'
-import { buildApiFetcher } from './fetcher.js'
-import { type Schemas, createApiClient } from './generated.js'
+import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
 // Global search types
@@ -106,14 +105,10 @@ type Endpoint = Record<string, any>
 export class ApiClient {
     public config: ApiConfig
     public baseUrl: string
-    // NOTE: The OpenAPI schema for the generated client is not always accurate
-    public generated: ReturnType<typeof createApiClient>
 
     constructor(config: ApiConfig) {
         this.config = config
         this.baseUrl = config.baseUrl
-
-        this.generated = createApiClient(buildApiFetcher(this.config), this.baseUrl)
     }
 
     getProjectBaseUrl(projectId: string): string {
@@ -481,13 +476,14 @@ export class ApiClient {
                 try {
                     const limit = params?.limit ?? 50
                     const offset = params?.offset ?? 0
-
-                    const response = await this.generated.get('/api/projects/{project_id}/experiments/', {
-                        path: { project_id: projectId },
-                        query: { limit, offset },
-                    })
-
-                    return { success: true, data: response.results as Experiment[] }
+                    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+                    const result = await this.fetchJson<{ results: Experiment[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/experiments/?${qs}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return { success: true, data: result.data.results }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -786,15 +782,16 @@ export class ApiClient {
                 try {
                     const limit = params?.limit ?? 50
                     const offset = params?.offset ?? 0
-
-                    const response = await this.generated.get('/api/projects/{project_id}/feature_flags/', {
-                        path: { project_id: projectId },
-                        query: { limit, offset },
-                    })
-
+                    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+                    const result = await this.fetchJson<{ results: Schemas.FeatureFlag[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/feature_flags/?${qs}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
                     return {
                         success: true,
-                        data: response.results.map((f) => ({
+                        data: result.data.results.map((f) => ({
                             id: f.id,
                             key: f.key,
                             name: f.name ?? '',
@@ -922,19 +919,24 @@ export class ApiClient {
         return {
             list: async ({ params }: { params?: ListInsightsData } = {}): Promise<Result<Array<Schemas.Insight>>> => {
                 try {
-                    const response = await this.generated.get('/api/projects/{project_id}/insights/', {
-                        path: { project_id: projectId },
-                        query: params
-                            ? {
-                                  limit: params.limit,
-                                  offset: params.offset,
-                                  //@ts-expect-error search is not implemented as a query parameter
-                                  search: params.search,
-                              }
-                            : {},
-                    })
-
-                    return { success: true, data: response.results }
+                    const qs = new URLSearchParams()
+                    if (params?.limit !== undefined) {
+                        qs.set('limit', String(params.limit))
+                    }
+                    if (params?.offset !== undefined) {
+                        qs.set('offset', String(params.offset))
+                    }
+                    if (params?.search) {
+                        qs.set('search', params.search)
+                    }
+                    const qStr = qs.toString()
+                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return { success: true, data: result.data.results }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
