@@ -1075,46 +1075,48 @@ class InsightViewSet(
 
         return context
 
+    def _annotate_favorited(self, queryset: QuerySet) -> QuerySet:
+        if self.request.user.is_anonymous:
+            return queryset
+
+        if self.request.user.favorites_migrated_at:
+            return queryset.annotate(
+                is_favorited=Exists(
+                    InsightFavorite.objects.filter(
+                        insight=OuterRef("pk"),
+                        user=self.request.user,
+                    )
+                )
+            )
+
+        migrate_user_favorites.delay(self.request.user.id)
+
+        return queryset.annotate(
+            is_favorited=Case(
+                When(
+                    Q(favorited=True)
+                    | Q(
+                        Exists(
+                            InsightFavorite.objects.filter(
+                                insight=OuterRef("pk"),
+                                user=self.request.user,
+                            )
+                        )
+                    ),
+                    then=Value(True),
+                ),
+                default=Value(False),
+                output_field=BooleanField(),
+            )
+        )
+
     def dangerously_get_queryset(self):
         # Insights are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
         assert self.team.project_id is not None
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
 
-        if not self.request.user.is_anonymous:
-            # One-time lazy migration: copy org-level Insight.favorited=True into per-user InsightFavorite rows
-            if not self.request.user.favorites_migrated_at:
-                migrate_user_favorites.delay(self.request.user.id)
-
-                # Fallback: check both legacy and new favorites
-                queryset = queryset.annotate(
-                    is_favorited=Case(
-                        When(
-                            Q(favorited=True)
-                            | Q(
-                                Exists(
-                                    InsightFavorite.objects.filter(
-                                        insight=OuterRef("pk"),
-                                        user=self.request.user,
-                                    )
-                                )
-                            ),
-                            then=Value(True),
-                        ),
-                        default=Value(False),
-                        output_field=BooleanField(),
-                    )
-                )
-            else:
-                # Annotate each insight with whether the current user has favorited it
-                queryset = queryset.annotate(
-                    is_favorited=Exists(
-                        InsightFavorite.objects.filter(
-                            insight=OuterRef("pk"),
-                            user=self.request.user,
-                        )
-                    )
-                )
+        queryset = self._annotate_favorited(queryset)
 
         include_deleted = False
 
@@ -1178,16 +1180,13 @@ class InsightViewSet(
         """
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
-        insight_queryset = (
-            InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
-            .select_related("insight")
-            .exclude(insight__deleted=True)
-            .only("insight")
-        )
+        queryset = Insight.objects.filter(team=self.team, insightviewed__user=request.user, deleted=False).order_by(
+            "-insightviewed__last_viewed_at"
+        )[:5]
 
-        recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
+        queryset = self._annotate_favorited(queryset)
 
-        response = InsightBasicSerializer(recently_viewed, many=True, context=self.get_serializer_context())
+        response = InsightBasicSerializer(queryset, many=True, context=self.get_serializer_context())
         return Response(data=response.data, status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=False)
@@ -1219,6 +1218,8 @@ class InsightViewSet(
         queryset = self._filter_queryset_by_access_level(queryset)
         queryset = queryset[:limit]
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
+
+        queryset = self._annotate_favorited(queryset)
 
         response = InsightBasicSerializer(queryset, many=True, context=self.get_serializer_context())
         data = response.data
