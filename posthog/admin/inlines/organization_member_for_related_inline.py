@@ -105,7 +105,7 @@ class OrganizationMemberForRelatedInline(TabularInlinePaginated):
             max_num=self.max_num,
             can_delete=False,
         )
-        formset_cls.fk = _ORGANIZATION_FK  # type: ignore[attr-defined] — needed by Django's inline rendering
+        formset_cls.fk = _ORGANIZATION_FK  # type: ignore[attr-defined]
         return formset_cls
 
     @classmethod
