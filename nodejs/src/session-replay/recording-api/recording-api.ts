@@ -1,5 +1,4 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
-import snappy from 'snappy'
 import express from 'ultimate-express'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../config/kafka-topics'
@@ -239,6 +238,7 @@ export class RecordingApi {
                 key,
                 startByte,
                 endByte,
+                decompress,
             })
 
             // Serialize response
@@ -255,18 +255,11 @@ export class RecordingApi {
                 return
             }
 
-            if (decompress) {
-                const decompressed = await snappy.uncompress(result.data, { asBuffer: false })
-                res.set('Content-Type', 'application/jsonl')
-                res.set('Content-Length', String(Buffer.byteLength(decompressed as string)))
-                res.set('Cache-Control', 'public, max-age=2592000, immutable')
-                res.send(decompressed)
-            } else {
-                res.set('Content-Type', 'application/octet-stream')
-                res.set('Content-Length', String(result.data.length))
-                res.set('Cache-Control', 'public, max-age=2592000, immutable')
-                res.send(result.data)
-            }
+            const contentType = decompress ? 'application/jsonl' : 'application/octet-stream'
+            res.set('Content-Type', contentType)
+            res.set('Content-Length', String(Buffer.byteLength(result.data)))
+            res.set('Cache-Control', 'public, max-age=2592000, immutable')
+            res.send(result.data)
         } catch (error) {
             logger.error('[RecordingApi] Error fetching block from S3', {
                 error: serializeError(error),

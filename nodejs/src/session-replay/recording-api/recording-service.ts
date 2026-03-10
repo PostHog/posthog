@@ -1,4 +1,5 @@
 import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import snappy from 'snappy'
 
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { logger, serializeError } from '../../utils/logger'
@@ -14,6 +15,7 @@ export interface GetBlockParams {
     key: string
     startByte: number
     endByte: number
+    decompress?: boolean
 }
 
 export type GetBlockResult =
@@ -47,7 +49,7 @@ export class RecordingService {
     }
 
     async getBlock(params: GetBlockParams): Promise<GetBlockResult> {
-        const { sessionId, teamId, key, startByte, endByte } = params
+        const { sessionId, teamId, key, startByte, endByte, decompress } = params
         const startTime = performance.now()
 
         logger.debug('[RecordingService] getBlock request', {
@@ -100,6 +102,11 @@ export class RecordingService {
             })
 
             RecordingApiMetrics.observeGetBlock('success', (performance.now() - startTime) / 1000, sessionState)
+
+            if (decompress) {
+                const decompressed = (await snappy.uncompress(data, { asBuffer: true })) as Buffer
+                return { ok: true, data: decompressed }
+            }
             return { ok: true, data }
         } catch (error) {
             if (error instanceof NoSuchKey) {
