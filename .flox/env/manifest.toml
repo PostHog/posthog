@@ -85,6 +85,12 @@ source "$FLOX_ENV_PROJECT/.flox/env/on-activate.sh"
 # taken to ensure compatibility with all shells, after which exactly one of
 # `profile.{bash,fish,tcsh,zsh}` is sourced by the corresponding shell.
 [profile]
+common = '''
+  # Ensure hogli symlink survives venv recreation (uv sync outside of on-activate)
+  if [ -d "$UV_PROJECT_ENVIRONMENT/bin" ] && [ ! -L "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]; then
+    ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  fi
+'''
 bash = '''
   if [ -f "$HOME/.bash_profile" ]; then
     source "$HOME/.bash_profile"
