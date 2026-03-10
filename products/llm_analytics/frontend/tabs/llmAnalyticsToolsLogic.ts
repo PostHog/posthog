@@ -122,8 +122,8 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                         ...propertyFilters,
                         {
                             key: '$ai_tools_called',
-                            operator: PropertyOperator.Regex,
-                            value: '.+',
+                            operator: PropertyOperator.IsNot,
+                            value: '',
                             type: PropertyFilterType.Event,
                         },
                     ],
@@ -229,8 +229,8 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                         ...propertyFilters,
                         {
                             key: '$ai_tools_called',
-                            operator: PropertyOperator.Regex,
-                            value: '.+',
+                            operator: PropertyOperator.IsNot,
+                            value: '',
                             type: PropertyFilterType.Event,
                         },
                     ],
@@ -260,11 +260,14 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
 -- Find pairwise tool co-occurrences across AI generations
 WITH tool_arrays AS (
     -- Extract sorted, deduplicated tool lists from generations that called 2+ tools
-    SELECT arraySort(arrayDistinct(splitByChar(',', ifNull(properties.$ai_tools_called, '')))) as tools
-    FROM events
-    WHERE event = '$ai_generation'
-        AND length(splitByChar(',', ifNull(properties.$ai_tools_called, ''))) > 1
-        AND {filters}
+    SELECT tools FROM (
+        SELECT arraySort(arrayDistinct(splitByChar(',', ifNull(properties.$ai_tools_called, '')))) as tools
+        FROM events
+        WHERE event = '$ai_generation'
+            AND properties.$ai_tools_called != ''
+            AND {filters}
+    )
+    WHERE length(tools) > 1
 ),
 tool_pairs AS (
     -- Build cross product of tools within each generation, excluding self-pairs
