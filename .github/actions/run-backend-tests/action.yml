@@ -100,6 +100,7 @@ runs:
           uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
           with:
               enable-cache: true
+              cache-dependency-glob: uv.lock
               save-cache: ${{ github.ref == 'refs/heads/master' }}
 
         - name: Determine if hogql-parser has changed compared to master
