@@ -999,8 +999,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={"id": {"clickhouse": "Int64", "hogql": "integer"}},
         )
 
-        database = Database.create_for(team=self.team)
-        direct_table = database.get_table("postgres_direct_table")
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+        direct_table = database.get_table("direct_table")
 
         assert isinstance(direct_table, Table)
         assert "properties" in direct_table.fields
@@ -1061,7 +1061,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         activitylog = database.get_table("posthog_activitylog")
         team = database.get_table("posthog_team")
 
@@ -1129,7 +1129,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             sync_type_config={"schema_metadata": {"foreign_keys": []}},
         )
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         activitylog = database.get_table("posthog_activitylog")
 
         assert activitylog.fields.get("team") is None
@@ -1167,10 +1167,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
         persons = database.get_table("persons")
 
-        assert activitylog.fields.get("person") is None
+        assert not database.has_table("postgres.ph3.posthog_activitylog")
         assert persons.fields.get("posthog_activitylogs") is None
 
     def test_direct_postgres_foreign_key_joins_do_not_resolve_global_targets_in_direct_mode(self):
@@ -1205,7 +1204,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             table=activitylog_table,
         )
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         activitylog = database.get_table("posthog_activitylog")
 
         assert activitylog.fields.get("person") is None
@@ -1250,7 +1249,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ExternalDataSchema.objects.create(name="customers", team=self.team, source=source, table=customer_table)
         ExternalDataSchema.objects.create(name="orders", team=self.team, source=source, table=order_table)
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         orders = database.get_table("orders")
         customers = database.get_table("customers")
 
@@ -1313,7 +1312,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
 
-        db = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        db = Database.create_for(team=self.team, connection_id=str(source.id))
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
 
         prepare_and_print_ast(parse_select("SELECT t.user.email FROM posthog_team t"), context, dialect="postgres")
@@ -1423,10 +1422,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
 
-        database = Database.create_for(team=self.team)
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
-        assert "postgres.ph3.activitylog" in serialized
+        assert "activitylog" in serialized
 
     def test_direct_postgres_foreign_keys_ignore_invalid_metadata(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -1469,13 +1468,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert "posthog_activitylog" in serialized
         assert database.get_table("posthog_activitylog").fields.get("person") is None
 
-    def test_serialize_direct_postgres_table_uses_prefixed_name_in_default_mode(self) -> None:
+    def test_serialize_direct_postgres_table_is_hidden_without_connection(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
@@ -1501,7 +1500,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
-        assert "postgres.ph3.analytics_platform_preaggregationjob" in serialized
+        assert "postgres.ph3.analytics_platform_preaggregationjob" not in serialized
         assert "ph3_postgres_analytics_platform_preaggregationjob" not in serialized
 
     def test_serialize_direct_postgres_table_uses_raw_name_in_direct_mode(self) -> None:
@@ -1527,10 +1526,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
+        assert database.has_table("analytics_platform_preaggregationjob")
+        assert database.has_table("numbers")
+        assert not database.has_table("events")
         assert "analytics_platform_preaggregationjob" in serialized
+        assert "events" not in serialized
         assert "postgres.ph3.analytics_platform_preaggregationjob" not in serialized
         assert "ph3_postgres_analytics_platform_preaggregationjob" not in serialized
 
@@ -1576,7 +1579,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             should_sync=False,
         )
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert "enabled_table" in serialized
@@ -1621,7 +1624,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             should_sync=False,
         )
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
 
         assert not database.has_table("posthog_dashboard")
 
@@ -1648,13 +1651,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert "analytics_platform_preaggregationjob" in serialized
         assert f"postgres_{source.pk.hex}_analytics_platform_preaggregationjob" not in serialized
 
-    def test_get_all_table_names_uses_prefixed_direct_postgres_names_in_default_mode(self) -> None:
+    def test_get_all_table_names_hides_direct_postgres_names_without_connection(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
@@ -1680,7 +1683,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         all_table_names = database.get_all_table_names()
 
-        assert "postgres.ph3.analytics_platform_preaggregationjob" in all_table_names
+        assert "postgres.ph3.analytics_platform_preaggregationjob" not in all_table_names
         assert "ph3_postgres_analytics_platform_preaggregationjob" not in all_table_names
 
     def test_get_all_table_names_uses_raw_direct_postgres_names_in_direct_mode(self) -> None:
@@ -1706,10 +1709,11 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
 
-        database = Database.create_for(team=self.team, direct_query_source_id=str(source.id))
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
         all_table_names = database.get_all_table_names()
 
         assert "analytics_platform_preaggregationjob" in all_table_names
+        assert "events" not in all_table_names
         assert "postgres.ph3.analytics_platform_preaggregationjob" not in all_table_names
         assert "ph3_postgres_analytics_platform_preaggregationjob" not in all_table_names
 

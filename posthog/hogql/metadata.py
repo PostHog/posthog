@@ -15,11 +15,6 @@ from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.hogql.source_scoping import (
-    connection_source_identifiers,
-    filter_schema_tables_for_connection,
-    prune_database_for_connection,
-)
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -60,14 +55,8 @@ def get_hogql_metadata(
             team=team,
             user=user,
             modifiers=query_modifiers,
-            direct_query_source_id=str(source.id),
+            connection_id=str(source.id),
         )
-        serialized_tables = database.serialize(HogQLContext(team_id=team.pk, team=team, database=database, user=user))
-        filtered_tables = filter_schema_tables_for_connection(
-            serialized_tables,
-            connection_source_identifiers(source),
-        )
-        prune_database_for_connection(database, set(filtered_tables.keys()))
 
     try:
         context = HogQLContext(

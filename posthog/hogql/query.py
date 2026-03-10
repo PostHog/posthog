@@ -261,7 +261,7 @@ class HogQLQueryExecutor:
                 user=self.user,
                 modifiers=self.query_modifiers,
                 timings=self.timings,
-                direct_query_source_id=self.connection_id,
+                connection_id=self.connection_id,
             )
 
         self.hogql_context = dataclasses.replace(
