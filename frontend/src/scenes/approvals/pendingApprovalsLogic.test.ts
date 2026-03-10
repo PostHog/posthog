@@ -92,24 +92,24 @@ describe('pendingApprovalsLogic', () => {
             logic.mount()
 
             // Directly set loaded data to test selector logic independently of API/auth
-            logic.actions.loadPendingChangeRequestsSuccess(changeRequests)
+            logic.actions.loadUnresolvedChangeRequestsSuccess(changeRequests)
 
             await expectLogic(logic).toMatchValues({ actionableCount: expected })
         })
     })
 
-    describe('pendingCount', () => {
+    describe('unresolvedCount', () => {
         it('counts all pending CRs regardless of can_approve', async () => {
             logic = pendingApprovalsLogic()
             logic.mount()
 
-            logic.actions.loadPendingChangeRequestsSuccess([
+            logic.actions.loadUnresolvedChangeRequestsSuccess([
                 makeChangeRequest({ id: 'cr-1', can_approve: true }),
                 makeChangeRequest({ id: 'cr-2', can_approve: false }),
                 makeChangeRequest({ id: 'cr-3', can_approve: false, user_decision: 'approved' }),
             ])
 
-            await expectLogic(logic).toMatchValues({ pendingCount: 3, actionableCount: 1 })
+            await expectLogic(logic).toMatchValues({ unresolvedCount: 3, actionableCount: 1 })
         })
     })
 })

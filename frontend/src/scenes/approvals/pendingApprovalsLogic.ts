@@ -17,10 +17,11 @@ export const pendingApprovalsLogic = kea<pendingApprovalsLogicType>([
     })),
 
     loaders(({ values }) => ({
-        pendingChangeRequests: [
+        // Fetches both pending and approved-but-not-yet-applied CRs
+        unresolvedChangeRequests: [
             [] as ChangeRequest[],
             {
-                loadPendingChangeRequests: async () => {
+                loadUnresolvedChangeRequests: async () => {
                     if (!values.currentTeamId || !values.hasAvailableFeature(AvailableFeature.APPROVALS)) {
                         return []
                     }
@@ -36,17 +37,17 @@ export const pendingApprovalsLogic = kea<pendingApprovalsLogicType>([
 
     selectors({
         actionableChangeRequests: [
-            (s) => [s.pendingChangeRequests],
+            (s) => [s.unresolvedChangeRequests],
             (changeRequests): ChangeRequest[] =>
                 changeRequests.filter(
                     (cr) => cr.state === ChangeRequestState.Pending && cr.can_approve && !cr.user_decision
                 ),
         ],
         actionableCount: [(s) => [s.actionableChangeRequests], (actionable): number => actionable.length],
-        pendingCount: [(s) => [s.pendingChangeRequests], (pending): number => pending.length],
+        unresolvedCount: [(s) => [s.unresolvedChangeRequests], (unresolved): number => unresolved.length],
     }),
 
     afterMount(({ actions }) => {
-        actions.loadPendingChangeRequests()
+        actions.loadUnresolvedChangeRequests()
     }),
 ])
