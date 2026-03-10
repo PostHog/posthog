@@ -101,6 +101,18 @@ func (p *Process) Lines() []string {
 	return cp
 }
 
+// AppendLine directly appends a line to the output buffer, honoring the
+// scrollback limit. Mirrors the append step in readLoop; intended for tests
+// that inject output without running a real subprocess.
+func (p *Process) AppendLine(line string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.lines) >= p.maxLines {
+		p.lines = p.lines[1:]
+	}
+	p.lines = append(p.lines, line)
+}
+
 // It's safe to call Start concurrently as running process is a no-op
 func (p *Process) Start(send func(tea.Msg)) error {
 	p.mu.Lock()
