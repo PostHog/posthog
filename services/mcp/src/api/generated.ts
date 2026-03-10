@@ -18166,6 +18166,8 @@ export namespace Schemas {
       /** @nullable */
       readonly next_delivery_date: string | null;
       /** @nullable */
+      integration_id?: number | null;
+      /** @nullable */
       invite_message?: string | null;
     }
 
@@ -21304,6 +21306,8 @@ export namespace Schemas {
       readonly summary?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
+      /** @nullable */
+      integration_id?: number | null;
       /** @nullable */
       invite_message?: string | null;
     }
