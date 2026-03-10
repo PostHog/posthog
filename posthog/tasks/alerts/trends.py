@@ -461,15 +461,19 @@ def check_trends_alert_with_detector(
         if alert.config
         else TrendsAlertConfig(type="TrendsAlertConfig", series_index=0)
     )
-    detector_type = DetectorType(detector_config.get("type", "zscore"))
+    detector_type_str = detector_config.get("type", "zscore")
 
     # Calculate minimum samples needed for this detector
-    min_samples = DETECTOR_MIN_SAMPLES.get(detector_type, 31)
-
-    # For statistical detectors with window config, ensure we fetch enough samples
-    window = detector_config.get("window", 30)
-    if detector_type in (DetectorType.ZSCORE, DetectorType.MAD):
-        min_samples = max(min_samples, window + 1)
+    if detector_type_str == "ensemble":
+        # For ensemble, use the max window across all sub-detectors
+        sub_detectors = detector_config.get("detectors", [])
+        min_samples = max((d.get("window", 30) + 1 for d in sub_detectors), default=31)
+    else:
+        detector_type = DetectorType(detector_type_str)
+        min_samples = DETECTOR_MIN_SAMPLES.get(detector_type, 31)
+        window = detector_config.get("window", 30)
+        if detector_type in (DetectorType.ZSCORE, DetectorType.MAD):
+            min_samples = max(min_samples, window + 1)
 
     # Calculate date range to fetch enough data
     filters_override = _date_range_override_for_detector(query, min_samples)
@@ -532,7 +536,7 @@ def check_trends_alert_with_detector(
         current_value = float(data[-1])
         score_str = f" (anomaly probability: {result.score:.0%})" if result.score is not None else ""
         breaches.append(
-            f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type.value} detector"
+            f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type_str} detector"
         )
 
     return AlertEvaluationResult(
