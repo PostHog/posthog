@@ -103,8 +103,6 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
-    short_id = serializers.CharField(required=False)
-
     class Meta:
         model = Notebook
         fields = [
@@ -124,6 +122,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ]
         read_only_fields = [
             "id",
+            "short_id",
             "created_at",
             "created_by",
             "last_modified_at",
@@ -131,19 +130,18 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "user_access_level",
         ]
 
-    def validate_short_id(self, value: str) -> str:
-        # Only validate on create; on update short_id is ignored
-        if self.instance is not None:
-            return value
-        if not value.isalnum():
-            raise serializers.ValidationError("short_id must be alphanumeric.")
-        if len(value) < 1 or len(value) > 12:
-            raise serializers.ValidationError("short_id must be between 1 and 12 characters.")
-        return value
-
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
         team = self.context["get_team"]()
+
+        # short_id is read-only in the serializer but can be provided on create
+        short_id = request.data.get("short_id")
+        if short_id:
+            if not isinstance(short_id, str) or not short_id.isalnum() or len(short_id) > 12:
+                raise serializers.ValidationError(
+                    {"short_id": "short_id must be an alphanumeric string up to 12 characters."}
+                )
+            validated_data["short_id"] = short_id
 
         created_by = validated_data.pop("created_by", request.user)
         content = validated_data.get("content")
@@ -168,9 +166,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
         return notebook
 
     def update(self, instance: Notebook, validated_data: dict, **kwargs) -> Notebook:
-        # short_id is only settable on create, ignore on update
-        validated_data.pop("short_id", None)
-
         try:
             before_update = Notebook.objects.get(pk=instance.id)
         except Notebook.DoesNotExist:
