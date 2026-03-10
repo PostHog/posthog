@@ -86,9 +86,7 @@ metadata:
                 output and easy process management.
         phrocs:
             name: phrocs
-            about: PostHog's custom Bubble Tea process runner. Replaces mprocs with a
-                PostHog-branded TUI — per-process sidebar, scrollable output, PTY support,
-                and hogli-aware keybindings. Built from common/phrocs/ on first run.
+            about: PostHog's custom process runner (replaces mprocs).
 devenv:
     dev:setup: null
     dev:generate: null
@@ -164,8 +162,7 @@ health_checks:
 start:
     start:
         bin_script: start
-        description: Main entry point that launches all dev services via phrocs (Bubble
-            Tea TUI). Falls back to mprocs if phrocs can't be built.
+        description: Main entry point that launches all dev services via phrocs/mprocs
         services:
             - phrocs
             - mprocs

@@ -7,7 +7,7 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
-// Manager holds and orchestrates all processes for the dev environment.
+// Orchestrates all processes for the dev environment
 type Manager struct {
 	mu     sync.Mutex
 	procs  []*Process
@@ -15,7 +15,6 @@ type Manager struct {
 	send   func(tea.Msg)
 }
 
-// NewManager creates a Manager from a config, building Process objects in stable order.
 func NewManager(cfg *config.Config) *Manager {
 	names := cfg.OrderedNames()
 	procs := make([]*Process, 0, len(names))
@@ -33,15 +32,14 @@ func NewManager(cfg *config.Config) *Manager {
 	}
 }
 
-// SetSend wires the tea.Program.Send function so process goroutines can deliver messages.
-// Must be called before StartAll.
+// Must be called before StartAll
 func (m *Manager) SetSend(send func(tea.Msg)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.send = send
 }
 
-// StartAll launches all processes whose autostart is not explicitly false.
+// Lunches all processes whose autostart is not explicitly false
 func (m *Manager) StartAll() {
 	m.mu.Lock()
 	send := m.send
@@ -55,7 +53,7 @@ func (m *Manager) StartAll() {
 	}
 }
 
-// StopAll sends SIGTERM to every running process (called on quit).
+// Sends SIGTERM to every running process (called on quit)
 func (m *Manager) StopAll() {
 	m.mu.Lock()
 	procs := m.procs
@@ -65,7 +63,7 @@ func (m *Manager) StopAll() {
 	}
 }
 
-// Procs returns the ordered slice of all processes (safe for reading status/lines).
+// Returns the ordered slice of all processes (safe for reading status/lines)
 func (m *Manager) Procs() []*Process {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -74,7 +72,7 @@ func (m *Manager) Procs() []*Process {
 	return cp
 }
 
-// Get returns a process by name.
+// Returns a process by name
 func (m *Manager) Get(name string) (*Process, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -82,7 +80,7 @@ func (m *Manager) Get(name string) (*Process, bool) {
 	return p, ok
 }
 
-// Send returns the send function so the TUI can pass it to Restart calls.
+// Returns the send function so the TUI can pass it to Restart calls
 func (m *Manager) Send() func(tea.Msg) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

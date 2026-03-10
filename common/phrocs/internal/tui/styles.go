@@ -2,9 +2,8 @@ package tui
 
 import "charm.land/lipgloss/v2"
 
-// Process status icon runes — plain Unicode, no embedded ANSI so they can be
-// safely composed inside a larger lipgloss-styled container without resetting
-// the enclosing background or foreground colour.
+// Plain Unicode, no embedded ANSI so they can be safely composed
+// without resetting the enclosing background or foreground colour
 const (
 	iconCharRunning = "●"
 	iconCharPending = "◌"
@@ -13,7 +12,6 @@ const (
 	iconCharCrashed = "✗"
 )
 
-// PostHog brand palette
 var (
 	colorOrange   = lipgloss.Color("#F54E00")
 	colorBlue     = lipgloss.Color("#1D4AFF")
@@ -46,18 +44,6 @@ var (
 				BorderRight(true).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(colorDarkGrey)
-
-	sidebarTitleStyle = lipgloss.NewStyle().
-				Foreground(colorGrey).
-				Bold(true).
-				PaddingLeft(1).
-				PaddingBottom(1)
-
-	procActiveStyle = lipgloss.NewStyle().
-			PaddingLeft(1).
-			Background(colorDarkGrey).
-			Foreground(colorWhite).
-			Bold(true)
 
 	procInactiveStyle = lipgloss.NewStyle().
 				PaddingLeft(1).

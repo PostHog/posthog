@@ -100,15 +100,6 @@ if [[ " $* " == *" --phrocs "* ]]; then
             PROCESS_MANAGER="mprocs"
         else
             echo "✅ phrocs built successfully"
-            # Install lazydocker as a recommended companion tool
-            if ! command -v lazydocker &>/dev/null; then
-                if command -v brew &>/dev/null; then
-                    echo "🔁 Installing lazydocker via Homebrew..."
-                    brew install lazydocker
-                else
-                    exit 1
-                fi
-            fi
         fi
     fi
 fi

@@ -2,7 +2,6 @@ package tui
 
 import "charm.land/bubbles/v2/key"
 
-// keyMap defines all keybindings for the TUI.
 type keyMap struct {
 	PrevProc   key.Binding
 	NextProc   key.Binding
@@ -56,6 +55,7 @@ func defaultKeyMap() keyMap {
 		Docker: key.NewBinding(
 			key.WithKeys("d"),
 			key.WithHelp("d:", "lazydocker"),
+			key.WithDisabled(),
 		),
 		CopyMode: key.NewBinding(
 			key.WithKeys("c"),
@@ -76,12 +76,10 @@ func defaultKeyMap() keyMap {
 	}
 }
 
-// ShortHelp implements help.KeyMap, shown in the collapsed footer.
 func (k keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.NextProc, k.PrevProc, k.SwapFocus, k.CopyMode, k.Restart, k.Quit, k.Help}
 }
 
-// FullHelp implements help.KeyMap, shown when the user presses '?'.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.NextProc, k.PrevProc},

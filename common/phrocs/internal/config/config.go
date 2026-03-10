@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ProcConfig mirrors a single entry under mprocs.yaml's "procs" key.
+// Mirrors a single entry under mprocs.yaml's "procs" key
 type ProcConfig struct {
 	Shell        string            `yaml:"shell"`
 	Capability   string            `yaml:"capability"`
@@ -18,20 +18,20 @@ type ProcConfig struct {
 	ReadyPattern string            `yaml:"ready_pattern"`
 }
 
-// ShouldAutostart reports whether the process should start automatically.
-// Defaults to true when the field is absent from the YAML.
+// Reports whether the process should start automatically
+// Defaults to true when the field is absent from the YAML
 func (p ProcConfig) ShouldAutostart() bool {
 	return p.Autostart == nil || *p.Autostart
 }
 
-// Config is the top-level mprocs.yaml document.
+// Top-level mprocs.yaml document
 type Config struct {
 	Procs            map[string]ProcConfig `yaml:"procs"`
 	MouseScrollSpeed int                   `yaml:"mouse_scroll_speed"`
 	Scrollback       int                   `yaml:"scrollback"`
 }
 
-// Load reads and parses an mprocs-compatible YAML config file.
+// Reads and parses an mprocs-compatible YAML config file
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

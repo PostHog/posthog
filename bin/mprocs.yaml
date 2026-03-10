@@ -173,7 +173,6 @@ procs:
 
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
-        autostart: true
         capability: llm_gateway
         env:
             LLM_GATEWAY_DEBUG: 'true'

@@ -3,7 +3,7 @@
 // Layout:
 //
 //	┌───────────────────────────────────────────┐
-//	│  PostHog Dev          ● N running         │  ← header
+//	│  PostHog Dev                 ● N running  │  ← header
 //	├────────────────┬──────────────────────────┤
 //	│ ● backend      │ (process output)         │
 //	│ ● frontend     │                          │  ← sidebar + viewport
@@ -30,10 +30,7 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
-// Number of terminal lines the header occupies
 const headerHeight = 1
-
-// Minimum number of lines for the collapsed help footer
 const footerHeight = 3
 
 type focusPane int
@@ -47,7 +44,7 @@ type Model struct {
 	mgr   *process.Manager
 	procs []*process.Process
 
-	// Index of the currently selected process in the sidebar
+	// Currently selected process in the sidebar
 	cursor int
 	// First visible process row in the sidebar
 	sidebarOffset int
@@ -59,9 +56,7 @@ type Model struct {
 	// Tracks whether the viewport is auto-scrolling to the tail of output
 	atBottom bool
 
-	// Copy mode: keyboard-driven line selection within the output pane.
-	// copyAnchor is the line where the user pressed 'c'; copyCursor moves
-	// with arrow keys. The selected range is [min(anchor,cursor), max(anchor,cursor)].
+	// Copy mode: keyboard-driven line selection within the output pane
 	copyMode   bool
 	copyAnchor int
 	copyCursor int
@@ -79,9 +74,15 @@ type Model struct {
 	log *log.Logger
 }
 
-// New creates a Model backed by mgr. Call tea.NewProgram(New(mgr, nil)) to run it.
-// Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.).
+// Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.)
 func New(mgr *process.Manager, logger *log.Logger) Model {
+	keys := defaultKeyMap()
+
+	// Enable docker key only if lazydocker is installed
+	if _, err := exec.LookPath("lazydocker"); err == nil {
+		keys.Docker.SetEnabled(true)
+	}
+
 	return Model{
 		mgr:           mgr,
 		procs:         mgr.Procs(),
@@ -89,26 +90,24 @@ func New(mgr *process.Manager, logger *log.Logger) Model {
 		sidebarOffset: 0,
 		focusedPane:   focusSidebar,
 		atBottom:      true,
-		keys:          defaultKeyMap(),
+		keys:          keys,
 		help:          help.New(),
 		spinner:       spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		log:           logger,
 	}
 }
 
-// dbg writes a formatted debug message when debug logging is active.
 func (m Model) dbg(format string, args ...any) {
 	if m.log != nil {
 		m.log.Printf(format, args...)
 	}
 }
 
-// Init satisfies tea.Model. Processes are started externally before p.Run().
+// Note: Processes are started externally before p.Run().
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(tea.RequestBackgroundColor, m.spinner.Tick)
 }
 
-// Update handles all incoming Bubble Tea messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -130,10 +129,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 
 	case process.OutputMsg:
-		// Rebuild viewport content only for the active process to keep rendering cheap.
+		// Rebuild viewport content only for the active process to keep rendering cheap
 		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
 			m.viewport.SetContent(m.buildContent())
-			// Don't auto-scroll while the user is selecting text in copy mode.
+			// Don't auto-scroll while the user is selecting text in copy mode
 			if m.atBottom && !m.copyMode {
 				m.viewport.GotoBottom()
 			}
@@ -141,7 +140,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case process.StatusMsg:
 		m.dbg("status: proc=%s status=%s", msg.Name, msg.Status)
-		// Re-fetch the process slice so status icons refresh on the next render.
+		// Re-fetch the process slice so status icons refresh on next render
 		m.procs = m.mgr.Procs()
 		if m.cursor >= len(m.procs) {
 			m.cursor = max(0, len(m.procs)-1)
@@ -294,20 +293,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.ExecProcess(exec.Command("lazydocker"), nil)
 
 		case key.Matches(msg, m.keys.CopyMode):
-			// Enter copy mode only when the output pane is focused.
+			// Enter copy mode only when the output pane is focused
 			m.copyMode = true
 			// Expand the viewport to full width before recording the cursor
-			// position so YOffset stays meaningful after the resize.
+			// position so YOffset stays meaningful after the resize
 			m = m.applySize()
 			// Place cursor at top of visible area; anchor is unset until
-			// the user presses 'c' again to mark the selection start.
+			// the user presses 'c' again to mark the selection start
 			m.copyCursor = m.viewport.YOffset()
 			m.copyAnchor = -1
 			m.applyCopyStyleFunc()
 			m.dbg("copy mode: enter at line %d", m.copyCursor)
 
 		default:
-			// Forward remaining key events to the viewport for scrolling.
+			// Forward remaining key events to the viewport for scrolling
 			var vpCmd tea.Cmd
 			m.viewport, vpCmd = m.viewport.Update(msg)
 			cmds = append(cmds, vpCmd)
@@ -355,7 +354,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// Renders the full TUI as a single string
 func (m Model) View() tea.View {
 	if !m.ready {
 		v := tea.NewView("\n  Initialising...\n")
@@ -377,7 +375,7 @@ func (m Model) View() tea.View {
 	))
 	v.AltScreen = true
 	// Disable mouse capture in copy mode so the terminal handles native text
-	// selection within the expanded output pane.
+	// selection within the expanded output pane
 	if m.copyMode {
 		v.MouseMode = tea.MouseModeNone
 	} else {
@@ -385,8 +383,6 @@ func (m Model) View() tea.View {
 	}
 	return v
 }
-
-// ── helpers ──────────────────────────────────────────────────────────────────
 
 func (m Model) activeProc() *process.Process {
 	if len(m.procs) == 0 || m.cursor >= len(m.procs) {
@@ -529,8 +525,6 @@ func (m Model) copySelectedText() string {
 	}
 	return sb.String()
 }
-
-// ── renderers ─────────────────────────────────────────────────────────────────
 
 func (m Model) renderHeader() string {
 	brand := headerBrandStyle.Render("  phrocs")
@@ -711,9 +705,6 @@ func (m Model) renderFooter() string {
 	return footerStyle.Width(m.width - 2).Render(content)
 }
 
-// ── utility ───────────────────────────────────────────────────────────────────
-
-// Returns the plain Unicode character for the given status.
 func statusIconChar(s process.Status) string {
 	switch s {
 	case process.StatusRunning:
@@ -731,7 +722,6 @@ func statusIconChar(s process.Status) string {
 	}
 }
 
-// Returns the lipgloss colour associated with the given status.
 func statusIconColor(s process.Status) color.Color {
 	switch s {
 	case process.StatusRunning:

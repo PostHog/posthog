@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"strings"
 	"sync"
 	"syscall"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
-// Status represents the lifecycle state of a process.
 type Status int
 
 const (
@@ -27,7 +25,6 @@ const (
 	StatusCrashed
 )
 
-// String returns a short human-readable label.
 func (s Status) String() string {
 	switch s {
 	case StatusPending:
@@ -47,19 +44,19 @@ func (s Status) String() string {
 
 const maxLines = 10_000
 
-// StatusMsg is sent by process goroutines when a process changes state.
+// When a process changes state
 type StatusMsg struct {
 	Name   string
 	Status Status
 }
 
-// OutputMsg is sent by process goroutines when a new output line arrives.
+// Shen a new output line arrives
 type OutputMsg struct {
 	Name string
 	Line string
 }
 
-// Process represents a single managed subprocess.
+// Represents a single managed subprocess
 type Process struct {
 	Name string
 	Cfg  config.ProcConfig
@@ -73,7 +70,6 @@ type Process struct {
 	ready        bool // whether we've seen the ready pattern (or no pattern is set)
 }
 
-// NewProcess creates a new Process (not yet started).
 func NewProcess(name string, cfg config.ProcConfig) *Process {
 	p := &Process{
 		Name:   name,
@@ -90,14 +86,13 @@ func NewProcess(name string, cfg config.ProcConfig) *Process {
 	return p
 }
 
-// Status returns the current lifecycle status (thread-safe).
 func (p *Process) Status() Status {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.status
 }
 
-// Lines returns a copy of the accumulated output lines (thread-safe).
+// Returns a copy of the output lines
 func (p *Process) Lines() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -106,8 +101,7 @@ func (p *Process) Lines() []string {
 	return cp
 }
 
-// Start spawns the process. send delivers messages back to the Bubble Tea program.
-// It is safe to call Start concurrently; a running process is a no-op.
+// It's safe to call Start concurrently as running process is a no-op
 func (p *Process) Start(send func(tea.Msg)) error {
 	p.mu.Lock()
 	if p.status == StatusRunning {
@@ -130,23 +124,23 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		// Fallback: use combined stdout/stderr pipe when PTY allocation fails (e.g., CI).
+		// Use combined stdout/stderr pipe when PTY allocation fails
 		return p.startWithPipe(cmd, send)
 	}
 
 	p.mu.Lock()
 	p.cmd = cmd
 	p.ptmx = ptmx
-	// Only set to running if no ready pattern; otherwise stay pending
+	// Only set to running if proc has no ready pattern
 	if p.readyPattern == nil {
 		p.status = StatusRunning
 	}
 	p.mu.Unlock()
 
-	// Send initial status message
 	p.mu.Lock()
 	currentStatus := p.status
 	p.mu.Unlock()
+	// Send initial status message
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
 	readDone := make(chan struct{})
@@ -158,7 +152,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	go func() {
 		exitErr := cmd.Wait()
 
-		// Close the pty master to unblock readLoop if still reading.
+		// Close the pty master to unblock readLoop if still reading
 		p.mu.Lock()
 		if p.ptmx != nil {
 			p.ptmx.Close()
@@ -166,7 +160,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		}
 		p.mu.Unlock()
 
-		// Wait for readLoop to drain all buffered output before updating status.
+		// Wait for readLoop to drain all buffered output before updating status
 		<-readDone
 
 		st := StatusDone
@@ -174,8 +168,8 @@ func (p *Process) Start(send func(tea.Msg)) error {
 			st = StatusCrashed
 		}
 		p.mu.Lock()
-		// Don't update status if this cmd is no longer the active one (process was restarted)
-		// or if an explicit Stop() was called
+		// Don't update status if this cmd is no longer the active one
+		// (process was restarted) or if an explicit Stop() was called
 		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
 		}
@@ -193,7 +187,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	return nil
 }
 
-// startWithPipe falls back to stdout/stderr pipes when PTY allocation fails.
+// Falls back to stdout/stderr pipes when PTY allocation fails
 func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	pr, pw, err := os.Pipe()
 	if err != nil {
@@ -214,16 +208,16 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	p.mu.Lock()
 	p.cmd = cmd
-	// Only set to running if no ready pattern; otherwise stay pending
+	// Only set to running if no ready pattern
 	if p.readyPattern == nil {
 		p.status = StatusRunning
 	}
 	p.mu.Unlock()
 
-	// Send initial status message
 	p.mu.Lock()
 	currentStatus := p.status
 	p.mu.Unlock()
+	// Send initial status message
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
 	readDone := make(chan struct{})
@@ -234,7 +228,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	go func() {
 		exitErr := cmd.Wait()
-		// Close the write end so readLoop sees EOF.
+		// Close the write end so readLoop sees EOF
 		pw.Close()
 
 		<-readDone
@@ -245,8 +239,8 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 			st = StatusCrashed
 		}
 		p.mu.Lock()
-		// Don't update status if this cmd is no longer the active one (process was restarted)
-		// or if an explicit Stop() was called
+		// Don't update status if this cmd is no longer the active one
+		// (process was restarted) or if an explicit Stop() was called
 		if p.cmd == cmd && p.status != StatusStopped {
 			p.status = st
 		}
@@ -264,18 +258,14 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	return nil
 }
 
-// readLoop scans r line by line, appending to the output buffer and sending OutputMsgs.
+// Scans line by line, appending to the output buffer and sending OutputMsgs
 func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
-	// Larger buffer to handle long lines (e.g., minified JS error traces).
+	// Larger buffer to handle long lines (like minified JS error traces)
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
 
 	for scanner.Scan() {
-		// PTY output uses \r\n line endings. bufio.Scanner strips \n but
-		// leaves the \r, which causes carriage-return to overwrite the start
-		// of the line when rendered in the viewport — making all output appear
-		// blank. Strip it here so the viewport receives clean lines.
-		line := strings.TrimRight(scanner.Text(), "\r")
+		line := scanner.Text()
 		p.mu.Lock()
 		if len(p.lines) >= maxLines {
 			// Discard oldest line to keep the buffer bounded.
@@ -301,7 +291,7 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 	}
 }
 
-// Stop sends SIGTERM to the process and marks it as stopped.
+// Sends SIGTERM to the process and marks it as stopped
 func (p *Process) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -315,14 +305,14 @@ func (p *Process) Stop() {
 	p.status = StatusStopped
 }
 
-// Restart stops the process, clears its output buffer, and starts it again.
+// Stops the process, clears its output buffer, and starts it again
 func (p *Process) Restart(send func(tea.Msg)) {
 	p.Stop()
 	send(StatusMsg{Name: p.Name, Status: StatusStopped})
 	_ = p.Start(send)
 }
 
-// Resize updates the pty window size to keep output correctly reflowed.
+// Updates the pty window size to keep output correctly reflowed
 func (p *Process) Resize(cols, rows uint16) {
 	p.mu.Lock()
 	ptmx := p.ptmx

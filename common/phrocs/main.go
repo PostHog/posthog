@@ -64,7 +64,6 @@ func main() {
 	m := tui.New(mgr, logger)
 	p := tea.NewProgram(m)
 
-	// Wire the send function before starting processes.
 	// StartAll is launched in a goroutine so it doesn't block: p.Send() inside
 	// Start() will block briefly on the Bubble Tea channel until p.Run() starts
 	// its event loop, at which point everything unblocks naturally. Calling
