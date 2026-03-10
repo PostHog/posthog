@@ -1890,7 +1890,11 @@ impl FeatureFlagMatcher {
             return Ok(HashMap::new());
         }
 
-        let types_to_indexes = self.group_type_mapping_cache.get_group_types_to_indexes()?;
+        let types_to_indexes = match self.group_type_mapping_cache.get_group_types_to_indexes() {
+            Ok(map) => map,
+            Err(FlagError::NoGroupTypeMappings) => return Ok(HashMap::new()),
+            Err(e) => return Err(e),
+        };
 
         let group_type_to_key: HashMap<GroupTypeIndex, String> = self
             .groups
