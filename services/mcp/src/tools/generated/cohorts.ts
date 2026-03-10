@@ -1,4 +1,4 @@
-// AUTO-GENERATED from definitions/cohorts.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/cohorts/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'

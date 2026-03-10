@@ -21,7 +21,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-05-01',
         testOptions: {
-            waitForSelector: '.PlayerSeekbar__segments__item',
+            waitForSelector: '.PlayerSeekbar__slider',
         },
     },
     decorators: [
