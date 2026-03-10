@@ -31,22 +31,10 @@ const DURATION_SAFETY_FACTOR = 2
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 
-function turboDryRun(task) {
-    try {
-        const raw = execSync(`./node_modules/.bin/turbo run ${task} --dry-run=json`, {
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-            maxBuffer: 50 * 1024 * 1024,
-        })
-        const parsed = JSON.parse(raw)
-        return parsed.tasks.filter((t) => !/NONEXISTENT/.test(t.command))
-    } catch (e) {
-        console.error(`turbo dry-run (${task}) failed: ${e.message}`)
-        if (e.stderr) {
-            console.error(e.stderr.toString().slice(0, 1000))
-        }
-        process.exit(1)
-    }
+const TURBO_EXEC_OPTS = { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 50 * 1024 * 1024 }
+
+function parseTurboTasks(raw) {
+    return JSON.parse(raw).tasks.filter((t) => !/NONEXISTENT/.test(t.command))
 }
 
 function packageToProduct(pkg) {
@@ -151,8 +139,22 @@ function buildMatrix(products, durations) {
 // --- Main ---
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
-const testTasks = turboDryRun('backend:test')
-const contractTasks = turboDryRun('backend:contract-check')
+
+let testTasks, contractTasks
+try {
+    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
+    testTasks = parseTurboTasks(execSync('./node_modules/.bin/turbo run backend:test --dry-run=json', TURBO_EXEC_OPTS))
+    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
+    contractTasks = parseTurboTasks(
+        execSync('./node_modules/.bin/turbo run backend:contract-check --dry-run=json', TURBO_EXEC_OPTS)
+    )
+} catch (e) {
+    console.error(`turbo dry-run failed: ${e.message}`)
+    if (e.stderr) {
+        console.error(e.stderr.toString().slice(0, 1000))
+    }
+    process.exit(1)
+}
 const isolatedProducts = getIsolatedProducts(contractTasks)
 const allProducts = getAllProducts(testTasks)
 
