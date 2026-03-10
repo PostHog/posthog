@@ -987,6 +987,141 @@
             "readOnlyHint": false
         }
     },
+    "hog-function-templates-list": {
+        "description": "List available hog function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
+        "category": "Hog function templates",
+        "feature": "hog_function_templates",
+        "summary": "List hog function templates",
+        "title": "List hog function templates",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-function-templates-retrieve": {
+        "description": "Get a specific hog function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns the full template including source code, inputs schema, default filters, and mapping templates. Use this to understand what inputs a template requires before creating a hog function from it.",
+        "category": "Hog function templates",
+        "feature": "hog_function_templates",
+        "summary": "Get hog function template",
+        "title": "Get hog function template",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-functions-list": {
+        "description": "List all hog functions (destinations, transformations, site apps, and source webhooks) in the project. Returns each function's name, type, enabled status, execution order, and template info. Filter by type (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status via query parameters.",
+        "category": "Hog functions",
+        "feature": "hog_functions",
+        "summary": "List hog functions",
+        "title": "List hog functions",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-functions-create": {
+        "description": "Create a new hog function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.",
+        "category": "Hog functions",
+        "feature": "hog_functions",
+        "summary": "Create hog function",
+        "title": "Create hog function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-functions-retrieve": {
+        "description": "Get a specific hog function by ID. Returns the full configuration including source code, inputs schema, input values (secrets are masked), filters, mappings, masking config, and runtime status.",
+        "category": "Hog functions",
+        "feature": "hog_functions",
+        "summary": "Get hog function",
+        "title": "Get hog function",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-functions-partial-update": {
+        "description": "Partially update a hog function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the hog-functions-delete tool instead.",
+        "category": "Hog functions",
+        "feature": "hog_functions",
+        "summary": "Update hog function",
+        "title": "Update hog function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-functions-delete": {
+        "description": "Delete a hog function by ID (soft delete). The function will no longer appear in lists or process events, but historical data is preserved.",
+        "category": "Hog functions",
+        "feature": "hog_functions",
+        "summary": "Delete hog function",
+        "title": "Delete hog function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-functions-invocations-create": {
+        "description": "Test-invoke a hog function with a mock event payload. Sends the function configuration and test data to the plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to simulate external calls like fetch() without making real HTTP requests.",
+        "category": "Hog functions",
+        "feature": "hog_functions",
+        "summary": "Test-invoke hog function",
+        "title": "Test-invoke hog function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-functions-rearrange-partial-update": {
+        "description": "Update the execution order of transformation functions. Send an 'orders' object mapping function UUIDs to their new execution_order integer values. Only applies to functions with type=transformation. Returns the updated list of transformations.",
+        "category": "Hog functions",
+        "feature": "hog_functions",
+        "summary": "Reorder transformation execution",
+        "title": "Reorder transformation execution",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "cohorts-list": {
         "description": "List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on property filters).",
         "category": "Cohorts",
