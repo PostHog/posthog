@@ -93,7 +93,12 @@ export function Nav({ children }: { children?: React.ReactNode }): JSX.Element {
                 )}
                 ref={containerRef}
             >
-                <div className={cn('flex justify-between items-center', isLayoutNavCollapsed ? 'justify-center' : ']')}>
+                <div
+                    className={cn(
+                        'flex justify-between items-center',
+                        isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'
+                    )}
+                >
                     <div
                         className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
                             'flex-col items-center pt-2': isLayoutNavCollapsed,
