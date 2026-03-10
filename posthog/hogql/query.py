@@ -395,10 +395,16 @@ class HogQLQueryExecutor:
             if isinstance(table_type.table, DirectPostgresTable)
         }
 
+        direct_source_id: str | None = None
+
         if len(direct_source_ids) == 0:
-            if self.connection_id is not None:
+            if self.connection_id is None:
+                return None
+
+            if len(base_table_types) > 0:
                 raise ExposedHogQLError("Table not found in the selected connection.")
-            return None
+
+            direct_source_id = self.connection_id
 
         if len(direct_source_ids) > 1:
             raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
@@ -414,7 +420,9 @@ class HogQLQueryExecutor:
         if self.connection_id is None:
             raise ExposedHogQLError("Direct Postgres queries require selecting a connection.")
 
-        direct_source_id = next(iter(direct_source_ids))
+        if direct_source_id is None:
+            direct_source_id = next(iter(direct_source_ids))
+
         if self.connection_id != direct_source_id:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 

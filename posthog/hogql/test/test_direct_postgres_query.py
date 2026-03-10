@@ -339,6 +339,49 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(str(error.exception), "Unknown table `persons`.")
 
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_selected_connection_allows_table_less_sql(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "value"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SELECT 1 AS value",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        response = executor.execute()
+
+        self.assertEqual(response.results, [(1,)])
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert executor.direct_postgres_sql is not None
+        self.assertIn("1 AS value", executor.direct_postgres_sql)
+        self.assertIn("LIMIT 100", executor.direct_postgres_sql)
+
     def test_selected_connection_rejects_disabled_direct_tables(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
