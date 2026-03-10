@@ -801,15 +801,11 @@ def _get_stripe_oauth_app():
                 client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
             )
 
-    existing = OAuthApplication.objects.filter(name=STRIPE_APP_NAME).first()
-    if existing:
-        return existing
-
     from oauthlib.common import generate_token
 
     return OAuthApplication.objects.create(
         name=STRIPE_APP_NAME,
-        client_id=generate_token(),
+        client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID or generate_token(),
         client_secret="",
         client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
         authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
