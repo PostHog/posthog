@@ -40,6 +40,7 @@ export const pendingApprovalsLogic = kea<pendingApprovalsLogicType>([
             (changeRequests): ChangeRequest[] => changeRequests.filter((cr) => cr.can_approve && !cr.user_decision),
         ],
         actionableCount: [(s) => [s.actionableChangeRequests], (actionable): number => actionable.length],
+        pendingCount: [(s) => [s.pendingChangeRequests], (pending): number => pending.length],
     }),
 
     afterMount(({ actions }) => {

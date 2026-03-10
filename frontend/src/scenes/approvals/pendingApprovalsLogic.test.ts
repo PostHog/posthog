@@ -97,4 +97,19 @@ describe('pendingApprovalsLogic', () => {
             await expectLogic(logic).toMatchValues({ actionableCount: expected })
         })
     })
+
+    describe('pendingCount', () => {
+        it('counts all pending CRs regardless of can_approve', async () => {
+            logic = pendingApprovalsLogic()
+            logic.mount()
+
+            logic.actions.loadPendingChangeRequestsSuccess([
+                makeChangeRequest({ id: 'cr-1', can_approve: true }),
+                makeChangeRequest({ id: 'cr-2', can_approve: false }),
+                makeChangeRequest({ id: 'cr-3', can_approve: false, user_decision: 'approved' }),
+            ])
+
+            await expectLogic(logic).toMatchValues({ pendingCount: 3, actionableCount: 1 })
+        })
+    })
 })

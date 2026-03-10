@@ -8,11 +8,16 @@ import { urls } from 'scenes/urls'
 import { pendingApprovalsLogic } from './pendingApprovalsLogic'
 
 export function PendingApprovalsBanner(): JSX.Element | null {
-    const { actionableCount, pendingChangeRequestsLoading } = useValues(pendingApprovalsLogic)
+    const { actionableCount, pendingCount, pendingChangeRequestsLoading } = useValues(pendingApprovalsLogic)
 
-    if (pendingChangeRequestsLoading || actionableCount === 0) {
+    if (pendingChangeRequestsLoading || pendingCount === 0) {
         return null
     }
+
+    const message =
+        actionableCount > 0
+            ? `${actionableCount} ${pluralize(actionableCount, 'change request', 'change requests', false)} ${actionableCount === 1 ? 'is' : 'are'} awaiting your decision`
+            : `${pendingCount} ${pluralize(pendingCount, 'change request', 'change requests', false)} ${pendingCount === 1 ? 'is' : 'are'} pending approval`
 
     return (
         <LemonBanner
@@ -24,8 +29,7 @@ export function PendingApprovalsBanner(): JSX.Element | null {
                 </LemonButton>
             }
         >
-            {actionableCount} {pluralize(actionableCount, 'change request', 'change requests', false)}{' '}
-            {actionableCount === 1 ? 'is' : 'are'} awaiting your decision
+            {message}
         </LemonBanner>
     )
 }
