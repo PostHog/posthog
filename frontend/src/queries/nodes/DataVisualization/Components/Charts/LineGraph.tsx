@@ -464,7 +464,9 @@ export const LineGraph = ({
                                 })
 
                                 const tooltipTotalData = ySeriesData.filter(
-                                    (n) => n.settings?.formatting?.style !== 'percent'
+                                    (n) =>
+                                        n.settings?.formatting?.style !== 'percent' &&
+                                        n.data[referenceDataPoint.dataIndex] !== null
                                 )
 
                                 // Don't show total row when highlighting a single bar
