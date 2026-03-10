@@ -1,4 +1,4 @@
-// AUTO-GENERATED from definitions/cohorts.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/cohorts/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -39,6 +39,11 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, unknown> => ({
             })),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort-list.html',
+        },
     },
 })
 
@@ -83,6 +88,11 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, Schemas.Cohort & 
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
     },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
+    },
 })
 
 const CohortsRetrieveSchema = CohortsRetrieveParams.omit({ project_id: true })
@@ -100,6 +110,11 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, Schemas.Cohor
             ...(result as any),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
     },
 })
 
@@ -146,6 +161,11 @@ const cohortsPartialUpdate = (): ToolBase<
             ...(result as any),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/cohorts/${(result as any).id}`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/cohort.html',
+        },
     },
 })
 

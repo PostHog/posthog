@@ -16,6 +16,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -65,6 +66,7 @@ function useBoldNumberTooltip({
     const { insightProps } = useValues(insightLogic)
     const { series, insightData, trendsFilter, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
+    const { baseCurrency } = useValues(teamLogic)
 
     const divRef = useRef<HTMLDivElement>(null)
 
@@ -79,7 +81,7 @@ function useBoldNumberTooltip({
 
         tooltipRoot.render(
             <InsightTooltip
-                renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value)}</>}
+                renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value, baseCurrency)}</>}
                 seriesData={[
                     {
                         dataIndex: 1,
@@ -118,6 +120,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
     const { insightData, trendsFilter, compareFilter, querySource, hasDataWarehouseSeries } = useValues(
         insightVizDataLogic(insightProps)
     )
+    const { baseCurrency } = useValues(teamLogic)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({
@@ -160,7 +163,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                 onMouseEnter={() => setIsTooltipShown(true)}
             >
                 <Textfit min={32} max={64}>
-                    {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value)}
+                    {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value, baseCurrency)}
                 </Textfit>
             </div>
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} context={context} />}
