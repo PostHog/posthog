@@ -35,6 +35,7 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
     isNodeWithSource,
+    isTrendsQuery,
 } from '~/queries/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
@@ -221,6 +222,7 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
         // trends like
         payload.has_formula = !!getFormula(querySource)
         payload.display = getDisplay(querySource)
+        payload.trend_type = isTrendsQuery(querySource) ? getDisplay(querySource) : undefined
         payload.compare = getCompareFilter(querySource)?.compare
         payload.compare_to = getCompareFilter(querySource)?.compare_to
 
@@ -978,7 +980,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             // "insight created" essentially means that the user clicked "New insight"
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
 
-            posthog.capture('insight created', sanitizeQuery(query))
+            posthog.capture('insight created', { ...sanitizeQuery(query), source: 'web' })
         },
         reportInsightSaved: async ({ insight, query, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
@@ -1006,7 +1008,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
-            posthog.capture(eventName, objectClean(payload))
+            posthog.capture(eventName, objectClean({ ...payload, source: 'web' }))
         },
         reportPersonsModalViewed: async ({ params }) => {
             posthog.capture('insight person modal viewed', params)
@@ -1054,7 +1056,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
 
             const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
-            posthog.capture(eventName, properties)
+            posthog.capture(eventName, { ...properties, source: 'web' })
         },
         reportProjectCreationSubmitted: async ({
             projectCount,
