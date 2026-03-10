@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import timedelta
 from functools import lru_cache
-from typing import Any, Union, cast
+from typing import Any, Union
 
 from django.db import transaction
 from django.db.models import BooleanField, Case, Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Value, When
