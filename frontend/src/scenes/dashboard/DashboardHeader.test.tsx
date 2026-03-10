@@ -132,7 +132,22 @@ describe('DashboardHeader', () => {
     })
 
     it('new dashboard gets forceEdit on SceneTitleSection', () => {
-        const dashboard = makeDashboard({ name: 'New Dashboard' })
+        const dashboard = makeDashboard({
+            name: 'New Dashboard',
+            tiles: [
+                {
+                    id: 1,
+                    layouts: {},
+                    color: null,
+                    insight: {
+                        id: 10,
+                        short_id: 'xyz',
+                        name: 'Some insight',
+                        query: { kind: 'TrendsQuery', series: [] },
+                    },
+                },
+            ],
+        })
         const { logic } = renderHeader({ dashboard })
 
         const textarea = document.querySelector('[data-attr="scene-title-textarea"]')

@@ -1280,11 +1280,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (!dashboard || dashboardLoading) {
                     return false
                 }
-                const isRecentlyCreated = new Date().getTime() - new Date(dashboard.created_at).getTime() < 30000
                 return (
                     Boolean(dashboard._highlight) ||
                     dashboard.name === 'New Dashboard' ||
-                    isRecentlyCreated ||
                     !dashboard.tiles ||
                     dashboard.tiles.length === 0
                 )
@@ -1454,6 +1452,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
         togglePinned: () => {
             if (values.dashboard) {
+                // Reducers have already run, so values.isPinned reflects the desired new state.
                 if (values.isPinned) {
                     dashboardsModel.actions.pinDashboard(values.dashboard.id, DashboardEventSource.SceneCommonButtons)
                 } else {
