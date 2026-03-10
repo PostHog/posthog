@@ -120,7 +120,8 @@ jobs:
                         - docker/clickhouse
                       legacy:
                         # Non-product backend code — when only products/ change,
-                        # turbo contract-check decides whether Django tests run.
+                        # turbo-discover diffs backend:test vs backend:contract-check
+                        # to detect isolated products and decide whether Django runs.
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
                         - 'common/**/*'
@@ -212,7 +213,7 @@ jobs:
         timeout-minutes: 5
         name: Discover product tests
         outputs:
-            run_legacy: ${{ steps.contract-check.outputs.run_legacy }}
+            run_legacy: ${{ steps.discover.outputs.run_legacy }}
             matrix: ${{ steps.discover.outputs.matrix }}
 
         steps:
@@ -233,58 +234,23 @@ jobs:
             - name: Install pnpm dependencies
               run: pnpm install --frozen-lockfile
 
-            - name: Check contract changes
-              id: contract-check
-              run: |
-                  # Determines if Django needs to run based on contract changes.
-                  #
-                  # Logic:
-                  # - Push to master: run Django (full CI)
-                  # - Legacy (posthog/ee/common) changed: run Django
-                  # - Any contract-check cache miss: run Django
-                  # - All cache hits: skip Django (isolated impl-only changes)
-                  #
-                  # Always runs contract-check at the end to keep the remote cache
-                  # warm as a baseline for future product-only PRs.
-
-                  if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-                    echo "Push to master - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  elif [[ "${{ needs.changes.outputs.legacy }}" == "true" ]]; then
-                    echo "Legacy code changed - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  else
-                    # Product-only change — check contract cache to decide
-                    CACHE_STATUS=$(./node_modules/.bin/turbo run backend:contract-check --dry-run=json 2>/dev/null | jq -r '
-                      [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
-                      if length == 0 then "NO_TASKS"
-                      elif any(. == "MISS") then "MISS"
-                      else "HIT"
-                      end
-                    ' || echo "PARSE_ERROR")
-
-                    echo "Contract check cache status: $CACHE_STATUS"
-
-                    if [[ "$CACHE_STATUS" == "HIT" || "$CACHE_STATUS" == "NO_TASKS" ]]; then
-                      echo "Contracts unchanged (cache $CACHE_STATUS) - Django can be skipped"
-                      echo "run_legacy=false" >> $GITHUB_OUTPUT
-                    else
-                      echo "Contract files changed ($CACHE_STATUS) - Django will run"
-                      echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    fi
-                  fi
-
-                  # Always run to keep remote cache warm as baseline
-                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
-
             - name: Discover products to test
               id: discover
               env:
-                  LEGACY_CHANGED: ${{ needs.changes.outputs.legacy }}
+                  # On pushes to master, always run everything.
+                  # On PRs, use the path filter to detect legacy changes.
+                  LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
               run: |
-                  MATRIX=$(node .github/scripts/turbo-discover.js)
-                  echo "Matrix: $MATRIX"
-                  echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+                  # turbo-discover.js diffs backend:test vs backend:contract-check
+                  # to detect isolated products. Non-isolated product changes trigger
+                  # the full suite (all products + Django).
+                  RESULT=$(node .github/scripts/turbo-discover.js)
+                  echo "Result: $RESULT"
+                  echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
+                  echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
+
+                  # Keep contract-check remote cache warm for future runs
+                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
 
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
