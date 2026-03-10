@@ -227,9 +227,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         if isinstance(clickhouse_type, dict) and columns[column_name].get("clickhouse"):
             clickhouse_type = columns[column_name].get("clickhouse")
 
-            if clickhouse_type.startswith("Nullable("):
-                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
-
         return clickhouse_type
 
     @property
@@ -304,7 +301,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
 
-            if clickhouse_type.startswith("Nullable("):
+            is_nullable = clickhouse_type.startswith("Nullable(")
+            if is_nullable:
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
@@ -320,7 +318,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
 
-            fields[column] = hogql_type(name=column)
+            fields[column] = hogql_type(name=column, nullable=is_nullable)
 
         return SavedQuery(
             id=str(self.id),
