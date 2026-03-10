@@ -52,7 +52,7 @@ We will begin by wiring up **one product** to:
 
 Focus:
 
-- One product = one Turbo package with `backend:test` and `backend:contract-check` tasks
+- One product = one Turbo package with `backend:test` and `backend:contract-check` tasks (all products now include both scripts in their `package.json`)
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
 - Presentation layer (DRF) will sit above the facade but remain outside the contract surface initially
@@ -310,7 +310,7 @@ Django will auto-generate reverse relations (`project.visualreview_set`), migrat
 
 # 9. Turbo Tasks & Contract-Based Testing
 
-Each product is a Turborepo package with tasks defined in its `package.json`.
+Each product is a Turborepo package with tasks defined in its `package.json`. All products include `backend:test` and `backend:contract-check` scripts. By default, `backend:contract-check` echoes a no-op message — products without a custom `turbo.json` fall back to root defaults (`backend/**/*.py`), meaning any backend change invalidates the cache and Django runs. Only products that narrow their turbo inputs (e.g. watching only `facade/` files) benefit from selective skipping.
 
 ## Contract files vs. implementation files
 

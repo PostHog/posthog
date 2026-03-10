@@ -105,7 +105,7 @@ Keep shared code minimal to avoid tight coupling.
   - Please keep the top level folders `under_score` cased, as dashes make it hard to import files in some languages (e.g. Python).
 - Each product has a few required files / folders:
   - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx` and `frontend/src/products.json` on build.
-  - `package.json` - describes the frontend dependencies. Ideally they should all be `peerDependencies` of whatever is in `frontend/package.json`
+  - `package.json` - describes the frontend dependencies and required turbo scripts (`backend:test`, `backend:contract-check`). Ideally dependencies should all be `peerDependencies` of whatever is in `frontend/package.json`
   - `__init__.py` - allows imports like `products.<product>.backend.*` (only if backend exists)
     - `backend/__init__.py` - marks the backend directory as a Python package/Django app (only if backend exists).
     - `frontend/` - React frontend code. We run oxfmt/eslint only on files in the `frontend` folder on commit.
@@ -179,6 +179,13 @@ pnpm turbo run backend:test --filter=@posthog/products-visual_review
 
 # Dry-run to see what would execute
 pnpm turbo run backend:test --dry-run=json
+```
+
+Products also have a `backend:contract-check` script for contract-based selective testing. This determines whether a product's backend needs to run Django tests based on changes to its contract files.
+
+```bash
+# Run contract checks for all products
+pnpm turbo run backend:contract-check
 ```
 
 See [architecture.md](./architecture.md) for how selective testing works.
