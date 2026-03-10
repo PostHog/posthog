@@ -28,7 +28,8 @@ const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
 
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
+    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series, hasDataWarehouseSeries } =
+        useValues(
         insightVizDataLogic(insightProps)
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -85,7 +86,16 @@ export function TrendsSeries(): JSX.Element | null {
                     <div className="flex items-center">
                         Showing
                         {showGroupsOptions ? (
-                            <AggregationSelect className="mx-2" insightProps={insightProps} hogqlAvailable={false} />
+                            <AggregationSelect
+                                className="mx-2"
+                                insightProps={insightProps}
+                                hogqlAvailable={false}
+                                disabledReason={
+                                    hasDataWarehouseSeries
+                                        ? 'For data warehouse series, aggregation is configured per series. Please configure the aggregation target in the series settings.'
+                                        : undefined
+                                }
+                            />
                         ) : (
                             <b> Unique users </b>
                         )}
