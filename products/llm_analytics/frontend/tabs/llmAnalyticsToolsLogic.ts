@@ -169,5 +169,37 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                 })
             },
         ],
+        buildToolTrendQuery: [
+            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
+            (
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[]
+            ): ((toolName: string) => TrendsQuery) => {
+                return (toolName: string): TrendsQuery => ({
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom || null,
+                        date_to: dateFilter.dateTo || null,
+                    },
+                    filterTestAccounts: shouldFilterTestAccounts,
+                    properties: propertyFilters,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$ai_generation',
+                            properties: [
+                                {
+                                    key: '$ai_tools_called',
+                                    operator: PropertyOperator.Regex,
+                                    value: `(^|,)${toolName}(,|$)`,
+                                    type: PropertyFilterType.Event,
+                                },
+                            ],
+                        },
+                    ],
+                })
+            },
+        ],
     }),
 ])

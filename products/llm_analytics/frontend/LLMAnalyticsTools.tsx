@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconGraph, IconUserPaths } from '@posthog/icons'
+import { IconGraph, IconTrends, IconUserPaths } from '@posthog/icons'
 
 import { escapeRegex } from 'lib/actionUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,7 +24,8 @@ import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 export function LLMAnalyticsTools(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { setToolsSort } = useActions(llmAnalyticsToolsLogic)
-    const { toolsQuery, toolsSort, buildToolPathsQuery, buildToolSequencesQuery } = useValues(llmAnalyticsToolsLogic)
+    const { toolsQuery, toolsSort, buildToolPathsQuery, buildToolSequencesQuery, buildToolTrendQuery } =
+        useValues(llmAnalyticsToolsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const showToolsCharts = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_CHARTS]
@@ -85,7 +86,21 @@ export function LLMAnalyticsTools(): JSX.Element {
                                         </Tooltip>
                                         {showToolsCharts && (
                                             <>
-                                                <Tooltip title={`View tool sequences for ${toolString}`}>
+                                                <Tooltip title={`View ${toolString} usage over time`}>
+                                                    <LemonButton
+                                                        icon={<IconTrends />}
+                                                        size="xsmall"
+                                                        to={urls.insightNew({
+                                                            query: {
+                                                                kind: NodeKind.InsightVizNode,
+                                                                source: buildToolTrendQuery(toolString),
+                                                            } as InsightVizNode,
+                                                        })}
+                                                        targetBlank
+                                                        data-attr="llma-tools-trend-click"
+                                                    />
+                                                </Tooltip>
+                                                <Tooltip title={`View tool combinations with ${toolString}`}>
                                                     <LemonButton
                                                         icon={<IconGraph />}
                                                         size="xsmall"
