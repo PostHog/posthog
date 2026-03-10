@@ -4,7 +4,14 @@ import { ChildFunctionProps, Form } from 'kea-forms'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
-import { IconChevronDown, IconChevronLeft, IconChevronRight, IconExternal } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconChevronLeft,
+    IconChevronRight,
+    IconCollapse,
+    IconExpand,
+    IconExternal,
+} from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
@@ -108,7 +115,13 @@ function PlainTextEditor(): JSX.Element {
     )
 }
 
-function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
+function DestinationEmailTemplaterForm({
+    mode,
+    fieldsHidden,
+}: {
+    mode: EmailEditorMode
+    fieldsHidden?: boolean
+}): JSX.Element {
     const { logicProps, mergeTags, activeContentTab } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, setActiveContentTab } =
         useActions(emailTemplaterLogic)
@@ -121,34 +134,36 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                {EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type].map((field) => (
-                    <LemonField
-                        key={field.key}
-                        name={field.key}
-                        className="gap-1 pl-2 border-b shrink-0"
-                        // We will handle the error display ourselves
-                        renderError={() => null}
-                    >
-                        {({ value, onChange, error }: ChildFunctionProps) => (
-                            <div className="flex gap-2 items-center">
-                                <LemonLabel
-                                    className={error ? 'text-danger' : ''}
-                                    info={field.helpText}
-                                    showOptional={field.optional}
-                                >
-                                    {field.label}
-                                </LemonLabel>
-                                <CodeEditorInline
-                                    embedded
-                                    className="flex-1"
-                                    globals={logicProps.variables}
-                                    value={value}
-                                    onChange={onChange}
-                                />
-                            </div>
-                        )}
-                    </LemonField>
-                ))}
+                <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
+                    {EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type].map((field) => (
+                        <LemonField
+                            key={field.key}
+                            name={field.key}
+                            className="gap-1 pl-2 border-b shrink-0"
+                            // We will handle the error display ourselves
+                            renderError={() => null}
+                        >
+                            {({ value, onChange, error }: ChildFunctionProps) => (
+                                <div className="flex gap-2 items-center">
+                                    <LemonLabel
+                                        className={error ? 'text-danger' : ''}
+                                        info={field.helpText}
+                                        showOptional={field.optional}
+                                    >
+                                        {field.label}
+                                    </LemonLabel>
+                                    <CodeEditorInline
+                                        embedded
+                                        className="flex-1"
+                                        globals={logicProps.variables}
+                                        value={value}
+                                        onChange={onChange}
+                                    />
+                                </div>
+                            )}
+                        </LemonField>
+                    ))}
+                </div>
 
                 {mode === 'full' ? (
                     <>
@@ -421,9 +436,11 @@ function TemplateSlider({
 
 function NativeEmailTemplaterForm({
     mode,
+    fieldsHidden,
     onSaveAsTemplate,
 }: {
     mode: EmailEditorMode
+    fieldsHidden?: boolean
     onSaveAsTemplate?: () => void
 }): JSX.Element {
     const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab } =
@@ -441,57 +458,60 @@ function NativeEmailTemplaterForm({
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                {EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type].map((field) => (
-                    <LemonField
-                        key={field.key}
-                        name={field.key}
-                        className="gap-1 pl-2 border-b shrink-0"
-                        // We will handle the error display ourselves
-                        renderError={() => null}
-                        showOptional={field.optional}
-                    >
-                        {({ value, onChange, error }: ChildFunctionProps) => (
-                            <div className="flex gap-2 items-center">
-                                <LemonLabel
-                                    className={error ? 'text-danger' : ''}
-                                    info={field.helpText}
-                                    showOptional={field.optional}
-                                >
-                                    {field.label}
-                                </LemonLabel>
-                                {field.key === 'from' ? (
-                                    <NativeEmailIntegrationChoice value={value} onChange={onChange} />
-                                ) : field.key === 'to' ? (
-                                    /**
-                                     * In email inputs, "to" maps to { email: string; name: string; },
-                                     * whereas other fields map directly to their string value
-                                     */
-                                    <LiquidSupportedText
-                                        value={value?.email}
-                                        onChange={(email) => onChange({ ...value, email })}
-                                        globals={logicProps.variables}
-                                    />
-                                ) : (
-                                    <LiquidSupportedText
-                                        value={value}
-                                        onChange={onChange}
-                                        globals={logicProps.variables}
-                                    />
-                                )}
-                            </div>
-                        )}
-                    </LemonField>
-                ))}
+                <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
+                    {EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type].map((field) => (
+                        <LemonField
+                            key={field.key}
+                            name={field.key}
+                            className="gap-1 pl-2 border-b shrink-0"
+                            // We will handle the error display ourselves
+                            renderError={() => null}
+                            showOptional={field.optional}
+                        >
+                            {({ value, onChange, error }: ChildFunctionProps) => (
+                                <div className="flex gap-2 items-center">
+                                    <LemonLabel
+                                        className={error ? 'text-danger' : ''}
+                                        info={field.helpText}
+                                        showOptional={field.optional}
+                                    >
+                                        {field.label}
+                                    </LemonLabel>
+                                    {field.key === 'from' ? (
+                                        <NativeEmailIntegrationChoice value={value} onChange={onChange} />
+                                    ) : field.key === 'to' ? (
+                                        /**
+                                         * In email inputs, "to" maps to { email: string; name: string; },
+                                         * whereas other fields map directly to their string value
+                                         */
+                                        <LiquidSupportedText
+                                            value={value?.email}
+                                            onChange={(email) => onChange({ ...value, email })}
+                                            globals={logicProps.variables}
+                                        />
+                                    ) : (
+                                        <LiquidSupportedText
+                                            value={value}
+                                            onChange={onChange}
+                                            globals={logicProps.variables}
+                                        />
+                                    )}
+                                </div>
+                            )}
+                        </LemonField>
+                    ))}
+
+                    {mode === 'full' && templates.length > 0 && (
+                        <TemplateSlider
+                            templates={templates}
+                            onSelect={applyTemplate}
+                            onSaveAsTemplate={onSaveAsTemplate}
+                        />
+                    )}
+                </div>
 
                 {mode === 'full' ? (
                     <>
-                        {templates.length > 0 && (
-                            <TemplateSlider
-                                templates={templates}
-                                onSelect={applyTemplate}
-                                onSaveAsTemplate={onSaveAsTemplate}
-                            />
-                        )}
                         <LemonTabs
                             activeKey={activeContentTab}
                             onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
@@ -590,19 +610,23 @@ function NativeEmailTemplaterForm({
 
 function EmailTemplaterForm({
     mode,
+    fieldsHidden,
     onSaveAsTemplate,
 }: {
     mode: EmailEditorMode
+    fieldsHidden?: boolean
     onSaveAsTemplate?: () => void
 }): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
 
     switch (logicProps.type) {
         case 'email':
-            return <DestinationEmailTemplaterForm mode={mode} />
+            return <DestinationEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
         case 'native_email_template':
         case 'native_email':
-            return <NativeEmailTemplaterForm mode={mode} onSaveAsTemplate={onSaveAsTemplate} />
+            return (
+                <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} onSaveAsTemplate={onSaveAsTemplate} />
+            )
     }
 }
 
@@ -678,6 +702,13 @@ function EmailTemplaterModal(): JSX.Element {
         useValues(emailTemplaterLogic)
     const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate, setIsSaveTemplateModalOpen } =
         useActions(emailTemplaterLogic)
+    const [fieldsHidden, setFieldsHidden] = useState(false)
+
+    useEffect(() => {
+        if (!isModalOpen) {
+            setFieldsHidden(false)
+        }
+    }, [isModalOpen])
 
     return (
         <>
@@ -687,12 +718,25 @@ function EmailTemplaterModal(): JSX.Element {
                 onClose={() => closeWithConfirmation()}
                 hasUnsavedInput={emailTemplateChanged}
             >
-                <div className="h-[80vh] flex">
+                <div className="h-[85vh] flex relative">
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
+                        onClick={() => setFieldsHidden(!fieldsHidden)}
+                        className="absolute -top-1 right-10 z-10"
+                    >
+                        {fieldsHidden ? 'Show fields' : 'Hide fields'}
+                    </LemonButton>
                     <div className="flex flex-col flex-1">
                         <div className="shrink-0">
                             <h2>Editing email template</h2>
                         </div>
-                        <EmailTemplaterForm mode="full" onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)} />
+                        <EmailTemplaterForm
+                            mode="full"
+                            fieldsHidden={fieldsHidden}
+                            onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)}
+                        />
                         <div className="flex gap-2 items-center mt-2">
                             <div className="flex-1" />
                             <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
