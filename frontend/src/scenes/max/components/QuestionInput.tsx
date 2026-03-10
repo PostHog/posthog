@@ -166,6 +166,25 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
+    const isComposingRef = useRef(false)
+    useEffect(() => {
+        const el = textAreaRef?.current
+        if (!el) {
+            return
+        }
+        const onCompositionStart = (): void => {
+            isComposingRef.current = true
+        }
+        const onCompositionEnd = (): void => {
+            isComposingRef.current = false
+        }
+        el.addEventListener('compositionstart', onCompositionStart)
+        el.addEventListener('compositionend', onCompositionEnd)
+        return () => {
+            el.removeEventListener('compositionstart', onCompositionStart)
+            el.removeEventListener('compositionend', onCompositionEnd)
+        }
+    }, [textAreaRef])
     const [showAutocomplete, setShowAutocomplete] = useState(false)
     const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
     const displayQueuedMessages = useMemo(() => [...queuedMessages].reverse(), [queuedMessages])
@@ -300,6 +319,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     value={isSharedThread ? '' : question}
                                     onChange={(value) => setQuestion(value)}
                                     onPressEnter={() => {
+                                        if (isComposingRef.current) {
+                                            return
+                                        }
                                         if (
                                             hasQuestion &&
                                             !submissionDisabledReason &&
