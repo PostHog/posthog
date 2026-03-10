@@ -618,20 +618,6 @@ class BingAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
-class BoxPlotDatum(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    day: str
-    label: str
-    max: float
-    mean: float
-    median: float
-    min: float
-    p25: float
-    p75: float
-
-
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -1401,7 +1387,6 @@ class OrderBy1(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
-    REVENUE = "revenue"
 
 
 class OrderDirection1(StrEnum):
@@ -1422,20 +1407,6 @@ class ErrorTrackingIssueStatus(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
-
-
-class RevenueEntity(StrEnum):
-    PERSON = "person"
-    GROUP_0 = "group_0"
-    GROUP_1 = "group_1"
-    GROUP_2 = "group_2"
-    GROUP_3 = "group_3"
-    GROUP_4 = "group_4"
-
-
-class RevenuePeriod(StrEnum):
-    ALL_TIME = "all_time"
-    MRR = "mrr"
 
 
 class EventDefinition(BaseModel):
@@ -2836,6 +2807,15 @@ class MaxExperimentVariantResultFrequentist(BaseModel):
     significant: bool
 
 
+class MaxNotebookContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str | None = None
+    type: Literal["notebook"] = "notebook"
+
+
 class MaxProductInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2919,6 +2899,14 @@ class ModeContext(BaseModel):
     type: Literal["mode"] = "mode"
 
 
+class MultiQuestionFormFieldType(StrEnum):
+    TEXT = "text"
+    NUMBER = "number"
+    SLIDER = "slider"
+    DROPDOWN = "dropdown"
+    TOGGLE = "toggle"
+
+
 class MultiQuestionFormQuestionOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2931,6 +2919,12 @@ class MultiQuestionFormQuestionOption(BaseModel):
         ...,
         description="A short value to use when this option is selected, in a few words",
     )
+
+
+class MultiQuestionFormQuestionType(StrEnum):
+    SELECT = "select"
+    MULTI_SELECT = "multi_select"
+    MULTI_FIELD = "multi_field"
 
 
 class MultipleBreakdownType(StrEnum):
@@ -5016,6 +5010,22 @@ class AutocompleteCompletionItem(BaseModel):
     )
 
 
+class BoxPlotDatum(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: str
+    label: str
+    max: float
+    mean: float
+    median: float
+    min: float
+    p25: float
+    p75: float
+    series_index: int | None = None
+    series_label: str | None = None
+
+
 class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5094,6 +5104,7 @@ class ChartSettings(BaseModel):
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
+    showNullsAsZero: bool | None = None
     showTotalRow: bool | None = None
     showXAxisBorder: bool | None = None
     showXAxisTicks: bool | None = None
@@ -5573,7 +5584,7 @@ class FormResumePayload(BaseModel):
         extra="forbid",
     )
     action: Literal["form"] = "form"
-    form_answers: dict[str, str]
+    form_answers: dict[str, str | list[str]]
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -5919,20 +5930,51 @@ class MaxRecordingEventFilter(BaseModel):
     type: Literal["events"] = "events"
 
 
+class MultiQuestionFormField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(..., description="Unique identifier for this field, used as the answer key")
+    label: str = Field(..., description="Label displayed above/beside the field")
+    max: float | None = Field(default=None, description="Maximum value (for number and slider types)")
+    min: float | None = Field(default=None, description="Minimum value (for number and slider types)")
+    optional: bool | None = Field(
+        default=None,
+        description="Whether this field can be left empty (default: false)",
+    )
+    options: list[MultiQuestionFormQuestionOption] | None = Field(
+        default=None, description="Available answer options (required for dropdown)"
+    )
+    placeholder: str | None = Field(default=None, description="Placeholder text (for text and number types)")
+    step: float | None = Field(default=None, description="Step size (for number and slider types)")
+    type: MultiQuestionFormFieldType = Field(..., description="Field type (required, no default)")
+
+
 class MultiQuestionFormQuestion(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     allow_custom_answer: bool | None = Field(
         default=None,
-        description='Whether to show a "Type your answer" option (default: true)',
+        description=('Whether to show a "Type your answer" option (default: true). Only used for select type.'),
+    )
+    fields: list[MultiQuestionFormField] | None = Field(
+        default=None,
+        description=("Fields for multi_field type questions, grouped with a shared submit button"),
     )
     id: str = Field(..., description="Unique identifier for this question")
-    options: list[MultiQuestionFormQuestionOption] = Field(..., description="Available answer options")
+    options: list[MultiQuestionFormQuestionOption] | None = Field(
+        default=None,
+        description="Available answer options (required for select and multi_select)",
+    )
     question: str = Field(..., description="The question text to display")
     title: str = Field(
         ...,
         description=('One word title for the question e.g. "Use case", "Team size", "Experience"'),
+    )
+    type: MultiQuestionFormQuestionType | None = Field(
+        default=MultiQuestionFormQuestionType.SELECT,
+        description=("Question type. Use 'multi_field' with fields array for composite questions."),
     )
 
 
@@ -11191,7 +11233,6 @@ class ErrorTrackingIssue(BaseModel):
     last_seen: AwareDatetime
     library: str | None = None
     name: str | None = None
-    revenue: float | None = None
     source: str | None = None
     status: ErrorTrackingIssueStatus
 
@@ -16993,8 +17034,6 @@ class ErrorTrackingQuery(BaseModel):
     orderDirection: OrderDirection1 | None = None
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
-    revenueEntity: RevenueEntity | None = None
-    revenuePeriod: RevenuePeriod | None = None
     searchQuery: str | None = None
     status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
@@ -18154,6 +18193,10 @@ class NotebookArtifactContent(BaseModel):
         ..., description="Structured blocks for the notebook content"
     )
     content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+    is_saved: bool | None = Field(
+        default=None,
+        description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
+    )
     title: str | None = Field(default=None, description="Title for the notebook")
 
 
@@ -19328,6 +19371,7 @@ class MaxUIContext(BaseModel):
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
+    notebooks: list[MaxNotebookContext] | None = None
 
 
 class QueryRequest(BaseModel):

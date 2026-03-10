@@ -4,6 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer.base import HogQLPrinter
@@ -35,6 +36,11 @@ class PostgresPrinter(HogQLPrinter):
         args = [self.visit(arg) for arg in node.args]
         return f"{node.name}({', '.join(args)})"
 
+    def _print_table_sql(self, table) -> str:
+        if isinstance(table, DirectPostgresTable):
+            return table.to_printed_postgres(self.context)
+        return table.to_printed_clickhouse(self.context)
+
     def visit_and(self, node):
         return f"({' AND '.join([f'({self.visit(expr)})' for expr in node.exprs])})"
 
@@ -45,7 +51,7 @@ class PostgresPrinter(HogQLPrinter):
         return f"(NOT {self.visit(node.expr)})"
 
     def visit_table_type(self, type: ast.TableType):
-        return type.table.to_printed_clickhouse(self.context)
+        return self._print_table_sql(type.table)
 
     def _visit_in_values(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Tuple):
@@ -102,7 +108,7 @@ class PostgresPrinter(HogQLPrinter):
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
-        return table_type.table.to_printed_clickhouse(self.context)
+        return self._print_table_sql(table_type.table)
 
     def _ensure_team_id_where_clause(
         self,

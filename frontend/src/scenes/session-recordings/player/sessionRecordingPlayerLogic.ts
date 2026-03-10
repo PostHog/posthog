@@ -42,6 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
+import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
@@ -54,7 +55,7 @@ import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLo
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { initialFrameState, resolveFrameTimestamp } from './utils/resolve-frame-timestamp'
-import { selectNewEvents, shouldUpdatePlaybackPosition } from './utils/snapshot-sync'
+import { shouldUpdatePlaybackPosition } from './utils/snapshot-sync'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -251,6 +252,23 @@ function isUserActivity(snapshot: eventWithTime): boolean {
         snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
         ACTIVE_SOURCES.indexOf(snapshot.data?.source as IncrementalSource) !== -1
     )
+}
+
+type MetaSnapshotWithResolution = eventWithTime & {
+    type: EventType.Meta
+    data: {
+        width: number
+        height: number
+    }
+}
+
+function isMetaSnapshotWithResolution(snapshot: eventWithTime): snapshot is MetaSnapshotWithResolution {
+    if (snapshot.type !== EventType.Meta || !snapshot.data || typeof snapshot.data !== 'object') {
+        return false
+    }
+
+    const data = snapshot.data as Record<string, unknown>
+    return typeof data.width === 'number' && typeof data.height === 'number'
 }
 
 const updatePlayerTimeTracking = (
@@ -450,6 +468,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
             exportsLogic,
             ['startReplayExport'],
+            deletedRecordingsLogic,
+            ['addDeletedRecordings'],
         ],
     })),
     actions({
@@ -1022,17 +1042,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 const currIndex = findLastIndex(
                     snapshots,
-                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
+                    (s: eventWithTime) => s.timestamp < currentTimestamp && isMetaSnapshotWithResolution(s)
                 )
 
                 if (currIndex === -1) {
                     return null
                 }
                 const snapshot = snapshots[currIndex]
+                if (!isMetaSnapshotWithResolution(snapshot)) {
+                    return null
+                }
 
                 const resolution = {
-                    width: snapshot.data?.['width'],
-                    height: snapshot.data?.['height'],
+                    width: snapshot.data.width,
+                    height: snapshot.data.height,
                 }
 
                 // For video export: expose resolution via global variable
@@ -1488,8 +1511,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
-                const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
-                eventsToAdd.push(...selectNewEvents(allSnapshots, currentEvents, useStoreBasedLoading))
+                eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots.
@@ -1629,12 +1651,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
-
-            // For store-based loading: set target timestamp so scheduler can seek
-            const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
-            if (useStoreBasedLoading) {
-                actions.setTargetTimestamp(timestamp)
-            }
+            actions.setTargetTimestamp(timestamp)
 
             // Check if we're seeking to a new segment
             const segment = values.segmentForTimestamp(timestamp)
@@ -1858,11 +1875,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentTimestamp(newTimestamp)
 
-                // Throttled position update for store-based loading (every 5s)
-                if (
-                    values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test' &&
-                    shouldUpdatePlaybackPosition(newTimestamp, cache.lastPlaybackPositionUpdate)
-                ) {
+                // Throttled position update for loading scheduler (every 5s)
+                if (shouldUpdatePlaybackPosition(newTimestamp, cache.lastPlaybackPositionUpdate)) {
                     cache.lastPlaybackPositionUpdate = newTimestamp
                     actions.updatePlaybackPosition(newTimestamp)
                 }
@@ -1986,13 +2000,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             })
         },
         deleteRecording: async () => {
-            await deleteRecording(props.sessionRecordingId)
-
-            if (props.onRecordingDeleted) {
-                props.onRecordingDeleted()
-            } else if (router.values.location.pathname.includes('/replay')) {
-                router.actions.push(urls.replay())
+            try {
+                await deleteRecording(props.sessionRecordingId)
+            } catch {
+                lemonToast.error('Failed to delete recording')
+                return
             }
+            actions.addDeletedRecordings([props.sessionRecordingId])
+            props.onRecordingDeleted?.()
         },
         openExplorer: () => {
             actions.setPause()
