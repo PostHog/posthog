@@ -25,7 +25,6 @@ import {
     createTestingJoinedIngestionPipeline,
 } from './analytics/testing-joined-ingestion-pipeline'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
-import { latestOffsetTimestampGauge } from './ingestion-consumer'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
