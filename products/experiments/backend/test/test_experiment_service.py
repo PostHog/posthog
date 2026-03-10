@@ -69,6 +69,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.secondary_metrics_ordered_uuids is None
         assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == "bayesian"
+        assert experiment.exposure_criteria == {"filterTestAccounts": True}
 
     def test_create_experiment_creates_new_flag(self):
         service = self._service()
