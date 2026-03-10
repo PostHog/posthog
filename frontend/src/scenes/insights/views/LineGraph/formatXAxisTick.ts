@@ -24,19 +24,7 @@ export function createXAxisTickCallback({
         return (value) => String(value)
     }
 
-    // Parse as UTC then reinterpret in the target timezone with keepLocalTime: true.
-    // Using dayjs.tz(string, tz) directly can shift dates near DST transitions because
-    // it parses via the browser's local timezone first.
-    const parsedDates = allDays.map((d) => {
-        const s = String(d)
-        const hasTime = s.includes(' ') || s.includes('T')
-        try {
-            const utc = hasTime ? dayjs.utc(s) : dayjs.utc(s + ' 00:00:00')
-            return utc.isValid() ? utc.tz(timezone, true) : dayjs(null)
-        } catch {
-            return dayjs(null)
-        }
-    })
+    const parsedDates = allDays.map((d) => parseDateForAxis(String(d), timezone))
     const first = parsedDates[0]
     const last = parsedDates[parsedDates.length - 1]
 
@@ -58,6 +46,21 @@ export function createXAxisTickCallback({
         }
 
         return formatTick(mode, date, index)
+    }
+}
+
+/** Parse a date string as a wall-clock time in the given timezone.
+ *
+ * Uses dayjs.utc() then .tz(keepLocalTime: true) instead of dayjs.tz(string, tz)
+ * because the latter internally parses via new Date() which uses the browser's
+ * local timezone — during DST transitions this can shift the date by a day. */
+export function parseDateForAxis(dateStr: string, timezone: string): Dayjs {
+    const hasTime = dateStr.includes(' ') || dateStr.includes('T')
+    try {
+        const utc = hasTime ? dayjs.utc(dateStr) : dayjs.utc(dateStr + ' 00:00:00')
+        return utc.isValid() ? utc.tz(timezone, true) : dayjs(null)
+    } catch {
+        return dayjs(null)
     }
 }
 

@@ -1,4 +1,4 @@
-import { createXAxisTickCallback } from './formatXAxisTick'
+import { createXAxisTickCallback, parseDateForAxis } from './formatXAxisTick'
 
 function weeklyDates(start: string, count: number): string[] {
     const dates: string[] = []
@@ -233,6 +233,42 @@ describe('createXAxisTickCallback', () => {
                 timezone: 'UTC',
             })
             expect(callback('fallback', 0)).toBe('fallback')
+        })
+    })
+
+    describe('parseDateForAxis', () => {
+        it.each([
+            { date: '2026-03-07', tz: 'US/Pacific', expected: { month: 2, day: 7 } },
+            { date: '2026-03-08', tz: 'US/Pacific', expected: { month: 2, day: 8 } },
+            { date: '2026-03-09', tz: 'US/Pacific', expected: { month: 2, day: 9 } },
+            { date: '2026-11-01', tz: 'US/Pacific', expected: { month: 10, day: 1 } },
+            { date: '2026-03-29', tz: 'Europe/London', expected: { month: 2, day: 29 } },
+        ])('preserves wall-clock date $date in $tz', ({ date, tz, expected }) => {
+            const result = parseDateForAxis(date, tz)
+            expect(result.month()).toBe(expected.month)
+            expect(result.date()).toBe(expected.day)
+            expect(result.hour()).toBe(0)
+            expect(result.minute()).toBe(0)
+        })
+
+        it('produces identical results regardless of target timezone', () => {
+            // The parsing should always preserve the wall-clock date —
+            // the result should represent the same date in every timezone.
+            const date = '2026-03-08'
+            const timezones = ['UTC', 'US/Pacific', 'America/New_York', 'Europe/London', 'Asia/Tokyo']
+            for (const tz of timezones) {
+                const result = parseDateForAxis(date, tz)
+                expect(result.format('YYYY-MM-DD')).toBe('2026-03-08')
+            }
+        })
+
+        it('preserves wall-clock time for datetime strings', () => {
+            const result = parseDateForAxis('2026-03-08 14:30:00', 'US/Pacific')
+            expect(result.format('YYYY-MM-DD HH:mm:ss')).toBe('2026-03-08 14:30:00')
+        })
+
+        it('returns invalid dayjs for unparseable strings', () => {
+            expect(parseDateForAxis('not-a-date', 'UTC').isValid()).toBe(false)
         })
     })
 })
