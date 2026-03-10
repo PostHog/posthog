@@ -34,6 +34,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_warehouse.backend.api.external_data_source import get_password_field_names
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -614,6 +615,107 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["auth_method"]["stripe_integration_id"] == "42"
         # Old secret key must not carry over — config round-trip may include it as None (default)
         assert source.job_inputs["auth_method"].get("stripe_secret_key") is None
+
+    def test_get_github_oauth_preserves_integration_id_strips_token(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs={
+                "auth_method": {"selection": "oauth", "github_integration_id": "99"},
+                "repository": "org/repo",
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        auth_method = response.json()["job_inputs"]["auth_method"]
+        assert auth_method == {"selection": "oauth", "github_integration_id": "99"}
+
+    def test_get_github_pat_strips_token(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs={
+                "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
+                "repository": "org/repo",
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        auth_method = response.json()["job_inputs"]["auth_method"]
+        assert auth_method == {"selection": "pat"}
+        assert "personal_access_token" not in auth_method
+
+    def test_get_stripe_oauth_preserves_integration_id(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix="st",
+            job_inputs={
+                "auth_method": {"selection": "oauth", "stripe_integration_id": "42"},
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert response.status_code == 200
+        auth_method = response.json()["job_inputs"]["auth_method"]
+        assert auth_method == {"selection": "oauth", "stripe_integration_id": "42"}
+
+    @patch(
+        "posthog.temporal.data_imports.sources.github.source.GithubSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_preserves_github_pat(self, _mock_validate):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Github",
+            created_by=self.user,
+            prefix="gh",
+            job_inputs={
+                "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
+                "repository": "org/repo",
+            },
+        )
+
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        assert "personal_access_token" not in get_response.json()["job_inputs"]["auth_method"]
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_response.json()["job_inputs"]},
+        )
+        assert patch_response.status_code == 200
+
+        source.refresh_from_db()
+        assert source.job_inputs["auth_method"]["personal_access_token"] == "ghp_secret"
+
+    def test_update_with_malformed_auth_method_returns_400(self):
+        source = self._create_external_data_source()
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"auth_method": "invalid"}},
+        )
+        assert patch_response.status_code == 400
 
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
@@ -2805,3 +2907,66 @@ class TestExternalDataSource(APIBaseTest):
                     [200, 201],
                     f"Expected acceptance for valid prefix '{prefix}'",
                 )
+
+
+class TestGetPasswordFieldNames(APIBaseTest):
+    def test_extracts_password_fields_from_select_config_options(self):
+        from posthog.schema import (
+            SourceFieldInputConfig,
+            SourceFieldInputConfigType,
+            SourceFieldSelectConfig,
+            SourceFieldSelectConfigOption,
+        )
+
+        fields = [
+            SourceFieldSelectConfig(
+                name="auth_method",
+                label="Auth",
+                required=True,
+                defaultValue="api_key",
+                options=[
+                    SourceFieldSelectConfigOption(
+                        value="api_key",
+                        label="API Key",
+                        fields=[
+                            SourceFieldInputConfig(
+                                name="secret_key",
+                                label="Secret Key",
+                                type=SourceFieldInputConfigType.PASSWORD,
+                                required=True,
+                                placeholder="",
+                            ),
+                        ],
+                    ),
+                    SourceFieldSelectConfigOption(
+                        value="oauth",
+                        label="OAuth",
+                        fields=[
+                            SourceFieldInputConfig(
+                                name="integration_id",
+                                label="Integration",
+                                type=SourceFieldInputConfigType.TEXT,
+                                required=True,
+                                placeholder="",
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ]
+        result = get_password_field_names(fields)
+        assert result == {"secret_key"}
+
+    def test_stripe_source_password_fields_include_secret_key(self):
+        from posthog.temporal.data_imports.sources.stripe.source import StripeSource
+
+        source = StripeSource()
+        password_fields = get_password_field_names(source.get_source_config.fields)
+        assert "stripe_secret_key" in password_fields
+
+    def test_github_source_password_fields_include_pat(self):
+        from posthog.temporal.data_imports.sources.github.source import GithubSource
+
+        source = GithubSource()
+        password_fields = get_password_field_names(source.get_source_config.fields)
+        assert "personal_access_token" in password_fields

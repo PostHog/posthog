@@ -14,7 +14,13 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSwitchGroupConfig
+from posthog.schema import (
+    ProductKey,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSwitchGroupConfig,
+)
 
 from posthog.hogql.database.database import Database
 
@@ -65,13 +71,17 @@ logger = structlog.get_logger(__name__)
 
 
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
-    """Extract field names that have PASSWORD type from a source config's fields."""
+    """Extract field names that have PASSWORD type from a source config's fields, including nested select options."""
     password_fields: set[str] = set()
     for field in fields:
         if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
             password_fields.add(field.name)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             password_fields.update(get_password_field_names(field.fields))
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    password_fields.update(get_password_field_names(option.fields))
     return password_fields
 
 
@@ -254,11 +264,17 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 }
                 job_inputs["ssh_tunnel"] = ssh_tunnel
 
-            # Strip sensitive fields from auth_method, keeping only selection and integration ID
+            # Strip sensitive fields from auth_method using schema-derived password fields
             if "auth_method" in job_inputs and isinstance(job_inputs["auth_method"], dict):
+                try:
+                    source_type_model = ExternalDataSourceType(instance.source_type)
+                    source = SourceRegistry.get_source(source_type_model)
+                    auth_method_sensitive_keys = get_password_field_names(source.get_source_config.fields)
+                except (ValueError, KeyError):
+                    auth_method_sensitive_keys = set()
                 auth_method = job_inputs["auth_method"]
                 job_inputs["auth_method"] = {
-                    k: v for k, v in auth_method.items() if k in ("selection", "stripe_integration_id")
+                    k: v for k, v in auth_method.items() if k not in auth_method_sensitive_keys
                 }
 
             # Remove sensitive fields
@@ -349,14 +365,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # auth_method is a nested config - deep-merge to preserve sensitive fields (stripe_secret_key)
         existing_auth_method = existing_job_inputs.get("auth_method")
         incoming_auth_method = incoming_job_inputs.get("auth_method")
-        if existing_auth_method and incoming_auth_method is not None:
+        if incoming_auth_method is not None and not isinstance(incoming_auth_method, dict):
+            raise ValidationError({"job_inputs": {"auth_method": "Must be an object."}})
+        if isinstance(existing_auth_method, dict) and isinstance(incoming_auth_method, dict):
             selection_changed = existing_auth_method.get("selection") != incoming_auth_method.get("selection")
             if selection_changed:
                 # Auth method switched (e.g. api_key→oauth) — use only incoming, don't carry over old secrets
                 new_job_inputs["auth_method"] = incoming_auth_method
             else:
                 merged_auth_method = {**existing_auth_method, **incoming_auth_method}
-                for key in ("stripe_secret_key",):
+                for key in password_fields:
                     if existing_auth_method.get(key) and not incoming_auth_method.get(key):
                         merged_auth_method[key] = existing_auth_method[key]
                 new_job_inputs["auth_method"] = merged_auth_method

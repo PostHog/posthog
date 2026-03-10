@@ -82,7 +82,7 @@ class StripeSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
+            caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
             - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
             - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
@@ -174,6 +174,12 @@ class StripeSource(
             "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
             "Invalid API Key provided": None,
             "PermissionError": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
+            # Deterministic credential/config errors from _get_api_key and OAuthMixin
+            "Missing Stripe API key": "Stripe API key is not configured. Please update the source configuration.",
+            "Missing Stripe integration ID": "Stripe integration ID is not configured. Please reconnect your Stripe account.",
+            "Missing integration ID": "Integration ID is not configured. Please reconnect your Stripe account.",
+            "Integration not found": "The linked Stripe integration no longer exists. Please reconnect your Stripe account.",
+            "Stripe access token not found": "Stripe OAuth access token is missing. Please reconnect your Stripe account.",
         }
 
     def _get_api_key(self, config: StripeSourceConfig, team_id: int) -> str:
