@@ -293,6 +293,51 @@ describe('experimentWizardLogic', () => {
                 departedSteps: { about: true },
             })
         })
+
+        it('preserves current step across unmount/remount', async () => {
+            logic.actions.nextStep()
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+        })
+
+        it('two tabs maintain independent step state', async () => {
+            const createLogic1 = createExperimentLogic({ tabId: 'tab-1' })
+            createLogic1.mount()
+            const wizardLogic1 = experimentWizardLogic({ tabId: 'tab-1' })
+            wizardLogic1.mount()
+
+            const createLogic2 = createExperimentLogic({ tabId: 'tab-2' })
+            createLogic2.mount()
+            const wizardLogic2 = experimentWizardLogic({ tabId: 'tab-2' })
+            wizardLogic2.mount()
+
+            // Advance tab 1 to variants, tab 2 to analytics
+            wizardLogic1.actions.setStep('variants')
+            wizardLogic2.actions.setStep('analytics')
+
+            await expectLogic(wizardLogic1).toMatchValues({ currentStep: 'variants' })
+            await expectLogic(wizardLogic2).toMatchValues({ currentStep: 'analytics' })
+
+            // Advancing tab 2 does not affect tab 1
+            wizardLogic2.actions.setStep('about')
+
+            await expectLogic(wizardLogic1).toMatchValues({ currentStep: 'variants' })
+            await expectLogic(wizardLogic2).toMatchValues({ currentStep: 'about' })
+
+            wizardLogic1.unmount()
+            createLogic1.unmount()
+            wizardLogic2.unmount()
+            createLogic2.unmount()
+        })
     })
 
     describe('validation', () => {

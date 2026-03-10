@@ -10,8 +10,13 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 ## Quick workflow
 
 ```sh
-# 1. Scaffold a starter YAML with all operations disabled
-pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
+# 1. Scaffold a starter YAML with all operations disabled.
+#    --product is a substring match on URL paths: it selects every endpoint
+#    whose path contains /<name>/ (hyphens normalized to underscores).
+#    The value can be a product name or any path-segment needle
+#    (e.g. --product actions matches /api/projects/{project_id}/actions/).
+pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
+    --output ../../products/your_product/mcp/tools.yaml
 
 # 2. Configure the YAML — enable tools, add scopes, annotations, descriptions
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
@@ -22,6 +27,30 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
 # 4. Generate handlers and schemas
 hogli build:openapi
 ```
+
+## Before you scaffold: fix the backend first
+
+The codegen pipeline can only generate correct tools if the Django backend exposes correct types.
+Read the [type system guide](../../../docs/published/handbook/engineering/type-system.md) for the full picture.
+
+Before scaffolding YAML, verify:
+
+1. **Serializers have explicit field types and `help_text`** —
+   these flow all the way to Zod `.describe()` in the generated tool.
+   Missing descriptions = agents guessing at parameters.
+   Use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
+   and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses to get typed Zod output
+   (see `posthog/api/alert.py` for the pattern).
+2. **Plain `ViewSet` methods have `@extend_schema(request=...)`** —
+   without it, drf-spectacular can't discover the request body
+   and the generated tool gets `z.object({})` (zero parameters).
+   `ModelViewSet` with a `serializer_class` is fine; plain `ViewSet` with manual validation is not.
+3. **Query parameters use `@validated_request`** or `@extend_schema` with a query serializer —
+   otherwise boolean and array query params may produce type mismatches in the generated code.
+
+If a generated tool has an empty or wrong schema, the fix is almost always on the Django side,
+not in the YAML config.
+For a full audit checklist and before/after examples, use the `improving-drf-endpoints` skill.
 
 ## When to add MCP tools
 

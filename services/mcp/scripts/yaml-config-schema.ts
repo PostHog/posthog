@@ -28,6 +28,13 @@ export const ToolConfigSchema = z
         include_params: z.array(z.string()).optional(),
         param_overrides: z.record(z.string(), z.object({ description: z.string().optional() }).strict()).optional(),
         mcp_version: z.number().int().positive().optional(),
+        ui_resource_uri: z.string().optional(),
+        /**
+         * When true, the tool issues PATCH { deleted: true } instead of DELETE.
+         * Use for endpoints backed by ForbidDestroyModel where soft-delete is the
+         * correct operation.
+         */
+        soft_delete: z.boolean().optional(),
     })
     .strict()
 

@@ -185,7 +185,7 @@ export class HogFunctionMonitoringService {
                         this.queueAppMetric(
                             {
                                 team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.functionId,
+                                app_source_id: result.invocation.parentRunId ?? result.invocation.functionId,
                                 metric_kind: result.error ? 'failure' : 'success',
                                 metric_name: result.error ? 'failed' : 'succeeded',
                                 count: 1,

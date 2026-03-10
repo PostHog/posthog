@@ -6,7 +6,6 @@ import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
@@ -22,6 +21,7 @@ import {
     Breadcrumb,
     Experiment,
     ExperimentProgressStatus,
+    ExperimentStatus,
     ExperimentVelocityStats,
     ExperimentsTabs,
     FeatureFlagType,
@@ -72,25 +72,51 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     evaluation_runtime: undefined,
 }
 
-export function isLaunched(experiment: Experiment): boolean {
-    return !!experiment?.start_date
+type StoredExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
+
+export function getStoredExperimentStatus(experiment: StoredExperimentStatusInput): ExperimentStatus {
+    if (!experiment) {
+        return ExperimentStatus.Draft
+    }
+
+    if (experiment.status) {
+        return experiment.status
+    }
+
+    // Fallback for stale fixtures and older mocked data during the transition.
+    if (experiment.end_date) {
+        return ExperimentStatus.Stopped
+    }
+    if (experiment.start_date) {
+        return ExperimentStatus.Running
+    }
+    return ExperimentStatus.Draft
 }
 
-export function hasEnded(experiment: Experiment): boolean {
-    return !!experiment?.end_date && dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day')
+export function isLaunched(experiment: StoredExperimentStatusInput): boolean {
+    return getStoredExperimentStatus(experiment) !== ExperimentStatus.Draft
 }
 
-export function getExperimentStatus(experiment: Experiment): ExperimentProgressStatus {
-    if (!isLaunched(experiment)) {
+export function hasEnded(experiment: StoredExperimentStatusInput): boolean {
+    return getStoredExperimentStatus(experiment) === ExperimentStatus.Stopped
+}
+
+export function getExperimentStatus(experiment: Experiment | null | undefined): ExperimentProgressStatus {
+    const status = getStoredExperimentStatus(experiment)
+
+    if (status === ExperimentStatus.Draft) {
         return ExperimentProgressStatus.Draft
-    } else if (!hasEnded(experiment)) {
+    }
+
+    if (status === ExperimentStatus.Running) {
         // When the feature flag is disabled, we show "Paused" to the user for better UX.
         // This is just a virtual status, the backend still considers the experiment "running".
-        if (experiment.feature_flag && !experiment.feature_flag.active) {
+        if (experiment?.feature_flag && !experiment.feature_flag.active) {
             return ExperimentProgressStatus.Paused
         }
         return ExperimentProgressStatus.Running
     }
+
     return ExperimentProgressStatus.Complete
 }
 

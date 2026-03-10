@@ -36,7 +36,10 @@ def _make_duckgres_conninfo(team_id: int) -> str:
         dbname=config["DUCKGRES_DATABASE"],
         user=config["DUCKGRES_USERNAME"],
         password=config["DUCKGRES_PASSWORD"],
-        sslmode="prefer",
+        sslmode="require",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
+        sslrootcert="/tmp/no.txt",
     )
 
 

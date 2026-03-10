@@ -82,11 +82,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
                                 <SceneTitleSection
                                     canEdit
-                                    name={issue.name}
+                                    name={issue.name ?? undefined}
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
-                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0"
+                                    className="pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0"
                                     actions={
                                         <div className="flex items-center gap-1">
                                             <StatusIndicator status={issue.status} withTooltip />

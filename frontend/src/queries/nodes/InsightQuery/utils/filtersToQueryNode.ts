@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { objectCleanWithEmpty } from 'lib/utils'
+import { isKeyOf, objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -294,16 +294,17 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
     if (!entity) {
         return undefined
     }
-    const record = { ...entity }
-    for (const key of Object.keys(record)) {
-        if (!['id', 'kind', 'name', 'type', 'order', 'uuid', 'custom_name'].includes(key)) {
-            delete record[key]
-        }
+
+    const { id, kind, name, type, order, uuid, custom_name } = entity
+    return {
+        ...('id' in entity ? { id } : {}),
+        ...('kind' in entity ? { kind } : {}),
+        ...('name' in entity ? { name } : {}),
+        ...('type' in entity ? { type } : {}),
+        ...('order' in entity ? { order } : {}),
+        ...('uuid' in entity ? { uuid } : {}),
+        ...('custom_name' in entity ? { custom_name } : {}),
     }
-    if ('id' in record && record.type === 'actions') {
-        record.id = Number(record.id)
-    }
-    return record
 }
 
 const processBool = (value: string | boolean | null | undefined): boolean | undefined => {
@@ -331,6 +332,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     if (!filters.insight) {
         throw new Error('filtersToQueryNode expects "insight"')
+    }
+    if (!isKeyOf(filters.insight, insightTypeToNodeKind)) {
+        throw new Error(`insightTypeToNodeKind has no key ${filters.insight}`)
     }
 
     const query: InsightsQueryBase<AnalyticsQueryResponseBase> = {
