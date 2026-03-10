@@ -61,3 +61,24 @@ class TestProvisioningResources(StripeProvisioningTestBase):
     def test_get_resource_missing_bearer_returns_401(self):
         res = self._get_signed(f"/api/agentic/provisioning/resources/{self.team.id}")
         assert res.status_code == 401
+
+    def test_get_resource_returns_service_id_from_create(self):
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "session_replay"},
+            token=token,
+        )
+        res = self._get_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}",
+            token=token,
+        )
+        assert res.json()["service_id"] == "session_replay"
+
+    def test_get_resource_defaults_service_id_without_create(self):
+        token = self._get_bearer_token()
+        res = self._get_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}",
+            token=token,
+        )
+        assert res.json()["service_id"] == "product_analytics"

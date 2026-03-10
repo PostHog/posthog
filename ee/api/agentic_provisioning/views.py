@@ -30,7 +30,7 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
+from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_stripe_signature
 
@@ -567,6 +567,9 @@ def provisioning_resources_create(request: Request) -> Response:
     except Team.DoesNotExist:
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
+    resolved_service_id = service_id or "product_analytics"
+    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
+
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -574,7 +577,7 @@ def provisioning_resources_create(request: Request) -> Response:
         {
             "status": "complete",
             "id": str(team_id),
-            "service_id": service_id or "product_analytics",
+            "service_id": resolved_service_id,
             "complete": {
                 "access_configuration": {
                     "api_key": team.api_token,
@@ -594,6 +597,18 @@ def provisioning_resources_create(request: Request) -> Response:
 @authentication_classes([])
 @permission_classes([])
 def provisioning_resource_detail(request: Request, resource_id: str) -> Response:
+    return _resolve_resource_response(request, resource_id)
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/resources/:id/rotate_credentials
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+def provisioning_rotate_credentials(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
@@ -619,6 +634,9 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
     except Team.DoesNotExist:
         return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
+    team.reset_token_and_save(user=user, is_impersonated_session=False)
+
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or "product_analytics"
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -626,7 +644,67 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
         {
             "status": "complete",
             "id": resource_id,
-            "service_id": "product_analytics",
+            "service_id": service_id,
+            "complete": {
+                "access_configuration": {
+                    "api_key": team.api_token,
+                    "host": host,
+                },
+            },
+        }
+    )
+
+
+def _resolve_resource_response(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    error = verify_stripe_signature(request)
+    if error:
+        return error
+
+    scoped_teams = access_token.scoped_teams or []
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "invalid_resource_id", "message": "Invalid resource ID"},
+            },
+            status=400,
+        )
+
+    if team_id not in scoped_teams:
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "forbidden", "message": "Resource not accessible with this token"},
+            },
+            status=403,
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return Response(
+            {"status": "error", "id": resource_id, "error": {"code": "not_found", "message": "Resource not found"}},
+            status=404,
+        )
+
+    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or "product_analytics"
+    region = get_instance_region() or "US"
+    host = _region_to_host(region)
+
+    return Response(
+        {
+            "status": "complete",
+            "id": resource_id,
+            "service_id": service_id,
             "complete": {
                 "access_configuration": {
                     "api_key": team.api_token,
