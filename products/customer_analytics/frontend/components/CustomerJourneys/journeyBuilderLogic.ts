@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
 import { funnelPathsExpansionLogic } from 'scenes/funnels/FunnelFlowGraph/funnelPathsExpansionLogic'
 import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
@@ -35,8 +36,6 @@ import {
     InsightLogicProps,
     StepOrderValue,
 } from '~/types'
-
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { customerAnalyticsConfigLogic } from '../../customerAnalyticsConfigLogic'
 import { customerJourneysLogic } from './customerJourneysLogic'
@@ -517,9 +516,20 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             }
 
             try {
+                const saveQuery: InsightVizNode<FunnelsQuery> = {
+                    ...query,
+                    source: {
+                        ...query.source,
+                        funnelsFilter: {
+                            ...query.source.funnelsFilter,
+                            funnelVizType: FunnelVizType.Steps,
+                        },
+                    },
+                }
+
                 if (editingJourneyId && editingInsightId) {
                     await insightsApi.update(editingInsightId, {
-                        query,
+                        query: saveQuery,
                         name: insightName,
                         description: journeyDescription.trim() || undefined,
                     })
@@ -530,7 +540,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                     })
                 } else {
                     const insight = await insightsApi.create({
-                        query,
+                        query: saveQuery,
                         name: insightName,
                         description: journeyDescription.trim() || undefined,
                         saved: true,
