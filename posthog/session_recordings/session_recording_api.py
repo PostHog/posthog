@@ -1425,6 +1425,7 @@ class SessionRecordingViewSet(
                         blocks, min_blob_key, max_blob_key, recording, storage, decompress
                     )
 
+    @tracer.start_as_current_span("_stream_blob_v2_to_client")
     def _stream_blob_v2_to_client(
         self,
         recording: SessionRecording,
