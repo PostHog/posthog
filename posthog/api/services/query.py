@@ -115,11 +115,28 @@ def _inline_join_field(tables: dict[str, object], join: object) -> None:
         type=field_type,
         schema_valid=True,
         table=getattr(joining_table, "name", joining_table_name),
-        fields=list(joining_fields.keys()),
+        fields=None,
         id=str(getattr(joining_table, "id", field_name))
         if field_type == DatabaseSerializedFieldType.VIEW
         else field_name,
     )
+
+
+def _streamline_join_fields(tables: dict[str, object]) -> None:
+    for table in tables.values():
+        fields = getattr(table, "fields", None)
+        if not isinstance(fields, dict):
+            continue
+
+        for field in fields.values():
+            if not isinstance(field, DatabaseSchemaField):
+                continue
+            if field.type in {
+                DatabaseSerializedFieldType.LAZY_TABLE,
+                DatabaseSerializedFieldType.VIEW,
+                DatabaseSerializedFieldType.MATERIALIZED_VIEW,
+            }:
+                field.fields = None
 
 
 def process_query_dict(
@@ -225,6 +242,7 @@ def process_query_model(
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
         filtered_tables = filter_schema_tables_for_connection(serialized_tables, source_ids)
+        _streamline_join_fields(filtered_tables)
         table_names = (
             set(filtered_tables.keys()) if source_ids or set(filtered_tables.keys()) != set(serialized_tables) else None
         )
