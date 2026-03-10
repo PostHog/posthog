@@ -20,6 +20,7 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
+    aiConsentGiven: boolean | undefined
 } & Record<PrefixedString<'session'>, SessionState>
 
 export type Env = {
