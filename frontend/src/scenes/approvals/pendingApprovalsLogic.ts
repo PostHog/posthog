@@ -2,6 +2,7 @@ import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -26,9 +27,9 @@ export const pendingApprovalsLogic = kea<pendingApprovalsLogicType>([
                         return []
                     }
 
-                    const response = await api.get(`api/environments/${values.currentTeamId}/change_requests`, {
-                        state: 'pending,approved',
-                    })
+                    const response = await api.get(
+                        `api/environments/${values.currentTeamId}/change_requests?${toParams({ state: 'pending,approved' })}`
+                    )
                     return response.results || []
                 },
             },

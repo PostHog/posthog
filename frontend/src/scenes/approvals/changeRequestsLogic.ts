@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -75,7 +76,9 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                         params.action_key = props.actionKey
                     }
 
-                    const response = await api.get(`api/environments/${values.currentTeamId}/change_requests`, params)
+                    const response = await api.get(
+                        `api/environments/${values.currentTeamId}/change_requests?${toParams(params)}`
+                    )
                     return response.results || []
                 },
             },
