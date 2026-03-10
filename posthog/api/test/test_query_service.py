@@ -131,7 +131,7 @@ class TestQueryService(APIBaseTest):
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
-    def test_database_schema_query_denormalizes_join_fields_into_tables(
+    def test_database_schema_query_preserves_serialized_join_fields(
         self,
         mock_create_for: MagicMock,
         mock_join_filter: MagicMock,
@@ -150,7 +150,17 @@ class TestQueryService(APIBaseTest):
         mock_database.has_schema_scope.return_value = True
         mock_database.serialize.return_value = {
             "selected_table": DatabaseSchemaDataWarehouseTable(
-                fields={},
+                fields={
+                    "selected_join": DatabaseSchemaField(
+                        name="selected_join",
+                        hogql_value="selected_join",
+                        type=DatabaseSerializedFieldType.LAZY_TABLE,
+                        schema_valid=True,
+                        table="selected_table_2",
+                        fields=["id", "email"],
+                        id="selected_join",
+                    )
+                },
                 format="Parquet",
                 id="selected_table_id",
                 name="selected_table",
@@ -235,7 +245,7 @@ class TestQueryService(APIBaseTest):
         join_field = source_table.fields["selected_join"]
         assert join_field.type == DatabaseSerializedFieldType.LAZY_TABLE
         assert join_field.table == "selected_table_2"
-        assert join_field.fields is None
+        assert join_field.fields == ["id", "email"]
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")

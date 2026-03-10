@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -11,10 +10,8 @@ if TYPE_CHECKING:
 
 from posthog.schema import (
     DashboardFilter,
-    DatabaseSchemaField,
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
-    DatabaseSerializedFieldType,
     DataWarehouseViewLink,
     HogQLAutocomplete,
     HogQLMetadata,
@@ -28,7 +25,7 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database
+from posthog.hogql.database.database import Database
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
@@ -73,63 +70,6 @@ def _connection_context(
     source = _validated_source_for_connection(team, connection_id)
     database = _database_for_connection_source(team, user, source) if require_database or source else None
     return source, database
-
-
-def _inline_join_field(tables: Mapping[str, object], join: object) -> None:
-    source_table_name = getattr(join, "source_table_name", None)
-    joining_table_name = getattr(join, "joining_table_name", None)
-    field_name = getattr(join, "field_name", None)
-    if not source_table_name or not joining_table_name or not field_name:
-        return
-
-    source_table = tables.get(source_table_name)
-    joining_table = tables.get(joining_table_name)
-    if source_table is None or joining_table is None:
-        return
-
-    source_fields = getattr(source_table, "fields", None)
-    joining_fields = getattr(joining_table, "fields", None)
-    if not isinstance(source_fields, dict) or not isinstance(joining_fields, dict):
-        return
-
-    field_type = (
-        DatabaseSerializedFieldType.VIEW
-        if getattr(joining_table, "type", None) in {"view", "materialized_view", "managed_view"}
-        else DatabaseSerializedFieldType.LAZY_TABLE
-    )
-    hogql_value = (
-        f"`{field_name}`"
-        if any(character in field_name for character in HOGQL_CHARACTERS_TO_BE_WRAPPED)
-        else field_name
-    )
-    source_fields[field_name] = DatabaseSchemaField(
-        name=field_name,
-        hogql_value=hogql_value,
-        type=field_type,
-        schema_valid=True,
-        table=getattr(joining_table, "name", joining_table_name),
-        fields=None,
-        id=str(getattr(joining_table, "id", field_name))
-        if field_type == DatabaseSerializedFieldType.VIEW
-        else field_name,
-    )
-
-
-def _streamline_join_fields(tables: Mapping[str, object]) -> None:
-    for table in tables.values():
-        fields = getattr(table, "fields", None)
-        if not isinstance(fields, dict):
-            continue
-
-        for field in fields.values():
-            if not isinstance(field, DatabaseSchemaField):
-                continue
-            if field.type in {
-                DatabaseSerializedFieldType.LAZY_TABLE,
-                DatabaseSerializedFieldType.VIEW,
-                DatabaseSerializedFieldType.MATERIALIZED_VIEW,
-            }:
-                field.fields = None
 
 
 def process_query_dict(
@@ -230,18 +170,13 @@ def process_query_model(
         assert database is not None
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
-        filtered_tables = serialized_tables
-        _streamline_join_fields(filtered_tables)
-        table_names = set(filtered_tables.keys()) if database.has_schema_scope() else None
-        if table_names is None and set(filtered_tables.keys()) != set(serialized_tables):
-            table_names = set(filtered_tables.keys())
+        table_names = set(serialized_tables.keys()) if database.has_schema_scope() else None
         joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
         if table_names is not None:
             joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
 
         join_models: list[DataWarehouseViewLink] = []
         for join in joins.iterator():
-            _inline_join_field(filtered_tables, join)
             join_models.append(
                 DataWarehouseViewLink.model_validate(
                     {
@@ -257,7 +192,7 @@ def process_query_model(
             )
 
         return DatabaseSchemaQueryResponse(
-            tables=filtered_tables,
+            tables=serialized_tables,
             joins=join_models,
         )
 
