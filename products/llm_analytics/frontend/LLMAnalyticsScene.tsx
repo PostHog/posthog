@@ -8,6 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -53,6 +54,7 @@ import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLo
 import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
+import { LLMAnalyticsReviews } from './traceReviews/LLMAnalyticsReviews'
 import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
@@ -379,6 +381,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
 const DOCS_URLS_BY_TAB: Record<string, string> = {
     traces: 'https://posthog.com/docs/llm-analytics/traces',
+    reviews: 'https://posthog.com/docs/llm-analytics/traces',
     generations: 'https://posthog.com/docs/llm-analytics/generations',
     sessions: 'https://posthog.com/docs/llm-analytics/sessions',
     errors: 'https://posthog.com/docs/llm-analytics/errors',
@@ -388,6 +391,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
+    reviews: 'Review traces with human feedback and optional scores.',
     generations: 'View individual LLM generations and their details.',
     users: 'Understand how users are interacting with your LLM features.',
     errors: 'Monitor and debug errors in your LLM pipeline.',
@@ -429,6 +433,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const isTraceReviewEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const { push } = useActions(router)
     const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
@@ -486,6 +491,21 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             link: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
             'data-attr': 'traces-tab',
         },
+        ...(isTraceReviewEnabled
+            ? [
+                  {
+                      key: 'reviews',
+                      label: 'Human reviews',
+                      content: (
+                          <LLMAnalyticsSetupPrompt thing="trace">
+                              <LLMAnalyticsReviews />
+                          </LLMAnalyticsSetupPrompt>
+                      ),
+                      link: combineUrl(urls.llmAnalyticsReviews(), searchParams).url,
+                      'data-attr': 'reviews-tab',
+                  } as LemonTab<string>,
+              ]
+            : []),
         {
             key: 'generations',
             label: 'Generations',
@@ -595,6 +615,10 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ) : null,
         ].filter(Boolean) as JSX.Element[]
     }, [featureFlags, isEarlyAdopter, isPromptManagementEnabled, searchParams, toggleProduct])
+
+    if (activeTab === 'reviews' && !isTraceReviewEnabled) {
+        return <NotFound object="page" />
+    }
 
     return (
         <SceneContent>

@@ -139,6 +139,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/live-debugger': ['LiveDebugger', 'liveDebugger'],
     '/llm-analytics/dashboard': ['LLMAnalytics', 'llmAnalyticsDashboard'],
     '/llm-analytics/generations': ['LLMAnalytics', 'llmAnalyticsGenerations'],
+    '/llm-analytics/reviews': ['LLMAnalytics', 'llmAnalyticsReviews'],
     '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
     '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
     '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
@@ -204,6 +205,8 @@ export const productRedirects: Record<
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability/generations': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/generations`, searchParams, hashParams).url,
+    '/llm-observability/reviews': (_params, searchParams, hashParams) =>
+        combineUrl(`/llm-analytics/reviews`, searchParams, hashParams).url,
     '/llm-observability/traces': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/traces`, searchParams, hashParams).url,
     '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
@@ -655,6 +658,7 @@ export const productUrls = {
     liveDebugger: (): string => '/live-debugger',
     llmAnalyticsDashboard: (): string => '/llm-analytics/dashboard',
     llmAnalyticsGenerations: (): string => '/llm-analytics/generations',
+    llmAnalyticsReviews: (): string => '/llm-analytics/reviews',
     llmAnalyticsTraces: (): string => '/llm-analytics/traces',
     llmAnalyticsTrace: (
         id: string,

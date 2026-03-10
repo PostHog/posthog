@@ -79,6 +79,7 @@ import { SearchHighlight } from './SearchHighlight'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
+import { TraceReviewButton } from './traceReviews/TraceReviewButton'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
     formatLLMCost,
@@ -246,6 +247,7 @@ function TraceSceneWrapper(): JSX.Element {
                                 showBillingInfo={showBillingInfo}
                             />
                             <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
+                                <TraceReviewButton traceId={trace.id} />
                                 <DisplayOptionsSelect />
                                 {(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
                                     featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) && (

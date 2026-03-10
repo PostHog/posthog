@@ -12,6 +12,7 @@ from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
 from .sentiment import LLMAnalyticsSentimentViewSet
 from .summarization import LLMAnalyticsSummarizationViewSet
 from .text_repr import LLMAnalyticsTextReprViewSet
+from .trace_reviews import TraceReviewViewSet
 from .translate import LLMAnalyticsTranslateViewSet
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "LLMAnalyticsTextReprViewSet",
     "LLMAnalyticsSummarizationViewSet",
     "LLMAnalyticsTranslateViewSet",
+    "TraceReviewViewSet",
     "LLMEvaluationSummaryViewSet",
     "SUPPORTED_MODELS_WITH_THINKING",
     "DatasetViewSet",
