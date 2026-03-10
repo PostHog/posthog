@@ -190,7 +190,7 @@ async def export_recording_data(input: ExportContext) -> None:
             block_offset = int(match.group(1))
 
             try:
-                block_data = await storage.fetch_compressed_block(block.url, input.session_id, input.team_id)
+                block_data = await storage.fetch_block(block.url, input.session_id, input.team_id)
                 logger.info(f"Successfully fetched block data ({len(block_data)} bytes)")
             except RecordingDeletedError:
                 raise
