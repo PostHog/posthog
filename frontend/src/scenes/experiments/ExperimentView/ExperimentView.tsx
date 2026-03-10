@@ -284,6 +284,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                         <PendingChangeRequestBanner
                             resourceType="feature_flag"
                             resourceId={experiment.feature_flag.id}
+                            context="experiment"
                         />
                     )}
                     {usesNewQueryRunner ? <Info tabId={tabId} /> : <LegacyExperimentInfo />}

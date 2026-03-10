@@ -1224,12 +1224,18 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             const flagId = values.experiment.feature_flag.id
-            await featureFlagsLogic.asyncActions.updateFeatureFlag({
-                id: flagId,
-                payload: { active: isActive },
-            })
-
-            actions.loadExperiment({ triggeredBy: 'config_change' })
+            try {
+                await featureFlagsLogic.asyncActions.updateFeatureFlag({
+                    id: flagId,
+                    payload: { active: isActive },
+                })
+                lemonToast.success(`Experiment ${isActive ? 'resumed' : 'paused'} successfully`)
+                actions.loadExperiment({ triggeredBy: 'config_change' })
+            } catch (e: any) {
+                if (e.status !== 409) {
+                    throw e
+                }
+            }
         },
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
@@ -1418,13 +1424,11 @@ export const experimentLogic = kea<experimentLogicType>([
         pauseExperiment: async () => {
             await actions.setFeatureFlagActive(false)
             actions.closePauseExperimentModal()
-            lemonToast.success('The feature flag has been disabled')
             values.experiment && eventUsageLogic.actions.reportExperimentPaused(values.experiment)
         },
         resumeExperiment: async () => {
             await actions.setFeatureFlagActive(true)
             actions.closeResumeExperimentModal()
-            lemonToast.success('The feature flag has been enabled')
             values.experiment && eventUsageLogic.actions.reportExperimentResumed(values.experiment)
         },
         archiveExperiment: async () => {
