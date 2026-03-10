@@ -63,7 +63,7 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
 
 class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
-    ALERTS_ALLOWED_ON_FREE_TIER = 2
+    ALERTS_ALLOWED_ON_FREE_TIER = 5
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
