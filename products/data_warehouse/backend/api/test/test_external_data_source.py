@@ -27,6 +27,7 @@ from posthog.schema import (
 from posthog.models import Team
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -76,7 +77,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     def test_get_credential_fingerprint_handles_nested_fields(self):
-        fields = [
+        fields: list[FieldType] = [
             SourceFieldInputConfig(
                 name="password",
                 label="Password",
@@ -158,7 +159,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
     )
     def test_get_credential_fingerprint_handles_ssh_tunnel_auth_shapes(self, _label: str, ssh_value: dict):
-        fields = [SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="SSH tunnel")]
+        fields: list[FieldType] = [SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="SSH tunnel")]
 
         fingerprint = get_credential_fingerprint({"ssh_tunnel": ssh_value}, fields)
 
