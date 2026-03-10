@@ -275,6 +275,66 @@ function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry
     }
 }
 
+/**
+ * Parse a single ACP event object from an SSE stream into a LogEntry.
+ * Uses the same logic as parseLogs but for individual events arriving in real-time.
+ */
+export function parseLogEvent(
+    event: Record<string, unknown>,
+    index: number,
+    toolMap: Map<string, LogEntry>
+): LogEntry | null {
+    const id = `stream-${index}`
+
+    if (isACPNotification(event)) {
+        return parseACPNotification(event as ACPNotification, id, toolMap)
+    }
+
+    // Fall back to generic heuristics (same as parseLogLine for JSON objects)
+    const parsed = event as Record<string, string | undefined>
+    if (parsed.toolName || parsed.tool_name || parsed.tool) {
+        return {
+            id,
+            type: 'tool',
+            timestamp: parsed.timestamp || parsed.time,
+            toolName: parsed.toolName || parsed.tool_name || parsed.tool,
+            toolStatus: 'completed',
+            toolArgs: (parsed as Record<string, unknown>).args as Record<string, unknown> | undefined,
+            toolResult: (parsed as Record<string, unknown>).result,
+        }
+    }
+
+    if (parsed.level || parsed.severity) {
+        return {
+            id,
+            type: 'console',
+            timestamp: parsed.timestamp || parsed.time,
+            level: normalizeLevel(parsed.level || parsed.severity),
+            message: parsed.message || parsed.msg || parsed.text || JSON.stringify(event),
+        }
+    }
+
+    if (parsed.role === 'user' || parsed.type === 'user') {
+        return {
+            id,
+            type: 'user',
+            timestamp: parsed.timestamp || parsed.time,
+            message: parsed.content || parsed.message || parsed.text,
+        }
+    }
+
+    if (parsed.role === 'assistant' || parsed.type === 'agent' || parsed.type === 'assistant') {
+        return {
+            id,
+            type: 'agent',
+            timestamp: parsed.timestamp || parsed.time,
+            message: parsed.content || parsed.message || parsed.text,
+        }
+    }
+
+    return null
+}
+
 export function parseLogs(logs: string): LogEntry[] {
     if (!logs) {
         return []
