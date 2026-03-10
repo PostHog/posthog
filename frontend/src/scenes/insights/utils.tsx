@@ -17,19 +17,15 @@ import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
-    ActionsNode,
     AnyDataWarehouseNode,
     AnyEntityNode,
     BreakdownFilter,
     DashboardFilter,
-    DataWarehouseNode,
-    EventsNode,
     FileSystemIconType,
     GroupNode,
     HogQLQuery,
     HogQLVariable,
     InsightVizNode,
-    LifecycleDataWarehouseNode,
     Node,
     NodeKind,
     PathsFilter,

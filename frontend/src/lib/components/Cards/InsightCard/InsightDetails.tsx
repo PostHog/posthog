@@ -27,8 +27,6 @@ import {
     HogQLQuery,
     HogQLVariable,
     InsightQueryNode,
-    DataWarehouseNode,
-    LifecycleDataWarehouseNode,
     LifecycleQuery,
     Node,
     NodeKind,
