@@ -58,7 +58,7 @@ export function FeatureFlagEvaluationTags({
 
     const handleSaveTags = (): void => {
         if (onSave) {
-            onSave(localTags, localEvaluationTags)
+            onSave(localTags, evaluationTags)
             setIsEditingTags(false)
         } else {
             saveTags()
@@ -67,7 +67,7 @@ export function FeatureFlagEvaluationTags({
 
     const handleSaveContexts = (): void => {
         if (onSave) {
-            onSave(localTags, localEvaluationTags)
+            onSave(tags, localEvaluationTags)
             setIsEditingContexts(false)
         } else {
             saveContexts()

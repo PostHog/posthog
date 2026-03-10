@@ -390,9 +390,15 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
-        # Accept both field names; prefer evaluation_contexts if provided
+        # Accept both field names; prefer evaluation_contexts if provided.
+        # Use explicit `in` checks rather than `or` to avoid treating [] as falsy.
         if hasattr(self, "initial_data"):
-            raw = self.initial_data.get("evaluation_contexts") or self.initial_data.get("evaluation_tags")
+            if "evaluation_contexts" in self.initial_data:
+                raw = self.initial_data["evaluation_contexts"]
+            elif "evaluation_tags" in self.initial_data:
+                raw = self.initial_data["evaluation_tags"]
+            else:
+                raw = None
             if raw is not None:
                 if not isinstance(raw, list) or len(raw) > 50:
                     raise serializers.ValidationError("evaluation_contexts must be a list of at most 50 items.")
