@@ -11,7 +11,7 @@ from rest_framework import status
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.api.vercel.vercel_connect import _get_connect_cache_key
+from ee.api.vercel.vercel_connect import _get_connect_bound_key, _get_connect_cache_key
 from ee.vercel.client import OAuthTokenResponse
 
 CACHED_SESSION_DATA = {
@@ -91,7 +91,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert location.startswith("/connect/vercel/link?")
         parsed = parse_qs(urlparse(location).query)
         assert "session" in parsed
-        assert parsed["next"] == ["https://vercel.com/done"]
+        assert "next" not in parsed
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
@@ -112,6 +112,52 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert "evil.com" not in location
         parsed = parse_qs(urlparse(location).query)
         assert "next" not in parsed
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_javascript_uri_is_stripped(self, mock_client_class):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
+            access_token="tok_123",
+            token_type="Bearer",
+            installation_id="icfg_new",
+            user_id="usr_1",
+        )
+
+        response = self.client.get(self.url, {"code": "good_code", "next": "javascript:alert(document.cookie)"})
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "javascript" not in location
+
+        parsed = parse_qs(urlparse(location).query)
+        session_key = parsed["session"][0]
+        cached_data = cache.get(_get_connect_cache_key(session_key))
+        assert cached_data["next_url"] == ""
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_data_uri_is_stripped(self, mock_client_class):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
+            access_token="tok_123",
+            token_type="Bearer",
+            installation_id="icfg_new",
+            user_id="usr_1",
+        )
+
+        response = self.client.get(self.url, {"code": "good_code", "next": "data:text/html,<script>alert(1)</script>"})
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert "data:" not in location
+
+        parsed = parse_qs(urlparse(location).query)
+        session_key = parsed["session"][0]
+        cached_data = cache.get(_get_connect_cache_key(session_key))
+        assert cached_data["next_url"] == ""
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
@@ -189,6 +235,53 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         org_names = [o["name"] for o in response.json()["organizations"]]
         assert "Other Org" not in org_names
 
+    def test_session_info_binds_user(self):
+        session_key = _seed_session()
+
+        self.client.get(self.url, {"session": session_key})
+
+        assert cache.get(_get_connect_bound_key(session_key)) == self.user.pk
+
+    def test_session_info_rejects_different_user(self):
+        session_key = _seed_session()
+        cache.set(_get_connect_bound_key(session_key), 999, timeout=600)
+
+        response = self.client.get(self.url, {"session": session_key})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_session_binding_immutable_across_users(self):
+        session_key = _seed_session()
+
+        self.client.get(self.url, {"session": session_key})
+        assert cache.get(_get_connect_bound_key(session_key)) == self.user.pk
+
+        other_user = self._create_user("attacker@posthog.com")
+        self.client.force_login(other_user)
+        response = self.client.get(self.url, {"session": session_key})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert cache.get(_get_connect_bound_key(session_key)) == self.user.pk
+
+    def test_session_bound_via_session_info_rejects_different_user_on_complete(self):
+        session_key = _seed_session()
+        complete_url = "/api/vercel/connect/complete"
+
+        self.client.get(self.url, {"session": session_key})
+
+        other_user = self._create_user("crossendpoint@posthog.com")
+        OrganizationMembership.objects.filter(user=other_user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        self.client.force_login(other_user)
+        response = self.client.post(
+            complete_url,
+            {"session": session_key, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_unauthenticated_returns_403(self):
         self.client.logout()
         session_key = _seed_session()
@@ -244,6 +337,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         )
 
         assert cache.get(_get_connect_cache_key(session_key)) is None
+        assert cache.get(_get_connect_bound_key(session_key)) is None
 
     def test_non_member_returns_403(self):
         other_org = Organization.objects.create(name="Not My Org")
@@ -292,6 +386,68 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already has a Vercel integration" in response.json()["detail"]
+
+    def test_complete_rejects_different_user(self):
+        other_user = self._create_user("other@posthog.com")
+        session_key = _seed_session()
+        cache.set(_get_connect_bound_key(session_key), other_user.pk, timeout=600)
+
+        response = self.client.post(
+            self.url,
+            {"session": session_key, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_complete_binds_user_if_session_info_was_not_called(self):
+        session_key = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {"session": session_key, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_complete_binds_user_and_verifies_binding_in_cache(self):
+        session_key = _seed_session()
+
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_existing",
+            config={},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            self.url,
+            {"session": session_key, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert cache.get(_get_connect_cache_key(session_key)) is not None
+        assert cache.get(_get_connect_bound_key(session_key)) == self.user.pk
+
+    def test_replay_after_consumption_returns_400(self):
+        session_key = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {"session": session_key, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        response = self.client.post(
+            self.url,
+            {"session": session_key, "organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
