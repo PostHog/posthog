@@ -2078,6 +2078,7 @@ describe('mergeResponsesByQuestion', () => {
                 type: SurveyQuestionType.SingleChoice,
                 data: [{ label: 'Yes', value: 5, isPredefined: true }],
                 totalResponses: 6,
+                noResponseCount: 0,
             },
         }
         const openEnded: ResponsesByQuestion = {
@@ -2085,6 +2086,7 @@ describe('mergeResponsesByQuestion', () => {
                 type: SurveyQuestionType.SingleChoice,
                 data: [{ label: 'Custom answer', value: 1, isPredefined: false, distinctId: 'u1', timestamp: 'ts' }],
                 totalResponses: 0,
+                noResponseCount: 0,
             },
         }
 
@@ -2101,6 +2103,7 @@ describe('mergeResponsesByQuestion', () => {
                 type: SurveyQuestionType.Rating,
                 data: [{ label: '5', value: 10, isPredefined: true }],
                 totalResponses: 10,
+                noResponseCount: 0,
             },
         }
 

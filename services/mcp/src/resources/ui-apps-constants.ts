@@ -20,8 +20,49 @@
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 
 /**
- * Demo app for testing MCP Apps SDK integration.
- * Used by: demo-mcp-ui-apps
- * Displays SDK events and tool result data for debugging.
+ * Debug app for testing MCP Apps SDK integration.
+ * Used by: debug-mcp-ui-apps
+ * Displays SDK events, tool result data, and Mosaic component showcase.
  */
-export const DEMO_RESOURCE_URI = 'ui://posthog/demo.html'
+export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
+
+/**
+
+ * Action detail visualization.
+ * Used by: action-get, action-create, action-update
+ */
+export const ACTION_RESOURCE_URI = 'ui://posthog/action.html'
+
+/**
+ * Action list visualization.
+ * Used by: actions-get-all
+ */
+export const ACTION_LIST_RESOURCE_URI = 'ui://posthog/action-list.html'
+
+/**
+
+ * Cohort detail visualization.
+ * Used by: cohorts-retrieve, cohorts-create, cohorts-partial-update
+ */
+export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
+/**
+ * Cohort list visualization.
+ * Used by: cohorts-list
+ */
+export const COHORT_LIST_RESOURCE_URI = 'ui://posthog/cohort-list.html'
+
+/**
+ * Error details visualization with stack traces.
+ * Used by: error-details
+ */
+export const ERROR_DETAILS_RESOURCE_URI = 'ui://posthog/error-details.html'
+/**
+ * Error tracking issue detail visualization.
+ * Used by: error-tracking-issues-retrieve, error-tracking-issues-partial-update
+ */
+export const ERROR_ISSUE_RESOURCE_URI = 'ui://posthog/error-issue.html'
+/**
+ * Error tracking issue list visualization.
+ * Used by: error-tracking-issues-list
+ */
+export const ERROR_ISSUE_LIST_RESOURCE_URI = 'ui://posthog/error-issue-list.html'

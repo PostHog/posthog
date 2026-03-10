@@ -74,8 +74,9 @@ func main() {
 	subChan := make(chan events.Subscription, 10000)
 	unSubChan := make(chan events.Subscription, 10000)
 
-	go stats.KeepStats(statsChan)
-	go sessionStats.KeepStats(ctx, sessionStatsChan)
+	flushInterval := time.Duration(config.Redis.FlushIntervalMs) * time.Millisecond
+	go stats.KeepStats(statsChan, flushInterval)
+	go sessionStats.KeepStats(ctx, sessionStatsChan, flushInterval)
 
 	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka, geolocator, phEventChan, statsChan, config.Parallelism)
 	if err != nil {
