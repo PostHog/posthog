@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconLlmPromptManagement } from '@posthog/icons'
@@ -92,6 +93,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
     }
 
     const clearLinkedSourceState = (): void => {
+        posthog.capture('llma playground source unlinked')
         clearLinkedSource()
         router.actions.replace(combineUrl(urls.llmAnalyticsPlayground(), cleanSourceSearchParams(searchParams)).url)
     }

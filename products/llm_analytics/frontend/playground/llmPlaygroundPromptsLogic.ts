@@ -1,5 +1,6 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -605,6 +606,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
 
     listeners(({ actions, values, props }) => ({
         resetPlayground: () => {
+            posthog.capture('llma playground reset')
             const activeTabId = sceneLogic.findMounted()?.values.activeTabId
             const isActiveTab = !activeTabId || activeTabId === props.tabId
             if (isActiveTab) {
@@ -613,7 +615,16 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 )
             }
         },
+        addPromptConfig: () => {
+            // New total after adding — listeners run post-reducer
+            posthog.capture('llma playground prompt config added', {
+                prompt_count: values.promptConfigs.length,
+            })
+        },
         removePromptConfig: ({ promptId }) => {
+            posthog.capture('llma playground prompt config removed', {
+                prompt_count: values.promptConfigs.length,
+            })
             if (values.promptConfigs.length === 0) {
                 actions.setPromptConfigs([createPromptConfig({ id: INITIAL_PROMPT.id })])
                 actions.setActivePromptId(INITIAL_PROMPT.id)
@@ -625,7 +636,28 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
+        addMessage: () => {
+            posthog.capture('llma playground message added', {
+                message_count: values.activePromptConfig?.messages.length ?? 0,
+            })
+        },
+        deleteMessage: () => {
+            posthog.capture('llma playground message removed', {
+                message_count: values.activePromptConfig?.messages.length ?? 0,
+            })
+        },
+        setTools: ({ tools }) => {
+            posthog.capture('llma playground tools configured', {
+                action: tools ? 'set' : 'clear',
+                tool_count: tools?.length ?? 0,
+            })
+        },
+
         setupPlaygroundFromEvent: async ({ payload }) => {
+            const sourceType = payload.sourceType ?? (payload.input ? 'trace' : null)
+            posthog.capture('llma playground opened from source', {
+                source_type: sourceType ?? 'unknown',
+            })
             actions.setSourceSetupLoading(true)
             const { input, tools, systemPrompt } = payload
             const currentPrompt = values.promptConfigs[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
@@ -748,6 +780,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         },
 
         saveToLinkedPrompt: async () => {
+            posthog.capture('llma playground saved to source', { action: 'save_to_linked_prompt' })
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.promptName) {
                 lemonToast.error('No linked prompt to save to')
@@ -798,6 +831,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         },
 
         saveToLinkedEvaluation: async ({ modelConfig }) => {
+            posthog.capture('llma playground saved to source', { action: 'save_to_linked_evaluation' })
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.evaluationId) {
                 lemonToast.error('No linked evaluation to save to')
@@ -842,6 +876,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         },
 
         saveAsNewPrompt: async ({ name }) => {
+            posthog.capture('llma playground saved to source', { action: 'save_as_new_prompt' })
             const prompt = values.promptConfigs[0]
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
@@ -881,6 +916,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         },
 
         saveAsNewEvaluation: async ({ name, modelConfig }) => {
+            posthog.capture('llma playground saved to source', { action: 'save_as_new_evaluation' })
             const prompt = values.promptConfigs[0]
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
