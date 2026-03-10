@@ -677,6 +677,12 @@ def changes_between(
             left_value = "masked" if field_name in masked_fields else left
             right_value = "masked" if field_name in masked_fields else right
 
+            # Model instances from FK fields need to be converted to serializable representations
+            if isinstance(left_value, models.Model):
+                left_value = describe_change(left_value)
+            if isinstance(right_value, models.Model):
+                right_value = describe_change(right_value)
+
             # Use the override name if it exists
             display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
             if left_is_none and right_is_none:

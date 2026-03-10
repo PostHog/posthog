@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -147,7 +149,7 @@ These permissions are automatically pre-filled in the API key creation form if y
         return [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_INCREMENTAL_FIELDS
                 supports_append=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_INCREMENTAL_FIELDS.get(endpoint, []),
@@ -172,12 +174,17 @@ These permissions are automatically pre-filled in the API key creation form if y
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
         return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)
 
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
     def source_for_pipeline(
         self,
         config: StripeSourceConfig,
         resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        webhook_source_manager = self.get_webhook_source_manager(inputs)
+
         return stripe_source(
             api_key=config.stripe_secret_key,
             account_id=config.stripe_account_id,
@@ -187,4 +194,5 @@ These permissions are automatically pre-filled in the API key creation form if y
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            webhook_source_manager=webhook_source_manager,
         )
