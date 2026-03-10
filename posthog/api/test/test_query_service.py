@@ -9,11 +9,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaField,
     DatabaseSchemaPostHogTable,
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
+    DatabaseSerializedFieldType,
     HogLanguage,
     HogQLAutocomplete,
     HogQLAutocompleteResponse,
@@ -156,6 +158,112 @@ class TestQueryService(APIBaseTest):
             source_table_name__in={"selected_table", "selected_table_2"},
             joining_table_name__in={"selected_table", "selected_table_2"},
         )
+
+    @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
+    @patch("posthog.api.services.query.Database.create_for")
+    def test_database_schema_query_denormalizes_join_fields_into_tables(
+        self,
+        mock_create_for: MagicMock,
+        mock_join_filter: MagicMock,
+    ):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+
+        mock_database = MagicMock()
+        mock_database.serialize.return_value = {
+            "selected_table": DatabaseSchemaDataWarehouseTable(
+                fields={},
+                format="Parquet",
+                id="selected_table_id",
+                name="selected_table",
+                url_pattern="direct://postgres",
+                schema=DatabaseSchemaSchema(
+                    id="schema-selected",
+                    name="selected_table",
+                    should_sync=True,
+                    incremental=False,
+                ),
+                source=DatabaseSchemaSource(
+                    id=str(selected_source.id),
+                    status=selected_source.status,
+                    source_type=selected_source.source_type,
+                    access_method=selected_source.access_method,
+                    prefix=selected_source.prefix or "",
+                ),
+            ),
+            "selected_table_2": DatabaseSchemaDataWarehouseTable(
+                fields={
+                    "id": DatabaseSchemaField(
+                        name="id",
+                        hogql_value="id",
+                        type=DatabaseSerializedFieldType.STRING,
+                        schema_valid=True,
+                    ),
+                    "email": DatabaseSchemaField(
+                        name="email",
+                        hogql_value="email",
+                        type=DatabaseSerializedFieldType.STRING,
+                        schema_valid=True,
+                    ),
+                },
+                format="Parquet",
+                id="selected_table_2_id",
+                name="selected_table_2",
+                url_pattern="direct://postgres",
+                schema=DatabaseSchemaSchema(
+                    id="schema-selected-2",
+                    name="selected_table_2",
+                    should_sync=True,
+                    incremental=False,
+                ),
+                source=DatabaseSchemaSource(
+                    id=str(selected_source.id),
+                    status=selected_source.status,
+                    source_type=selected_source.source_type,
+                    access_method=selected_source.access_method,
+                    prefix=selected_source.prefix or "",
+                ),
+            ),
+        }
+        mock_create_for.return_value = mock_database
+
+        join_for_selected_source = SimpleNamespace(
+            id="1",
+            source_table_name="selected_table",
+            source_table_key="selected_table.id",
+            joining_table_name="selected_table_2",
+            joining_table_key="selected_table_2.id",
+            field_name="selected_join",
+            configuration={},
+            created_at=selected_source.created_at,
+        )
+        mock_join_queryset = MagicMock()
+        mock_filtered_join_queryset = MagicMock()
+        mock_join_queryset.exclude.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.filter.return_value = mock_filtered_join_queryset
+        mock_filtered_join_queryset.iterator.return_value = iter([join_for_selected_source])
+        mock_join_filter.return_value = mock_join_queryset
+
+        response = cast(
+            DatabaseSchemaQueryResponse,
+            process_query_model(
+                self.team,
+                DatabaseSchemaQuery(connectionId=str(selected_source.id)),
+            ),
+        )
+
+        source_table = cast(DatabaseSchemaDataWarehouseTable, response.tables["selected_table"])
+        assert "selected_join" in source_table.fields
+        join_field = source_table.fields["selected_join"]
+        assert join_field.type == DatabaseSerializedFieldType.LAZY_TABLE
+        assert join_field.table == "selected_table_2"
+        assert join_field.fields == ["id", "email"]
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.Database.create_for")
