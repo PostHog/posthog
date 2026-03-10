@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -91,6 +92,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
             featureFlagLogic,
             ['featureFlags'],
+            projectLogic,
+            ['currentProjectId'],
         ],
         actions: [
             eventUsageLogic,
@@ -368,7 +371,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 }
 
                 const response = (await api.create(
-                    `api/projects/@current/experiments`,
+                    `api/projects/${values.currentProjectId}/experiments`,
                     experimentPayload
                 )) as Experiment
 
