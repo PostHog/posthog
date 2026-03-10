@@ -36,6 +36,8 @@ import {
     StepOrderValue,
 } from '~/types'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { customerAnalyticsConfigLogic } from '../../customerAnalyticsConfigLogic'
 import { customerJourneysLogic } from './customerJourneysLogic'
 import type { journeyBuilderLogicType } from './journeyBuilderLogicType'
@@ -152,6 +154,12 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 'updateJourneySuccess',
                 'updateJourneyFailure',
             ],
+            eventUsageLogic,
+            [
+                'reportCustomerJourneyCreated',
+                'reportCustomerJourneyBuilderStepAdded',
+                'reportCustomerJourneyBuilderStepRemoved',
+            ],
         ],
         values: [
             featureFlagLogic,
@@ -246,6 +254,14 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 resetBuilder: () => null,
             },
         ],
+        creationSource: [
+            null as string | null,
+            {
+                applyTemplate: (_, { templateKey }) => templateKey as string,
+                loadFromInsight: () => 'existing_funnel',
+                resetBuilder: () => null,
+            },
+        ],
     }),
 
     selectors({
@@ -321,6 +337,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             const query = { ...values.query, source: { ...values.query.source, series } }
             actions.setQuery(query)
             actions.setInsightQuery(query)
+            actions.reportCustomerJourneyBuilderStepAdded(insertAtIndex, series.length)
         },
 
         removeStep: ({ stepIndex }) => {
@@ -331,6 +348,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             const query = { ...values.query, source: { ...values.query.source, series } }
             actions.setQuery(query)
             actions.setInsightQuery(query)
+            actions.reportCustomerJourneyBuilderStepRemoved(stepIndex, series.length)
         },
 
         updateStepEvent: ({ stepIndex, value, groupType, item }) => {
@@ -522,6 +540,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                         name,
                         description: journeyDescription.trim() || undefined,
                     })
+                    actions.reportCustomerJourneyCreated(name, series.length, values.creationSource)
                 }
 
                 actions.resetBuilder()

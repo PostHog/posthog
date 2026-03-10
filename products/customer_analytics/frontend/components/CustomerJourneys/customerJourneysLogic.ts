@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUUIDLike } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
@@ -27,6 +28,15 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerJourneys', 'customerJourneysLogic']),
     props({} as CustomerJourneysLogicProps),
     key((props) => props.key ?? 'default'),
+    connect(() => ({
+        actions: [
+            eventUsageLogic,
+            [
+                'reportCustomerJourneyViewed',
+                'reportCustomerJourneyUpdated',
+            ],
+        ],
+    })),
     actions({
         setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
         selectFirstJourneyIfNeeded: (journeys: CustomerJourneyApi[]) => ({ journeys }),
@@ -103,6 +113,13 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         updateJourneySuccess: ({ journeys }) => {
             lemonToast.success('Customer journey updated')
             actions.selectFirstJourneyIfNeeded(journeys)
+            const journey = values.activeJourney
+            if (journey) {
+                const stepCount =
+                    (values.activeInsight?.query as InsightVizNode<FunnelsQuery> | undefined)?.source?.series
+                        ?.length ?? 0
+                actions.reportCustomerJourneyUpdated(journey.id, journey.name, stepCount)
+            }
         },
         updateJourneyFailure: ({ error }) => {
             posthog.captureException(error)
@@ -129,6 +146,15 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         },
         setActiveJourneyId: () => {
             actions.loadActiveInsight()
+        },
+        loadActiveInsightSuccess: () => {
+            const journey = values.activeJourney
+            const insight = values.activeInsight
+            if (journey && insight) {
+                const stepCount =
+                    (insight.query as InsightVizNode<FunnelsQuery> | undefined)?.source?.series?.length ?? 0
+                actions.reportCustomerJourneyViewed(journey.id, journey.name, stepCount)
+            }
         },
     })),
     selectors({

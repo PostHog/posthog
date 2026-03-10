@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { isEmptyObject } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -25,6 +26,10 @@ export const journeyTemplatePickerLogic = kea<journeyTemplatePickerLogicType>([
     ]),
 
     connect(() => ({
+        actions: [
+            eventUsageLogic,
+            ['reportCustomerJourneyTemplateSelected', 'reportCustomerJourneyExistingFunnelSelected'],
+        ],
         values: [customerAnalyticsConfigLogic, ['signupEvent', 'signupPageviewEvent', 'paymentEvent']],
     })),
 
@@ -83,6 +88,7 @@ export const journeyTemplatePickerLogic = kea<journeyTemplatePickerLogicType>([
 
     listeners(({ actions, values }) => ({
         selectTemplate: ({ templateKey }) => {
+            actions.reportCustomerJourneyTemplateSelected(templateKey)
             if (templateKey === 'scratch') {
                 router.actions.push(urls.customerJourneyBuilder())
             } else {
@@ -90,6 +96,7 @@ export const journeyTemplatePickerLogic = kea<journeyTemplatePickerLogicType>([
             }
         },
         selectExistingFunnel: ({ insightId }) => {
+            actions.reportCustomerJourneyExistingFunnelSelected(insightId)
             router.actions.push(urls.customerJourneyBuilder() + '?fromInsight=' + insightId)
         },
         toggleExistingFunnels: () => {
