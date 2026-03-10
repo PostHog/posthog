@@ -9,9 +9,9 @@ import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 
-interface TableDisplayProps extends Pick<LemonSelectProps<ChartDisplayType>, 'disabledReason'> {}
+interface TableDisplayProps extends Pick<LemonSelectProps<ChartDisplayType>, 'disabledReason' | 'size'> {}
 
-export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element => {
+export const TableDisplay = ({ disabledReason, size }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
     const { autoVisualizationType, hasDateTimeColumns, visualizationType } = useValues(dataVisualizationLogic)
 
@@ -107,6 +107,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
     return (
         <LemonSelect
             disabledReason={disabledReason}
+            size={size}
             value={visualizationType}
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType)}
             onChange={(value) => {

@@ -23,6 +23,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { FixErrorButton } from './components/FixErrorButton'
 import { editorSizingLogic } from './editorSizingLogic'
+import { FiltersDropdown } from './FiltersDropdown'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
@@ -37,7 +38,8 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
 
-    const { queryInput, sourceQuery, originalQueryInput, suggestedQueryInput, editingView } = useValues(sqlEditorLogic)
+    const { queryInput, sourceQuery, originalQueryInput, suggestedQueryInput, editingView, showLegacyFilters } =
+        useValues(sqlEditorLogic)
 
     const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading } = useActions(sqlEditorLogic)
 
@@ -61,6 +63,13 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowPr
                     <LemonDivider vertical />
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                    />
+                    <FiltersDropdown
+                        disabledReason={
+                            !showLegacyFilters
+                                ? "Add a '{filters}' placeholder to queries from the events, sessions, logs or groups table to use filters"
+                                : undefined
+                        }
                     />
                 </div>
 

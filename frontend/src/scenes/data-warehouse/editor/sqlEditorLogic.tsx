@@ -23,6 +23,8 @@ import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-uti
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -166,6 +168,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['drafts'],
             outputPaneLogic({ tabId: props.tabId }),
             ['activeTab as outputActiveTab'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -187,6 +193,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
+            filterTestAccountsDefaultsLogic,
+            ['setLocalDefault'],
         ],
     })),
     actions(() => ({
@@ -1064,7 +1072,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...values.sourceQuery,
                         source: {
                             ...values.sourceQuery.source,
-                            filters: {},
+                            filters: {
+                                filterTestAccounts: values.filterTestAccountsDefault,
+                            },
                         },
                     })
                 }
@@ -1208,6 +1218,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput) => !!queryInput],
+        hasTestAccountFilters: [
+            (s) => [s.currentTeam],
+            (currentTeam) => (currentTeam?.test_account_filters || []).length > 0,
+        ],
         isEmbeddedMode: [
             () => [(_, p: SqlEditorLogicProps) => p.mode],
             (mode) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene),
