@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class AnthropicMessagesRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="ignore")
 
     model: str
     messages: list[dict[str, Any]]
@@ -13,7 +13,7 @@ class AnthropicMessagesRequest(BaseModel):
 
 
 class AnthropicCountTokensRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="ignore")
 
     model: str
     messages: list[dict[str, Any]]
