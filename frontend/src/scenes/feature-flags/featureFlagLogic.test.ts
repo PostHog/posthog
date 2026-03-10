@@ -1,6 +1,9 @@
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -68,6 +71,57 @@ describe('featureFlagLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.useRealTimers()
+    })
+
+    describe('tab isolation', () => {
+        it('keeps new-flag drafts separate per tab', async () => {
+            const logicA = featureFlagLogic({ id: 'new', tabId: 'tab-a' })
+            const logicB = featureFlagLogic({ id: 'new', tabId: 'tab-b' })
+
+            logicA.mount()
+            logicB.mount()
+
+            await expectLogic(logicA).toFinishAllListeners()
+            await expectLogic(logicB).toFinishAllListeners()
+
+            const updatedFlag = { ...NEW_FLAG, key: 'flag-a', name: 'Flag A' }
+
+            await expectLogic(logicA, () => {
+                logicA.actions.setFeatureFlag(updatedFlag)
+            }).toMatchValues({
+                featureFlag: partial({ key: 'flag-a', name: 'Flag A' }),
+            })
+
+            expect(logicB.values.featureFlag.key).toEqual('')
+            expect(logicB.values.featureFlag.name).toEqual('')
+
+            logicA.unmount()
+            logicB.unmount()
+        })
+
+        it('preserves new-flag drafts when the URL is pushed', async () => {
+            const logicNew = featureFlagLogic({ id: 'new', tabId: 'tab-a' })
+
+            logicNew.mount()
+
+            await expectLogic(logicNew).toFinishAllListeners()
+
+            await expectLogic(logicNew, () => {
+                logicNew.actions.setFeatureFlagValue('key', 'draft-key')
+                logicNew.actions.setFeatureFlagValue('name', 'Draft Flag')
+            }).toMatchValues({
+                featureFlag: partial({ key: 'draft-key', name: 'Draft Flag' }),
+            })
+
+            router.actions.push(urls.featureFlag('new'))
+
+            await expectLogic(logicNew).toFinishAllListeners()
+
+            expect(logicNew.values.featureFlag.key).toEqual('draft-key')
+            expect(logicNew.values.featureFlag.name).toEqual('Draft Flag')
+
+            logicNew.unmount()
+        })
     })
 
     describe('setMultivariateEnabled functionality', () => {

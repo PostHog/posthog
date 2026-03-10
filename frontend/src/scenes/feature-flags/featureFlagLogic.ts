@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import {
     actions,
     afterMount,
@@ -206,6 +207,7 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
 
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
+    tabId?: string
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -328,6 +330,8 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     }
 }
 
+const CLEAN_NEW_FLAG = cleanFlag(NEW_FLAG) as FeatureFlagType
+
 // Strip out sort_key from groups before saving. The sort_key is here for React to be able to
 // render the release conditions in the correct order.
 function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupType[] | undefined {
@@ -338,9 +342,9 @@ function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupTyp
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([
-    path(['scenes', 'feature-flags', 'featureFlagLogic']),
+    path((key) => ['scenes', 'feature-flags', 'featureFlagLogic', key]),
     props({} as FeatureFlagLogicProps),
-    key(({ id }) => id ?? 'unknown'),
+    key(({ id, tabId }) => (tabId ? `${id ?? 'unknown'}-${tabId}` : String(id ?? 'unknown'))),
     connect(() => ({
         values: [
             teamLogic,
@@ -1999,9 +2003,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         actions.loadFeatureFlag()
                         return
                     }
-                    // When pushing to `/new` and the feature flag already has default tags loaded, do not load the flag again
-                    if (props.id === 'new' && values.featureFlag.id == null && values.featureFlag.tags?.length > 0) {
-                        return
+                    // When pushing to `/new`, preserve any draft edits instead of reloading defaults
+                    if (props.id === 'new' && values.featureFlag.id == null) {
+                        const hasDraftChanges = !equal(cleanFlag(values.featureFlag), CLEAN_NEW_FLAG)
+                        if (hasDraftChanges) {
+                            return
+                        }
                     }
                     actions.loadFeatureFlag()
                 } else {
