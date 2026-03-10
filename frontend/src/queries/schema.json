@@ -17115,6 +17115,12 @@
         "GroupPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
                 "group_type_index": {
                     "anyOf": [
                         {
