@@ -99,7 +99,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'isNotFound',
                     'trackedWindow',
                     'snapshotSources',
-                    'snapshotsBySources',
                     'snapshotsLoading',
                     'snapshotsLoaded',
                     'currentTeam',
@@ -194,11 +193,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             cache.processingCache = cache.processingCache || { snapshots: {} }
 
             const sources = values.snapshotSources
-            let snapshotsBySource
-            if (values.snapshotStore && sources) {
-                // Build from store entries so processAllSnapshots can run
-                // Meta synthesis, mobile FullSnapshot creation, etc.
-                snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
+            const snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
+            if (sources) {
                 for (let i = 0; i < sources.length; i++) {
                     const entry = values.snapshotStore.getEntry(i)
                     if (entry?.state === 'loaded' && entry.processedSnapshots?.length) {
@@ -207,8 +203,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                         }
                     }
                 }
-            } else {
-                snapshotsBySource = values.snapshotsBySources
             }
 
             const result = await processAllSnapshots(
@@ -223,7 +217,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
             // Release raw snapshot arrays from the store — only the metadata
             // (fullSnapshotTimestamps, metaTimestamps, state) is still needed.
-            values.snapshotStore?.clearSnapshotData()
+            values.snapshotStore.clearSnapshotData()
 
             actions.setProcessedSnapshots(result)
         },
@@ -297,7 +291,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 trackedWindow: number | null,
                 snapshotsByWindowId: Record<number, eventWithTime[]>,
                 isLoadingSnapshots: boolean,
-                snapshotStore: SnapshotStore | null
+                snapshotStore: SnapshotStore
             ): RecordingSegment[] => {
                 const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
                 return convertSegmentKinds(segments, snapshotStore, isLoadingSnapshots)

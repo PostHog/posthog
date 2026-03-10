@@ -495,19 +495,19 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
 
         bad_inputs = {
-            "string": 123,
-            "dictionary": 123,
-            "boolean": 123,
+            "string": (123, "Value must be a string."),
+            "dictionary": (123, "Value must be a dictionary."),
+            "boolean": (123, "Value must be a boolean or a template string."),
         }
 
-        for key, value in bad_inputs.items():
+        for key, (value, expected_detail) in bad_inputs.items():
             res = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/", data={**payload, "inputs": {key: {"value": value}}}
             )
             assert res.json() == {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": f"Value must be a {key}.",
+                "detail": expected_detail,
                 "attr": f"inputs__{key}",
             }, f"Did not get error for {key}, got {res.json()}"
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()

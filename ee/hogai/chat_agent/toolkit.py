@@ -19,6 +19,7 @@ from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
     CreateFormTool,
+    CreateNotebookTool,
     ListDataTool,
     ManageMemoriesTool,
     ReadDataTool,
@@ -46,6 +47,7 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     ListDataTool,
     TodoWriteTool,
     SwitchModeTool,
+    CreateNotebookTool,
 ]
 
 TASK_TOOLS: list[type[MaxTool]] = [

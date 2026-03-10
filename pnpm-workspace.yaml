@@ -15,6 +15,7 @@ packages:
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app
+    - tools/*
     - rust/cyclotron-node
 
 catalog:
@@ -29,11 +30,11 @@ catalog:
     kea-waitfor: ^0.2.1
     kea-window-values: ^3.0.1
     # PostHog packages
-    posthog-js: ^1.358.0
+    posthog-js: ^1.360.0
     # Build tools
     '@parcel/packager-ts': 2.13.3
     '@parcel/transformer-typescript-types': 2.13.3
-    typescript: 5.4.5
+    typescript: 5.5.4
     oxfmt: ^0.35.0
     # Testing
     jest: ^29.7.0
@@ -71,3 +72,4 @@ minimumReleaseAgeExclude:
     - oxfmt@0.35.0
     - '@oxfmt/*'
     - bloommx@1.0.3
+    - kea-typegen@3.6.1

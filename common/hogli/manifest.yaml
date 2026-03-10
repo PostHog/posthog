@@ -290,6 +290,9 @@ build:
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
+    build:openapi-mcp-types:
+        cmd: pnpm --filter=@posthog/mcp run generate-mcp-types
+        description: Generate full TypeScript type namespace for MCP from OpenAPI schema
     build:openapi-mcp:
         cmd: pnpm --filter=@posthog/mcp run generate-orval-schemas
         description: Generate Orval Zod schemas for MCP tool handlers
@@ -300,6 +303,7 @@ build:
         steps:
             - build:openapi-schema
             - build:openapi-types
+            - build:openapi-mcp-types
             - build:openapi-mcp
             - build:openapi-mcp-tools
         description: Generate OpenAPI schema and TypeScript types from the backend
@@ -316,6 +320,12 @@ build:
     init:skill:
         cmd: python products/posthog_ai/scripts/build_skills.py --init
         description: Scaffold a new agent skill directory with SKILL.md boilerplate
+    sync:skill:
+        cmd: python products/posthog_ai/scripts/build_skills.py --sync
+        description: Build a product skill and sync to .agents/skills/ for local testing
+    unsync:skill:
+        cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
+        description: Remove a previously synced skill from .agents/skills/
 docker:
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
@@ -511,6 +521,9 @@ quality:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format Markdown files
+    format:mcp:
+        cmd: pnpm run --filter @posthog/mcp format
+        description: Format MCP files
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
