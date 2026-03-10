@@ -1,5 +1,6 @@
 import re
 import datetime
+from typing import Literal
 
 from django.core.exceptions import ValidationError
 
@@ -333,7 +334,7 @@ def extract_aggregations(row: dict, date_from: datetime.datetime, date_to: datet
     return aggregations
 
 
-def order_direction(query: ErrorTrackingQuery) -> str:
+def order_direction(query: ErrorTrackingQuery) -> Literal["ASC", "DESC"]:
     if query.orderDirection:
-        return query.orderDirection.value
+        return "ASC" if query.orderDirection.value == "ASC" else "DESC"
     return "ASC" if query.orderBy == "first_seen" else "DESC"

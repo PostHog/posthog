@@ -1,6 +1,7 @@
 import datetime
+from typing import cast
 
-from posthog.schema import ErrorTrackingQuery, HogQLFilters
+from posthog.schema import ErrorTrackingIssueFilter, ErrorTrackingQuery, HogQLFilters, PropertyGroupFilterValue
 
 from posthog.hogql import ast
 
@@ -37,7 +38,7 @@ class ErrorTrackingQueryV1Builder:
     def hogql_filters(self) -> HogQLFilters:
         return HogQLFilters(
             filterTestAccounts=self.query.filterTestAccounts,
-            properties=self._hogql_properties,
+            properties=cast(list, self._hogql_properties),
         )
 
     def process_results(self, columns: list[str], rows: list) -> list:
@@ -87,7 +88,7 @@ class ErrorTrackingQueryV1Builder:
     def _fetch_issues(self, ids: list) -> dict:
         status = self.query.status
         queryset = (
-            ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team, id__in=ids)
+            ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team, id__in=ids)  # pyright: ignore[reportAttributeAccessIssue]
         )
 
         if self.query.issueId:
@@ -113,7 +114,7 @@ class ErrorTrackingQueryV1Builder:
             return [self.query.issueId]
 
         use_prefetched = False
-        queryset = ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team)
+        queryset = ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team)  # pyright: ignore[reportAttributeAccessIssue]
 
         if self.query.status and self.query.status not in ["all", "active"]:
             use_prefetched = True
@@ -142,8 +143,8 @@ class ErrorTrackingQueryV1Builder:
 
     @cached_property
     def _issue_properties(self):
-        return [v for v in self._properties if v.type == "error_tracking_issue"]
+        return [v for v in self._properties if isinstance(v, ErrorTrackingIssueFilter)]
 
     @cached_property
     def _hogql_properties(self):
-        return [v for v in self._properties if v.type != "error_tracking_issue"]
+        return [v for v in self._properties if not isinstance(v, (ErrorTrackingIssueFilter, PropertyGroupFilterValue))]

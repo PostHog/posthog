@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -21,12 +23,14 @@ from posthog.schema import (
     ErrorTrackingIssueFilter,
     ErrorTrackingQuery,
     FilterLogicalOperator,
+    OrderBy1,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
 )
 
+from posthog.models import Organization, Team, User
 from posthog.models.utils import uuid7
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
@@ -46,6 +50,15 @@ class ErrorTrackingQueryRunnerTestsMixin:
     __test__ = False
 
     use_v2: bool = False
+
+    # will be provided by inheritance from PostHogTestCase
+    team: Team
+    user: User
+    organization: Organization
+
+    def assertEqual(
+        self, first: object, second: object, msg: object = None
+    ) -> None: ...  # will be provided by inheritance from TestCase
 
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
@@ -105,8 +118,8 @@ class ErrorTrackingQueryRunnerTestsMixin:
                 person_id=person_id,
             )
 
-    def setUp(self):
-        super().setUp()
+    def setUp(self):  # type: ignore[override]
+        super().setUp()  # type: ignore[misc]
 
         with freeze_time("2020-01-10 12:11:00"):
             _create_person(
@@ -155,7 +168,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
         filterTestAccounts=False,
         searchQuery=None,
         filterGroup=None,
-        orderBy="last_seen",
+        orderBy=OrderBy1.LAST_SEEN,
         status=None,
         volumeResolution=1,
         withAggregations=False,
@@ -450,10 +463,10 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_ordering(self):
-        results = self._calculate(orderBy="last_seen")["results"]
+        results = self._calculate(orderBy=OrderBy1.LAST_SEEN)["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
-        results = self._calculate(orderBy="first_seen")["results"]
+        results = self._calculate(orderBy=OrderBy1.FIRST_SEEN)["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
     @freeze_time("2022-01-10T12:11:00")
@@ -479,7 +492,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @snapshot_clickhouse_queries
     def test_overrides_aggregation(self):
         self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)
-        results = self._calculate(withAggregations=True, orderBy="occurrences")["results"]
+        results = self._calculate(withAggregations=True, orderBy=OrderBy1.OCCURRENCES)["results"]
         self.assertEqual(len(results), 2)
 
         # count is (2 x issue_one) + (1 x issue_three)

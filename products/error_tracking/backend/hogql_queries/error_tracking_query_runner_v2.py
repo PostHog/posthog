@@ -1,6 +1,13 @@
 import datetime
+from typing import cast
 
-from posthog.schema import ErrorTrackingIssueFilter, ErrorTrackingQuery, HogQLFilters, PropertyOperator
+from posthog.schema import (
+    ErrorTrackingIssueFilter,
+    ErrorTrackingQuery,
+    HogQLFilters,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
 
 from posthog.hogql import ast
 
@@ -74,7 +81,7 @@ class ErrorTrackingQueryV2Builder:
     def hogql_filters(self) -> HogQLFilters:
         return HogQLFilters(
             filterTestAccounts=self.query.filterTestAccounts,
-            properties=self._hogql_properties,
+            properties=cast(list, self._hogql_properties),
         )
 
     def process_results(self, columns: list[str], rows: list) -> list:
@@ -214,11 +221,11 @@ class ErrorTrackingQueryV2Builder:
 
     @cached_property
     def _issue_properties(self) -> list[ErrorTrackingIssueFilter]:
-        return [v for v in self._properties if v.type == "error_tracking_issue"]
+        return [v for v in self._properties if isinstance(v, ErrorTrackingIssueFilter)]
 
     @cached_property
     def _hogql_properties(self):
-        return [v for v in self._properties if v.type != "error_tracking_issue"]
+        return [v for v in self._properties if not isinstance(v, (ErrorTrackingIssueFilter, PropertyGroupFilterValue))]
 
     def _issue_property_to_ast(self, prop: ErrorTrackingIssueFilter) -> ast.Expr | None:
         key = "description" if prop.key == "issue_description" else prop.key
@@ -244,7 +251,7 @@ class ErrorTrackingQueryV2Builder:
             return ast.Constant(value=v)
 
         if operator == PropertyOperator.EXACT:
-            values = value if isinstance(value, list) else [value]
+            values = [v for v in (value if isinstance(value, list) else [value]) if v is not None]
             if not values:
                 return None
             if len(values) == 1:
@@ -256,7 +263,7 @@ class ErrorTrackingQueryV2Builder:
             )
 
         if operator == PropertyOperator.IS_NOT:
-            values = value if isinstance(value, list) else [value]
+            values = [v for v in (value if isinstance(value, list) else [value]) if v is not None]
             if not values:
                 return None
             if len(values) == 1:
