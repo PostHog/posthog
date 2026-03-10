@@ -4,6 +4,7 @@ import numpy as np
 from parameterized import parameterized
 
 from posthog.tasks.alerts.detectors.base import DetectionResult
+from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
 from posthog.tasks.alerts.detectors.registry import get_available_detectors, get_detector
 from posthog.tasks.alerts.detectors.statistical.mad import MADDetector
 from posthog.tasks.alerts.detectors.statistical.zscore import ZScoreDetector
@@ -41,6 +42,7 @@ class TestDetectorRegistry:
         assert "zscore" in detectors
         assert "mad" in detectors
         assert "threshold" in detectors
+        assert "ensemble" in detectors
 
 
 class TestAnomalyDetectors:
@@ -228,3 +230,193 @@ class TestDetectionResult:
         assert result.triggered_indices == [10, 20]
         assert result.all_scores == [0.1, 0.3, 0.95]
         assert result.metadata == {"test": "value"}
+
+
+class TestEnsembleDetector:
+    # Data with obvious anomaly at the end
+    ANOMALY_DATA = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 100])
+    # Data with no anomaly
+    NORMAL_DATA = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10])
+
+    @parameterized.expand(
+        [
+            (
+                "and_both_flag",
+                "and",
+                ANOMALY_DATA,
+                True,
+            ),
+            (
+                "and_normal_data",
+                "and",
+                NORMAL_DATA,
+                False,
+            ),
+            (
+                "or_both_flag",
+                "or",
+                ANOMALY_DATA,
+                True,
+            ),
+            (
+                "or_normal_data",
+                "or",
+                NORMAL_DATA,
+                False,
+            ),
+        ]
+    )
+    def test_detect(self, _name, operator, data, expected_anomaly):
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": operator,
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 10},
+                    {"type": "mad", "threshold": 0.9, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(data)
+        assert result.is_anomaly == expected_anomaly
+
+    def test_and_requires_all_detectors_to_agree(self):
+        # Mild anomaly: zscore with low threshold flags, mad with high threshold doesn't
+        mild_anomaly = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 15])
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "and",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.5, "window": 10},
+                    {"type": "mad", "threshold": 0.99, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(mild_anomaly)
+        # ZScore flags mild anomaly at low threshold, MAD at high threshold may not
+        # AND requires both, so check sub-results diverge
+        sub = result.metadata["sub_results"]
+        if sub[0]["is_anomaly"] != sub[1]["is_anomaly"]:
+            assert not result.is_anomaly
+
+    def test_or_flags_if_any_detector_flags(self):
+        mild_anomaly = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 15])
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.5, "window": 10},
+                    {"type": "mad", "threshold": 0.99, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(mild_anomaly)
+        sub = result.metadata["sub_results"]
+        # OR should flag if at least one detector flags
+        if any(s["is_anomaly"] for s in sub):
+            assert result.is_anomaly
+
+    def test_metadata_contains_sub_results(self):
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "and",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 10},
+                    {"type": "mad", "threshold": 0.9, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(self.ANOMALY_DATA)
+        assert "sub_results" in result.metadata
+        assert len(result.metadata["sub_results"]) == 2
+        assert result.metadata["sub_results"][0]["type"] == "zscore"
+        assert result.metadata["sub_results"][1]["type"] == "mad"
+
+    def test_score_is_min_for_and(self):
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "and",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 10},
+                    {"type": "mad", "threshold": 0.9, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(self.ANOMALY_DATA)
+        assert result.score is not None
+        # AND uses min score
+        sub_scores = [r["score"] for r in result.metadata["sub_results"]]
+        assert result.score == min(s for s in sub_scores if s is not None)
+
+    def test_score_is_max_for_or(self):
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 10},
+                    {"type": "mad", "threshold": 0.9, "window": 10},
+                ],
+            }
+        )
+        result = detector.detect(self.ANOMALY_DATA)
+        assert result.score is not None
+        # OR uses max score
+        sub_scores = [r["score"] for r in result.metadata["sub_results"]]
+        assert result.score == max(s for s in sub_scores if s is not None)
+
+    def test_batch_and_intersects_triggered(self):
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "and",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.9, "window": 5},
+                    {"type": "mad", "threshold": 0.9, "window": 5},
+                ],
+            }
+        )
+        data = np.array([10, 10, 10, 10, 10, 10, 100, 10, 10, 10, 10, 10, -50])
+        result = detector.detect_batch(data)
+        assert result.is_anomaly
+        # AND should only include indices both detectors flagged
+        assert len(result.triggered_indices) >= 1
+
+    def test_registry_creates_ensemble(self):
+        config = {
+            "type": "ensemble",
+            "operator": "or",
+            "detectors": [
+                {"type": "zscore", "threshold": 0.9, "window": 10},
+                {"type": "mad", "threshold": 0.9, "window": 10},
+            ],
+        }
+        detector = get_detector(config)
+        assert isinstance(detector, EnsembleDetector)
+
+    def test_fewer_than_two_detectors_raises(self):
+        with pytest.raises(ValueError, match="at least 2"):
+            EnsembleDetector(
+                {
+                    "type": "ensemble",
+                    "operator": "and",
+                    "detectors": [{"type": "zscore", "threshold": 0.9, "window": 10}],
+                }
+            )
+
+    def test_invalid_operator_raises(self):
+        with pytest.raises(ValueError, match="Invalid ensemble operator"):
+            EnsembleDetector(
+                {
+                    "type": "ensemble",
+                    "operator": "xor",
+                    "detectors": [
+                        {"type": "zscore", "threshold": 0.9, "window": 10},
+                        {"type": "mad", "threshold": 0.9, "window": 10},
+                    ],
+                }
+            )

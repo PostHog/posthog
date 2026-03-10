@@ -1305,6 +1305,11 @@ class Metric(StrEnum):
     ERROR_RATE = "error_rate"
 
 
+class EnsembleOperator(StrEnum):
+    AND_ = "and"
+    OR_ = "or"
+
+
 class EntityType(StrEnum):
     ACTIONS = "actions"
     EVENTS = "events"
@@ -15817,12 +15822,6 @@ class Response21(BaseModel):
     )
 
 
-class DetectorConfig(RootModel[ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig]):
-    root: ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig = Field(
-        ..., description="Detector configuration types"
-    )
-
-
 class DocumentSimilarityQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15897,6 +15896,17 @@ class EndpointsUsageTrendsQuery(BaseModel):
     response: EndpointsUsageTrendsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class EnsembleDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detectors: list[ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig] = Field(
+        ..., description="Sub-detector configurations (minimum 2)"
+    )
+    operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
+    type: Literal["ensemble"] = "ensemble"
 
 
 class ErrorTrackingBreakdownsQuery(BaseModel):
@@ -17147,6 +17157,14 @@ class DatabaseSchemaViewTable(BaseModel):
     query: HogQLQuery
     row_count: float | None = None
     type: Literal["view"] = "view"
+
+
+class DetectorConfig(
+    RootModel[EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig]
+):
+    root: EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig = Field(
+        ..., description="Detector configuration types"
+    )
 
 
 class ErrorTrackingIssueCorrelationQuery(BaseModel):

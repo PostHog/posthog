@@ -11698,13 +11698,10 @@
         "DetectorConfig": {
             "anyOf": [
                 {
-                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                    "$ref": "#/definitions/SingleDetectorConfig"
                 },
                 {
-                    "$ref": "#/definitions/MADDetectorConfig"
-                },
-                {
-                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                    "$ref": "#/definitions/EnsembleDetectorConfig"
                 }
             ],
             "description": "Detector configuration types"
@@ -12478,6 +12475,32 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "EnsembleDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "detectors": {
+                    "description": "Sub-detector configurations (minimum 2)",
+                    "items": {
+                        "$ref": "#/definitions/SingleDetectorConfig"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "$ref": "#/definitions/EnsembleOperator",
+                    "description": "How to combine sub-detector results"
+                },
+                "type": {
+                    "const": "ensemble",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "operator", "detectors"],
+            "type": "object"
+        },
+        "EnsembleOperator": {
+            "enum": ["and", "or"],
+            "type": "string"
         },
         "EntityNode": {
             "additionalProperties": false,
@@ -31560,6 +31583,20 @@
         "SimpleIntervalType": {
             "enum": ["day", "month"],
             "type": "string"
+        },
+        "SingleDetectorConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/MADDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                }
+            ],
+            "description": "A single (leaf) detector config"
         },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],

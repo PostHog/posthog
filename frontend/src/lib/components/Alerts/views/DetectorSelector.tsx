@@ -1,14 +1,15 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 import {
     DetectorConfig,
-    DetectorType,
+    EnsembleDetectorConfig,
+    EnsembleOperator,
     MADDetectorConfig,
     PreprocessingConfig,
-    ThresholdDetectorConfig,
+    SingleDetectorConfig,
     ZScoreDetectorConfig,
 } from '~/queries/schema/schema-general'
 
@@ -17,19 +18,22 @@ interface DetectorSelectorProps {
     onChange: (config: DetectorConfig | null) => void
 }
 
-const DETECTOR_OPTIONS = [
-    {
-        value: DetectorType.ZSCORE,
+const DETECTOR_INFO: Record<string, { label: string; tooltip: string }> = {
+    zscore: {
         label: 'Z-Score',
         tooltip: 'Flags points that are unusually far from the rolling average. Good general-purpose detector.',
     },
-    {
-        value: DetectorType.MAD,
+    mad: {
         label: 'MAD',
         tooltip:
             'Like Z-Score but uses the median instead of the mean, making it robust to existing outliers in your data.',
     },
-]
+}
+
+const DEFAULT_CONFIGS: Record<string, SingleDetectorConfig> = {
+    zscore: { type: 'zscore', threshold: 0.9, window: 30 },
+    mad: { type: 'mad', threshold: 0.9, window: 30 },
+}
 
 function Label({ text, tooltip }: { text: string; tooltip: string }): JSX.Element {
     return (
@@ -42,120 +46,141 @@ function Label({ text, tooltip }: { text: string; tooltip: string }): JSX.Elemen
     )
 }
 
+/** Extract active single detector configs from the current value */
+function getActiveDetectors(value: DetectorConfig | null): SingleDetectorConfig[] {
+    if (!value) {
+        return []
+    }
+    if (value.type === 'ensemble') {
+        return (value as EnsembleDetectorConfig).detectors
+    }
+    return [value as SingleDetectorConfig]
+}
+
+/** Get the ensemble operator, defaulting to AND */
+function getOperator(value: DetectorConfig | null): EnsembleOperator {
+    if (value?.type === 'ensemble') {
+        return (value as EnsembleDetectorConfig).operator
+    }
+    return EnsembleOperator.AND
+}
+
+/** Build the appropriate config from active detectors + operator */
+function buildConfig(detectors: SingleDetectorConfig[], operator: EnsembleOperator): DetectorConfig | null {
+    if (detectors.length === 0) {
+        return null
+    }
+    if (detectors.length === 1) {
+        return detectors[0]
+    }
+    return { type: 'ensemble', operator, detectors } as EnsembleDetectorConfig
+}
+
 export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JSX.Element {
-    const detectorType = value?.type || null
+    const activeDetectors = getActiveDetectors(value)
+    const operator = getOperator(value)
+    const activeTypes = new Set(activeDetectors.map((d) => d.type))
 
-    const handleTypeChange = (type: string | null): void => {
-        if (!type) {
-            onChange(null)
-            return
+    const handleToggle = (type: string, enabled: boolean): void => {
+        let newDetectors: SingleDetectorConfig[]
+        if (enabled) {
+            const existing = activeDetectors.find((d) => d.type === type)
+            newDetectors = [...activeDetectors, existing ?? DEFAULT_CONFIGS[type]]
+        } else {
+            newDetectors = activeDetectors.filter((d) => d.type !== type)
         }
+        onChange(buildConfig(newDetectors, operator))
+    }
 
-        switch (type) {
-            case DetectorType.ZSCORE:
-                onChange({ type: 'zscore', threshold: 0.9, window: 30 } as ZScoreDetectorConfig)
-                break
-            case DetectorType.MAD:
-                onChange({ type: 'mad', threshold: 0.9, window: 30 } as MADDetectorConfig)
-                break
-            case DetectorType.THRESHOLD:
-                onChange({ type: 'threshold' } as ThresholdDetectorConfig)
-                break
-            default:
-                onChange(null)
-        }
+    const handleOperatorChange = (newOperator: string): void => {
+        onChange(buildConfig(activeDetectors, newOperator as EnsembleOperator))
+    }
+
+    const handleDetectorChange = (updated: SingleDetectorConfig): void => {
+        const newDetectors = activeDetectors.map((d) => (d.type === updated.type ? updated : d))
+        onChange(buildConfig(newDetectors, operator))
     }
 
     return (
         <div className="space-y-4">
             <div>
-                <Label text="Detector type" tooltip="The statistical method used to identify anomalies in your data." />
-                <LemonSelect
-                    value={detectorType}
-                    onChange={handleTypeChange}
-                    options={DETECTOR_OPTIONS}
-                    placeholder="Select a detector..."
-                    allowClear
-                    fullWidth
+                <Label
+                    text="Detectors"
+                    tooltip="Select one or more statistical methods. Multiple detectors can be combined with AND/OR logic."
                 />
+                <div className="flex gap-4 mt-1">
+                    {Object.entries(DETECTOR_INFO).map(([type, info]) => (
+                        <Tooltip key={type} title={info.tooltip}>
+                            <LemonCheckbox
+                                label={info.label}
+                                checked={activeTypes.has(type as SingleDetectorConfig['type'])}
+                                onChange={(checked) => handleToggle(type, checked)}
+                            />
+                        </Tooltip>
+                    ))}
+                </div>
             </div>
 
-            {value && <PreprocessingSection config={value} onChange={onChange} />}
-
-            {value?.type === 'zscore' && <ZScoreConfig config={value as ZScoreDetectorConfig} onChange={onChange} />}
-            {value?.type === 'mad' && <MADConfig config={value as MADDetectorConfig} onChange={onChange} />}
-            {value?.type === 'threshold' && (
-                <ThresholdConfig config={value as ThresholdDetectorConfig} onChange={onChange} />
+            {activeDetectors.length > 1 && (
+                <div>
+                    <Label
+                        text="Combine with"
+                        tooltip="AND = all detectors must flag a point. OR = any detector flagging is enough."
+                    />
+                    <LemonSegmentedButton
+                        value={operator}
+                        onChange={handleOperatorChange}
+                        options={[
+                            {
+                                value: EnsembleOperator.AND,
+                                label: 'AND',
+                                tooltip: 'Alert only when all detectors agree',
+                            },
+                            { value: EnsembleOperator.OR, label: 'OR', tooltip: 'Alert when any detector flags' },
+                        ]}
+                        size="small"
+                    />
+                </div>
             )}
+
+            {activeDetectors.map((detector) => (
+                <DetectorConfigSection key={detector.type} config={detector} onChange={handleDetectorChange} />
+            ))}
         </div>
     )
 }
 
-function ZScoreConfig({
+function DetectorConfigSection({
     config,
     onChange,
 }: {
-    config: ZScoreDetectorConfig
-    onChange: (config: DetectorConfig) => void
+    config: SingleDetectorConfig
+    onChange: (config: SingleDetectorConfig) => void
 }): JSX.Element {
-    return (
-        <div className="grid grid-cols-2 gap-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
-                value={config.threshold ?? 0.9}
-                onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Points scoring above this are flagged. Higher = fewer alerts."
-            />
-            <WindowSizeInput config={config} onChange={onChange} />
-        </div>
-    )
-}
+    const info = DETECTOR_INFO[config.type]
+    const label = info?.label ?? config.type
 
-function MADConfig({
-    config,
-    onChange,
-}: {
-    config: MADDetectorConfig
-    onChange: (config: DetectorConfig) => void
-}): JSX.Element {
     return (
-        <div className="grid grid-cols-2 gap-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
-                value={config.threshold ?? 0.9}
-                onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Like Z-Score but uses median, making it robust to outliers. Higher = fewer alerts."
-            />
-            <WindowSizeInput config={config} onChange={onChange} />
-        </div>
-    )
-}
-
-function ThresholdConfig({
-    config,
-    onChange,
-}: {
-    config: ThresholdDetectorConfig
-    onChange: (config: DetectorConfig) => void
-}): JSX.Element {
-    return (
-        <div className="grid grid-cols-2 gap-3 pl-4 border-l-2 border-border">
-            <div>
-                <Label text="Upper bound" tooltip="Values above this are flagged. Leave empty for no upper limit." />
-                <LemonInput
-                    type="number"
-                    value={config.upper_bound ?? undefined}
-                    onChange={(val) => onChange({ ...config, upper_bound: val ? parseFloat(String(val)) : undefined })}
-                    placeholder="No upper limit"
-                />
-            </div>
-            <div>
-                <Label text="Lower bound" tooltip="Values below this are flagged. Leave empty for no lower limit." />
-                <LemonInput
-                    type="number"
-                    value={config.lower_bound ?? undefined}
-                    onChange={(val) => onChange({ ...config, lower_bound: val ? parseFloat(String(val)) : undefined })}
-                    placeholder="No lower limit"
-                />
-            </div>
+        <div>
+            <div className="text-xs font-semibold text-secondary mb-2">{label}</div>
+            {(config.type === 'zscore' || config.type === 'mad') && (
+                <div className="grid grid-cols-2 gap-3 pl-4 border-l-2 border-border">
+                    <SensitivityInput
+                        value={(config as ZScoreDetectorConfig | MADDetectorConfig).threshold ?? 0.9}
+                        onChange={(val) => onChange({ ...config, threshold: val } as SingleDetectorConfig)}
+                        tooltip={
+                            config.type === 'zscore'
+                                ? 'Anomaly probability threshold (0-1). Points scoring above this are flagged. Higher = fewer alerts.'
+                                : 'Anomaly probability threshold (0-1). Like Z-Score but uses median, making it robust to outliers. Higher = fewer alerts.'
+                        }
+                    />
+                    <WindowSizeInput
+                        config={config as ZScoreDetectorConfig | MADDetectorConfig}
+                        onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                    />
+                </div>
+            )}
+            <PreprocessingSection config={config} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
         </div>
     )
 }
@@ -189,7 +214,7 @@ function WindowSizeInput({
     onChange,
 }: {
     config: { window?: number }
-    onChange: (config: DetectorConfig) => void
+    onChange: (config: SingleDetectorConfig) => void
 }): JSX.Element {
     return (
         <div>
@@ -204,7 +229,7 @@ function WindowSizeInput({
                 step={5}
                 value={config.window ?? 30}
                 onChange={(val) =>
-                    onChange({ ...config, window: val ? parseInt(String(val), 10) : 30 } as DetectorConfig)
+                    onChange({ ...config, window: val ? parseInt(String(val), 10) : 30 } as SingleDetectorConfig)
                 }
             />
         </div>
@@ -215,8 +240,8 @@ function PreprocessingSection({
     config,
     onChange,
 }: {
-    config: DetectorConfig
-    onChange: (config: DetectorConfig) => void
+    config: SingleDetectorConfig
+    onChange: (config: SingleDetectorConfig) => void
 }): JSX.Element {
     const preprocessing = config.preprocessing ?? {}
     const hasPreprocessing = (preprocessing.diffs_n ?? 0) > 0 || (preprocessing.smooth_n ?? 0) > 0
@@ -224,7 +249,7 @@ function PreprocessingSection({
     const updatePreprocessing = (updates: Partial<PreprocessingConfig>): void => {
         const newPreprocessing = { ...preprocessing, ...updates }
         const isEmpty = !newPreprocessing.diffs_n && !newPreprocessing.smooth_n && !newPreprocessing.lags_n
-        onChange({ ...config, preprocessing: isEmpty ? undefined : newPreprocessing })
+        onChange({ ...config, preprocessing: isEmpty ? undefined : newPreprocessing } as SingleDetectorConfig)
     }
 
     return (

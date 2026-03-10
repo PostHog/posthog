@@ -3900,8 +3900,24 @@ export interface ThresholdDetectorConfig {
     preprocessing?: PreprocessingConfig
 }
 
+export enum EnsembleOperator {
+    AND = 'and',
+    OR = 'or',
+}
+
+/** A single (leaf) detector config */
+export type SingleDetectorConfig = ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig
+
+export interface EnsembleDetectorConfig {
+    type: 'ensemble'
+    /** How to combine sub-detector results */
+    operator: EnsembleOperator
+    /** Sub-detector configurations (minimum 2) */
+    detectors: SingleDetectorConfig[]
+}
+
 /** Detector configuration types */
-export type DetectorConfig = ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig
+export type DetectorConfig = SingleDetectorConfig | EnsembleDetectorConfig
 
 export interface HogCompileResponse {
     bytecode: any[]

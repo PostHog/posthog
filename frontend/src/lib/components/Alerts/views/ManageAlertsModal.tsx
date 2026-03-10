@@ -40,7 +40,14 @@ function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
     }
 
     if (alert.detector_config) {
-        const { type, threshold } = alert.detector_config as { type: string; threshold?: number }
+        const config = alert.detector_config as unknown as Record<string, unknown>
+        if (config.type === 'ensemble') {
+            const detectors = (config.detectors as Array<{ type: string }>) ?? []
+            const operator = (config.operator as string)?.toUpperCase() ?? 'AND'
+            const labels = detectors.map((d) => (d.type === 'zscore' ? 'Z-Score' : d.type === 'mad' ? 'MAD' : d.type))
+            return <div className="text-secondary pl-3">{labels.join(` ${operator} `)}</div>
+        }
+        const { type, threshold } = config as { type: string; threshold?: number }
         const label = type === 'zscore' ? 'Z-Score' : type === 'mad' ? 'MAD' : type
         return (
             <div className="text-secondary pl-3">
