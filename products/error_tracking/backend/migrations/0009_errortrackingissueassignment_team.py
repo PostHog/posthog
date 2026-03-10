@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1036_experiment_status"),
         ("error_tracking", "0008_spike_detection_config"),
     ]
 
