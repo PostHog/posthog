@@ -11,7 +11,12 @@ import type {
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import type { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+import type {
+    DataWarehouseNode,
+    DatabaseSerializedFieldType,
+    HogQLFilters,
+    HogQLQueryModifiers,
+} from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import type { funnelDataWarehouseStepDefinitionPopoverLogicType } from './funnelDataWarehouseStepDefinitionPopoverLogicType'
@@ -148,6 +153,46 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
             (previewExpressionColumns, activeFieldKey, activeFieldValue) =>
                 previewExpressionColumns.find((column) => column.key.startsWith(`__${activeFieldKey}_hogql_expression`))
                     ?.key ?? activeFieldValue,
+        ],
+        previewQueryFilters: [
+            (s) => [s.localDefinition, s.querySource],
+            (localDefinition, querySource): HogQLFilters | undefined => {
+                const entityProperties =
+                    'properties' in localDefinition && Array.isArray(localDefinition.properties)
+                        ? localDefinition.properties
+                        : undefined
+                const dateRange = querySource?.dateRange
+
+                if (!entityProperties?.length && !dateRange) {
+                    return undefined
+                }
+
+                return {
+                    ...(dateRange ? { dateRange } : {}),
+                    ...(entityProperties?.length ? { properties: entityProperties } : {}),
+                }
+            },
+        ],
+        previewQueryModifiers: [
+            (s, p) => [s.localDefinition, p.table],
+            (localDefinition, table): HogQLQueryModifiers | undefined => {
+                const previewEntity = localDefinition as Partial<DataWarehouseNode>
+
+                if (!previewEntity.id_field || !previewEntity.timestamp_field || !previewEntity.distinct_id_field) {
+                    return undefined
+                }
+
+                return {
+                    dataWarehouseEventsModifiers: [
+                        {
+                            table_name: table.name,
+                            id_field: previewEntity.id_field,
+                            timestamp_field: previewEntity.timestamp_field,
+                            distinct_id_field: previewEntity.distinct_id_field,
+                        },
+                    ],
+                }
+            },
         ],
         activeFieldOptions: [
             (s) => [s.columnOptions, s.activeField, s.activeFieldKey],

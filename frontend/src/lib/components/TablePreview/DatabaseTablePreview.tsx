@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import { useRef } from 'react'
 
 import { databaseTablePreviewLogic } from './databaseTablePreviewLogic'
+import type { DatabaseTablePreviewLogicProps } from './databaseTablePreviewLogic'
 import { TablePreview, TablePreviewProps } from './TablePreview'
 import { TablePreviewExpressionColumn } from './types'
 
@@ -10,6 +11,8 @@ export interface DatabaseTablePreviewProps extends Omit<TablePreviewProps, 'load
     limit?: number
     whereClause?: string | null
     expressionColumns?: TablePreviewExpressionColumn[]
+    queryFilters?: DatabaseTablePreviewLogicProps['queryFilters']
+    queryModifiers?: DatabaseTablePreviewLogicProps['queryModifiers']
 }
 
 let uniqueMemoizedIndex = 0
@@ -20,6 +23,8 @@ export function DatabaseTablePreview({
     limit,
     whereClause,
     expressionColumns,
+    queryFilters,
+    queryModifiers,
     ...rest
 }: DatabaseTablePreviewProps): JSX.Element {
     const instanceLogicKey = useRef(logicKey || `database-table-preview-${uniqueMemoizedIndex++}`).current
@@ -30,6 +35,8 @@ export function DatabaseTablePreview({
         limit,
         whereClause,
         expressionColumns,
+        queryFilters,
+        queryModifiers,
     })
     const { previewData, previewDataLoading } = useValues(logic)
 

@@ -5,6 +5,7 @@ import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { PropertyFilterType } from '~/types'
 
 import { DatabaseTablePreview } from './DatabaseTablePreview'
 import { TablePreviewExpressionColumn } from './types'
@@ -12,7 +13,15 @@ import { TablePreviewExpressionColumn } from './types'
 type QueryBody = {
     query?: {
         query?: string
+        filters?: Record<string, any>
+        modifiers?: Record<string, any>
     }
+}
+
+function queryNodeFromRequestBody(reqBody: unknown): NonNullable<QueryBody['query']> {
+    const body = typeof reqBody === 'string' ? (JSON.parse(reqBody) as QueryBody) : ((reqBody || {}) as QueryBody)
+
+    return body.query || {}
 }
 
 const eventsTable = {
@@ -32,9 +41,7 @@ const personsTable = {
 }
 
 function queryStringFromRequestBody(reqBody: unknown): string {
-    const body = typeof reqBody === 'string' ? (JSON.parse(reqBody) as QueryBody) : ((reqBody || {}) as QueryBody)
-
-    return body.query?.query || ''
+    return queryNodeFromRequestBody(reqBody).query || ''
 }
 
 describe('DatabaseTablePreview', () => {
@@ -237,5 +244,80 @@ describe('DatabaseTablePreview', () => {
         expect(executedQueries).toHaveLength(1)
         expect(executedQueries[0]).toContain('lower(event)')
         expect(executedQueries[0]).toContain('normalized_event')
+    })
+
+    it('uses {filters} with forwarded query filters and modifiers when provided', async () => {
+        const executedRequests: NonNullable<QueryBody['query']>[] = []
+
+        useMocks({
+            post: {
+                '/api/environments/:team/query': (req) => {
+                    executedRequests.push(queryNodeFromRequestBody(req.body))
+
+                    return [
+                        200,
+                        {
+                            columns: ['event', 'value'],
+                            results: [['$pageview', 1]],
+                        },
+                    ]
+                },
+            },
+        })
+
+        render(
+            <Provider>
+                <DatabaseTablePreview
+                    table={eventsTable as any}
+                    emptyMessage="No table selected"
+                    queryFilters={{
+                        dateRange: { date_from: '-7d' },
+                        properties: [
+                            {
+                                key: 'event',
+                                value: '$pageview',
+                                type: PropertyFilterType.Event,
+                                operator: 'exact',
+                            },
+                        ],
+                    }}
+                    queryModifiers={{
+                        dataWarehouseEventsModifiers: [
+                            {
+                                table_name: 'events',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
+                    }}
+                />
+            </Provider>
+        )
+
+        expect(await screen.findByText('$pageview')).toBeInTheDocument()
+        expect(executedRequests).toHaveLength(1)
+        expect(executedRequests[0].query).toContain('WHERE {filters}')
+        expect(executedRequests[0].filters).toEqual({
+            dateRange: { date_from: '-7d' },
+            properties: [
+                {
+                    key: 'event',
+                    value: '$pageview',
+                    type: PropertyFilterType.Event,
+                    operator: 'exact',
+                },
+            ],
+        })
+        expect(executedRequests[0].modifiers).toEqual({
+            dataWarehouseEventsModifiers: [
+                {
+                    table_name: 'events',
+                    id_field: 'uuid',
+                    timestamp_field: 'timestamp',
+                    distinct_id_field: 'distinct_id',
+                },
+            ],
+        })
     })
 })

@@ -2,7 +2,9 @@ import { afterMount, kea, key, path, props, propsChanged } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { hogqlQuery } from '~/queries/query'
+import api from 'lib/api'
+
+import { HogQLFilters, HogQLQueryModifiers, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { databaseTablePreviewLogicType } from './databaseTablePreviewLogicType'
@@ -14,6 +16,8 @@ export interface DatabaseTablePreviewLogicProps {
     limit?: number
     whereClause?: string | null
     expressionColumns?: TablePreviewExpressionColumn[]
+    queryFilters?: HogQLFilters
+    queryModifiers?: HogQLQueryModifiers
 }
 
 const DEFAULT_LIMIT = 10
@@ -41,13 +45,29 @@ export const databaseTablePreviewLogic = kea<databaseTablePreviewLogicType>([
                                   )
                                   .join(', ')}`
                             : ''
+                    const hasFilterContext = Boolean(props.queryFilters || props.queryModifiers)
+                    const forwardedQueryFilters = props.queryFilters ?? {}
+                    const baseQuery = String(
+                        hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(props.tableName)}`
+                    )
+                    const previewQuery = hasFilterContext
+                        ? `${baseQuery}${
+                              trimmedWhereClause ? ` WHERE {filters} AND (${trimmedWhereClause})` : ' WHERE {filters}'
+                          } LIMIT ${previewLimit}`
+                        : String(
+                              trimmedWhereClause
+                                  ? hogql`${hogql.raw(baseQuery)} WHERE ${hogql.raw(trimmedWhereClause)} LIMIT ${previewLimit}`
+                                  : hogql`${hogql.raw(baseQuery)} LIMIT ${previewLimit}`
+                          )
 
                     try {
-                        const response = await hogqlQuery(
-                            trimmedWhereClause
-                                ? hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(props.tableName)} WHERE ${hogql.raw(trimmedWhereClause)} LIMIT ${previewLimit}`
-                                : hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(props.tableName)} LIMIT ${previewLimit}`
-                        )
+                        const response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: previewQuery,
+                            filters: hasFilterContext ? forwardedQueryFilters : undefined,
+                            modifiers: props.queryModifiers,
+                        })) as HogQLQueryResponse
+
                         return (response.results || []).map((row: any[]) =>
                             Object.fromEntries(
                                 (response.columns || []).map((column: string, index: number) => [column, row[index]])
@@ -71,12 +91,18 @@ export const databaseTablePreviewLogic = kea<databaseTablePreviewLogicType>([
         const nextLimit = props.limit || DEFAULT_LIMIT
         const previousExpressionColumns = JSON.stringify(oldProps.expressionColumns || [])
         const nextExpressionColumns = JSON.stringify(props.expressionColumns || [])
+        const previousQueryFilters = JSON.stringify(oldProps.queryFilters || null)
+        const nextQueryFilters = JSON.stringify(props.queryFilters || null)
+        const previousQueryModifiers = JSON.stringify(oldProps.queryModifiers || null)
+        const nextQueryModifiers = JSON.stringify(props.queryModifiers || null)
 
         if (
             props.tableName !== oldProps.tableName ||
             previousWhereClause !== nextWhereClause ||
             previousLimit !== nextLimit ||
-            previousExpressionColumns !== nextExpressionColumns
+            previousExpressionColumns !== nextExpressionColumns ||
+            previousQueryFilters !== nextQueryFilters ||
+            previousQueryModifiers !== nextQueryModifiers
         ) {
             actions.loadPreviewData()
         }

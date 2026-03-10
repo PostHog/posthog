@@ -62,21 +62,33 @@ class ReplaceFilters(CloningVisitor):
             found_sessions = False
             found_logs = False
             found_groups = False
+            found_persons = False
+            found_generic_table = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
                     if last_join.table.chain == ["events"]:
                         found_events = True
-                    if last_join.table.chain == ["sessions"]:
+                    elif last_join.table.chain == ["sessions"]:
                         found_sessions = True
-                    if last_join.table.chain == ["logs"] or last_join.table.chain == ["log_attributes"]:
+                    elif last_join.table.chain == ["logs"] or last_join.table.chain == ["log_attributes"]:
                         found_logs = True
-                    if last_join.table.chain == ["groups"]:
+                    elif last_join.table.chain == ["groups"]:
                         found_groups = True
-                    if found_events and found_sessions or found_groups:
+                    elif last_join.table.chain == ["persons"]:
+                        found_persons = True
+                    else:
+                        found_generic_table = True
+
+                    if (found_events and found_sessions) or found_groups or found_generic_table:
                         break
                 last_join = last_join.next_join
 
-            if not any([found_events, found_sessions, found_logs, found_groups]):
+            if found_persons and not any([found_events, found_sessions, found_logs, found_groups, found_generic_table]):
+                raise QueryError(
+                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table."
+                )
+
+            if not any([found_events, found_sessions, found_logs, found_groups, found_generic_table]):
                 raise QueryError(
                     "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table."
                 )
@@ -104,7 +116,9 @@ class ReplaceFilters(CloningVisitor):
                 else:
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
-            timestamp_field = ast.Field(chain=["$start_timestamp"])
+            timestamp_field = ast.Field(chain=["timestamp"])
+            if found_sessions and not any([found_events, found_logs, found_groups, found_generic_table]):
+                timestamp_field = ast.Field(chain=["$start_timestamp"])
             if found_events or found_logs:
                 timestamp_field = ast.Field(chain=["timestamp"])
             if found_groups:

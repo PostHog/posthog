@@ -65,6 +65,8 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
         previewTable,
         previewExpressionColumns,
         previewSelectedKey,
+        previewQueryFilters,
+        previewQueryModifiers,
     } = useValues(logic)
     const { setActiveFieldKey, selectTable, setLocalDefinition } = useActions(logic)
 
@@ -77,6 +79,8 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 limit={25}
                 className="mt-2"
                 expressionColumns={previewExpressionColumns}
+                queryFilters={previewQueryFilters}
+                queryModifiers={previewQueryModifiers}
             />
             <LemonSegmentedButton
                 className="mt-4"

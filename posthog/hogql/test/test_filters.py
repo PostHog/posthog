@@ -2,7 +2,14 @@ from typing import Any, Optional
 
 from posthog.test.base import BaseTest
 
-from posthog.schema import DateRange, EventPropertyFilter, GroupPropertyFilter, HogQLFilters, PersonPropertyFilter
+from posthog.schema import (
+    DataWarehousePropertyFilter,
+    DateRange,
+    EventPropertyFilter,
+    GroupPropertyFilter,
+    HogQLFilters,
+    PersonPropertyFilter,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
@@ -12,6 +19,8 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clear_locations
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestFilters(BaseTest):
@@ -139,6 +148,44 @@ class TestFilters(BaseTest):
             self._print_ast(select),
             "SELECT event FROM events WHERE "
             "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
+            f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_generic_table_with_date_range_and_data_warehouse_properties(self):
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="paid_bills",
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+                "status": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+                "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64"},
+            },
+            credential=credential,
+            url_pattern="",
+        )
+
+        select = replace_filters(
+            self._parse_select("SELECT id FROM paid_bills WHERE {filters}"),
+            HogQLFilters(
+                dateRange=DateRange(date_from="2020-02-02"),
+                properties=[
+                    DataWarehousePropertyFilter(
+                        key="status",
+                        operator="exact",
+                        value="paid",
+                        type="data_warehouse",
+                    )
+                ],
+            ),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT id FROM paid_bills WHERE "
+            "and(equals(status, 'paid'), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
