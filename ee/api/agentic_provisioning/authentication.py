@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.utils import timezone
 
 from rest_framework.authentication import BaseAuthentication
@@ -6,16 +7,16 @@ from rest_framework.request import Request
 
 from posthog.models.oauth import find_oauth_access_token
 
-from .views import STRIPE_APP_NAME
+BEARER_PREFIX = "Bearer "
 
 
 class StripeProvisioningBearerAuthentication(BaseAuthentication):
     def authenticate(self, request: Request):
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-        if not auth_header.startswith("Bearer "):
+        if not auth_header.startswith(BEARER_PREFIX):
             return None
 
-        token_value = auth_header[len("Bearer ") :]
+        token_value = auth_header[len(BEARER_PREFIX) :].strip()
         if not token_value:
             return None
 
@@ -35,4 +36,4 @@ class StripeProvisioningBearerAuthentication(BaseAuthentication):
 def _is_stripe_oauth_app(app) -> bool:
     if app is None:
         return False
-    return app.name == STRIPE_APP_NAME
+    return app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID

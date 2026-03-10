@@ -13,13 +13,30 @@ from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
 
 HMAC_SECRET = "test_hmac_secret"
+TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET, STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID)
 class StripeProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
+        self._ensure_stripe_oauth_app()
+
+    def _ensure_stripe_oauth_app(self):
+        from posthog.models.oauth import OAuthApplication
+
+        OAuthApplication.objects.get_or_create(
+            client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
+            defaults={
+                "name": "PostHog Stripe App",
+                "client_secret": "",
+                "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": "https://localhost",
+                "algorithm": "RS256",
+            },
+        )
 
     def _sign_body(self, body: bytes, timestamp: int | None = None) -> str:
         ts = timestamp if timestamp is not None else int(time.time())
