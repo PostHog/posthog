@@ -2,7 +2,7 @@ import dataclasses
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import BooleanField, Case, Exists, OuterRef, Q, QuerySet, Subquery, Value, When
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
@@ -18,12 +18,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
-from posthog.models import Insight, User
+from posthog.models import Insight, InsightFavorite, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.utils import validate_alert_config
+from posthog.tasks.migrate_favorites import migrate_user_favorites
 from posthog.utils import relative_date_parse
 
 
@@ -162,7 +163,11 @@ class AlertSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
-        data["insight"] = InsightBasicSerializer(instance.insight).data
+
+        if instance.insight is not None and hasattr(instance, "insight_is_favorited"):
+            instance.insight.is_favorited = instance.insight_is_favorited
+
+        data["insight"] = InsightBasicSerializer(instance.insight, context=self.context).data
         return data
 
     def add_threshold(self, threshold_data, validated_data):
@@ -322,6 +327,39 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         filters = self.request.query_params
         if "insight" in filters:
             queryset = queryset.filter(insight_id=filters["insight"])
+
+        queryset = queryset.select_related("insight")
+
+        if self.request.user.is_authenticated:
+            if self.request.user.favorites_migrated_at:
+                queryset = queryset.annotate(
+                    insight_is_favorited=Exists(
+                        InsightFavorite.objects.filter(
+                            user=self.request.user,
+                            insight_id=OuterRef("insight_id"),
+                        )
+                    )
+                )
+            else:
+                migrate_user_favorites.delay(self.request.user.id)
+                queryset = queryset.annotate(
+                    insight_is_favorited=Case(
+                        When(
+                            Q(insight__favorited=True)
+                            | Q(
+                                Exists(
+                                    InsightFavorite.objects.filter(
+                                        user=self.request.user,
+                                        insight_id=OuterRef("insight_id"),
+                                    )
+                                )
+                            ),
+                            then=Value(True),
+                        ),
+                        default=Value(False),
+                        output_field=BooleanField(),
+                    )
+                )
 
         latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
         queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))

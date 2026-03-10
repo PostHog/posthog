@@ -217,6 +217,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
     )
+    # Tracks when per-user insight favorites were lazily migrated from the old org-level Insight.favorited field
+    favorites_migrated_at = models.DateTimeField(null=True, blank=True)
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)

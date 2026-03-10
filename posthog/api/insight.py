@@ -2,10 +2,10 @@ import json
 import logging
 from datetime import timedelta
 from functools import lru_cache
-from typing import Any, Union, cast
+from typing import Any, Union
 
 from django.db import transaction
-from django.db.models import Count, F, Max, Prefetch, QuerySet
+from django.db.models import BooleanField, Case, Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Value, When
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -86,7 +86,7 @@ from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.models.insight import InsightViewed
+from posthog.models.insight import InsightFavorite, InsightViewed
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -108,6 +108,7 @@ from posthog.rbac.user_access_control import UserAccessControlError, UserAccessC
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
+from posthog.tasks.migrate_favorites import migrate_user_favorites
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     filters_override_requested_by_client,
@@ -297,6 +298,22 @@ class InsightBasicSerializer(
         representation = super().to_representation(instance)
 
         representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+
+        # Use per-user favorite status when the queryset has been annotated (list endpoint),
+        # otherwise fall back to the legacy model field.
+        if hasattr(instance, "is_favorited"):
+            representation["favorited"] = instance.is_favorited
+        elif "request" in self.context and not self.context["request"].user.is_anonymous:
+            user = self.context["request"].user
+            if user.favorites_migrated_at:
+                representation["favorited"] = InsightFavorite.objects.filter(
+                    user=user, insight=instance, team=instance.team
+                ).exists()
+            else:
+                representation["favorited"] = (
+                    instance.favorited
+                    or InsightFavorite.objects.filter(user=user, insight=instance, team=instance.team).exists()
+                )
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
@@ -517,6 +534,29 @@ class InsightSerializer(InsightBasicSerializer):
         except Insight.DoesNotExist:
             before_update = None
 
+        # Handle favorited separately — it is now stored in InsightFavorite (per-user),
+        # not on the Insight model. We pop it here so it doesn't get written to the model.
+        favorited_value = validated_data.pop("favorited", None)
+        favorited_change: tuple[bool, bool] | None = None
+        request_user = self.context["request"].user
+        if favorited_value is not None and not request_user.is_anonymous:
+            was_favorited = InsightFavorite.objects.filter(
+                user=request_user, insight=instance, team=instance.team
+            ).exists()
+            is_favorited = bool(favorited_value)
+            if is_favorited != was_favorited:
+                if is_favorited:
+                    InsightFavorite.objects.get_or_create(
+                        user=request_user,
+                        insight=instance,
+                        team=instance.team,
+                    )
+                else:
+                    InsightFavorite.objects.filter(user=request_user, insight=instance, team=instance.team).delete()
+                favorited_change = (was_favorited, is_favorited)
+
+        self.context["favorited_change"] = favorited_change
+
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
@@ -531,6 +571,13 @@ class InsightSerializer(InsightBasicSerializer):
                 self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
+
+        # Backfill the annotation so to_representation reports the correct value without
+        # an extra DB query — super().update() returns a plain model instance, not an
+        # annotated queryset row.
+        if favorited_value is not None and not request_user.is_anonymous:
+            updated_insight.is_favorited = bool(favorited_value)
+
         if not updated_insight.are_alerts_supported:
             instance.alertconfiguration_set.all().delete()
 
@@ -554,10 +601,12 @@ class InsightSerializer(InsightBasicSerializer):
         detected_changes = [
             c
             for c in changes_between("Insight", previous=before_update, current=updated_insight)
-            if c.field != "dashboards"
+            # favorited is no longer a field on Insight — skip any stale detection
+            if c.field not in ("dashboards", "favorited")
         ]
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
-        changes = detected_changes + synthetic_dashboard_changes
+        synthetic_favorited_change = self._synthetic_favorited_change()
+        changes = detected_changes + synthetic_dashboard_changes + synthetic_favorited_change
 
         activity = "updated"
         deleted_change = next((change for change in changes if change.field == "deleted"), None)
@@ -593,6 +642,21 @@ class InsightSerializer(InsightBasicSerializer):
                 )
             ]
 
+        return []
+
+    def _synthetic_favorited_change(self) -> list[Change]:
+        favorited_change: tuple[bool, bool] | None = self.context.get("favorited_change")
+        if favorited_change:
+            before, after = favorited_change
+            return [
+                Change(
+                    type="Insight",
+                    action="changed",
+                    field="favorited",
+                    before=before,
+                    after=after,
+                )
+            ]
         return []
 
     def _update_insight_dashboards(self, dashboards: list[Dashboard], instance: Insight) -> None:
@@ -1012,11 +1076,48 @@ class InsightViewSet(
 
         return context
 
+    def _annotate_favorited(self, queryset: QuerySet) -> QuerySet:
+        if self.request.user.is_anonymous:
+            return queryset
+
+        if self.request.user.favorites_migrated_at:
+            return queryset.annotate(
+                is_favorited=Exists(
+                    InsightFavorite.objects.filter(
+                        insight=OuterRef("pk"),
+                        user=self.request.user,
+                    )
+                )
+            )
+
+        migrate_user_favorites.delay(self.request.user.id)
+
+        return queryset.annotate(
+            is_favorited=Case(
+                When(
+                    Q(favorited=True)
+                    | Q(
+                        Exists(
+                            InsightFavorite.objects.filter(
+                                insight=OuterRef("pk"),
+                                user=self.request.user,
+                            )
+                        )
+                    ),
+                    then=Value(True),
+                ),
+                default=Value(False),
+                output_field=BooleanField(),
+            )
+        )
+
     def dangerously_get_queryset(self):
         # Insights are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
         assert self.team.project_id is not None
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
+        queryset = self._annotate_favorited(queryset)
 
         include_deleted = False
 
@@ -1057,7 +1158,6 @@ class InsightViewSet(
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
-            queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
             queryset = self._filter_request(self.request, queryset)
 
@@ -1081,20 +1181,19 @@ class InsightViewSet(
         """
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
-        insight_queryset = (
-            InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
-            .select_related("insight")
-            .exclude(insight__deleted=True)
-            .only("insight", "last_viewed_at")
+        if not request.user.is_authenticated:
+            return Response([])
+
+        queryset = (
+            Insight.objects.filter(team=self.team, insightviewed__user=request.user, deleted=False)
+            .annotate(last_viewed_at=F("insightviewed__last_viewed_at"))
+            .order_by("-last_viewed_at")
         )
 
-        recently_viewed = []
-        for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
-            insight = rv.insight
-            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
-            recently_viewed.append(insight)
+        queryset = self._annotate_favorited(queryset)
+        queryset = queryset[:5]
 
-        response = InsightBasicSerializer(recently_viewed, many=True)
+        response = InsightBasicSerializer(queryset, many=True, context=self.get_serializer_context())
         return Response(data=response.data, status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=False)
@@ -1127,7 +1226,9 @@ class InsightViewSet(
         queryset = queryset[:limit]
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
 
-        response = InsightBasicSerializer(queryset, many=True)
+        queryset = self._annotate_favorited(queryset)
+
+        response = InsightBasicSerializer(queryset, many=True, context=self.get_serializer_context())
         data = response.data
 
         # Batch fetch all viewers to avoid N+1 queries
@@ -1187,7 +1288,25 @@ class InsightViewSet(
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
-                queryset = queryset.filter(Q(favorited=True))
+                if not request.user.is_anonymous:
+                    if request.user.favorites_migrated_at:
+                        queryset = queryset.filter(
+                            id__in=InsightFavorite.objects.filter(
+                                user=request.user, team__project_id=self.team.project_id
+                            ).values_list("insight_id", flat=True)
+                        )
+                    else:
+                        queryset = queryset.filter(
+                            Q(favorited=True)
+                            | Q(
+                                id__in=InsightFavorite.objects.filter(
+                                    user=request.user, team__project_id=self.team.project_id
+                                ).values_list("insight_id", flat=True)
+                            )
+                        )
+                else:
+                    # Anonymous users (e.g. shared access tokens) fall back to the legacy field
+                    queryset = queryset.filter(Q(favorited=True))
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
                     # Exclude insights with the specific feature flag names

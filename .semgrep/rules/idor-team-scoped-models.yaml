@@ -711,6 +711,7 @@ rules:
                               AgentMemory
                               |FileSystemShortcut
                               |FileSystemViewLog
+                              |InsightFavorite
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
@@ -781,6 +782,7 @@ rules:
                         AgentMemory
                         |FileSystemShortcut
                         |FileSystemViewLog
+                        |InsightFavorite
                         |InsightViewed
                         |KernelRuntime
                         |PersistedFolder

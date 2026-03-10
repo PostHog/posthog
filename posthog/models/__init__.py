@@ -52,7 +52,7 @@ from .hog_flow import HogFlow
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
 from .health_issue import HealthIssue
-from .insight import Insight, InsightViewed
+from .insight import Insight, InsightFavorite, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
@@ -163,6 +163,7 @@ __all__ = [
     "HostDefinition",
     "Insight",
     "InsightCachingState",
+    "InsightFavorite",
     "InsightVariable",
     "InsightViewed",
     "InstanceSetting",

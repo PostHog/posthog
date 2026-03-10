@@ -304,6 +304,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "current_team",
         "current_organization_id",
         "current_team_id",
+        "favorites_migrated_at",
     ],
     "OrganizationDomain": [
         "last_verification_retry",

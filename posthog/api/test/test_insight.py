@@ -56,6 +56,7 @@ from posthog.models import (
     DashboardTile,
     Filter,
     Insight,
+    InsightFavorite,
     InsightViewed,
     OrganizationMembership,
     Person,
@@ -366,6 +367,165 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual((response.json()["results"][0]["favorited"]), True)
 
+    def test_favoriting_is_per_user_not_shared_across_org(self) -> None:
+        insight = Insight.objects.create(name="Shared insight", team=self.team, saved=True)
+        # Mark self.user migrated so the lazy-migration path doesn't interfere
+        self.user.favorites_migrated_at = timezone.now()
+        self.user.save(update_fields=["favorites_migrated_at"])
+
+        # self.user favorites the insight via the API
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {"favorited": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["favorited"])
+
+        # A second org member should NOT see it as favorited
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        other_user.favorites_migrated_at = timezone.now()
+        other_user.save(update_fields=["favorites_migrated_at"])
+        self.client.force_login(other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["favorited"])
+
+        # Confirm the InsightFavorite row only exists for self.user
+        self.assertTrue(InsightFavorite.objects.filter(user=self.user, insight=insight).exists())
+        self.assertFalse(InsightFavorite.objects.filter(user=other_user, insight=insight).exists())
+
+    def test_unfavoriting_only_affects_requesting_user(self) -> None:
+        insight = Insight.objects.create(name="Shared insight", team=self.team, saved=True)
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+
+        # Both users have the insight favorited
+        InsightFavorite.objects.create(user=self.user, insight=insight, team=self.team)
+        InsightFavorite.objects.create(user=other_user, insight=insight, team=self.team)
+        self.user.favorites_migrated_at = timezone.now()
+        self.user.save(update_fields=["favorites_migrated_at"])
+
+        # self.user unfavorites via the API
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
+            {"favorited": False},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["favorited"])
+
+        # other_user's favorite row is untouched
+        self.assertFalse(InsightFavorite.objects.filter(user=self.user, insight=insight).exists())
+        self.assertTrue(InsightFavorite.objects.filter(user=other_user, insight=insight).exists())
+
+    def test_favorited_filter_scoped_to_requesting_user(self) -> None:
+        insight_a = Insight.objects.create(name="Insight A", team=self.team, saved=True)
+        insight_b = Insight.objects.create(name="Insight B", team=self.team, saved=True)
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+
+        # self.user has only insight_a; other_user has only insight_b
+        InsightFavorite.objects.create(user=self.user, insight=insight_a, team=self.team)
+        InsightFavorite.objects.create(user=other_user, insight=insight_b, team=self.team)
+        self.user.favorites_migrated_at = timezone.now()
+        self.user.save(update_fields=["favorites_migrated_at"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?favorited=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_ids = {r["id"] for r in response.json()["results"]}
+        self.assertIn(insight_a.id, result_ids)
+        self.assertNotIn(insight_b.id, result_ids)
+
+    def test_lazy_migration_copies_legacy_org_favorites_for_user(self) -> None:
+        favorited_insight = Insight.objects.create(name="Was org-favorited", favorited=True, team=self.team, saved=True)
+        plain_insight = Insight.objects.create(name="Not favorited", favorited=False, team=self.team, saved=True)
+
+        # User has not been migrated yet
+        self.assertIsNone(self.user.favorites_migrated_at)
+        self.assertFalse(InsightFavorite.objects.filter(user=self.user).exists())
+
+        # First API hit triggers migration
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertTrue(InsightFavorite.objects.filter(user=self.user, insight=favorited_insight).exists())
+        self.assertFalse(InsightFavorite.objects.filter(user=self.user, insight=plain_insight).exists())
+
+        results = {r["id"]: r for r in response.json()["results"]}
+        self.assertTrue(results[favorited_insight.id]["favorited"])
+        self.assertFalse(results[plain_insight.id]["favorited"])
+
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.favorites_migrated_at)
+
+    def test_lazy_migration_runs_only_once_per_user(self) -> None:
+        from unittest.mock import patch as mock_patch
+
+        Insight.objects.create(name="Fav", favorited=True, team=self.team, saved=True)
+
+        # First request: migration runs
+        self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.favorites_migrated_at)
+
+        count_after_first = InsightFavorite.objects.filter(user=self.user).count()
+
+        # Subsequent request: migration must NOT run again
+        with mock_patch("posthog.api.insight.migrate_user_favorites") as mock_migrate:
+            self.client.get(f"/api/projects/{self.team.id}/insights/")
+            mock_migrate.assert_not_called()
+
+        self.assertEqual(InsightFavorite.objects.filter(user=self.user).count(), count_after_first)
+
+    def test_lazy_migration_excludes_other_org_insights(self) -> None:
+        # Separate org that self.user is NOT a member of
+        other_org, other_team, _ = User.objects.bootstrap(
+            organization_name="Other Org", email="otherorg@example.com", password=None
+        )
+        other_insight = Insight.objects.create(name="Other org insight", favorited=True, team=other_team, saved=True)
+        own_insight = Insight.objects.create(name="Own insight", favorited=True, team=self.team, saved=True)
+
+        # Trigger migration for self.user
+        self.client.get(f"/api/projects/{self.team.id}/insights/")
+
+        self.assertTrue(InsightFavorite.objects.filter(user=self.user, insight=own_insight).exists())
+        self.assertFalse(InsightFavorite.objects.filter(user=self.user, insight=other_insight).exists())
+
+    def test_favorited_patch_response_reflects_new_state(self) -> None:
+        insight = Insight.objects.create(name="Test", team=self.team, saved=True)
+        self.user.favorites_migrated_at = timezone.now()
+        self.user.save(update_fields=["favorites_migrated_at"])
+
+        # Favoriting returns true
+        resp = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}", {"favorited": True})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(resp.json()["favorited"])
+        self.assertTrue(InsightFavorite.objects.filter(user=self.user, insight=insight).exists())
+
+        # Unfavoriting returns false
+        resp = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}", {"favorited": False})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertFalse(resp.json()["favorited"])
+        self.assertFalse(InsightFavorite.objects.filter(user=self.user, insight=insight).exists())
+
+    def test_favorited_activity_logged_with_before_and_after(self) -> None:
+        insight = Insight.objects.create(name="Test insight", team=self.team, saved=True)
+        self.user.favorites_migrated_at = timezone.now()
+        self.user.save(update_fields=["favorites_migrated_at"])
+
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{insight.id}", {"favorited": True})
+
+        activity_response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/activity/")
+        self.assertEqual(activity_response.status_code, status.HTTP_200_OK)
+
+        activities = activity_response.json()["results"]
+        updated_activity = next((a for a in activities if a["activity"] == "updated"), None)
+        assert updated_activity is not None
+
+        changes = updated_activity["detail"]["changes"]
+        favorited_change = next((c for c in changes if c["field"] == "favorited"), None)
+        assert favorited_change is not None
+        self.assertFalse(favorited_change["before"])
+        self.assertTrue(favorited_change["after"])
+
     def test_hide_feature_flag_insights_filter(self) -> None:
         from posthog.helpers.dashboard_templates import (
             FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
@@ -589,9 +749,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             queries.append(capture_query_context.captured_queries)
             query_counts.append(query_count_for_create_and_read)
 
-        # adding more insights doesn't change the query count
+        # The first request for a user runs the one-time lazy migration of org-level favorites
+        # to per-user InsightFavorite rows (+5 queries: 1 select_for_update, 1 nested insight select, 1 user save, 2 transaction).
+        # All subsequent requests are constant at 14 — adding more insights doesn't change the count.
         self.assertEqual(
-            [15, 15, 15, 15, 15],
+            [17, 14, 14, 14, 14],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
