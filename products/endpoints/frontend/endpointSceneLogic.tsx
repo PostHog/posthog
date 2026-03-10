@@ -156,7 +156,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             },
         ],
         cacheAge: [
-            null as number | null,
+            undefined as number | null | undefined,
             {
                 setCacheAge: (_, { cacheAge }) => cacheAge,
             },

@@ -76,7 +76,8 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
     const freshMaterialization = loadedMaterializationStatus ?? versionMaterialization
 
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint.is_materialized
-    const effectiveCacheAge = cacheAge ?? viewingVersion?.cache_age_seconds ?? endpoint.cache_age_seconds
+    const effectiveCacheAge =
+        cacheAge !== undefined ? cacheAge : (viewingVersion?.cache_age_seconds ?? endpoint.cache_age_seconds)
     const effectiveIsMaterialized = localIsMaterialized ?? baseIsMaterialized
     const effectiveMaterializationStatus = freshMaterialization?.status
     const effectiveLastMaterializedAt = freshMaterialization?.last_materialized_at
