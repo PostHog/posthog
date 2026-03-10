@@ -256,15 +256,17 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
         setSourceSetupLoading: (isLoading: boolean) => ({ isLoading }),
-        saveToLinkedPrompt: true,
+        saveToLinkedPrompt: (promptId: string) => ({ promptId }),
         saveToLinkedEvaluation: (
+            promptId: string,
             modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
-        ) => ({ modelConfig }),
-        saveAsNewPrompt: (name: string) => ({ name }),
+        ) => ({ promptId, modelConfig }),
+        saveAsNewPrompt: (promptId: string, name: string) => ({ promptId, name }),
         saveAsNewEvaluation: (
+            promptId: string,
             name: string,
             modelConfig: { model: string; provider: string; provider_key_id: string | null } | null
-        ) => ({ name, modelConfig }),
+        ) => ({ promptId, name, modelConfig }),
         saveComplete: true,
         resetPlayground: true,
     }),
@@ -779,7 +781,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        saveToLinkedPrompt: async () => {
+        saveToLinkedPrompt: async ({ promptId }) => {
             posthog.capture('llma playground saved to source', { action: 'save_to_linked_prompt' })
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.promptName) {
@@ -787,7 +789,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 actions.saveComplete()
                 return
             }
-            const prompt = promptConfigs[0]
+            const prompt = promptConfigs.find((p) => p.id === promptId)
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
@@ -830,7 +832,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        saveToLinkedEvaluation: async ({ modelConfig }) => {
+        saveToLinkedEvaluation: async ({ promptId, modelConfig }) => {
             posthog.capture('llma playground saved to source', { action: 'save_to_linked_evaluation' })
             const { linkedSource, promptConfigs } = values
             if (!linkedSource.evaluationId) {
@@ -838,7 +840,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 actions.saveComplete()
                 return
             }
-            const prompt = promptConfigs[0]
+            const prompt = promptConfigs.find((p) => p.id === promptId)
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
@@ -875,9 +877,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        saveAsNewPrompt: async ({ name }) => {
+        saveAsNewPrompt: async ({ promptId, name }) => {
             posthog.capture('llma playground saved to source', { action: 'save_as_new_prompt' })
-            const prompt = values.promptConfigs[0]
+            const prompt = values.promptConfigs.find((p) => p.id === promptId)
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
@@ -915,9 +917,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        saveAsNewEvaluation: async ({ name, modelConfig }) => {
+        saveAsNewEvaluation: async ({ promptId, name, modelConfig }) => {
             posthog.capture('llma playground saved to source', { action: 'save_as_new_evaluation' })
-            const prompt = values.promptConfigs[0]
+            const prompt = values.promptConfigs.find((p) => p.id === promptId)
             if (!prompt) {
                 lemonToast.error('No prompt configuration to save')
                 actions.saveComplete()
