@@ -23,7 +23,7 @@ export function NavLink({ to, label, icon, isCollapsed }: NavLinkProps): JSX.Ele
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
-    const isActive = currentPath === to
+    const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
 
     return (
         <ButtonGroupPrimitive

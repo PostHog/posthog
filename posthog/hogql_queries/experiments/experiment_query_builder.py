@@ -53,14 +53,14 @@ def get_exposure_config_params_for_builder(
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
-        filter_test_accounts = False
+        filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if criteria.exposure_config is None:
             exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
         else:
             exposure_config = criteria.exposure_config
-        filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else False
+        filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else True
         multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
 
     return (exposure_config, multiple_variant_handling, filter_test_accounts)

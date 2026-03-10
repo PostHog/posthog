@@ -379,7 +379,7 @@ export function Toolbar(): JSX.Element | null {
         useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
         useActions(toolbarLogic)
-    const { isAuthenticated, userIntent, uiHostCheckStatus, uiHostConfigModalVisible } = useValues(toolbarConfigLogic)
+    const { isAuthenticated, userIntent, authStatus, uiHostConfigModalVisible } = useValues(toolbarConfigLogic)
     const { authenticate, openUiHostConfigModal, closeUiHostConfigModal } = useActions(toolbarConfigLogic)
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
@@ -455,7 +455,7 @@ export function Toolbar(): JSX.Element | null {
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
                     <AnimatedLogomark
-                        animate={isLoading || uiHostCheckStatus === 'checking'}
+                        animate={isLoading || authStatus === 'checking' || authStatus === 'authenticating'}
                         animateOnce={isExiting ? completeGracefulExit : undefined}
                         className="Toolbar__logomark"
                     />
@@ -491,13 +491,13 @@ export function Toolbar(): JSX.Element | null {
                             </ToolbarButton>
                         )}
                     </>
-                ) : uiHostCheckStatus === 'checking' ? (
+                ) : authStatus === 'checking' || authStatus === 'authenticating' ? (
                     <ToolbarButton flex>
                         <span className="flex items-center gap-1">
-                            <Spinner /> Checking…
+                            <Spinner /> {authStatus === 'authenticating' ? 'Authenticating…' : 'Checking…'}
                         </span>
                     </ToolbarButton>
-                ) : uiHostCheckStatus === 'error' ? (
+                ) : authStatus === 'error' ? (
                     <ToolbarButton
                         flex
                         onClick={openUiHostConfigModal}

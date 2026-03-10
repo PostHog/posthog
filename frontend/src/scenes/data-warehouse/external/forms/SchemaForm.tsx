@@ -15,15 +15,17 @@ import { SyncMethodForm } from './SyncMethodForm'
 export default function SchemaForm(): JSX.Element {
     const containerRef = useFloatingContainer()
     const { toggleSchemaShouldSync, openSyncMethodModal, toggleAllTables } = useActions(sourceWizardLogic)
-    const { databaseSchema, tablesAllToggledOn, suggestedTablesMap } = useValues(sourceWizardLogic)
+    const { databaseSchema, tablesAllToggledOn, suggestedTablesMap, isDirectQueryMode } = useValues(sourceWizardLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
-        if (schema.sync_type === null) {
+        if (!isDirectQueryMode && schema.sync_type === null) {
             openSyncMethodModal(schema)
             return
         }
         toggleSchemaShouldSync(schema, checked)
     }
+
+    const shouldShowSyncColumns = !isDirectQueryMode
 
     // scroll to top of container
     useEffect(() => {
@@ -33,6 +35,11 @@ export default function SchemaForm(): JSX.Element {
     return (
         <>
             <div className="flex flex-col gap-2">
+                {isDirectQueryMode && (
+                    <p className="text-sm text-muted-alt mb-0">
+                        Choose which tables should be available for querying in PostHog.
+                    </p>
+                )}
                 <div className="max-h-[60vh] overflow-y-auto">
                     <LemonTable
                         emptyState="No schemas found"
@@ -98,8 +105,15 @@ export default function SchemaForm(): JSX.Element {
                                 align: 'right',
                                 tooltip:
                                     'Incremental and append-only refresh methods key on a unique field to determine the most up-to-date data.',
-                                isHidden: !databaseSchema.some((schema) => schema.sync_type),
+                                isHidden: !shouldShowSyncColumns || !databaseSchema.some((schema) => schema.sync_type),
                                 render: function RenderSyncType(_, schema) {
+                                    if (isDirectQueryMode) {
+                                        return (
+                                            <span className="text-xs text-muted-foreground">
+                                                Only selected tables are queryable in direct mode
+                                            </span>
+                                        )
+                                    }
                                     if (!schema.incremental_available && !schema.append_available) {
                                         return (
                                             <span className="text-xs text-muted-foreground">
@@ -144,9 +158,17 @@ export default function SchemaForm(): JSX.Element {
                                 key: 'sync_type',
                                 title: 'Sync method',
                                 align: 'right',
+                                isHidden: !shouldShowSyncColumns,
                                 tooltip:
                                     'Full refresh will refresh the full table on every sync, whereas incremental will only sync new and updated rows since the last sync',
                                 render: function RenderSyncType(_, schema) {
+                                    if (isDirectQueryMode) {
+                                        return (
+                                            <span className="text-xs text-muted-foreground">
+                                                Only selected tables are queryable in direct mode
+                                            </span>
+                                        )
+                                    }
                                     if (!schema.sync_type) {
                                         return (
                                             <div className="justify-end flex">

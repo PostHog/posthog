@@ -10,7 +10,8 @@ import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
+import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
+import { ActionType } from '~/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
 import { FragileSelectorResult, checkSelectorFragilityCached } from '../utils/selectorQuality'
@@ -47,11 +48,27 @@ function getElementMetaWithSelectorQuality(
     }
 }
 
+let zIndexCache = new WeakMap<Element, number>()
+
+function clearZIndexCache(): void {
+    zIndexCache = new WeakMap()
+}
+
 const getMaxZIndex = (element: Element): number => {
+    const cached = zIndexCache.get(element)
+    if (cached !== undefined) {
+        return cached
+    }
+
     let maxZIndex = 0
     let currentElement: Element | null = element
 
     while (currentElement) {
+        const parentCached = zIndexCache.get(currentElement)
+        if (parentCached !== undefined) {
+            maxZIndex = Math.max(maxZIndex, parentCached)
+            break
+        }
         const zIndex = parseInt(getComputedStyle(currentElement).zIndex)
         if (!isNaN(zIndex) && zIndex > maxZIndex) {
             maxZIndex = zIndex
@@ -59,6 +76,7 @@ const getMaxZIndex = (element: Element): number => {
         currentElement = currentElement.parentElement
     }
 
+    zIndexCache.set(element, maxZIndex)
     return maxZIndex
 }
 
@@ -187,6 +205,9 @@ export const elementsLogic = kea<elementsLogicType>([
                 const result: ElementWithMetadata[] = []
 
                 for (const e of countedElements) {
+                    if (e.visible === false) {
+                        continue
+                    }
                     const rect = getRectForElement(e.element)
                     const inViewport =
                         rect.bottom >= -VIEWPORT_BUFFER_PX && rect.top <= windowHeight + VIEWPORT_BUFFER_PX
@@ -239,8 +260,7 @@ export const elementsLogic = kea<elementsLogicType>([
 
         _actionElements: [
             (s) => [s.displayActionElements, s.actionForm],
-            (displayActionElements, actionForm): ElementWithMetadata[] => {
-                // This function is expensive so should be calculated as rarely as possible
+            (displayActionElements: boolean, actionForm: ActionForm): ElementWithMetadata[] => {
                 if (displayActionElements && actionForm?.steps) {
                     const allElements = collectAllElementsDeep('*', document)
                     const steps: ElementWithMetadata[] = []
@@ -292,8 +312,7 @@ export const elementsLogic = kea<elementsLogicType>([
 
         _actionsForElementMap: [
             () => [actionsLogic.selectors.sortedActions],
-            (sortedActions): ActionElementMap => {
-                // This function is expensive so should be calculated as rarely as possible
+            (sortedActions: ActionType[]): ActionElementMap => {
                 const allElements = collectAllElementsDeep('*', document)
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
                 sortedActions.forEach((action, index) => {
@@ -437,6 +456,9 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        updateRects: () => {
+            clearZIndexCache()
+        },
         enableInspect: () => {
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
@@ -533,17 +555,14 @@ export const elementsLogic = kea<elementsLogicType>([
             }, 'clickListener')
 
             const onScrollResize = (): void => {
-                // Clear any existing timeout
-                cache.disposables.dispose('clickDelayTimeout')
-                actions.updateRects()
-
-                // Add new timeout
-                cache.disposables.add(() => {
-                    const timeout = window.setTimeout(actions.updateRects, 100)
-                    return () => window.clearTimeout(timeout)
-                }, 'clickDelayTimeout')
-
-                cache.updateRelativePosition()
+                if (!cache.rectUpdateScheduled) {
+                    cache.rectUpdateScheduled = true
+                    actions.updateRects()
+                    cache.updateRelativePosition()
+                    requestAnimationFrame(() => {
+                        cache.rectUpdateScheduled = false
+                    })
+                }
             }
 
             cache.disposables.add(() => {
@@ -581,8 +600,8 @@ export const elementsLogic = kea<elementsLogicType>([
             }, 'keydownListener')
 
             cache.disposables.add(() => {
-                window.document.addEventListener('scroll', onScrollResize, true)
-                return () => window.document.removeEventListener('scroll', onScrollResize, true)
+                window.document.addEventListener('scroll', onScrollResize, { capture: true, passive: true })
+                return () => window.document.removeEventListener('scroll', onScrollResize, { capture: true })
             }, 'scrollListener')
             cache.updateRelativePosition()
         },

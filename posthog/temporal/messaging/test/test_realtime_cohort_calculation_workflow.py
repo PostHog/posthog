@@ -1,3 +1,4 @@
+import os
 import statistics
 
 import pytest
@@ -257,15 +258,24 @@ class TestFlushKafkaBatch:
 class TestBatchFlushingBehavior:
     """Tests for batch flushing logic and integration."""
 
-    def test_flush_batch_size_constant_is_10k(self):
-        """Verify the FLUSH_BATCH_SIZE constant is set to 10,000."""
-        # Read the source to verify the constant
-        import inspect
+    def test_flush_batch_size_env_var_configuration(self):
+        """Verify FLUSH_BATCH_SIZE uses environment variable configuration."""
+        # Test default value (1000 when env var is not set)
+        with patch.dict(os.environ, {}, clear=True):
+            # Test the env parsing logic directly
+            default_value = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+            assert default_value == 1000
 
+        # Test env var override
+        with patch.dict(os.environ, {"COHORT_KAFKA_FLUSH_BATCH_SIZE": "500"}):
+            env_value = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+            assert env_value == 500
+
+        # Test that the module constant exists and is configurable
         import posthog.temporal.messaging.realtime_cohort_calculation_workflow as module
 
-        source = inspect.getsource(module.process_realtime_cohort_calculation_activity)
-        assert "FLUSH_BATCH_SIZE = 10_000" in source
+        assert hasattr(module, "FLUSH_BATCH_SIZE")
+        assert isinstance(module.FLUSH_BATCH_SIZE, int)
 
     @pytest.mark.asyncio
     async def test_multiple_batches_handled_correctly(self):

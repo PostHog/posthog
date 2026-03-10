@@ -18,7 +18,7 @@ export const DashboardOverridesBanner = (): JSX.Element | null => {
 
     return (
         <LemonBanner type="info" className="mt-4 mb-2">
-            <div className="flex flex-row items-center justify-between gap-2">
+            <div className="flex flex-row items-center justify-between gap-2 flex-wrap">
                 <span>You are viewing this dashboard with filter overrides.</span>
 
                 <div className="flex gap-2">
