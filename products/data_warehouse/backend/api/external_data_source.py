@@ -14,7 +14,16 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSwitchGroupConfig
+from posthog.schema import (
+    ProductKey,
+    SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
+)
 
 from posthog.hogql.database.database import Database
 
@@ -62,6 +71,7 @@ from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+CREDENTIAL_LIKE_FIELD_NAMES = {"connection_string"}
 
 
 def get_password_field_names(fields: list[FieldType]) -> set[str]:
@@ -73,6 +83,83 @@ def get_password_field_names(fields: list[FieldType]) -> set[str]:
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             password_fields.update(get_password_field_names(field.fields))
     return password_fields
+
+
+def field_contains_credentials(field: FieldType) -> bool:
+    if isinstance(field, SourceFieldInputConfig):
+        return field.type == SourceFieldInputConfigType.PASSWORD or field.name in CREDENTIAL_LIKE_FIELD_NAMES
+
+    if isinstance(field, (SourceFieldFileUploadConfig, SourceFieldOauthConfig, SourceFieldSSHTunnelConfig)):
+        return True
+
+    if isinstance(field, SourceFieldSwitchGroupConfig):
+        return any(field_contains_credentials(nested_field) for nested_field in field.fields)
+
+    if isinstance(field, SourceFieldSelectConfig):
+        return any(
+            field_contains_credentials(nested_field)
+            for option in field.options
+            for nested_field in (option.fields or [])
+        )
+
+
+def credentials_touched(data: dict[str, Any], fields: list[FieldType]) -> bool:
+    for field in fields:
+        if field.name not in data:
+            continue
+
+        field_value = data[field.name]
+
+        if isinstance(field, SourceFieldInputConfig):
+            if field_contains_credentials(field):
+                return True
+            continue
+
+        if isinstance(field, SourceFieldSwitchGroupConfig) and isinstance(field_value, dict):
+            if credentials_touched(field_value, field.fields):
+                return True
+            continue
+
+        if isinstance(field, SourceFieldSelectConfig) and isinstance(field_value, dict):
+            for option in field.options:
+                if option.fields and credentials_touched(field_value, option.fields):
+                    return True
+            continue
+
+        if isinstance(field, (SourceFieldFileUploadConfig, SourceFieldOauthConfig)):
+            return True
+
+        if isinstance(field, SourceFieldSSHTunnelConfig) and isinstance(field_value, dict):
+            auth_data = field_value.get("auth") or field_value.get("auth_type") or {}
+            if not isinstance(auth_data, dict):
+                auth_data = {}
+            if {"password", "passphrase", "private_key"} & set(auth_data.keys()):
+                return True
+
+    return False
+
+
+def validate_updated_host_configuration(
+    source: Any, source_config: Config, team_id: int, incoming_job_inputs: dict[str, Any]
+) -> None:
+    if not {"host", "ssh_tunnel"} & set(incoming_job_inputs.keys()):
+        return
+
+    # These magic keys come from mixins on the source
+    # --> class PostgresSource(SimpleSource, SSHTunnelMixin, ValidateDatabaseHostMixin)
+    if hasattr(source, "ssh_tunnel_is_valid"):
+        ssh_valid, ssh_error = source.ssh_tunnel_is_valid(source_config, team_id)
+        if not ssh_valid:
+            raise ValidationError(ssh_error or "Invalid SSH tunnel configuration")
+
+    if not hasattr(source, "is_database_host_valid") or not hasattr(source_config, "host"):
+        return
+
+    ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
+    using_ssh_tunnel = bool(getattr(ssh_tunnel, "enabled", False))
+    host_valid, host_error = source.is_database_host_valid(source_config.host, team_id, using_ssh_tunnel)
+    if not host_valid:
+        raise ValidationError(host_error or "Invalid host")
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -327,6 +414,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
         password_fields = get_password_field_names(source.get_source_config.fields)
+        should_validate_credentials = False
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
@@ -363,12 +451,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
+        if "job_inputs" in validated_data:
+            should_validate_credentials = credentials_touched(incoming_job_inputs, source.get_source_config.fields)
+
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
 
         source_config: Config = source.parse_config(new_job_inputs)
+        validate_updated_host_configuration(source, source_config, instance.team_id, incoming_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
+
+        if should_validate_credentials:
+            credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
+            if not credentials_valid:
+                raise ValidationError(credentials_error or "Invalid credentials")
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
@@ -490,7 +587,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for key, value in payload.items():
                 if isinstance(value, str):
                     payload[key] = value.strip()
-
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)

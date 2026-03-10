@@ -413,12 +413,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             fields[column] = hogql_type(name=column, nullable=is_nullable)
 
-        if self.external_data_source and self.external_data_source.is_direct_postgres:
-            postgres_schema = (self.external_data_source.job_inputs or {}).get("schema", "public")
+        if (
+            self.external_data_source
+            and self.external_data_source.source_type == "Postgres"
+            and self.external_data_source.access_method == self.external_data_source.AccessMethod.DIRECT
+        ):
             return DirectPostgresTable(
                 name=self.name,
                 fields=fields,
-                postgres_schema=postgres_schema,
+                postgres_schema=(self.external_data_source.job_inputs or {}).get("schema", "public"),
                 postgres_table_name=self.name,
                 external_data_source_id=str(self.external_data_source_id),
             )
