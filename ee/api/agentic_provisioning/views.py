@@ -1,22 +1,45 @@
 from __future__ import annotations
 
 import time
+import secrets
+from datetime import timedelta
 from typing import Any
+from urllib.parse import urlencode
 
+from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.db import IntegrityError
+from django.http import HttpResponseRedirect
+from django.http.response import HttpResponseBase
+from django.utils import timezone
 
 import structlog
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.models.integration import StripeIntegration
+from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth_refresh_token
+from posthog.models.user import User
+from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.security.outbound_proxy import external_requests
 
 from ee.settings import BILLING_SERVICE_URL
 
+from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
+from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_stripe_signature
 
 logger = structlog.get_logger(__name__)
+
+AUTH_CODE_TTL_SECONDS = 300
+PENDING_AUTH_TTL_SECONDS = 600
+
+STRIPE_APP_NAME = "PostHog Stripe App"
+
+ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
+
 
 # ---------------------------------------------------------------------------
 # Service catalog — a parent "posthog" service with component children per
@@ -143,7 +166,7 @@ VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID} | set(_CATEGORY_MAP.keys())
 
 
 # ---------------------------------------------------------------------------
-# GET /provisioning/health
+# GET /provisioning/health — liveness probe, returns supported protocol versions
 # ---------------------------------------------------------------------------
 
 
@@ -159,7 +182,7 @@ def provisioning_health(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# GET /provisioning/services
+# GET /provisioning/services — returns the catalog of provisionable services
 # ---------------------------------------------------------------------------
 
 
@@ -172,3 +195,366 @@ def provisioning_services(request: Request) -> Response:
         return error
 
     return Response({"data": _get_services(), "next_cursor": ""})
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/account_requests — onboard a new or existing user and
+# return either an auth code (new user) or a redirect URL (existing user)
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@stripe_region_proxy(strategy="body_region")
+def account_requests(request: Request) -> Response:
+    data = request.data
+    request_id = data.get("id", "")
+    email = data.get("email")
+    if not email:
+        return Response(
+            {"type": "error", "error": {"code": "invalid_request", "message": "email is required"}}, status=400
+        )
+
+    scopes = data.get("scopes", [])
+    confirmation_secret = data.get("confirmation_secret", "")
+    expires_at_str = data.get("expires_at", "")
+    configuration = data.get("configuration") or {}
+    orchestrator = data.get("orchestrator") or {}
+
+    if expires_at_str:
+        from django.utils.dateparse import parse_datetime
+
+        expires_at = parse_datetime(expires_at_str)
+        if expires_at and expires_at < timezone.now():
+            return Response(
+                {"type": "error", "error": {"code": "expired", "message": "Account request has expired"}},
+                status=400,
+            )
+
+    stripe_info = orchestrator.get("stripe") or {}
+    stripe_account_id = stripe_info.get("account", "") if orchestrator.get("type") == "stripe" else ""
+    if not stripe_account_id:
+        return Response(
+            {
+                "type": "error",
+                "error": {"code": "invalid_request", "message": "orchestrator.stripe.account is required"},
+            },
+            status=400,
+        )
+
+    region = (configuration.get("region") or "US").upper()
+
+    existing_user = User.objects.filter(email=email).first()
+
+    if existing_user:
+        return _handle_existing_user(request_id, existing_user, confirmation_secret, scopes, stripe_account_id, region)
+
+    return _handle_new_user(request_id, data, email, scopes, stripe_account_id, region)
+
+
+def _handle_existing_user(
+    request_id: str,
+    user: User,
+    confirmation_secret: str,
+    scopes: list[str],
+    stripe_account_id: str = "",
+    region: str = "US",
+) -> Response:
+    cache.set(
+        f"{PENDING_AUTH_CACHE_PREFIX}{confirmation_secret}",
+        {
+            "email": user.email,
+            "scopes": scopes,
+            "stripe_account_id": stripe_account_id,
+            "region": region,
+        },
+        timeout=PENDING_AUTH_TTL_SECONDS,
+    )
+
+    authorize_url = _build_authorize_url(confirmation_secret, scopes)
+    return Response(
+        {
+            "id": request_id,
+            "type": "requires_auth",
+            "requires_auth": {
+                "type": "redirect",
+                "redirect": {"url": authorize_url},
+            },
+        }
+    )
+
+
+def _handle_new_user(
+    request_id: str,
+    data: dict,
+    email: str,
+    scopes: list[str],
+    stripe_account_id: str,
+    region: str,
+) -> Response:
+    name = data.get("name", "")
+    first_name = name.split(" ")[0] if name else ""
+
+    try:
+        organization, team, user = User.objects.bootstrap(
+            organization_name=f"Stripe ({email})",
+            email=email,
+            password=None,
+            first_name=first_name,
+        )
+    except IntegrityError:
+        existing = User.objects.filter(email=email).first()
+        if existing:
+            return _handle_existing_user(
+                request_id, existing, data.get("confirmation_secret", ""), scopes, stripe_account_id, region
+            )
+        return Response(
+            {
+                "id": request_id,
+                "type": "error",
+                "error": {"code": "account_creation_failed", "message": "Failed to create account"},
+            },
+            status=500,
+        )
+
+    code = secrets.token_urlsafe(32)
+    cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
+    cache.set(
+        cache_key,
+        {
+            "user_id": user.id,
+            "org_id": str(organization.id),
+            "team_id": team.id,
+            "stripe_account_id": stripe_account_id,
+            "scopes": scopes,
+            "region": region,
+        },
+        timeout=AUTH_CODE_TTL_SECONDS,
+    )
+
+    return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
+
+
+def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
+    base = settings.SITE_URL.rstrip("/")
+    params = urlencode({"state": confirmation_secret, "scope": " ".join(scopes)})
+    return f"{base}/api/agentic/authorize?{params}"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/agentic/authorize
+# Interactive OAuth consent for existing users (APP 0.1d §A1 "requires_auth").
+# The orchestrator redirects the user here; on approval we issue an auth code
+# and redirect back to the orchestrator callback.
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def agentic_authorize(request: Any) -> HttpResponseBase:
+    state = request.GET.get("state", "")
+    if not state:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
+
+    pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
+    pending = cache.get(pending_key)
+    if pending is None:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=expired_or_invalid_state")
+
+    if request.user.email != pending["email"]:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
+
+    cache.delete(pending_key)
+
+    user = request.user
+    membership = user.organization_memberships.first()
+    if not membership:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
+
+    organization = membership.organization
+    team = organization.teams.filter(is_demo=False).first() or organization.teams.first()
+    if not team:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
+
+    code = secrets.token_urlsafe(32)
+    cache.set(
+        f"{AUTH_CODE_CACHE_PREFIX}{code}",
+        {
+            "user_id": user.id,
+            "org_id": str(organization.id),
+            "team_id": team.id,
+            "stripe_account_id": pending.get("stripe_account_id", ""),
+            "scopes": pending.get("scopes", []),
+            "region": pending.get("region", "US"),
+        },
+        timeout=AUTH_CODE_TTL_SECONDS,
+    )
+
+    callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
+    params = urlencode({"code": code, "state": state})
+    return HttpResponseRedirect(f"{callback_url}?{params}")
+
+
+# ---------------------------------------------------------------------------
+# POST /oauth/token — exchange auth codes or refresh tokens for access tokens
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@stripe_region_proxy(strategy="token_lookup")
+def oauth_token(request: Request) -> Response:
+    grant_type = request.data.get("grant_type", "")
+
+    if grant_type == "authorization_code":
+        return _exchange_authorization_code(request)
+    elif grant_type == "refresh_token":
+        return _exchange_refresh_token(request)
+    else:
+        return Response(
+            {"error": "unsupported_grant_type", "error_description": f"Unsupported grant_type: {grant_type}"},
+            status=400,
+        )
+
+
+def _exchange_authorization_code(request: Request) -> Response:
+    code = request.data.get("code", "")
+    if not code:
+        return Response({"error": "invalid_request", "error_description": "code is required"}, status=400)
+
+    cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
+    code_data = cache.get(cache_key)
+    if code_data is None:
+        return Response(
+            {"error": "invalid_grant", "error_description": "Invalid or expired authorization code"}, status=400
+        )
+
+    cache.delete(cache_key)
+
+    user_id = code_data["user_id"]
+    team_id = code_data["team_id"]
+    scopes = code_data.get("scopes", [])
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
+
+    oauth_app = _get_stripe_oauth_app()
+    scope_str = " ".join(scopes) if scopes else StripeIntegration.SCOPES
+
+    access_token_value = generate_random_oauth_access_token(None)
+    access_token = OAuthAccessToken.objects.create(
+        application=oauth_app,
+        token=access_token_value,
+        user=user,
+        expires=timezone.now() + timedelta(seconds=ACCESS_TOKEN_EXPIRY_SECONDS),
+        scope=scope_str,
+        scoped_teams=[team_id],
+    )
+
+    refresh_token_value = generate_random_oauth_refresh_token(None)
+    OAuthRefreshToken.objects.create(
+        application=oauth_app,
+        token=refresh_token_value,
+        user=user,
+        access_token=access_token,
+        scoped_teams=[team_id],
+    )
+
+    account_id = str(code_data.get("org_id", ""))
+
+    return Response(
+        {
+            "token_type": "bearer",
+            "access_token": access_token_value,
+            "refresh_token": refresh_token_value,
+            "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
+            "account": {
+                "id": account_id,
+                "payment_credentials": "provider",
+            },
+        }
+    )
+
+
+def _exchange_refresh_token(request: Request) -> Response:
+    refresh_token_value = request.data.get("refresh_token", "")
+    if not refresh_token_value:
+        return Response({"error": "invalid_request", "error_description": "refresh_token is required"}, status=400)
+
+    old_refresh = find_oauth_refresh_token(refresh_token_value)
+    if old_refresh is None:
+        return Response({"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400)
+
+    oauth_app = old_refresh.application
+    user = old_refresh.user
+    scoped_teams = old_refresh.scoped_teams
+    old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
+
+    old_access = old_refresh.access_token
+    old_refresh.access_token = None
+    old_refresh.revoked = timezone.now()
+    old_refresh.save(update_fields=["access_token", "revoked"])
+
+    if old_access:
+        old_access.delete()
+
+    new_access_value = generate_random_oauth_access_token(None)
+    new_access = OAuthAccessToken.objects.create(
+        application=oauth_app,
+        token=new_access_value,
+        user=user,
+        expires=timezone.now() + timedelta(seconds=ACCESS_TOKEN_EXPIRY_SECONDS),
+        scope=old_scope,
+        scoped_teams=scoped_teams,
+    )
+
+    new_refresh_value = generate_random_oauth_refresh_token(None)
+    OAuthRefreshToken.objects.create(
+        application=oauth_app,
+        token=new_refresh_value,
+        user=user,
+        access_token=new_access,
+        scoped_teams=scoped_teams,
+    )
+
+    return Response(
+        {
+            "token_type": "bearer",
+            "access_token": new_access_value,
+            "refresh_token": new_refresh_value,
+            "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_stripe_oauth_app():
+    from posthog.models.oauth import OAuthApplication
+
+    if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+        try:
+            return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
+        except OAuthApplication.DoesNotExist:
+            logger.warning(
+                "stripe_app.oauth_app.client_id_not_found",
+                client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
+            )
+
+    from oauthlib.common import generate_token
+
+    return OAuthApplication.objects.create(
+        name=STRIPE_APP_NAME,
+        client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID or generate_token(),
+        client_secret="",
+        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="https://localhost",
+        algorithm="RS256",
+    )
