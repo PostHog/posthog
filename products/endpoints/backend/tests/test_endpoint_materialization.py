@@ -12,7 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.schema import DataWarehouseSyncInterval, PathsFilter, PathsQuery, PathType, RetentionQuery
+from posthog.schema import PathsFilter, PathsQuery, PathType, RetentionQuery
 
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
@@ -77,7 +77,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Update endpoint to enable materialization
         updated_data = {
             "is_materialized": True,
-            "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+            "data_freshness_seconds": 86400,
         }
 
         response = self.client.patch(
@@ -110,8 +110,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "DataWarehouseModelPath should be created for the saved_query",
         )
 
-    def test_update_sync_frequency_updates_saved_query_sync_interval(self):
-        """Test that updating sync_frequency updates the SavedQuery's sync_interval."""
+    def test_data_freshness_updates_saved_query_sync_interval(self):
+        """Test that updating data_freshness_seconds updates the SavedQuery's sync_interval."""
         # Create and materialize an endpoint
         endpoint = create_endpoint_with_version(
             name="test_sync_frequency",
@@ -126,7 +126,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+                "data_freshness_seconds": 86400,
             },
             format="json",
         )
@@ -141,7 +141,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+                "data_freshness_seconds": 43200,
             },
             format="json",
         )
@@ -157,7 +157,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_1HOUR,
+                "data_freshness_seconds": 3600,
             },
             format="json",
         )
@@ -183,7 +183,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+                "data_freshness_seconds": 86400,
             },
             format="json",
         )
@@ -230,7 +230,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+                "data_freshness_seconds": 86400,
             },
             format="json",
         )
@@ -264,7 +264,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+                "data_freshness_seconds": 43200,
             },
             format="json",
         )
@@ -303,7 +303,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+                "data_freshness_seconds": 43200,
             },
             format="json",
         )
@@ -349,7 +349,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+                "data_freshness_seconds": 43200,
             },
             format="json",
         )
@@ -387,7 +387,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+                "data_freshness_seconds": 43200,
             },
             format="json",
         )
@@ -422,7 +422,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+                "data_freshness_seconds": 43200,
             },
             format="json",
         )
@@ -435,8 +435,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("materialization", response_data)
         self.assertTrue(response_data["materialization"]["can_materialize"])
         self.assertIn("status", response_data["materialization"])
-        self.assertIn("sync_frequency", response_data["materialization"])
-        self.assertEqual(response_data["materialization"]["sync_frequency"], "12hour")
 
     def test_materialization_status_endpoint(self):
         """Test the dedicated materialization_status endpoint returns only materialization data."""
@@ -463,7 +461,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_6HOUR,
+                "data_freshness_seconds": 21600,
             },
             format="json",
         )
@@ -476,8 +474,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         response_data = response.json()
         self.assertTrue(response_data["can_materialize"])
         self.assertIn("status", response_data)
-        self.assertIn("sync_frequency", response_data)
-        self.assertEqual(response_data["sync_frequency"], "6hour")
         self.assertIn("last_materialized_at", response_data)
         self.assertIn("error", response_data)
         # Verify no other endpoint fields are included
@@ -510,7 +506,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+                "data_freshness_seconds": 86400,
             },
             format="json",
         )
@@ -901,7 +897,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+                "data_freshness_seconds": 43200,
             },
             format="json",
         )
@@ -997,7 +993,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
-                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+                "data_freshness_seconds": 43200,
             },
             format="json",
         )
@@ -1073,7 +1069,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
         version = endpoint.versions.first()
@@ -1098,7 +1094,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
 
@@ -1124,7 +1120,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
 
@@ -1157,7 +1153,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
 

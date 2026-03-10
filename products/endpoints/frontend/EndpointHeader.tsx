@@ -14,13 +14,12 @@ export interface EndpointSceneHeaderProps {
 }
 
 export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
-    const { endpoint, endpointLoading, localQuery, cacheAge, syncFrequency, isMaterialized, viewingVersion } =
-        useValues(endpointSceneLogic({ tabId }))
-    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
-    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
-    const { setLocalQuery, setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(
+    const { endpoint, endpointLoading, localQuery, dataFreshness, isMaterialized, viewingVersion } = useValues(
         endpointSceneLogic({ tabId })
     )
+    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
+    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { setLocalQuery, setDataFreshness, setIsMaterialized } = useActions(endpointSceneLogic({ tabId }))
 
     // When viewing a non-current version, target that version for updates
     const targetVersion =
@@ -32,20 +31,12 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
     const hasDescriptionChange = endpointDescription !== null && endpointDescription !== baseDescription
     const hasQueryChange = localQuery !== null
     // When viewing a version, compare against that version's values
-    const baseCacheAge = viewingVersion?.cache_age_seconds ?? endpoint?.cache_age_seconds ?? null
-    const hasCacheAgeChange = cacheAge !== null && cacheAge !== baseCacheAge
-    const baseSyncFrequency =
-        viewingVersion?.materialization?.sync_frequency ?? endpoint?.materialization?.sync_frequency ?? null
-    const hasSyncFrequencyChange = syncFrequency !== null && syncFrequency !== baseSyncFrequency
+    const baseDataFreshness = viewingVersion?.data_freshness_seconds ?? endpoint?.data_freshness_seconds ?? 86400
+    const hasDataFreshnessChange = dataFreshness !== baseDataFreshness
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint?.is_materialized
     const hasIsMaterializedChange = isMaterialized !== null && isMaterialized !== baseIsMaterialized
     const hasChanges =
-        hasNameChange ||
-        hasDescriptionChange ||
-        hasQueryChange ||
-        hasCacheAgeChange ||
-        hasSyncFrequencyChange ||
-        hasIsMaterializedChange
+        hasNameChange || hasDescriptionChange || hasQueryChange || hasDataFreshnessChange || hasIsMaterializedChange
 
     const handleSave = (): void => {
         let queryToSave = (localQuery || endpoint?.query) as any
@@ -60,10 +51,9 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
 
         const updatePayload: Partial<EndpointRequest> = {
             description: hasDescriptionChange ? endpointDescription : undefined,
-            cache_age_seconds: hasCacheAgeChange ? (cacheAge ?? undefined) : undefined,
+            data_freshness_seconds: hasDataFreshnessChange ? dataFreshness : undefined,
             query: hasQueryChange ? queryToSave : undefined,
             is_materialized: hasIsMaterializedChange ? isMaterialized : undefined,
-            sync_frequency: hasSyncFrequencyChange ? (syncFrequency ?? undefined) : undefined,
         }
 
         updateEndpoint(endpoint.name, updatePayload, targetVersion ? { version: targetVersion } : undefined)
@@ -75,12 +65,9 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
         }
         // Reset to viewed version values if viewing a specific version
         const sourceDescription = viewingVersion?.description ?? endpoint.description
-        const sourceCacheAge = viewingVersion?.cache_age_seconds ?? endpoint.cache_age_seconds
-        const sourceSyncFrequency =
-            viewingVersion?.materialization?.sync_frequency ?? endpoint.materialization?.sync_frequency
+        const sourceDataFreshness = viewingVersion?.data_freshness_seconds ?? endpoint.data_freshness_seconds ?? 86400
         setEndpointDescription(sourceDescription || '')
-        setCacheAge(sourceCacheAge ?? null)
-        setSyncFrequency(sourceSyncFrequency ?? null)
+        setDataFreshness(sourceDataFreshness)
         setIsMaterialized(null)
         setLocalQuery(null)
     }

@@ -18671,7 +18671,10 @@ class EndpointRequest(BaseModel):
             " Keys are column names, values are bucket keys (hour, day, week, month)."
         ),
     )
-    cache_age_seconds: float | None = None
+    data_freshness_seconds: int | None = Field(
+        default=None,
+        description="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
+    )
     derived_from_insight: str | None = None
     description: str | None = None
     is_active: bool | None = None
@@ -18692,10 +18695,6 @@ class EndpointRequest(BaseModel):
         | WebOverviewQuery
         | None
     ) = None
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
-    )
     version: int | None = Field(
         default=None,
         description=("Target a specific version for updates (optional, defaults to current version)"),
