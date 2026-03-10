@@ -37,6 +37,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
+from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -426,7 +427,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
-        max_queries = FuzzyInt(7, 9)
+        max_queries = FuzzyInt(6, 8)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -482,7 +483,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         # initialization team query doesn't run
-        with self.assertNumQueries(FuzzyInt(7, 8)):
+        with self.assertNumQueries(5):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
@@ -492,6 +493,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="test", group_type_index=0
         )
+        invalidate_group_types_cache(self.team.project_id)
         db = Database.create_for(team=self.team)
 
         assert db.get_table("events").fields["test"] == FieldTraverser(chain=["group_0"])
@@ -500,6 +502,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
         )
+        invalidate_group_types_cache(self.team.project_id)
         db = Database.create_for(team=self.team)
 
         assert db.get_table("events").fields["event"] == StringDatabaseField(name="event", nullable=False)
@@ -807,7 +810,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            with self.assertNumQueries(FuzzyInt(6, 9)):
+            with self.assertNumQueries(FuzzyInt(5, 8)):
                 Database.create_for(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable
