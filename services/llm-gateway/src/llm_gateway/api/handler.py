@@ -62,8 +62,7 @@ def _sanitize_request_value(value: Any) -> Any:
 
 
 def _sanitize_request_data(data: dict[str, Any]) -> dict[str, Any]:
-    sanitized_data = {k: v for k, v in data.items() if k not in FORBIDDEN_REQUEST_PARAMS}
-    return {k: _sanitize_request_value(v) for k, v in sanitized_data.items()}
+    return {k: _sanitize_request_value(v) for k, v in data.items() if k not in FORBIDDEN_REQUEST_PARAMS}
 
 
 async def handle_llm_request(
