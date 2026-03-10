@@ -65,18 +65,6 @@ class TestComputeSignature(TestCase):
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
 class TestVerifySignatureAfterDRFParsing(TestCase):
-    """Regression test: verify_stripe_signature must not crash with 500 when DRF has consumed the stream.
-
-    In production, DRF's default throttle classes access request.data (via
-    PersonalAPIKeyAuthentication.find_key_with_source) during check_throttles().
-    This consumes the WSGI input stream, setting _read_started=True without
-    caching _body. A subsequent request.body call raises RawPostDataException.
-
-    The primary fix is @throttle_classes([]) on all Stripe views. This test
-    verifies the defense-in-depth: if the stream IS consumed, we return 401
-    (signature mismatch) instead of crashing with 500.
-    """
-
     def _make_drf_request_with_consumed_stream(self, body: bytes) -> Request:
         django_request = HttpRequest()
         django_request.method = "POST"
@@ -125,6 +113,29 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         }
         django_request._stream = io.BytesIO(body)
         django_request._read_started = False
+
+        drf_request = Request(django_request, parsers=[JSONParser()])
+        result = verify_stripe_signature(drf_request)
+        assert result is None
+
+    def test_succeeds_when_body_cached_despite_stream_consumed(self):
+        body = b'{"email":"test@example.com"}'
+        ts = int(time.time())
+        sig = compute_signature(HMAC_SECRET, ts, body)
+
+        django_request = HttpRequest()
+        django_request.method = "POST"
+        django_request.content_type = "application/json"
+        django_request.META = {
+            "REQUEST_METHOD": "POST",
+            "CONTENT_TYPE": "application/json",
+            "CONTENT_LENGTH": str(len(body)),
+            "HTTP_API_VERSION": "0.1d",
+            "HTTP_STRIPE_SIGNATURE": f"t={ts},v1={sig}",
+        }
+        django_request._body = body
+        django_request._stream = io.BytesIO(b"")
+        django_request._read_started = True
 
         drf_request = Request(django_request, parsers=[JSONParser()])
         result = verify_stripe_signature(drf_request)
