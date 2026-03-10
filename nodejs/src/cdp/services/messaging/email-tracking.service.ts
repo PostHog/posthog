@@ -187,16 +187,21 @@ export class EmailTrackingService {
 
         // Use SETNX as a distributed once-per-window guard — only the first call within the TTL fires the event
         const alertKey = this.reputationKey(hogFlowId, 'alerted')
+
         const isFirstAlert = await this.redis.useClient(
             { name: 'email-reputation-alert', failOpen: true },
             async (client) => {
-                const set = await client.setnx(alertKey, '1')
-                if (set === 1) {
-                    await client.expire(alertKey, REPUTATION_TTL_SECONDS)
-                }
-                return set === 1
+                const script = `
+                    local set = redis.call('SETNX', KEYS[1], ARGV[1])
+                    if set == 1 then
+                        redis.call('EXPIRE', KEYS[1], ARGV[2])
+                    end
+                    return set
+                `
+                return (await client.eval(script, 1, alertKey, '1', REPUTATION_TTL_SECONDS)) === 1
             }
         )
+
 
         if (!isFirstAlert) {
             return
