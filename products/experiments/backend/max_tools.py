@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import MaxExperimentMetricResult
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Experiment, FeatureFlag
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
@@ -168,6 +169,7 @@ class CreateExperimentTool(MaxTool):
                     "feature_flag_variants": feature_flag_variants,
                     "minimum_detectable_effect": 30,
                 },
+                event_source=EventSource.POSTHOG_AI,
             )
 
         try:

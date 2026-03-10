@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 
@@ -126,6 +126,47 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_creating_experiment_reports_user_action(self, mock_report_user_action):
+        ff_key = "tracked-experiment"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Tracked Experiment",
+                "description": "",
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        mock_report_user_action.assert_called_once()
+        self.assertEqual(mock_report_user_action.call_args.args[0], self.user)
+        self.assertEqual(mock_report_user_action.call_args.args[1], "experiment created")
+        self.assertEqual(
+            mock_report_user_action.call_args.args[2],
+            {
+                "experiment_id": response.json()["id"],
+                "experiment_name": "Tracked Experiment",
+                "feature_flag_key": ff_key,
+                "type": "product",
+                "status": "draft",
+                "metrics_count": 0,
+                "secondary_metrics_count": 0,
+                "has_description": False,
+                "variant_count": 2,
+                "created_at": ANY,
+            },
+        )
+        self.assertEqual(mock_report_user_action.call_args.kwargs["team"], self.team)
+        self.assertIsNotNone(mock_report_user_action.call_args.kwargs["request"])
 
     def test_creating_experiment_with_ensure_experience_continuity(self):
         ff_key = "test-continuity-flag"
