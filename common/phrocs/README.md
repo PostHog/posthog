@@ -13,7 +13,7 @@ Drop-in replacement for `mprocs` — reads the same YAML config that `hogli dev:
 │ ● frontend     │                          │  ← sidebar + viewport
 │ ✗ capture      │                          │
 ├────────────────┴──────────────────────────┤
-│ j next  k prev  r restart  q quit  ? help │  ← footer
+│ k next  j prev  r restart  q quit  ? help │  ← footer
 └───────────────────────────────────────────┘
 ```
 
@@ -49,7 +49,7 @@ Mouse clicks switch focus; mouse wheel scrolls the output pane.
 ### Copy mode
 
 Press `c` to enter copy mode in the output pane.
-Navigate with `↑`/`↓`, press `c` again to mark the selection start, then extend with `↑`/`↓` and press `y` to copy to clipboard.
+Navigate with `↑`/`↓`, press `c` again to mark the selection start, then extend with `↑`/`↓` and press `c` to copy to clipboard.
 Press `esc` to exit without copying.
 
 ## Debug logging

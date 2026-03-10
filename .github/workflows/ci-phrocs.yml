@@ -1,4 +1,4 @@
-name: Livestream
+name: Phrocs TUI
 
 on:
     push:

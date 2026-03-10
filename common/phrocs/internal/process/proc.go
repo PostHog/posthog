@@ -42,13 +42,13 @@ func (s Status) String() string {
 	}
 }
 
-// When a process changes state
+// Process state change
 type StatusMsg struct {
 	Name   string
 	Status Status
 }
 
-// Shen a new output line arrives
+// New output line from process
 type OutputMsg struct {
 	Name string
 	Line string
@@ -147,9 +147,6 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	if p.readyPattern == nil {
 		p.status = StatusRunning
 	}
-	p.mu.Unlock()
-
-	p.mu.Lock()
 	currentStatus := p.status
 	p.mu.Unlock()
 	// Send initial status message
@@ -167,7 +164,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		// Close the pty master to unblock readLoop if still reading
 		p.mu.Lock()
 		if p.ptmx != nil {
-			p.ptmx.Close()
+			_ = p.ptmx.Close()
 			p.ptmx = nil
 		}
 		p.mu.Unlock()
@@ -209,8 +206,8 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	cmd.Stderr = pw
 
 	if err := cmd.Start(); err != nil {
-		pr.Close()
-		pw.Close()
+		_ = pr.Close()
+		_ = pw.Close()
 		p.mu.Lock()
 		p.status = StatusCrashed
 		p.mu.Unlock()
@@ -241,10 +238,10 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	go func() {
 		exitErr := cmd.Wait()
 		// Close the write end so readLoop sees EOF
-		pw.Close()
+		_ = pw.Close()
 
 		<-readDone
-		pr.Close()
+		_ = pr.Close()
 
 		st := StatusDone
 		if exitErr != nil {
@@ -311,7 +308,7 @@ func (p *Process) Stop() {
 		_ = p.cmd.Process.Signal(syscall.SIGTERM)
 	}
 	if p.ptmx != nil {
-		p.ptmx.Close()
+		_ = p.ptmx.Close()
 		p.ptmx = nil
 	}
 	p.status = StatusStopped

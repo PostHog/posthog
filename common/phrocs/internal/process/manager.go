@@ -39,7 +39,7 @@ func (m *Manager) SetSend(send func(tea.Msg)) {
 	m.send = send
 }
 
-// Lunches all processes whose autostart is not explicitly false
+// Launches all processes whose autostart is not explicitly false
 func (m *Manager) StartAll() {
 	m.mu.Lock()
 	send := m.send

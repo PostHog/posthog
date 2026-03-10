@@ -283,7 +283,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.ExecProcess(exec.Command("lazydocker"), nil)
 
 		case key.Matches(msg, m.keys.CopyMode):
-			// Enter copy mode only when the output pane is focused
+			// Enter copy mode
 			m.copyMode = true
 			// Expand the viewport to full width before recording the cursor
 			// position so YOffset stays meaningful after the resize
@@ -603,10 +603,10 @@ func (m Model) renderSidebar() string {
 				selectedBg = colorBlue
 			}
 			base := lipgloss.NewStyle().Background(selectedBg).Bold(true)
-			iconSeg := base.Copy().PaddingLeft(1).Foreground(iconColor).Render(iconChar)
+			iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(iconChar)
 			// Width covers the remaining columns: innerW minus the 2 chars
 			// already consumed by PaddingLeft + icon.
-			nameSeg := base.Copy().Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
+			nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
 			sb.WriteString(iconSeg + nameSeg)
 		} else {
 			iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(iconChar)
@@ -677,11 +677,11 @@ func (m Model) renderFooter() string {
 	if m.copyMode {
 		var hint string
 		if m.copyAnchor < 0 {
-			hint = fmt.Sprintf("-- COPY MODE --  line %d  ↑/↓ navigate  v mark start  esc cancel", m.copyCursor+1)
+			hint = fmt.Sprintf("-- COPY MODE --  line %d  ↑/↓: navigate  c: mark start  esc: cancel", m.copyCursor+1)
 		} else {
 			lo := min(m.copyAnchor, m.copyCursor) + 1
 			hi := max(m.copyAnchor, m.copyCursor) + 1
-			hint = fmt.Sprintf("-- COPY MODE --  lines %d–%d  ↑/↓ extend  v reselect  y copy  esc cancel", lo, hi)
+			hint = fmt.Sprintf("-- COPY MODE --  lines %d–%d  ↑/↓: extend  c: copy  esc: cancel", lo, hi)
 		}
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorBlue).Render(hint),
