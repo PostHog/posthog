@@ -2,25 +2,16 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { PluginsServerConfig } from '~/types'
 
 import { logger } from '../../utils/logger'
-import { PersonManagerPerson, PersonsManagerService } from '../services/managers/persons-manager.service'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationResult,
-    CyclotronPerson,
-} from '../types'
-import { getPersonDisplayName } from '../utils'
+import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerHogFlow'
-    private personsByIdManager: PersonsManagerService
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, 'hogflow')
-        this.personsByIdManager = new PersonsManagerService(deps.personRepository, 'person_id')
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
@@ -63,32 +54,21 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                let dbPerson: PersonManagerPerson | null = null
-                let personDisplayName = ''
+                const personIdOrDistinctId = hogFlowInvocationState.event.distinct_id ?? hogFlowInvocationState.personId
+                const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
 
-                if (hogFlowInvocationState.event?.distinct_id) {
-                    dbPerson = await this.personsManager.get({
-                        teamId: hogFlow.team_id,
-                        id: hogFlowInvocationState.event.distinct_id,
-                    })
-                    personDisplayName = getPersonDisplayName(
-                        team,
-                        hogFlowInvocationState.event.distinct_id,
-                        dbPerson?.properties ?? {}
-                    )
-                } else if (hogFlowInvocationState.personId) {
-                    dbPerson = await this.personsByIdManager.get({
-                        teamId: hogFlow.team_id,
-                        id: hogFlowInvocationState.personId,
-                    })
-                    personDisplayName = getPersonDisplayName(
-                        team,
-                        hogFlowInvocationState.personId,
-                        dbPerson?.properties ?? {}
-                    )
-                }
+                const [person, groups] = await Promise.all([
+                    personIdOrDistinctId
+                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
+                        : undefined,
+                    this.groupsManager.getGroupsForEvent(
+                        hogFlow.team_id,
+                        hogFlowInvocationState.event.properties,
+                        `${this.config.SITE_URL}/project/${hogFlow.team_id}`
+                    ),
+                ])
 
-                if (!dbPerson && hogFlow.trigger?.type === 'event') {
+                if (!person && hogFlow.trigger?.type === 'event') {
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {
                         hogFlowId: hogFlow.id,
                         distinctId: hogFlowInvocationState.event?.distinct_id || hogFlowInvocationState.personId,
@@ -96,26 +76,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
                 }
 
-                const person: CyclotronPerson | undefined = dbPerson
-                    ? {
-                          id: dbPerson.id,
-                          properties: dbPerson.properties,
-                          name: personDisplayName,
-                          url: `${this.config.SITE_URL}/project/${hogFlow.team_id}/person/${encodeURIComponent(
-                              hogFlowInvocationState.event?.distinct_id || hogFlowInvocationState.personId!
-                          )}`,
-                      }
-                    : undefined
-
-                const groups = await this.groupsManager.getGroupsForEvent(
-                    hogFlow.team_id,
-                    hogFlowInvocationState.event.properties,
-                    `${this.config.SITE_URL}/project/${hogFlow.team_id}`
-                )
-
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
-                    person,
+                    person: person ?? undefined,
                     groups,
                     variables: hogFlowInvocationState.variables || {},
                 })
@@ -124,7 +87,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     ...item,
                     state: hogFlowInvocationState,
                     hogFlow,
-                    person,
+                    person: person ?? undefined,
                     filterGlobals,
                 })
             })

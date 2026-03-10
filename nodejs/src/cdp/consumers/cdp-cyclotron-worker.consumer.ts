@@ -86,7 +86,18 @@ export class CdpCyclotronWorker<
 
                 const hogFuncState = item.state as CyclotronJobInvocationHogFunction['state']
 
-                await this.groupsManager.addGroupsToGlobals(hogFuncState.globals)
+                await Promise.all([
+                    this.groupsManager.addGroupsToGlobals(hogFuncState.globals),
+                    !hogFuncState.globals.person
+                        ? this.personsManager
+                              .getCyclotronPerson(item.teamId, hogFuncState.globals.event.distinct_id, 'distinct_id')
+                              .then((person) => {
+                                  if (person) {
+                                      hogFuncState.globals.person = person
+                                  }
+                              })
+                        : undefined,
+                ])
 
                 loadedInvocations.push({
                     ...item,
