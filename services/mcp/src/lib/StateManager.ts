@@ -5,10 +5,13 @@ import type { State } from '@/tools/types'
 
 import type { ScopedCache } from './cache/ScopedCache'
 
+const AI_CONSENT_TTL_MS = 4 * 60 * 60 * 1000 // 4 hours
+
 export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
+    private _aiConsentFetchedAt?: number
 
     constructor(cache: ScopedCache<State>, api: ApiClient) {
         this._cache = cache
@@ -163,10 +166,18 @@ export class StateManager {
         return projectId
     }
 
+    async invalidateAiConsent(): Promise<void> {
+        await this._cache.delete('aiConsentGiven')
+        this._aiConsentFetchedAt = undefined
+    }
+
     async getAiConsentGiven(): Promise<boolean | undefined> {
-        const cached = await this._cache.get('aiConsentGiven')
-        if (cached !== undefined) {
-            return cached
+        const isExpired = !this._aiConsentFetchedAt || Date.now() - this._aiConsentFetchedAt > AI_CONSENT_TTL_MS
+        if (!isExpired) {
+            const cached = await this._cache.get('aiConsentGiven')
+            if (cached !== undefined) {
+                return cached
+            }
         }
 
         try {
@@ -180,6 +191,7 @@ export class StateManager {
                 const org = orgResult.data as { is_ai_data_processing_approved?: boolean | null }
                 const consent = org.is_ai_data_processing_approved !== false
                 await this._cache.set('aiConsentGiven', consent)
+                this._aiConsentFetchedAt = Date.now()
                 return consent
             }
         } catch {
