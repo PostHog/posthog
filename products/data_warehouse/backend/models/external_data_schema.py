@@ -395,10 +395,20 @@ def _update_labels(
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None], source_id: str, team_id: int
 ) -> tuple[list[str], list[str]]:
+<<<<<<< HEAD
     new_schema_names = list(new_schemas.keys())
 
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
+=======
+    old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
+
+    # Rename schemas matched by stable identity before name-based diffing
+    _resolve_renames(old_schemas, new_schemas)
+
+    new_schema_names = new_schemas.keys()
+    old_schemas_names = {schema.name for schema in old_schemas}
+>>>>>>> e950c060387 (fix)
 
     # Update display labels on existing schemas
     _update_labels(old_schemas, new_schemas)
