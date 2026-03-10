@@ -607,7 +607,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for key, value in payload.items():
                 if isinstance(value, str):
                     payload[key] = value.strip()
-
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)

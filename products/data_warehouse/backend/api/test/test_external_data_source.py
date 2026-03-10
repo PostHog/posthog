@@ -1812,7 +1812,7 @@ class TestExternalDataSource(APIBaseTest):
                             "host": "ssh.example.com",
                             "port": 22,
                             "auth_type": {
-                                "selection": "username_password",
+                                "selection": "password",
                                 "username": "testuser",
                                 "password": "testpass",
                                 "passphrase": "testphrase",
@@ -1831,7 +1831,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["ssh_tunnel"]["enabled"] == "True"
         assert source.job_inputs["ssh_tunnel"]["host"] == "ssh.example.com"
         assert source.job_inputs["ssh_tunnel"]["port"] == "22"
-        assert source.job_inputs["ssh_tunnel"]["auth"]["type"] == "username_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["type"] == "password"
         assert source.job_inputs["ssh_tunnel"]["auth"]["username"] == "testuser"
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "testpass"
         assert source.job_inputs["ssh_tunnel"]["auth"]["passphrase"] == "testphrase"
@@ -1851,7 +1851,7 @@ class TestExternalDataSource(APIBaseTest):
         assert ssh_tunnel["host"] == "ssh.example.com"
         assert ssh_tunnel["port"] == "22"
         assert "auth" in ssh_tunnel
-        assert ssh_tunnel["auth"]["selection"] == "username_password"
+        assert ssh_tunnel["auth"]["selection"] == "password"
         assert ssh_tunnel["auth"]["username"] == "testuser"
         # Sensitive fields should not be included in response (to prevent them being echoed back)
         assert "password" not in ssh_tunnel["auth"]
