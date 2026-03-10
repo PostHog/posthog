@@ -152,7 +152,7 @@ class WebhookSourceManager:
                     "organization": {"id": str(team.organization_id)},
                     "project": {"id": str(team.id)},
                 },
-                only_evaluate_locally=True,
+                only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
 
