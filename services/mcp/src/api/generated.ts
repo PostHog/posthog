@@ -16112,6 +16112,90 @@ export namespace Schemas {
     }
 
     /**
+     * * `above` - Above
+    * `below` - Below
+     */
+    export type ThresholdOperatorEnum = typeof ThresholdOperatorEnum[keyof typeof ThresholdOperatorEnum];
+
+
+    export const ThresholdOperatorEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    /**
+     * * `not_firing` - Not firing
+    * `firing` - Firing
+    * `pending_resolve` - Pending resolve
+    * `errored` - Errored
+    * `snoozed` - Snoozed
+     */
+    export type LogsAlertConfigurationStateEnum = typeof LogsAlertConfigurationStateEnum[keyof typeof LogsAlertConfigurationStateEnum];
+
+
+    export const LogsAlertConfigurationStateEnum = {
+      NotFiring: 'not_firing',
+      Firing: 'firing',
+      PendingResolve: 'pending_resolve',
+      Errored: 'errored',
+      Snoozed: 'snoozed',
+    } as const;
+
+    export interface LogsAlertConfiguration {
+      readonly id: string;
+      /** @maxLength 255 */
+      name: string;
+      enabled?: boolean;
+      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+      filters: unknown;
+      /**
+       * @minimum 1
+       * @maximum 2147483647
+       */
+      threshold_count: number;
+      /** Whether the alert fires when the count is above or below the threshold.
+
+    * `above` - Above
+    * `below` - Below */
+      threshold_operator?: ThresholdOperatorEnum;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       */
+      window_minutes?: number;
+      readonly check_interval_minutes: number;
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+       * Total number of check periods in the sliding evaluation window (M in N-of-M).
+       * @minimum 1
+       */
+      evaluation_periods?: number;
+      /**
+       * How many periods within the evaluation window must breach the threshold to trigger (N in N-of-M).
+       * @minimum 1
+       */
+      datapoints_to_alarm?: number;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /** @nullable */
+      snooze_until?: string | null;
+      /** @nullable */
+      readonly next_check_at: string | null;
+      /** @nullable */
+      readonly last_notified_at: string | null;
+      /** @nullable */
+      readonly last_checked_at: string | null;
+      readonly consecutive_failures: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
      * * `api_key` - API Key
     * `oauth` - OAuth
      */
@@ -17327,6 +17411,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LiveDebuggerBreakpoint[];
+    }
+
+    export interface PaginatedLogsAlertConfigurationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsAlertConfiguration[];
     }
 
     export interface PaginatedMCPServerInstallationList {
@@ -20561,6 +20654,60 @@ export namespace Schemas {
       condition?: string | null;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedLogsAlertConfiguration {
+      readonly id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      enabled?: boolean;
+      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+      filters?: unknown;
+      /**
+       * @minimum 1
+       * @maximum 2147483647
+       */
+      threshold_count?: number;
+      /** Whether the alert fires when the count is above or below the threshold.
+
+    * `above` - Above
+    * `below` - Below */
+      threshold_operator?: ThresholdOperatorEnum;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       */
+      window_minutes?: number;
+      readonly check_interval_minutes?: number;
+      readonly state?: LogsAlertConfigurationStateEnum;
+      /**
+       * Total number of check periods in the sliding evaluation window (M in N-of-M).
+       * @minimum 1
+       */
+      evaluation_periods?: number;
+      /**
+       * How many periods within the evaluation window must breach the threshold to trigger (N in N-of-M).
+       * @minimum 1
+       */
+      datapoints_to_alarm?: number;
+      /**
+       * @minimum 0
+       * @maximum 2147483647
+       */
+      cooldown_minutes?: number;
+      /** @nullable */
+      snooze_until?: string | null;
+      /** @nullable */
+      readonly next_check_at?: string | null;
+      /** @nullable */
+      readonly last_notified_at?: string | null;
+      /** @nullable */
+      readonly last_checked_at?: string | null;
+      readonly consecutive_failures?: number;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedMCPServerInstallationUpdate {
@@ -26785,6 +26932,17 @@ export namespace Schemas {
     repo: string;
     };
 
+    export type EnvironmentsLogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsPersistedFolderListParams = {
     /**
      * Number of results to return per page.
@@ -29228,6 +29386,17 @@ export namespace Schemas {
     limit?: number;
     /**
      * Pagination offset for retrieving additional results (default: 0)
+     */
+    offset?: number;
+    };
+
+    export type LogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
      */
     offset?: number;
     };

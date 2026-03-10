@@ -22,6 +22,7 @@ from posthog.models import User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.exporter import export_asset
 
+from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
@@ -29,7 +30,7 @@ from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
-__all__ = ["LogsViewSet", "LogExplainViewSet"]
+__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet"]
 
 LOGS_MAX_EXPORT_ROWS = 10_000
 

@@ -28,6 +28,14 @@ interface FeatureFlagReleaseConditionsReadonlyProps {
     evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
+/** Extract server-provided group_key_names from a property, if present. */
+function getGroupKeyNames(property: AnyPropertyFilter): Record<string, string> {
+    if (property.type === PropertyFilterType.Group && 'group_key_names' in property) {
+        return (property as any).group_key_names ?? {}
+    }
+    return {}
+}
+
 function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
         return (
@@ -38,12 +46,15 @@ function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JS
     }
 
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
+    const groupKeyNames = property.key === '$group_key' ? getGroupKeyNames(property) : {}
 
     return (
         <>
-            {propertyValues.map((val, idx) => (
-                <LemonSnack key={idx}>{String(val)}</LemonSnack>
-            ))}
+            {propertyValues.map((val, idx) => {
+                const strVal = String(val)
+                const display = groupKeyNames[strVal] || strVal
+                return <LemonSnack key={idx}>{display}</LemonSnack>
+            })}
         </>
     )
 }
