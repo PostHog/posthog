@@ -312,6 +312,13 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         afterMount: () => {
             actions.reportExperimentWizardStarted(values.showGuide)
             actions.loadFeatureFlagsForAutocomplete()
+            // Re-validate the feature flag key if one is already set.
+            // The per-tab variantsPanelLogic unmounts when switching tabs,
+            // so validation state is lost and needs to be re-checked.
+            const key = values.experiment?.feature_flag_key
+            if (key) {
+                actions.validateFeatureFlagKey(key)
+            }
         },
     })),
 ])
