@@ -98,19 +98,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         self._validate_dashboard_export_subscription(attrs)
 
-        if attrs.get("integration_id") is not None:
+        target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
+        integration_id = attrs.get("integration_id") or (self.instance.integration_id if self.instance else None)
+
+        if target_type == Subscription.SubscriptionTarget.SLACK:
+            if not integration_id:
+                raise ValidationError({"integration_id": ["A Slack integration is required for Slack subscriptions."]})
             try:
-                integration = Integration.objects.get(id=attrs["integration_id"])
+                integration = Integration.objects.get(id=integration_id)
             except Integration.DoesNotExist:
                 raise ValidationError({"integration_id": ["This integration does not exist."]})
             if integration.team_id != self.context["team_id"]:
                 raise ValidationError({"integration_id": ["This integration does not belong to your team."]})
-            target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
-            if target_type == Subscription.SubscriptionTarget.SLACK and integration.kind != "slack":
+            if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
 
         # SSRF protection for webhook subscriptions
-        target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
         target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else None)
         if target_type == Subscription.SubscriptionTarget.WEBHOOK and target_value:
             allowed, error = is_url_allowed(target_value)

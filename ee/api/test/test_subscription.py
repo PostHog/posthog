@@ -414,6 +414,14 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["integration_id"] == integration.id
 
+    def test_cannot_create_slack_subscription_without_integration(self, mock_sync):
+        response = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "required for Slack subscriptions" in response.json()["detail"]
+
     def test_cannot_create_subscription_with_other_teams_integration(self, mock_sync):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         other_integration = Integration.objects.create(team=other_team, kind="slack", config={})
