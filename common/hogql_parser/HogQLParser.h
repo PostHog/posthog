@@ -1174,6 +1174,7 @@ public:
     antlr4::tree::TerminalNode *OUTER();
     antlr4::tree::TerminalNode *ALL();
     antlr4::tree::TerminalNode *ANY();
+    antlr4::tree::TerminalNode *ASOF();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };

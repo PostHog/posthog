@@ -709,6 +709,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             tokens.append("ALL")
         if ctx.ANY():
             tokens.append("ANY")
+        if ctx.ASOF():
+            tokens.append("ASOF")
         return " ".join(tokens)
 
     def visitJoinOpCross(self, ctx: HogQLParser.JoinOpCrossContext):

@@ -1192,6 +1192,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (ctx->ANY()) {
       tokens.push_back("ANY");
     }
+    if (ctx->ASOF()) {
+      tokens.push_back("ASOF");
+    }
     return join(tokens, " ");
   }
 

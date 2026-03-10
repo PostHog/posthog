@@ -57,6 +57,8 @@ VALID_JOIN_TYPES = frozenset(
         "RIGHT ASOF JOIN",
         "FULL ANY JOIN",
         "FULL ALL JOIN",
+        "FULL ASOF JOIN",
+        "ASOF FULL JOIN",
         "ASOF LEFT JOIN",
         "ASOF RIGHT JOIN",
         "ASOF ANTI JOIN",

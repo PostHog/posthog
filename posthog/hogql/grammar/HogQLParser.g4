@@ -128,7 +128,7 @@ joinOp
       | (LEFT | RIGHT) OUTER? (SEMI | ALL | ANTI | ANY | ASOF)?
       | ASOF (ANTI | SEMI) (LEFT | RIGHT) OUTER?
       )                                                                             # JoinOpLeftRight
-    | ((ALL | ANY)? FULL OUTER? | FULL OUTER? (ALL | ANY)?)                         # JoinOpFull
+    | ((ALL | ANY | ASOF)? FULL OUTER? | FULL OUTER? (ALL | ANY | ASOF)?)           # JoinOpFull
     ;
 joinOpCross
     : CROSS JOIN
