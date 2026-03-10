@@ -100,6 +100,13 @@ class TestAccountRequests(StripeProvisioningTestBase):
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 400
 
+    def test_missing_stripe_account_returns_400(self):
+        payload = self._account_request_payload()
+        del payload["orchestrator"]
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_request"
+
     def test_invalid_signature_returns_401(self):
         payload = self._account_request_payload()
         res = self.client.post(

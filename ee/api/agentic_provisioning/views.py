@@ -38,6 +38,8 @@ PENDING_AUTH_TTL_SECONDS = 600
 
 STRIPE_APP_NAME = "PostHog Stripe App"
 
+ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
+
 
 # ---------------------------------------------------------------------------
 # Service catalog — a parent "posthog" service with component children per
@@ -164,7 +166,7 @@ VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID} | set(_CATEGORY_MAP.keys())
 
 
 # ---------------------------------------------------------------------------
-# GET /provisioning/health
+# GET /provisioning/health — liveness probe, returns supported protocol versions
 # ---------------------------------------------------------------------------
 
 
@@ -180,7 +182,7 @@ def provisioning_health(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# GET /provisioning/services
+# GET /provisioning/services — returns the catalog of provisionable services
 # ---------------------------------------------------------------------------
 
 
@@ -196,7 +198,8 @@ def provisioning_services(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# POST /provisioning/account_requests
+# POST /provisioning/account_requests — onboard a new or existing user and
+# return either an auth code (new user) or a redirect URL (existing user)
 # ---------------------------------------------------------------------------
 
 
@@ -229,9 +232,16 @@ def account_requests(request: Request) -> Response:
                 status=400,
             )
 
-    stripe_account_id = ""
-    if orchestrator.get("type") == "stripe" and orchestrator.get("stripe"):
-        stripe_account_id = orchestrator["stripe"].get("account", "")
+    stripe_info = orchestrator.get("stripe") or {}
+    stripe_account_id = stripe_info.get("account", "") if orchestrator.get("type") == "stripe" else ""
+    if not stripe_account_id:
+        return Response(
+            {
+                "type": "error",
+                "error": {"code": "invalid_request", "message": "orchestrator.stripe.account is required"},
+            },
+            status=400,
+        )
 
     region = (configuration.get("region") or "US").upper()
 
@@ -333,7 +343,10 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/agentic/authorize  (A1 interactive OAuth)
+# GET /api/agentic/authorize
+# Interactive OAuth consent for existing users (APP 0.1d §A1 "requires_auth").
+# The orchestrator redirects the user here; on approval we issue an auth code
+# and redirect back to the orchestrator callback.
 # ---------------------------------------------------------------------------
 
 
@@ -383,7 +396,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
 
 # ---------------------------------------------------------------------------
-# POST /oauth/token
+# POST /oauth/token — exchange auth codes or refresh tokens for access tokens
 # ---------------------------------------------------------------------------
 
 
@@ -436,7 +449,7 @@ def _exchange_authorization_code(request: Request) -> Response:
         application=oauth_app,
         token=access_token_value,
         user=user,
-        expires=timezone.now() + timedelta(days=365),
+        expires=timezone.now() + timedelta(seconds=ACCESS_TOKEN_EXPIRY_SECONDS),
         scope=scope_str,
         scoped_teams=[team_id],
     )
@@ -457,7 +470,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             "token_type": "bearer",
             "access_token": access_token_value,
             "refresh_token": refresh_token_value,
-            "expires_in": 365 * 24 * 3600,
+            "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
             "account": {
                 "id": account_id,
                 "payment_credentials": "provider",
@@ -493,7 +506,7 @@ def _exchange_refresh_token(request: Request) -> Response:
         application=oauth_app,
         token=new_access_value,
         user=user,
-        expires=timezone.now() + timedelta(days=365),
+        expires=timezone.now() + timedelta(seconds=ACCESS_TOKEN_EXPIRY_SECONDS),
         scope=old_scope,
         scoped_teams=scoped_teams,
     )
@@ -512,7 +525,7 @@ def _exchange_refresh_token(request: Request) -> Response:
             "token_type": "bearer",
             "access_token": new_access_value,
             "refresh_token": new_refresh_value,
-            "expires_in": 365 * 24 * 3600,
+            "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
         }
     )
 
@@ -534,15 +547,11 @@ def _get_stripe_oauth_app():
                 client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
             )
 
-    existing = OAuthApplication.objects.filter(name=STRIPE_APP_NAME).first()
-    if existing:
-        return existing
-
     from oauthlib.common import generate_token
 
     return OAuthApplication.objects.create(
         name=STRIPE_APP_NAME,
-        client_id=generate_token(),
+        client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID or generate_token(),
         client_secret="",
         client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
         authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,

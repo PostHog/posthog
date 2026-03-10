@@ -155,6 +155,7 @@ class TestDecoratorIntegration(StripeProvisioningTestBase):
             "email": "devuser@example.com",
             "configuration": {"region": "EU"},
             "scopes": ["query:read"],
+            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_dev"}},
         }
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
@@ -166,6 +167,7 @@ class TestDecoratorIntegration(StripeProvisioningTestBase):
             "email": "ususer@example.com",
             "configuration": {"region": "US"},
             "scopes": ["query:read"],
+            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_us"}},
         }
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
