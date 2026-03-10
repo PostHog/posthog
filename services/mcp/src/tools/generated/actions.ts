@@ -1,4 +1,4 @@
-// AUTO-GENERATED from definitions/actions.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/actions/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
