@@ -37,6 +37,7 @@ import {
 import type { logsSceneLogicType } from './logsSceneLogicType'
 
 export type LogsSceneActiveTab = 'viewer' | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'configuration']
 const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
 export interface LogsLogicProps {
@@ -71,8 +72,12 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
     })),
     tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
-            if (params.activeTab && params.activeTab !== values.activeTab) {
-                actions.setActiveTab(params.activeTab)
+            if (
+                typeof params.activeTab === 'string' &&
+                VALID_ACTIVE_TABS.includes(params.activeTab as LogsSceneActiveTab) &&
+                params.activeTab !== values.activeTab
+            ) {
+                actions.setActiveTab(params.activeTab as LogsSceneActiveTab)
             }
 
             const filtersFromUrl: Partial<LogsViewerFilters> = {}
