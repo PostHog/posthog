@@ -157,6 +157,29 @@ def credentials_changed(
     return get_credential_fingerprint(existing_job_inputs, fields) != get_credential_fingerprint(new_job_inputs, fields)
 
 
+def validate_updated_host_configuration(
+    source: Any, source_config: Config, team_id: int, incoming_job_inputs: dict[str, Any]
+) -> None:
+    if not {"host", "ssh_tunnel"} & set(incoming_job_inputs.keys()):
+        return
+
+    # These magic keys come from mixins on the source
+    # --> class PostgresSource(SimpleSource, SSHTunnelMixin, ValidateDatabaseHostMixin)
+    if hasattr(source, "ssh_tunnel_is_valid"):
+        ssh_valid, ssh_error = source.ssh_tunnel_is_valid(source_config, team_id)
+        if not ssh_valid:
+            raise ValidationError(ssh_error or "Invalid SSH tunnel configuration")
+
+    if not hasattr(source, "is_database_host_valid") or not hasattr(source_config, "host"):
+        return
+
+    ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
+    using_ssh_tunnel = bool(getattr(ssh_tunnel, "enabled", False))
+    host_valid, host_error = source.is_database_host_valid(source_config.host, team_id, using_ssh_tunnel)
+    if not host_valid:
+        raise ValidationError(host_error or "Invalid host")
+
+
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
@@ -456,6 +479,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
 
         source_config: Config = source.parse_config(new_job_inputs)
+        validate_updated_host_configuration(source, source_config, instance.team_id, incoming_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
 
         if should_validate_credentials:
