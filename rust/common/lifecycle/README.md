@@ -17,7 +17,7 @@ Summary of how the library works and can be intergrated into your Rust services.
   - Optional active health reporting (usually not needed)
   - Optional graceful shutdown timeout (overrides global)
   - If handle is for metrics server (etc.) set `builder.is_observability(true)`
-  - Returns a `HealthHandle`
+  - Returns a `Handle`
 - Pass or clone the health handle to the component prior to blocking in `main`:
   - If component is a function, clone handle into it's scope
   - If component is a struct, store handle as a field
@@ -118,6 +118,7 @@ All options except `name` have sensible defaults.
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `ComponentOptions::new()`           | Base options with defaults for all fields.                                                                                                                                                                                             | —                                                                  |
 | `.is_observability(bool)`           | Mark as an observability handle (e.g. metrics server). Shut down *after* all standard components finish. Cannot combine with `with_liveness_deadline`. (see test `observability_handle_shuts_down_after_standard_handles`)              | `false`                                                            |
+| `.is_advisory(bool)`               | Mark as advisory. Participates in health monitoring (gauge, `is_healthy()`) but stalls do NOT trigger shutdown. Monitor does not wait for advisory handles during shutdown. Requires `with_liveness_deadline`. Cannot combine with `is_observability`. (see test `advisory_handle_stall_does_not_trigger_shutdown`) | `false` |
 | `.with_graceful_shutdown(duration)` | Max time for this component to clean up after shutdown begins. Exceeded = marked timed out. (see test `component_timeout_then_late_drop_preserves_timeout`)                                                                            | `None` — waits indefinitely (bounded by `global_shutdown_timeout`). Observability handles default to `1s` if unset. |
 | `.with_liveness_deadline(duration)` | Component must call `report_healthy()` within this interval or the health monitor considers it stalled. After `stall_threshold` consecutive stalled checks, the manager triggers global shutdown. (see test `stall_triggers_shutdown`) | `None` — no health monitoring                                      |
 | `.with_stall_threshold(n)`          | Number of consecutive stalled health checks before the manager triggers global shutdown. Set higher for tolerance of transient hiccups. Only meaningful with `with_liveness_deadline`. (see test `stall_threshold_allows_recovery`)    | `1` — immediate shutdown on first stall                            |
@@ -288,6 +289,7 @@ Key points:
 | `process_scope()`        | Returns a `ProcessScopeGuard`. Ties lifecycle signaling to a method scope instead of handle drop. Use when your struct owns the handle.                                                               |
 | `report_healthy()`       | Liveness heartbeat. Must be called more often than `liveness_deadline`. Missed deadlines increment a stall counter; after `stall_threshold` consecutive stalled checks, global shutdown is triggered. |
 | `report_unhealthy()`     | Mark this component unhealthy. Treated the same as a stalled heartbeat by the health monitor. For immediate shutdown, use `signal_failure()` instead.                                                 |
+| `is_healthy()`           | With `liveness_deadline`: returns the health poll task's latest result (~1ns `AtomicBool` load). Without `liveness_deadline`: returns `!is_shutting_down()`. Safe for hot paths. (see test `advisory_handle_is_healthy`) |
 
 ### Common pitfalls
 
@@ -360,6 +362,53 @@ axum::serve(listener, app)
 metrics_handle.work_completed();
 
 guard.wait().await?;
+```
+
+## Advisory handles
+
+Advisory handles (`is_advisory(true)`) participate in health monitoring — the health poll task updates their `lifecycle_component_healthy` gauge and their `is_healthy()` flag — but stalls do **not** trigger global shutdown.
+The monitor does not wait for advisory handles during shutdown.
+
+### When to use
+
+Use `is_advisory(true)` when one component needs to **observe** another component's health without coupling it to the app's shutdown decision.
+The canonical example is `FallbackSink`: it needs to know if the primary Kafka sink is healthy to decide whether to route traffic to S3, but a Kafka stall shouldn't kill the app when a fallback is available.
+
+### Behavior
+
+- **Health gauge updates**: The poll task still writes `lifecycle_component_healthy` for advisory handles — dashboards see the same metrics as standard handles.
+- **`is_healthy()` works**: Returns the poll task's latest health assessment via a shared `AtomicBool` (~1ns read). Starts `true` (Starting state is healthy). Flips to `false` after `stall_threshold` consecutive stalled/unhealthy polls. Flips back on recovery. Lags behind `report_healthy()` by up to `health_poll_interval`.
+- **Stall counting without shutdown**: Stall counts are tracked the same as standard handles — `stall_threshold` gates when `is_healthy()` flips to `false`. The only difference is that advisory handles never send `ComponentEvent::Failure`, so they never trigger global shutdown.
+- **Not waited on during shutdown**: Advisory handles are not in the component maps, so the monitor's drain phases ignore them. The app shuts down as soon as all standard (and observability) components finish.
+- **Standard shutdown token**: Advisory handles receive the standard `shutdown_token`, so `shutdown_recv()` and `is_shutting_down()` work normally for cooperative cleanup.
+- **Drop guard**: Events from advisory handle drops are sent to the monitor channel but harmlessly ignored (no entry in component maps).
+- **Requires `with_liveness_deadline`**: The health poll task needs a deadline to evaluate. Registration panics without it.
+- **Cannot combine with `is_observability`**: Advisory and observability are mutually exclusive.
+- **Cannot use `with_graceful_shutdown`**: Advisory handles are not in the component maps, so graceful shutdown timeouts would be silently ignored. Registration panics if both are set.
+
+### Example: FallbackSink health observation
+
+```rust
+let mut manager = Manager::builder("capture").build();
+
+// Primary sink — standard handle with liveness monitoring
+let kafka_handle = manager.register("sink", ComponentOptions::new()
+    .with_liveness_deadline(Duration::from_secs(45))
+    .with_stall_threshold(4));
+
+// Advisory handle for FallbackSink to observe Kafka health without
+// triggering app shutdown when Kafka stalls
+let advisory_handle = manager.register("sink-advisory", ComponentOptions::new()
+    .is_advisory(true)
+    .with_liveness_deadline(Duration::from_secs(45))
+    .with_stall_threshold(4));
+
+// Both handles are fed by the same rdkafka stats callback:
+//   kafka_handle.report_healthy();    // keeps the standard handle alive
+//   advisory_handle.report_healthy(); // keeps the advisory handle's is_healthy() current
+//
+// FallbackSink calls advisory_handle.is_healthy() on every send() to
+// decide whether to route to the primary Kafka sink or the S3 fallback.
 ```
 
 ## Metrics

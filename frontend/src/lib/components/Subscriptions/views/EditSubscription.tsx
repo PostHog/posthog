@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { IconChevronLeft } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
@@ -69,9 +70,7 @@ export function EditSubscription({
     const { resetSubscription, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
-    const { slackIntegrations } = useValues(integrationsLogic)
-    // TODO: Fix this so that we use the appropriate config...
-    const firstSlackIntegration = slackIntegrations?.[0]
+    const { slackIntegrations, integrations } = useValues(integrationsLogic)
 
     const emailDisabled = !preflight?.email_service_available
 
@@ -241,32 +240,61 @@ export function EditSubscription({
 
                         {subscription.target_type === 'slack' ? (
                             <>
-                                {!firstSlackIntegration ? (
+                                {!slackIntegrations?.length ? (
                                     <SlackNotConfiguredBanner />
                                 ) : (
                                     <>
-                                        <LemonField
-                                            name="target_value"
-                                            label="Which Slack channel to send reports to"
-                                            help={
-                                                <>
-                                                    Private channels are only shown if you have{' '}
-                                                    <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
-                                                        added the PostHog Slack App
-                                                    </Link>{' '}
-                                                    to them. You can also paste the channel ID (e.g.{' '}
-                                                    <code>C1234567890</code>) to search for channels.
-                                                </>
-                                            }
-                                        >
+                                        <LemonField name="integration_id" label="Slack connection">
                                             {({ value, onChange }) => (
-                                                <SlackChannelPicker
+                                                <IntegrationChoice
+                                                    integration="slack"
                                                     value={value}
-                                                    onChange={onChange}
-                                                    integration={firstSlackIntegration}
+                                                    onChange={(newValue) => {
+                                                        onChange(newValue)
+                                                        // Only clear channel when user actively switches,
+                                                        // not on initial auto-select (value is null)
+                                                        if (value !== null && newValue !== value) {
+                                                            logic.actions.setSubscriptionValue('target_value', '')
+                                                        }
+                                                    }}
                                                 />
                                             )}
                                         </LemonField>
+
+                                        {subscription.integration_id && (
+                                            <LemonField
+                                                name="target_value"
+                                                label="Which Slack channel to send reports to"
+                                                help={
+                                                    <>
+                                                        Private channels are only shown if you have{' '}
+                                                        <Link
+                                                            to="https://posthog.com/docs/webhooks/slack"
+                                                            target="_blank"
+                                                        >
+                                                            added the PostHog Slack App
+                                                        </Link>{' '}
+                                                        to them. You can also paste the channel ID (e.g.{' '}
+                                                        <code>C1234567890</code>) to search for channels.
+                                                    </>
+                                                }
+                                            >
+                                                {({ value, onChange }) => {
+                                                    const selectedIntegration = integrations?.find(
+                                                        (i) => i.id === subscription.integration_id
+                                                    )
+                                                    return selectedIntegration ? (
+                                                        <SlackChannelPicker
+                                                            value={value}
+                                                            onChange={onChange}
+                                                            integration={selectedIntegration}
+                                                        />
+                                                    ) : (
+                                                        <></>
+                                                    )
+                                                }}
+                                            </LemonField>
+                                        )}
                                     </>
                                 )}
                             </>
