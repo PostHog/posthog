@@ -262,11 +262,12 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <RecentFeatureFlagInsights />
 
                             <div className="flex flex-col gap-3 mt-2 pt-3 border-t border-border-light">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted">
+                                <div className="flex items-start gap-2">
+                                    <span className="text-sm text-muted flex-1">
                                         Watch recordings of users exposed to this flag
                                     </span>
                                     <ViewRecordingsPlaylistButton
+                                        className="shrink-0"
                                         filters={recordingFilterForFlag}
                                         type="secondary"
                                         size="small"
@@ -282,11 +283,12 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     />
                                 </div>
                                 {onGetFeedback && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-muted">
-                                            Gather feedback from users who see this flag
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-sm text-muted flex-1">
+                                            Get feedback from users who see this flag
                                         </span>
                                         <LemonButton
+                                            className="shrink-0"
                                             onClick={() => onGetFeedback()}
                                             type="secondary"
                                             size="small"

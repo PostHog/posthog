@@ -14,7 +14,7 @@ export interface GroupKeySelectLogicProps {
     value: string[]
 }
 
-async function resolveGroupNames(
+export async function resolveGroupNames(
     teamId: number | null,
     groupTypeIndex: GroupTypeIndex,
     groupKeys: string[]

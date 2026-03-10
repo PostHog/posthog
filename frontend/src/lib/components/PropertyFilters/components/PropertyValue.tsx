@@ -43,6 +43,7 @@ export interface PropertyValueProps {
     addRelativeDateTimeOptions?: boolean
     inputClassName?: string
     groupTypeIndex?: GroupTypeIndex
+    groupKeyNames?: Record<string, string>
     size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
     preloadValues?: boolean
@@ -65,6 +66,7 @@ export function PropertyValue({
     addRelativeDateTimeOptions = false,
     inputClassName = undefined,
     groupTypeIndex = undefined,
+    groupKeyNames,
     editable = true,
     preloadValues = false,
     forceSingleSelect = false,
@@ -266,6 +268,13 @@ export function PropertyValue({
     )
 
     if (!editable) {
+        if (isGroupKeyProperty && groupKeyNames) {
+            const rawValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
+                String
+            )
+            const displayValues = rawValues.map((key) => groupKeyNames[key] || key)
+            return <>{displayValues.join(' or ')}</>
+        }
         return <>{formattedValues.join(' or ')}</>
     }
 

@@ -70,6 +70,7 @@ from posthog.models.feature_flag.local_evaluation import (
     get_flags_response_if_none_match,
 )
 from posthog.models.feature_flag.types import PropertyFilterType
+from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
@@ -1043,6 +1044,14 @@ class FeatureFlagSerializer(
         """Extract cohort properties from filters."""
         return list(self._get_properties_from_filters(filters, PropertyFilterType.COHORT))
 
+    def _get_group_key_properties_from_filters(self, filters: dict):
+        """Extract $group_key properties from group-type filters."""
+        return [
+            prop
+            for prop in self._get_properties_from_filters(filters, PropertyFilterType.GROUP)
+            if prop.get("key") == "$group_key"
+        ]
+
     def _extract_flag_dependencies(self, filters):
         """Extract flag dependencies from filters."""
         dependencies = set()
@@ -1464,6 +1473,32 @@ class FeatureFlagSerializer(
         # Add cohort names to the response
         for cohort_prop in self._get_cohort_properties_from_filters(filters):
             cohort_prop["cohort_name"] = cohorts.get(str(cohort_prop.get("value")))
+
+        # Resolve group key display names for $group_key filters
+        group_key_props = self._get_group_key_properties_from_filters(filters)
+        if group_key_props:
+            group_type_index = filters.get("aggregation_group_type_index")
+            if group_type_index is not None:
+                group_keys: set[str] = set()
+                for prop in group_key_props:
+                    prop_value = prop.get("value")
+                    if isinstance(prop_value, list):
+                        group_keys.update(str(v) for v in prop_value)
+                    elif prop_value is not None:
+                        group_keys.add(str(prop_value))
+
+                if group_keys:
+                    group_names: dict[str, str] = {}
+                    for group in Group.objects.filter(
+                        team_id=instance.team_id,
+                        group_type_index=group_type_index,
+                        group_key__in=group_keys,
+                    ).only("group_key", "group_properties"):
+                        name = group.group_properties.get("name")
+                        group_names[group.group_key] = str(name) if name else group.group_key
+
+                    for prop in group_key_props:
+                        prop["group_key_names"] = group_names
 
         representation["filters"] = filters
         return representation
