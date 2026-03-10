@@ -157,7 +157,7 @@ def process_query_model(
         )
 
     try:
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
+        query_runner = get_query_runner(query, team, limit_context=limit_context, request=request)
     except ValueError:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
@@ -209,7 +209,6 @@ def process_query_model(
             insight_id=insight_id,
             dashboard_id=dashboard_id,
             cache_age_seconds=cache_age_seconds,
-            request=request,
         )
 
     return result
