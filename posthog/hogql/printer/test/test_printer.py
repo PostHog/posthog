@@ -59,6 +59,8 @@ from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import (
@@ -185,6 +187,11 @@ class TestPrinter(BaseTest):
             f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_intersect_all_raises_in_clickhouse(self):
+        with self.assertRaises(ImpossibleASTError) as context:
+            self._select("select 1 as id intersect all select 2 as id")
+        self.assertIn("INTERSECT ALL is not supported", str(context.exception))
+
     def test_intersect_distinct(self):
         expr = parse_select("""select 1 as id intersect distinct select 2 as id""")
         response = to_printed_hogql(expr, self.team)
@@ -199,6 +206,29 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             response,
             f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_except_all_raises_in_clickhouse(self):
+        with self.assertRaises(ImpossibleASTError) as context:
+            self._select("select 1 as id except all select 2 as id")
+        self.assertIn("EXCEPT ALL is not supported", str(context.exception))
+
+    def test_union_by_name(self):
+        expr = parse_select("""select 1 as a, 2 as b union by name select 3 as b, 4 as a""")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            (
+                "SELECT\n"
+                "    1 AS a,\n"
+                "    2 AS b\n"
+                "LIMIT 50000\n"
+                "UNION DISTINCT BY NAME\n"
+                "SELECT\n"
+                "    3 AS b,\n"
+                "    4 AS a\n"
+                f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            ),
         )
 
     # these share the same priority, should stay in order
@@ -4291,6 +4321,31 @@ class TestPostgresPrinter(BaseTest):
         self.assertNotIn("team_id", postgres)
         self.assertNotEqual(postgres, clickhouse)
 
+    def test_prints_direct_postgres_tables(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        DataWarehouseTable.objects.create(
+            name="accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        self.assertEqual(
+            self._select("SELECT id FROM accounts"),
+            "SELECT accounts.id FROM public.accounts AS accounts LIMIT 50000",
+        )
+
     def test_boolean_and_null_literals(self):
         self.assertEqual(self._expr("true"), "true")
         self.assertEqual(self._expr("false"), "false")
@@ -4524,3 +4579,11 @@ class TestPostgresPrinter(BaseTest):
         query = "WITH RECURSIVE x USING KEY (a) AS (SELECT 1 AS a UNION ALL SELECT a + 1 FROM x WHERE a < 5) SELECT * FROM x"
         result = self._select(query)
         self.assertIn("USING KEY (a) AS", result)
+
+    def test_intersect_all(self):
+        result = self._select("select 1 as id intersect all select 2 as id")
+        self.assertIn("INTERSECT ALL", result)
+
+    def test_except_all(self):
+        result = self._select("select 1 as id except all select 2 as id")
+        self.assertIn("EXCEPT ALL", result)

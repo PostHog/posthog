@@ -64,7 +64,7 @@ export class EmailTrackingService {
         this.sesWebhookHandler = new SesWebhookHandler()
     }
 
-    private async trackMetric({
+    public async trackMetric({
         functionId,
         invocationId,
         metricName,

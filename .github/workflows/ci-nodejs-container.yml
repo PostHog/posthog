@@ -128,17 +128,20 @@ jobs:
                       COMMIT_HASH=${{ github.sha }}
 
             - name: Container image digest
+              env:
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  IMAGE_REGISTRY: ${{ steps.aws-ecr.outputs.registry }}
               run: |
-                  echo "Image digest: ${{ steps.build.outputs.digest }}"
-                  echo "Full image reference: $${{ steps.aws-ecr.outputs.registry }}/posthog-node:${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                  echo "Image digest: $IMAGE_DIGEST"
+                  echo "Full image reference: $IMAGE_REGISTRY/posthog-node:${{ github.sha }}@$IMAGE_DIGEST"
                   echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image reference:** \`$${{ steps.aws-ecr.outputs.registry }}/posthog-node:${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`$IMAGE_REGISTRY/posthog-node:${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
 
             - name: Report failure
               if: failure()

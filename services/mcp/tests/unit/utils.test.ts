@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { sanitizeUserAgent } from '@/lib/utils'
+import { sanitizeHeaderValue } from '@/lib/utils'
 
 describe('utils', () => {
-    describe('sanitizeUserAgent', () => {
+    describe('sanitizeHeaderValue', () => {
         it.each([
             ['passthrough', 'posthog/wizard 1.0', 'posthog/wizard 1.0'],
             ['strips control chars', 'agent\x00with\x1fnulls', 'agentwithnulls'],
@@ -14,7 +14,7 @@ describe('utils', () => {
             ['whitespace only is undefined', ' ', undefined],
             ['undefined is undefined', undefined, undefined],
         ])('%s', (_name, input, expected) => {
-            expect(sanitizeUserAgent(input)).toBe(expected)
+            expect(sanitizeHeaderValue(input)).toBe(expected)
         })
     })
 })

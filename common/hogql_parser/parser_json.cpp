@@ -573,19 +573,28 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["subsequent_select_queries"] = Json::array();
     for (const auto subsequent : subsequent_clauses) {
       const char* set_operator;
-      if (subsequent->UNION() && subsequent->ALL()) {
-        set_operator = "UNION ALL";
-      } else if (subsequent->UNION() && subsequent->DISTINCT()) {
-        set_operator = "UNION DISTINCT";
+      if (subsequent->UNION()) {
+        bool by_name = subsequent->BY() && subsequent->NAME();
+        if (subsequent->ALL()) {
+          set_operator = by_name ? "UNION ALL BY NAME" : "UNION ALL";
+        } else if (subsequent->DISTINCT()) {
+          set_operator = by_name ? "UNION DISTINCT BY NAME" : "UNION DISTINCT";
+        } else {
+          set_operator = by_name ? "UNION DISTINCT BY NAME" : "UNION DISTINCT";
+        }
+      } else if (subsequent->INTERSECT() && subsequent->ALL()) {
+        set_operator = "INTERSECT ALL";
       } else if (subsequent->INTERSECT() && subsequent->DISTINCT()) {
         set_operator = "INTERSECT DISTINCT";
       } else if (subsequent->INTERSECT()) {
         set_operator = "INTERSECT";
+      } else if (subsequent->EXCEPT() && subsequent->ALL()) {
+        set_operator = "EXCEPT ALL";
       } else if (subsequent->EXCEPT()) {
         set_operator = "EXCEPT";
       } else {
         throw SyntaxError(
-            "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+            "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT ALL, INTERSECT DISTINCT, EXCEPT, and EXCEPT ALL"
         );
       }
 

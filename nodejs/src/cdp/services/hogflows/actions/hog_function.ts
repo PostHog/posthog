@@ -42,8 +42,9 @@ export class HogFunctionHandler implements ActionHandler {
             })
         })
 
-        // Collect captured PostHog events
+        // Collect captured PostHog events and metrics from the function execution
         result.capturedPostHogEvents = [...result.capturedPostHogEvents, ...functionResult.capturedPostHogEvents]
+        result.metrics = [...result.metrics, ...functionResult.metrics]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
