@@ -171,7 +171,7 @@ function PlayerWrapper({
 }): JSX.Element {
     const {
         filters,
-        pinnedRecordings,
+        visiblePinnedRecordings: pinnedRecordings,
         matchingEventsMatchType,
         activeSessionRecording,
         allowHogQLFilters,

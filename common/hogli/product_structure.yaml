@@ -53,7 +53,8 @@ root_files:
             {{
                 "name": "@posthog/products-{product}",
                 "scripts": {{
-                    "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+                    "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+                    "backend:contract-check": "echo 'Contract files unchanged'"
                 }}
             }}
 

@@ -13,6 +13,7 @@ import { ExperimentIdType, InsightType } from '~/types'
 
 import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+import { isLaunched } from '../experimentsLogic'
 import { minimumSampleSizePerVariant, recommendedExposureForCountData } from '../legacyExperimentCalculations'
 
 interface ExperimentCalculatorProps {
@@ -36,7 +37,7 @@ function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Ele
 
     return (
         <div className="flex flex-wrap">
-            {!experiment?.start_date && (
+            {!isLaunched(experiment) && (
                 <>
                     <div className="mb-4 w-1/2">
                         <div className="card-secondary">Baseline Conversion Rate</div>
@@ -54,7 +55,7 @@ function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Ele
                     <span className="l4">~{recommendedSampleSize}</span> persons
                 </div>
             </div>
-            {!experiment?.start_date && (
+            {!isLaunched(experiment) && (
                 <div className="w-1/2">
                     <div className="card-secondary">Recommended running time</div>
                     <div>
@@ -81,7 +82,7 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
 
     return (
         <div className="flex flex-wrap">
-            {!experiment?.start_date && (
+            {!isLaunched(experiment) && (
                 <>
                     <div className="mb-4 w-1/2">
                         <div className="card-secondary">Baseline Count</div>

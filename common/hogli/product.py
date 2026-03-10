@@ -267,30 +267,32 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
     for f in missing_root:
         issues.append(f"Missing required root file: {f}")
 
-    # 2. backend:test in package.json (if product has backend/)
+    # 2. Required scripts in package.json (if product has backend/)
     if backend_dir.exists():
         package_json = product_dir / "package.json"
         if package_json.exists():
             try:
                 pkg_data = json.loads(package_json.read_text())
-                has_backend_test = "backend:test" in pkg_data.get("scripts", {})
+                scripts = pkg_data.get("scripts", {})
             except json.JSONDecodeError:
-                has_backend_test = False
+                scripts = {}
                 issues.append("package.json is not valid JSON")
         else:
-            has_backend_test = False
+            scripts = {}
 
-        if verbose:
-            click.echo("  backend:test in package.json...")
-        if not has_backend_test:
-            issues.append(
-                "Product has backend/ but package.json is missing 'backend:test' script — "
-                "turbo cannot discover this product for testing"
-            )
+        for script in ("backend:test", "backend:contract-check"):
+            has_script = script in scripts
             if verbose:
-                click.echo("    ✗ missing")
-        elif verbose:
-            click.echo("    ✓ ok")
+                click.echo(f"  {script} in package.json...")
+            if not has_script:
+                issues.append(
+                    f"Product has backend/ but package.json is missing '{script}' script — "
+                    "turbo cannot discover this product"
+                )
+                if verbose:
+                    click.echo("    ✗ missing")
+            elif verbose:
+                click.echo("    ✓ ok")
 
     # 3. Misplaced backend files (strict only — legacy products have flat structure by design)
     if is_isolated:
@@ -415,7 +417,9 @@ def _lint_all_products() -> None:
     lenient = [d.name for d in product_dirs if not _is_isolated_product(d / "backend")]
 
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
-    click.echo("Checks: required root files, backend:test script, misplaced files, file/folder conflicts\n")
+    click.echo(
+        "Checks: required root files, backend:test, backend:contract-check, misplaced files, file/folder conflicts\n"
+    )
 
     failed: list[str] = []
 

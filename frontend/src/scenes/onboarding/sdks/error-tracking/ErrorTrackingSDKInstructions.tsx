@@ -3,6 +3,7 @@ import {
     AndroidInstallation,
     AngularInstallation,
     FlutterInstallation,
+    IOSInstallation,
     HonoInstallation,
     JSWebInstallation,
     NextJSInstallation,
@@ -90,6 +91,9 @@ const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
 const ErrorTrackingAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
 })
+const ErrorTrackingIOSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: IOSInstallation,
+})
 const ErrorTrackingFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
 })
@@ -117,5 +121,6 @@ export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANDROID]: ErrorTrackingAndroidInstructionsWrapper,
     [SDKKey.FLUTTER]: ErrorTrackingFlutterInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ErrorTrackingReactNativeInstructionsWrapper,
+    [SDKKey.IOS]: ErrorTrackingIOSInstructionsWrapper,
     [SDKKey.API]: ErrorTrackingAPIInstructionsWrapper,
 }
