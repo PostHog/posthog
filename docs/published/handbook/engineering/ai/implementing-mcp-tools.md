@@ -158,8 +158,8 @@ build:openapi-mcp-tools  YAML definitions + Zod schemas → TypeScript tool hand
 YAML definitions are the configuration layer.
 They live in **`products/<product>/mcp/*.yaml`**, keeping config close to the owning product's code.
 
-> **Legacy path:** Some older definitions may still exist in `services/mcp/definitions/*.yaml`.
-> New definitions should always go in the product folder.
+> **Fallback path:** `services/mcp/definitions/*.yaml` is available for functionality that doesn't have a product folder.
+> When a product folder exists, always place definitions there.
 
 The build pipeline discovers YAML files from both paths.
 Product teams own their definitions and control which operations are exposed as MCP tools.
