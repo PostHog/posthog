@@ -150,6 +150,9 @@ impl FromStr for FlagDefinitionsRateLimits {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FlagsRateLimits(pub HashMap<String, String>);
 
+/// Maximum number of per-token rate limit overrides allowed.
+const MAX_FLAGS_RATE_LIMIT_OVERRIDES: usize = 100;
+
 impl FromStr for FlagsRateLimits {
     type Err = String;
 
@@ -162,6 +165,13 @@ impl FromStr for FlagsRateLimits {
 
         let parsed: HashMap<String, String> = serde_json::from_str(s)
             .map_err(|e| format!("Failed to parse flags rate limits as JSON: {e}"))?;
+
+        if parsed.len() > MAX_FLAGS_RATE_LIMIT_OVERRIDES {
+            return Err(format!(
+                "Too many flags rate limit overrides: {} (max {MAX_FLAGS_RATE_LIMIT_OVERRIDES})",
+                parsed.len()
+            ));
+        }
 
         Ok(FlagsRateLimits(parsed))
     }

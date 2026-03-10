@@ -92,6 +92,9 @@ struct KeyedRateLimiter {
     enforce_limiter: GovernorLimiter,
     /// The warn-tier limiter (present only when warn capacity is configured)
     warn_limiter: Option<GovernorLimiter>,
+    /// When true, enforce rejections become warnings (never returns Blocked).
+    /// Used for legacy log-only backwards compatibility.
+    warn_only: bool,
     /// Configuration for metrics and logging
     config: RateLimiterConfig,
 }
@@ -102,24 +105,34 @@ impl KeyedRateLimiter {
     /// - `warn_capacity`: If `Some`, a second limiter is created at this (lower) capacity.
     ///   Requests that exceed it return `Warned`. If `None`, there is no warn tier.
     /// - `enforce_capacity`: Hard limit. Requests that exceed it return `Blocked`.
+    /// - `warn_only`: When true, enforce rejections become warnings (legacy log-only compat).
     fn new(
         enabled: bool,
         replenish_rate: f64,
         warn_capacity: Option<u32>,
         enforce_capacity: u32,
+        warn_only: bool,
         config: RateLimiterConfig,
     ) -> anyhow::Result<Self> {
         let enforce_limiter = build_limiter(replenish_rate, enforce_capacity, config.error_prefix)?;
 
         let warn_limiter = match warn_capacity {
-            Some(cap) if cap > 0 => Some(build_limiter(replenish_rate, cap, config.error_prefix)?),
-            _ => None,
+            Some(0) => {
+                tracing::warn!(
+                    limiter = %config.error_prefix,
+                    "Warn capacity is 0, which is equivalent to no warn tier"
+                );
+                None
+            }
+            Some(cap) => Some(build_limiter(replenish_rate, cap, config.error_prefix)?),
+            None => None,
         };
 
         Ok(Self {
             enabled,
             enforce_limiter,
             warn_limiter,
+            warn_only,
             config,
         })
     }
@@ -144,6 +157,16 @@ impl KeyedRateLimiter {
             .is_none_or(|wl| wl.check_key(&key_string).is_ok());
 
         if !enforce_ok {
+            if self.warn_only {
+                // Legacy log-only compat: never block, only warn
+                counter!(
+                    self.config.metric_name,
+                    self.config.key_label => key_string,
+                    "mode" => "warned"
+                )
+                .increment(1);
+                return RateLimitResult::Warned;
+            }
             counter!(
                 self.config.metric_name,
                 self.config.key_label => key_string,
@@ -160,7 +183,7 @@ impl KeyedRateLimiter {
                 "mode" => "warned"
             )
             .increment(1);
-            tracing::warn!(
+            tracing::debug!(
                 key = %key_string,
                 limiter = %self.config.error_prefix,
                 "Rate limit warning threshold exceeded"
@@ -193,6 +216,18 @@ impl KeyedRateLimiter {
     }
 }
 
+/// Maximum number of per-token rate limit overrides allowed.
+/// Prevents excessive memory usage and cleanup overhead from large configs.
+const MAX_CUSTOM_RATE_OVERRIDES: usize = 100;
+
+/// Redacts a token for safe logging, showing only a prefix and suffix.
+fn redact_token(token: &str) -> String {
+    if token.len() <= 8 {
+        return "***".to_string();
+    }
+    format!("{}…{}", &token[..4], &token[token.len() - 4..])
+}
+
 /// Token bucket rate limiter for feature flag requests.
 ///
 /// Uses the governor crate to implement a per-key (token) rate limiter.
@@ -203,7 +238,8 @@ impl KeyedRateLimiter {
 pub struct FlagsRateLimiter {
     inner: KeyedRateLimiter,
     /// Per-token custom rate limiters (enforce-only, no warn tier).
-    custom_limiters: HashMap<String, GovernorLimiter>,
+    /// Wrapped in Arc for O(1) clone since the map is immutable after construction.
+    custom_limiters: Arc<HashMap<String, GovernorLimiter>>,
 }
 
 impl FlagsRateLimiter {
@@ -215,6 +251,7 @@ impl FlagsRateLimiter {
     /// * `replenish_rate` - Tokens added per second
     /// * `warn_capacity` - Warn threshold bucket size (None = no warn tier)
     /// * `enforce_capacity` - Hard limit bucket size
+    /// * `warn_only` - When true, never returns Blocked (legacy log-only compat)
     /// * `custom_rates` - Per-token rate overrides (e.g., `{"phc_abc": "1200/minute"}`)
     ///
     /// # Example
@@ -223,7 +260,7 @@ impl FlagsRateLimiter {
     /// use feature_flags::api::flags_rate_limiter::{FlagsRateLimiter, RateLimitResult};
     /// use std::collections::HashMap;
     ///
-    /// let limiter = FlagsRateLimiter::new(true, 10.0, None, 500, HashMap::new()).unwrap();
+    /// let limiter = FlagsRateLimiter::new(true, 10.0, None, 500, false, HashMap::new()).unwrap();
     /// assert_eq!(limiter.allow_request("my_token"), RateLimitResult::Allowed);
     /// ```
     pub fn new(
@@ -231,8 +268,17 @@ impl FlagsRateLimiter {
         replenish_rate: f64,
         warn_capacity: Option<u32>,
         enforce_capacity: u32,
+        warn_only: bool,
         custom_rates: HashMap<String, String>,
     ) -> anyhow::Result<Self> {
+        if custom_rates.len() > MAX_CUSTOM_RATE_OVERRIDES {
+            return Err(anyhow::anyhow!(
+                "Too many custom rate overrides: {} (max {})",
+                custom_rates.len(),
+                MAX_CUSTOM_RATE_OVERRIDES
+            ));
+        }
+
         let config = RateLimiterConfig {
             metric_name: "flags_rate_limit_exceeded_total",
             key_label: "token",
@@ -244,25 +290,26 @@ impl FlagsRateLimiter {
             replenish_rate,
             warn_capacity,
             enforce_capacity,
+            warn_only,
             config,
         )?;
 
         // Parse and create custom per-token limiters (enforce-only).
         let mut custom_map = HashMap::new();
-        for (token, rate_string) in custom_rates {
-            match parse_rate_string(&rate_string) {
+        for (token, rate_string) in &custom_rates {
+            match parse_rate_string(rate_string) {
                 Ok(quota) => {
                     let limiter = Arc::new(RateLimiter::dashmap(quota));
                     custom_map.insert(token.clone(), limiter);
                     tracing::info!(
-                        token = %token,
+                        token = %redact_token(token),
                         rate = %rate_string,
                         "Configured custom flags rate limit for token"
                     );
                 }
                 Err(e) => {
                     tracing::warn!(
-                        token = %token,
+                        token = %redact_token(token),
                         rate = %rate_string,
                         error = %e,
                         "Invalid rate string for token, ignoring custom rate"
@@ -271,9 +318,16 @@ impl FlagsRateLimiter {
             }
         }
 
+        if !custom_map.is_empty() {
+            tracing::info!(
+                count = custom_map.len(),
+                "Loaded custom rate limit overrides"
+            );
+        }
+
         Ok(Self {
             inner,
-            custom_limiters: custom_map,
+            custom_limiters: Arc::new(custom_map),
         })
     }
 
@@ -344,6 +398,7 @@ mod tests {
             replenish_rate,
             warn_capacity,
             enforce_capacity,
+            false,
             HashMap::new(),
         )
         .unwrap()
@@ -399,7 +454,7 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_invalid_replenish_rate() {
-        let result = FlagsRateLimiter::new(true, 0.0, None, 500, HashMap::new());
+        let result = FlagsRateLimiter::new(true, 0.0, None, 500, false, HashMap::new());
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -409,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_invalid_capacity() {
-        let result = FlagsRateLimiter::new(true, 10.0, None, 0, HashMap::new());
+        let result = FlagsRateLimiter::new(true, 10.0, None, 0, false, HashMap::new());
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -476,7 +531,7 @@ mod tests {
         let mut custom_rates = HashMap::new();
         custom_rates.insert("custom_token".to_string(), "1/second".to_string());
 
-        let limiter = FlagsRateLimiter::new(true, 0.1, Some(2), 5, custom_rates).unwrap();
+        let limiter = FlagsRateLimiter::new(true, 0.1, Some(2), 5, false, custom_rates).unwrap();
 
         // Custom token uses its own limiter (capacity=1)
         assert_eq!(
@@ -509,7 +564,7 @@ mod tests {
         custom_rates.insert("bad_token".to_string(), "invalid".to_string());
         custom_rates.insert("good_token".to_string(), "1/second".to_string());
 
-        let limiter = FlagsRateLimiter::new(true, 0.1, None, 5, custom_rates).unwrap();
+        let limiter = FlagsRateLimiter::new(true, 0.1, None, 5, false, custom_rates).unwrap();
 
         // bad_token falls through to default limiter
         assert_eq!(limiter.allow_request("bad_token"), RateLimitResult::Allowed);
@@ -523,6 +578,44 @@ mod tests {
             limiter.allow_request("good_token"),
             RateLimitResult::Blocked
         );
+    }
+
+    #[test]
+    fn test_warn_only_mode_never_blocks() {
+        let limiter = FlagsRateLimiter::new(true, 0.1, Some(2), 5, true, HashMap::new()).unwrap();
+        let token = "test_token";
+
+        // First 2: within warn capacity → Allowed
+        assert_eq!(limiter.allow_request(token), RateLimitResult::Allowed);
+        assert_eq!(limiter.allow_request(token), RateLimitResult::Allowed);
+
+        // 3-5: exceed warn → Warned
+        assert_eq!(limiter.allow_request(token), RateLimitResult::Warned);
+        assert_eq!(limiter.allow_request(token), RateLimitResult::Warned);
+        assert_eq!(limiter.allow_request(token), RateLimitResult::Warned);
+
+        // Request 6+: exceed enforce → still Warned (never Blocked in warn_only mode)
+        assert_eq!(limiter.allow_request(token), RateLimitResult::Warned);
+        assert_eq!(limiter.allow_request(token), RateLimitResult::Warned);
+    }
+
+    #[test]
+    fn test_too_many_custom_overrides_rejected() {
+        let mut custom_rates = HashMap::new();
+        for i in 0..=MAX_CUSTOM_RATE_OVERRIDES {
+            custom_rates.insert(format!("token_{i}"), "10/second".to_string());
+        }
+        let result = FlagsRateLimiter::new(true, 10.0, None, 500, false, custom_rates);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Too many"));
+    }
+
+    #[test]
+    fn test_redact_token() {
+        assert_eq!(redact_token("short"), "***");
+        assert_eq!(redact_token("phc_abcdefghijklmnop"), "phc_…mnop");
+        assert_eq!(redact_token("12345678"), "***");
+        assert_eq!(redact_token("123456789"), "1234…6789");
     }
 }
 
@@ -544,13 +637,14 @@ impl IpRateLimiter {
     /// * `replenish_rate` - Requests per second per IP
     /// * `warn_capacity` - Warn threshold (None = no warn tier)
     /// * `enforce_capacity` - Hard limit burst size per IP
+    /// * `warn_only` - When true, never returns Blocked (legacy log-only compat)
     ///
     /// # Example
     ///
     /// ```
     /// use feature_flags::api::flags_rate_limiter::{IpRateLimiter, RateLimitResult};
     ///
-    /// let limiter = IpRateLimiter::new(true, 20.0, None, 100).unwrap();
+    /// let limiter = IpRateLimiter::new(true, 20.0, None, 100, false).unwrap();
     /// assert_eq!(limiter.allow_request("192.168.1.1"), RateLimitResult::Allowed);
     /// ```
     pub fn new(
@@ -558,6 +652,7 @@ impl IpRateLimiter {
         replenish_rate: f64,
         warn_capacity: Option<u32>,
         enforce_capacity: u32,
+        warn_only: bool,
     ) -> anyhow::Result<Self> {
         let config = RateLimiterConfig {
             metric_name: "flags_ip_rate_limit_exceeded_total",
@@ -570,6 +665,7 @@ impl IpRateLimiter {
             replenish_rate,
             warn_capacity,
             enforce_capacity,
+            warn_only,
             config,
         )?;
 
@@ -602,7 +698,7 @@ mod ip_rate_limiter_tests {
 
     #[test]
     fn test_ip_rate_limiter_disabled() {
-        let limiter = IpRateLimiter::new(false, 1.0, None, 1).unwrap();
+        let limiter = IpRateLimiter::new(false, 1.0, None, 1, false).unwrap();
 
         for _ in 0..100 {
             assert_eq!(
@@ -614,7 +710,7 @@ mod ip_rate_limiter_tests {
 
     #[test]
     fn test_ip_rate_limiter_basic_limiting() {
-        let limiter = IpRateLimiter::new(true, 0.1, None, 3).unwrap();
+        let limiter = IpRateLimiter::new(true, 0.1, None, 3, false).unwrap();
         let ip = "192.168.1.1";
 
         assert_eq!(limiter.allow_request(ip), RateLimitResult::Allowed);
@@ -625,7 +721,7 @@ mod ip_rate_limiter_tests {
 
     #[test]
     fn test_ip_rate_limiter_per_ip_isolation() {
-        let limiter = IpRateLimiter::new(true, 0.1, None, 1).unwrap();
+        let limiter = IpRateLimiter::new(true, 0.1, None, 1, false).unwrap();
 
         assert_eq!(
             limiter.allow_request("192.168.1.1"),
@@ -648,7 +744,7 @@ mod ip_rate_limiter_tests {
 
     #[test]
     fn test_ip_rate_limiter_replenishes() {
-        let limiter = IpRateLimiter::new(true, 1.0, None, 1).unwrap();
+        let limiter = IpRateLimiter::new(true, 1.0, None, 1, false).unwrap();
         let ip = "192.168.1.1";
 
         assert_eq!(limiter.allow_request(ip), RateLimitResult::Allowed);
@@ -661,7 +757,7 @@ mod ip_rate_limiter_tests {
 
     #[test]
     fn test_ip_rate_limiter_warn_then_enforce() {
-        let limiter = IpRateLimiter::new(true, 0.1, Some(2), 4).unwrap();
+        let limiter = IpRateLimiter::new(true, 0.1, Some(2), 4, false).unwrap();
         let ip = "192.168.1.1";
 
         assert_eq!(limiter.allow_request(ip), RateLimitResult::Allowed);
@@ -673,7 +769,7 @@ mod ip_rate_limiter_tests {
 
     #[test]
     fn test_ip_rate_limiter_invalid_burst_size() {
-        let result = IpRateLimiter::new(true, 10.0, None, 0);
+        let result = IpRateLimiter::new(true, 10.0, None, 0, false);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -683,7 +779,7 @@ mod ip_rate_limiter_tests {
 
     #[test]
     fn test_ip_rate_limiter_invalid_replenish_rate() {
-        let result = IpRateLimiter::new(true, 0.0, None, 100);
+        let result = IpRateLimiter::new(true, 0.0, None, 100, false);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()

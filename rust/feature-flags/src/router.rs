@@ -124,7 +124,7 @@ pub fn router(
     // - If warn_capacity == 0 and log_only == true: use enforce_capacity as warn capacity
     //   with no hard enforce (warn-only, matches today's log-only behavior)
     // - If warn_capacity == 0 and log_only == false: no warn limiter, enforce at capacity
-    let (flags_warn_cap, flags_enforce_cap) = resolve_rate_limit_capacities(
+    let (flags_warn_cap, flags_enforce_cap, flags_warn_only) = resolve_rate_limit_capacities(
         config.flags_bucket_warn_capacity,
         config.flags_bucket_capacity,
         *config.flags_rate_limit_log_only,
@@ -134,6 +134,7 @@ pub fn router(
         config.flags_bucket_replenish_rate,
         flags_warn_cap,
         flags_enforce_cap,
+        flags_warn_only,
         config.flags_rate_limits.0.clone(),
     )
     .unwrap_or_else(|e| {
@@ -144,7 +145,7 @@ pub fn router(
     });
 
     // Initialize IP-based rate limiter with backwards-compatible configuration
-    let (ip_warn_cap, ip_enforce_cap) = resolve_rate_limit_capacities(
+    let (ip_warn_cap, ip_enforce_cap, ip_warn_only) = resolve_rate_limit_capacities(
         config.flags_ip_warn_burst_size,
         config.flags_ip_burst_size,
         *config.flags_ip_rate_limit_log_only,
@@ -154,6 +155,7 @@ pub fn router(
         config.flags_ip_replenish_rate,
         ip_warn_cap,
         ip_enforce_cap,
+        ip_warn_only,
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -197,7 +199,10 @@ pub fn router(
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::HEAD])
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
-        .allow_origin(AllowOrigin::mirror_request());
+        .allow_origin(AllowOrigin::mirror_request())
+        .expose_headers([axum::http::HeaderName::from_static(
+            "x-posthog-rate-limit-warning",
+        )]);
 
     // Clone database_pools for the startup route
     let db_pools_for_startup = state.database_pools.clone();
@@ -276,15 +281,18 @@ pub fn router(
 
 /// Resolves warn/enforce capacities with backwards-compat logic for the old `log_only` flag.
 ///
-/// - `warn_capacity > 0`: Use tiered model (warn + enforce), `log_only` is ignored
+/// Returns `(warn_capacity, enforce_capacity, warn_only)`:
+/// - `warn_capacity > 0`: Use tiered model (warn + enforce), `log_only` is ignored.
+///   `warn_only` is false — requests that exceed enforce are blocked.
 /// - `warn_capacity == 0` and `log_only == true`: Treat enforce capacity as warn-only
-///   (never blocks — identical to today's log-only behavior)
-/// - `warn_capacity == 0` and `log_only == false`: No warn tier, hard enforce
+///   threshold. `warn_only` is true — requests are never blocked, only warned.
+///   This preserves the legacy log-only contract where rate limiting is observational.
+/// - `warn_capacity == 0` and `log_only == false`: No warn tier, hard enforce.
 fn resolve_rate_limit_capacities(
     warn_capacity: u32,
     enforce_capacity: u32,
     log_only: bool,
-) -> (Option<u32>, u32) {
+) -> (Option<u32>, u32, bool) {
     if warn_capacity > 0 {
         // New tiered model takes precedence
         if warn_capacity >= enforce_capacity {
@@ -294,16 +302,18 @@ fn resolve_rate_limit_capacities(
                 "warn capacity >= enforce capacity; the warn tier will never trigger because requests will be blocked first"
             );
         }
-        (Some(warn_capacity), enforce_capacity)
+        (Some(warn_capacity), enforce_capacity, false)
     } else if log_only {
         // Backwards compat: log-only mode → use enforce_capacity as warn capacity,
-        // set enforce very high so it never blocks.
+        // set enforce very high so it effectively never triggers.
+        // warn_only=true ensures requests are never blocked even if the enforce
+        // bucket is somehow exhausted under extreme sustained traffic.
         // Note: u32::MAX overflows governor's internal nanos arithmetic,
         // so we use a large-but-safe value instead.
-        (Some(enforce_capacity), 1_000_000)
+        (Some(enforce_capacity), 1_000_000, true)
     } else {
         // Backwards compat: enforced mode → no warn tier
-        (None, enforce_capacity)
+        (None, enforce_capacity, false)
     }
 }
 
@@ -543,27 +553,31 @@ mod tests {
 
     #[test]
     fn test_resolve_rate_limit_tiered_model() {
-        let (warn, enforce) = resolve_rate_limit_capacities(100, 500, false);
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(100, 500, false);
         assert_eq!(warn, Some(100));
         assert_eq!(enforce, 500);
+        assert!(!warn_only);
 
         // log_only is ignored when warn_capacity > 0
-        let (warn, enforce) = resolve_rate_limit_capacities(100, 500, true);
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(100, 500, true);
         assert_eq!(warn, Some(100));
         assert_eq!(enforce, 500);
+        assert!(!warn_only);
     }
 
     #[test]
     fn test_resolve_rate_limit_log_only_backwards_compat() {
-        let (warn, enforce) = resolve_rate_limit_capacities(0, 200, true);
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(0, 200, true);
         assert_eq!(warn, Some(200));
         assert_eq!(enforce, 1_000_000);
+        assert!(warn_only);
     }
 
     #[test]
     fn test_resolve_rate_limit_enforce_backwards_compat() {
-        let (warn, enforce) = resolve_rate_limit_capacities(0, 200, false);
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(0, 200, false);
         assert_eq!(warn, None);
         assert_eq!(enforce, 200);
+        assert!(!warn_only);
     }
 }
