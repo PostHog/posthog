@@ -175,7 +175,7 @@ export interface ZScoreDetectorConfigApi {
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /**
-     * Z-score threshold for anomaly detection (default: 3.0)
+     * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
      * @nullable
      */
     threshold?: number | null
@@ -197,7 +197,7 @@ export interface MADDetectorConfigApi {
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /**
-     * Modified z-score threshold for anomaly detection (default: 3.5)
+     * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
      * @nullable
      */
     threshold?: number | null
