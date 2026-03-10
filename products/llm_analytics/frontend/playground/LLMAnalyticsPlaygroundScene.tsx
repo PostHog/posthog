@@ -1,16 +1,18 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import {
     IconChevronRight,
-    IconCopy,
     IconGear,
     IconPencil,
     IconPlay,
     IconPlus,
+    IconRevert,
     IconStack,
     IconTrash,
     IconWrench,
+    IconCopy,
 } from '@posthog/icons'
 import {
     LemonBanner,
@@ -23,11 +25,14 @@ import {
     LemonSwitch,
     LemonTag,
     LemonTextArea,
+    Spinner,
     Link,
+    LemonDivider,
 } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -45,12 +50,16 @@ import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '
 import { modelPickerLogic } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
+    getLinkedSourceLabel,
     llmPlaygroundPromptsLogic,
     type Message,
     type MessageRole,
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
-import { llmPlaygroundRunLogic, type ComparisonItem } from './llmPlaygroundRunLogic'
+import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
+import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
+
+// Cap inline JSON previews at 20 lines so they don't dominate the layout
 const INLINE_JSON_MAX_LINES = 20
 const INLINE_JSON_MAX_HEIGHT_CLASS = 'max-h-[420px] overflow-y-auto'
 const TOOLS_MODAL_EDITOR_HEIGHT = 460
@@ -91,62 +100,86 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 
 export const scene: SceneExport = {
     component: LLMAnalyticsPlaygroundScene,
-    logic: llmPlaygroundRunLogic,
+    logic: llmPlaygroundPromptsLogic,
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
-export function LLMAnalyticsPlaygroundScene(): JSX.Element {
-    useMountedLogic(llmPlaygroundRunLogic)
+export function LLMAnalyticsPlaygroundScene({ tabId }: { tabId?: string }): JSX.Element {
+    const promptsLogic = llmPlaygroundPromptsLogic({ tabId })
+    const modelLogic = llmPlaygroundModelLogic({ tabId })
+    const runLogic = llmPlaygroundRunLogic({ tabId })
+
+    // Attach child logics to the prompts logic so they persist across tab switches
+    useAttachedLogic(modelLogic, promptsLogic)
+    useAttachedLogic(runLogic, promptsLogic)
 
     return (
-        <SceneContent className="h-full">
-            <SceneTitleSection
-                name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
-                description="Test and experiment with LLM prompts in a sandbox environment."
-                resourceType={{ type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics' }}
-                actions={<PlaygroundHeaderActions />}
-            />
-            <div className="flex h-full flex-1 flex-col min-h-0">
-                <PlaygroundLayout />
-            </div>
-        </SceneContent>
+        <BindLogic logic={llmPlaygroundPromptsLogic} props={{ tabId }}>
+            <BindLogic logic={llmPlaygroundModelLogic} props={{ tabId }}>
+                <BindLogic logic={llmPlaygroundRunLogic} props={{ tabId }}>
+                    <SceneContent className="h-full">
+                        <SceneTitleSection
+                            name={sceneConfigurations[Scene.LLMAnalyticsPlayground].name}
+                            description="Test and experiment with LLM prompts in a sandbox environment."
+                            resourceType={{
+                                type: sceneConfigurations[Scene.LLMAnalyticsPlayground].iconType || 'llm_analytics',
+                            }}
+                            actions={<PlaygroundHeaderActions />}
+                        />
+                        <div className="flex h-full flex-1 flex-col min-h-0">
+                            <PlaygroundLayout />
+                        </div>
+                    </SceneContent>
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
     )
 }
 
 function PlaygroundHeaderActions(): JSX.Element {
-    const { hasRunnablePrompts, activePromptId } = useValues(llmPlaygroundPromptsLogic)
-    const { addPromptConfig } = useActions(llmPlaygroundPromptsLogic)
+    const { hasRunnablePrompts, promptConfigs } = useValues(llmPlaygroundPromptsLogic)
+    const { addPromptConfig, resetPlayground } = useActions(llmPlaygroundPromptsLogic)
     const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
-    const { submitPrompt } = useActions(llmPlaygroundRunLogic)
+    const { submitPrompt, abortRun } = useActions(llmPlaygroundRunLogic)
+    const firstPromptId = promptConfigs[0]?.id
 
     return (
         <>
             <LemonButton
                 type="secondary"
                 size="small"
-                icon={<IconPlus />}
-                onClick={() => addPromptConfig(activePromptId ?? undefined)}
+                icon={<IconRevert />}
+                onClick={resetPlayground}
                 disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
-                data-attr="playground-add-prompt"
+                tooltip="Reset playground to default state"
+                data-attr="llma-playground-reset"
+            />
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={() => addPromptConfig(firstPromptId)}
+                disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                data-attr="llma-playground-add-prompt"
             >
                 Add prompt
             </LemonButton>
             <LemonButton
-                type="primary"
+                type={playgroundSubmitting ? 'secondary' : 'primary'}
                 size="small"
-                icon={<IconPlay />}
-                onClick={() => submitPrompt()}
-                loading={playgroundSubmitting}
+                icon={playgroundSubmitting ? <Spinner textColored /> : <IconPlay />}
+                status={playgroundSubmitting ? 'danger' : undefined}
+                onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
                 disabledReason={
                     playgroundSubmitting
-                        ? 'Generating...'
+                        ? undefined
                         : !hasRunnablePrompts
                           ? 'Add messages to at least one prompt'
                           : undefined
                 }
-                data-attr="playground-run"
+                data-attr="llma-playground-run-button"
             >
-                Run
+                {playgroundSubmitting ? 'Stop' : 'Run'}
             </LemonButton>
         </>
     )
@@ -202,23 +235,33 @@ function SubscriptionRequiredBanner(): JSX.Element | null {
 }
 
 function PlaygroundLayout(): JSX.Element {
+    const { sourceSetupLoading } = useValues(llmPlaygroundPromptsLogic)
+
     return (
         <div className="flex flex-1 min-h-0 flex-col gap-4">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
-                <div className="h-full min-h-0 overflow-y-auto">
-                    <PromptConfigsSection />
-                </div>
+                {sourceSetupLoading ? (
+                    <div className="h-full min-h-0 p-4 space-y-3">
+                        <LemonSkeleton className="h-8 w-56" />
+                        <LemonSkeleton className="h-28 w-full" />
+                        <LemonSkeleton className="h-28 w-full" />
+                    </div>
+                ) : (
+                    <div className="h-full min-h-0 overflow-y-auto">
+                        <PromptConfigsSection />
+                    </div>
+                )}
             </section>
         </div>
     )
 }
 
 function PromptConfigsSection(): JSX.Element {
-    const { promptConfigs, activePromptId } = useValues(llmPlaygroundPromptsLogic)
-    const { removePromptConfig, setActivePromptId } = useActions(llmPlaygroundPromptsLogic)
+    const { promptConfigs } = useValues(llmPlaygroundPromptsLogic)
+    const { removePromptConfig } = useActions(llmPlaygroundPromptsLogic)
     const { comparisonItems } = useValues(llmPlaygroundRunLogic)
 
     const promptCount = promptConfigs.length
@@ -243,15 +286,13 @@ function PromptConfigsSection(): JSX.Element {
                 }}
             >
                 {promptConfigs.map((prompt, index) => {
-                    const isActive = prompt.id === activePromptId
                     return (
                         <React.Fragment key={prompt.id}>
                             <PromptCard
                                 prompt={prompt}
                                 index={index}
-                                isActive={isActive}
+                                promptCount={promptCount}
                                 canRemove={promptConfigs.length > 1}
-                                onActivate={() => setActivePromptId(prompt.id)}
                                 onRemove={() => removePromptConfig(prompt.id)}
                             />
                             <PromptResultCard item={latestItemByPromptId.get(prompt.id)} />
@@ -266,47 +307,46 @@ function PromptConfigsSection(): JSX.Element {
 function PromptCard({
     prompt,
     index,
-    isActive,
+    promptCount,
     canRemove,
-    onActivate,
     onRemove,
 }: {
     prompt: PromptConfig
     index: number
-    isActive: boolean
+    promptCount: number
     canRemove: boolean
-    onActivate: () => void
     onRemove: () => void
 }): JSX.Element {
     const { submitting } = useValues(llmPlaygroundRunLogic)
+    const showHeaderRow = promptCount > 1 || canRemove
 
     return (
-        <div
-            className={`min-w-0 border rounded p-4 bg-transparent transition-shadow group/prompt ${
-                isActive ? 'ring-1 ring-primary/40 shadow-sm' : 'hover:shadow-sm'
-            } h-full flex flex-col min-h-0`}
-        >
-            <div className="flex items-center justify-between mb-4 gap-2 shrink-0">
-                <button type="button" className="flex items-center gap-2 min-w-0" onClick={onActivate}>
-                    <LemonTag type={isActive ? 'highlight' : 'default'} size="small">
-                        Prompt {index + 1}
-                    </LemonTag>
-                </button>
+        <div className="min-w-0 border rounded p-4 bg-transparent group/prompt ring-1 ring-primary/40 shadow-sm h-full flex flex-col min-h-0">
+            {showHeaderRow ? (
+                <div className="flex items-center justify-between mb-4 gap-2 shrink-0">
+                    {promptCount > 1 ? (
+                        <LemonTag type="highlight" size="small">
+                            Prompt {index + 1}
+                        </LemonTag>
+                    ) : (
+                        <span />
+                    )}
 
-                {canRemove && (
-                    <div className="opacity-0 group-hover/prompt:opacity-100 group-focus-within/prompt:opacity-100 transition-opacity">
-                        <LemonButton
-                            size="small"
-                            status="danger"
-                            icon={<IconTrash />}
-                            noPadding
-                            disabledReason={submitting ? 'Generating...' : undefined}
-                            onClick={onRemove}
-                            data-attr="playground-remove-prompt"
-                        />
-                    </div>
-                )}
-            </div>
+                    {canRemove && (
+                        <div>
+                            <LemonButton
+                                size="small"
+                                status="danger"
+                                icon={<IconTrash />}
+                                noPadding
+                                disabledReason={submitting ? 'Generating...' : undefined}
+                                onClick={onRemove}
+                                data-attr="llma-playground-remove-prompt"
+                            />
+                        </div>
+                    )}
+                </div>
+            ) : null}
 
             <div className="shrink-0 mb-4">
                 <ModelConfigBar promptId={prompt.id} />
@@ -317,6 +357,13 @@ function PromptCard({
             </div>
         </div>
     )
+}
+
+function hasUsage(usage: UsageSummary | undefined): boolean {
+    if (!usage) {
+        return false
+    }
+    return Object.values(usage).some((value) => typeof value === 'number' && value > 0)
 }
 
 function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
@@ -338,10 +385,9 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
             ) : (
                 <>
                     <div
-                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs whitespace-normal break-words p-3 min-w-0 rounded border bg-surface-primary leading-5 ${
+                        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs whitespace-normal break-words [overflow-wrap:anywhere] p-3 min-w-0 rounded border bg-surface-primary leading-5 ${
                             item.error ? 'text-danger' : ''
                         }`}
-                        style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
                     >
                         {item.response ? (
                             <LemonMarkdown className="whitespace-pre-wrap break-words [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:my-2">
@@ -358,7 +404,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                             <span className="text-muted italic">No response</span>
                         )}
                     </div>
-                    {!!item.response && (
+                    {(!!item.response || hasUsage(item.usage)) && (
                         <MetadataHeader
                             className="mt-2 pt-2"
                             isError={item.error}
@@ -418,13 +464,17 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 selectedProviderKeyId={prompt.selectedProviderKeyId}
                 onSelect={(modelId, providerKeyId) => {
                     const trialProvider = parseTrialProviderKeyId(providerKeyId)
+                    posthog.capture('llma playground model changed', {
+                        model: modelId,
+                        is_byok: !trialProvider,
+                    })
                     setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
                 }}
                 groups={groups}
                 loading={loading}
                 footerLink={getModelPickerFooterLink(hasByokKeys)}
                 selectedModelName={selectedModel?.name}
-                data-attr={`playground-model-selector-${promptId}`}
+                data-attr={`llma-playground-model-selector-${promptId}`}
             />
             {showError && (
                 <div className="mt-1">
@@ -444,7 +494,8 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
 
 function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { setMaxTokens, setThinking, setReasoningLevel } = useActions(llmPlaygroundPromptsLogic)
+    const { setMaxTokens, setTemperature, setTopP, setThinking, setReasoningLevel } =
+        useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <div className="p-3 text-xs text-muted">Prompt not found</div>
@@ -461,6 +512,34 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
                     min={1}
                     max={16384}
                     step={64}
+                    placeholder="Model default"
+                    size="small"
+                />
+            </div>
+
+            <div>
+                <label className="text-xs font-medium mb-1 block">Temperature</label>
+                <LemonInput
+                    type="number"
+                    value={prompt.temperature ?? undefined}
+                    onChange={(val) => setTemperature(val ?? null, promptId)}
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    placeholder="Model default"
+                    size="small"
+                />
+            </div>
+
+            <div>
+                <label className="text-xs font-medium mb-1 block">Top p</label>
+                <LemonInput
+                    type="number"
+                    value={prompt.topP ?? undefined}
+                    onChange={(val) => setTopP(val ?? null, promptId)}
+                    min={0}
+                    max={1}
+                    step={0.05}
                     placeholder="Model default"
                     size="small"
                 />
@@ -491,7 +570,7 @@ function SettingsDropdownOverlay({ promptId }: { promptId: string }): JSX.Elemen
                 onChange={(checked) => setThinking(checked, promptId)}
                 label="Thinking"
                 size="small"
-                tooltip="Enable thinking/reasoning stream (if supported)"
+                tooltip="Enable thinking/reasoning stream (model must support extended thinking)"
             />
         </div>
     )
@@ -504,7 +583,12 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
         return <LemonSkeleton className="h-8" />
     }
 
-    const hasNonDefaultSettings = prompt.maxTokens !== null || prompt.thinking || prompt.reasoningLevel !== 'medium'
+    const hasNonDefaultSettings =
+        prompt.maxTokens !== null ||
+        prompt.temperature !== null ||
+        prompt.topP !== null ||
+        prompt.thinking ||
+        prompt.reasoningLevel !== 'medium'
 
     return (
         <div className="flex flex-wrap items-center gap-3">
@@ -516,6 +600,17 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
                 overlay={<SettingsDropdownOverlay promptId={promptId} />}
                 closeOnClickInside={false}
                 placement="bottom-end"
+                onVisibilityChange={(visible) => {
+                    if (!visible && prompt) {
+                        posthog.capture('llma playground parameters configured', {
+                            max_tokens: prompt.maxTokens,
+                            temperature: prompt.temperature,
+                            top_p: prompt.topP,
+                            reasoning_level: prompt.reasoningLevel,
+                            thinking: prompt.thinking,
+                        })
+                    }
+                }}
             >
                 <LemonButton
                     type="secondary"
@@ -641,6 +736,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                                 type="button"
                                 className="text-xs text-link"
                                 onClick={() => {
+                                    posthog.capture('llma playground tools example inserted')
                                     const exampleJson = JSON.stringify(EXAMPLE_TOOL, null, 2)
                                     handleToolsChange(exampleJson)
                                     setLocalToolsJson(exampleJson, promptId)
@@ -704,7 +800,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
 
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { promptConfigs, editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
+    const { promptConfigs, editModal, collapsedSections, linkedSource } = useValues(llmPlaygroundPromptsLogic)
     const { setSystemPrompt, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
@@ -715,11 +811,17 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const showEditModal = editModal?.type === 'system' && editModal.promptId === promptId
     const collapsed = !!collapsedSections[`system:${promptId}`]
     const hasOtherPrompts = promptConfigs.length > 1
+
+    const linkedContextLabel = getLinkedSourceLabel(linkedSource)
+
     const copySystemPromptToOtherPrompts = (): void => {
         if (!hasOtherPrompts) {
             return
         }
 
+        posthog.capture('llma playground system prompt synced', {
+            target_prompt_count: promptConfigs.length - 1,
+        })
         for (const otherPrompt of promptConfigs) {
             if (otherPrompt.id !== promptId) {
                 setSystemPrompt(prompt.systemPrompt, otherPrompt.id)
@@ -730,14 +832,19 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     return (
         <>
             <div className="border rounded p-4 py-2 relative group border-l-4 border-l-[var(--color-purple-500)]">
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                <div className="absolute top-2 right-2 flex items-center gap-1">
+                    <PlaygroundSaveMenu prompt={prompt} />
+                    <LemonDivider vertical className="h-5 mx-0.5" />
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}
                         tooltip="Copy system prompt"
                         noPadding
-                        onClick={() => void copyToClipboard(prompt.systemPrompt, 'system prompt')}
-                        data-attr="playground-copy-system-prompt"
+                        onClick={() => {
+                            posthog.capture('llma playground response copied', { content_type: 'system_prompt' })
+                            void copyToClipboard(prompt.systemPrompt, 'system prompt')
+                        }}
+                        data-attr="llma-playground-copy-system-prompt"
                     />
                     {hasOtherPrompts && (
                         <LemonButton
@@ -746,7 +853,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                             tooltip="Apply this system prompt to other prompts"
                             noPadding
                             onClick={copySystemPromptToOtherPrompts}
-                            data-attr="playground-sync-system-prompt"
+                            data-attr="llma-playground-sync-system-prompt"
                         />
                     )}
                     <LemonButton
@@ -755,7 +862,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                         tooltip="Edit system prompt in modal"
                         noPadding
                         onClick={() => setEditModal({ type: 'system', promptId })}
-                        data-attr="playground-edit-system-prompt"
+                        data-attr="llma-playground-edit-system-prompt"
                     />
                 </div>
 
@@ -767,6 +874,11 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                     <LemonTag type="completion" size="small">
                         System
                     </LemonTag>
+                    {linkedContextLabel ? (
+                        <LemonTag type="highlight" size="small" className="max-w-[260px] truncate">
+                            Editing {linkedContextLabel}
+                        </LemonTag>
+                    ) : null}
                     {collapsed && (
                         <span className="text-xs text-muted truncate flex-1">
                             {prompt.systemPrompt
@@ -839,6 +951,7 @@ function MessageDisplay({
         editModal?.type === 'message' && editModal.promptId === promptId && editModal.messageIndex === index
 
     const handleRoleChange = (newRole: MessageRole): void => {
+        posthog.capture('llma playground message role changed', { from: message.role, to: newRole })
         updateMessage(index, { role: newRole }, promptId)
     }
 
@@ -883,13 +996,18 @@ function MessageDisplay({
     return (
         <>
             <div className={`border rounded p-4 py-2 relative group ${getRoleBorderClass(message.role)}`}>
-                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                <div className="absolute top-4 right-4 flex items-center gap-1">
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}
                         tooltip="Copy message"
                         noPadding
-                        onClick={() => void copyToClipboard(message.content, `${message.role} message`)}
+                        onClick={() => {
+                            posthog.capture('llma playground response copied', {
+                                content_type: message.role === 'assistant' ? 'assistant_message' : 'user_message',
+                            })
+                            void copyToClipboard(message.content, `${message.role} message`)
+                        }}
                     />
                     <LemonButton
                         size="small"

@@ -5,6 +5,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from django.db import transaction
+
 import pydantic
 from rest_framework.exceptions import ValidationError
 
@@ -12,6 +14,7 @@ from posthog.schema import ActionsNode, ExperimentEventExposureConfig, Experimen
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import (
@@ -110,6 +113,7 @@ class ExperimentService:
                 except pydantic.ValidationError as e:
                     raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
+    @transaction.atomic
     def create_experiment(
         self,
         name: str,
@@ -138,6 +142,7 @@ class ExperimentService:
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         serializer_context: dict | None = None,
+        event_source: EventSource | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         is_draft = start_date is None
@@ -217,12 +222,40 @@ class ExperimentService:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
         self._validate_metric_ordering_on_create(experiment)
+        self._report_experiment_created(
+            experiment,
+            serializer_context=serializer_context,
+            event_source=event_source,
+        )
 
         return experiment
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _report_experiment_created(
+        self,
+        experiment: Experiment,
+        *,
+        serializer_context: dict | None,
+        event_source: EventSource | None,
+    ) -> None:
+        request = serializer_context.get("request") if serializer_context else None
+        if request is None and event_source is None:
+            return
+
+        analytics_metadata = experiment.get_analytics_metadata()
+        if event_source is not None:
+            analytics_metadata["source"] = event_source
+
+        report_user_action(
+            self.user,
+            "experiment created",
+            analytics_metadata,
+            team=experiment.team,
+            request=request,
+        )
 
     def _ensure_feature_flag(
         self,
@@ -437,6 +470,7 @@ class ExperimentService:
     # Update
     # ------------------------------------------------------------------
 
+    @transaction.atomic
     def update_experiment(
         self,
         experiment: Experiment,
@@ -451,11 +485,15 @@ class ExperimentService:
         validation (field types, metric schema, etc.) before calling this method.
         """
         context = serializer_context or self._build_serializer_context()
+        feature_flag = experiment.feature_flag
 
-        # --- saved metrics replacement (delete-all / re-create) -----------
+        self._validate_update_payload(experiment, update_data, feature_flag)
+
         update_saved_metrics = "saved_metrics_ids" in update_data
         saved_metrics_data: list[dict] = update_data.pop("saved_metrics_ids", []) or []
+        update_data.pop("get_feature_flag_key", None)
 
+        # --- saved metrics replacement (delete-all / re-create) -----------
         old_saved_metric_uuids: dict[str, set[str]] = {"primary": set(), "secondary": set()}
         if update_saved_metrics:
             for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
@@ -481,67 +519,6 @@ class ExperimentService:
                 saved_metric_serializer.is_valid(raise_exception=True)
                 saved_metric_serializer.save()
 
-        # --- restoration validation ----------------------------------------
-        feature_flag = experiment.feature_flag
-        if experiment.deleted and update_data.get("deleted") is False:
-            if feature_flag.deleted:
-                raise ValidationError(
-                    "Cannot restore experiment: the linked feature flag has been deleted. "
-                    "Restore the feature flag first, then restore the experiment."
-                )
-
-        # --- immutable / unexpected keys -----------------------------------
-        expected_keys = {
-            "name",
-            "description",
-            "start_date",
-            "end_date",
-            "filters",
-            "parameters",
-            "archived",
-            "deleted",
-            "secondary_metrics",
-            "holdout",
-            "exposure_criteria",
-            "metrics",
-            "metrics_secondary",
-            "stats_config",
-            "scheduling_config",
-            "conclusion",
-            "conclusion_comment",
-            "primary_metrics_ordered_uuids",
-            "secondary_metrics_ordered_uuids",
-        }
-        given_keys = set(update_data.keys())
-        extra_keys = given_keys - expected_keys
-
-        if feature_flag.key == update_data.get("get_feature_flag_key"):
-            extra_keys.discard("get_feature_flag_key")
-
-        if extra_keys:
-            raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
-
-        update_data.pop("get_feature_flag_key", None)
-
-        # --- draft-only restrictions (variants / holdout) ------------------
-        if not experiment.is_draft:
-            if "feature_flag_variants" in update_data.get("parameters", {}):
-                if len(update_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
-                    raise ValidationError("Can't update feature_flag_variants on Experiment")
-                for variant in update_data["parameters"]["feature_flag_variants"]:
-                    if (
-                        len([ff_variant for ff_variant in feature_flag.variants if ff_variant["key"] == variant["key"]])
-                        != 1
-                    ):
-                        raise ValidationError("Can't update feature_flag_variants on Experiment")
-            if "holdout" in update_data and update_data["holdout"] != experiment.holdout:
-                raise ValidationError("Can't update holdout on running Experiment")
-
-        # --- global filter properties rejection ----------------------------
-        properties = update_data.get("filters", {}).get("properties")
-        if properties:
-            raise ValidationError("Experiments do not support global filter properties")
-
         # --- feature flag variant sync for draft experiments ---------------
         if experiment.is_draft:
             holdout_groups = experiment.holdout.filters if experiment.holdout else None
@@ -551,12 +528,6 @@ class ExperimentService:
             if update_data.get("parameters"):
                 variants = update_data["parameters"].get("feature_flag_variants", [])
                 aggregation_group_type_index = update_data["parameters"].get("aggregation_group_type_index")
-
-                global_filters = update_data.get("filters")
-                if global_filters:
-                    filter_properties = global_filters.get("properties", [])
-                    if filter_properties:
-                        raise ValidationError("Experiments do not support global filter properties")
 
                 feature_flag_filters = feature_flag.filters
                 existing_groups = feature_flag.filters.get("groups", [])
@@ -630,6 +601,61 @@ class ExperimentService:
         experiment.save()
 
         return experiment
+
+    def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
+        """Validate update payload before any database mutations occur."""
+        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
+            raise ValidationError(
+                "Cannot restore experiment: the linked feature flag has been deleted. "
+                "Restore the feature flag first, then restore the experiment."
+            )
+
+        expected_keys = {
+            "name",
+            "description",
+            "start_date",
+            "end_date",
+            "filters",
+            "parameters",
+            "archived",
+            "deleted",
+            "secondary_metrics",
+            "holdout",
+            "exposure_criteria",
+            "metrics",
+            "metrics_secondary",
+            "stats_config",
+            "scheduling_config",
+            "conclusion",
+            "conclusion_comment",
+            "primary_metrics_ordered_uuids",
+            "secondary_metrics_ordered_uuids",
+            "saved_metrics_ids",
+        }
+        extra_keys = set(update_data.keys()) - expected_keys
+
+        if feature_flag.key == update_data.get("get_feature_flag_key"):
+            extra_keys.discard("get_feature_flag_key")
+
+        if extra_keys:
+            raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
+
+        if not experiment.is_draft:
+            if "feature_flag_variants" in update_data.get("parameters", {}):
+                if len(update_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
+                    raise ValidationError("Can't update feature_flag_variants on Experiment")
+                for variant in update_data["parameters"]["feature_flag_variants"]:
+                    if (
+                        len([ff_variant for ff_variant in feature_flag.variants if ff_variant["key"] == variant["key"]])
+                        != 1
+                    ):
+                        raise ValidationError("Can't update feature_flag_variants on Experiment")
+            if "holdout" in update_data and update_data["holdout"] != experiment.holdout:
+                raise ValidationError("Can't update holdout on running Experiment")
+
+        properties = update_data.get("filters", {}).get("properties")
+        if properties:
+            raise ValidationError("Experiments do not support global filter properties")
 
     # ------------------------------------------------------------------
     # Duplication

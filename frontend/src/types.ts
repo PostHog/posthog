@@ -896,13 +896,6 @@ export enum ProgressStatus {
     Complete = 'complete',
 }
 
-export enum ExperimentProgressStatus {
-    Draft = 'draft',
-    Running = 'running',
-    Paused = 'paused',
-    Complete = 'complete',
-}
-
 export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
@@ -4800,6 +4793,7 @@ export interface SubscriptionType {
     insight?: number
     dashboard?: number
     dashboard_export_insights?: number[]
+    integration_id?: number | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5331,6 +5325,7 @@ export interface DataModelingNode {
     id: string
     name: string
     type: DataModelingNodeType
+    description?: string
     dag_id: string
     saved_query_id?: string
     created_at: string

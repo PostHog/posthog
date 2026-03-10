@@ -1,1 +1,1 @@
-1040_insightfavorite_user_favorites_migrated_at
+1043_insightfavorite_user_favorites_migrated_at
