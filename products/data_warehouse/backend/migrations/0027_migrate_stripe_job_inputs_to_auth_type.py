@@ -47,7 +47,7 @@ def reverse_migrate_stripe_job_inputs(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0025_externaldatasource_access_method"),
+        ("data_warehouse", "0026_externaldatasource_access_method"),
     ]
 
     operations = [
