@@ -1036,6 +1036,44 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return chainJoinExprs(join1_json, join2_json);
   }
 
+  VISIT(JoinExprPivot) {
+    Json pivot_json = Json::object();
+    pivot_json["node"] = "PivotExpr";
+    if (!is_internal) addPositionInfo(pivot_json, ctx);
+    pivot_json["table"] = visitAsJSON(ctx->joinExpr());
+    auto expr_lists = ctx->columnExprList();
+    pivot_json["aggregates"] = visitAsJSON(expr_lists[0]);
+    Json columns = Json::array();
+    for (auto pivot_col : ctx->pivotColumnList()->pivotColumn()) {
+      Json col_json = Json::object();
+      col_json["node"] = "PivotColumn";
+      auto tuple_or_single = pivot_col->columnExprTupleOrSingle();
+      if (tuple_or_single->columnExprList()) {
+        Json tuple_json = Json::object();
+        tuple_json["node"] = "Tuple";
+        tuple_json["exprs"] = visitAsJSON(tuple_or_single->columnExprList());
+        col_json["column"] = std::move(tuple_json);
+      } else {
+        col_json["column"] = visitAsJSON(tuple_or_single->columnExpr());
+      }
+      col_json["values"] = visitAsJSON(pivot_col->columnExprList());
+      columns.pushBack(std::move(col_json));
+    }
+    pivot_json["columns"] = std::move(columns);
+    if (expr_lists.size() > 1) {
+      pivot_json["group_by"] = visitAsJSON(expr_lists[1]);
+    }
+    Json json = Json::object();
+    json["node"] = "JoinExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["table"] = std::move(pivot_json);
+    json["table_final"] = Json(nullptr);
+    json["sample"] = Json(nullptr);
+    json["next_join"] = Json(nullptr);
+    json["alias"] = Json(nullptr);
+    return json;
+  }
+
   VISIT(JoinExprPositional) {
     Json join2_json = visitAsJSON(ctx->joinExpr(1));
     Json join1_json = visitAsJSON(ctx->joinExpr(0));
@@ -1672,6 +1710,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["args"] = std::move(args);
     return json;
   }
+
+  VISIT(ColumnExprIgnoreNulls) { return visitAsJSON(ctx->columnExpr()); }
 
   VISIT(ColumnExprIsNull) {
     Json json = Json::object();
@@ -2550,8 +2590,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       } else {
         col_json["name_columns"] = visitAsJSON(name_ctx->columnExpr());
       }
-      // unpivot_values
-      col_json["unpivot_values"] = visitAsJSON(unpivot_col->columnExprList());
+      // unpivot_values (use only the first IN list; additional groups from DuckDB multi-column syntax are dropped)
+      col_json["unpivot_values"] = visitAsJSON(unpivot_col->columnExprList()[0]);
       columns.pushBack(std::move(col_json));
     }
     json["columns"] = std::move(columns);

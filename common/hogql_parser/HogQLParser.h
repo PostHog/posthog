@@ -19,36 +19,36 @@ public:
     END = 27, EXCEPT = 28, EXCLUDE = 29, EXTRACT = 30, FINAL = 31, FILTER = 32, 
     FINALLY = 33, FIRST = 34, FN = 35, FOLLOWING = 36, FOR = 37, FROM = 38, 
     FULL = 39, FUN = 40, GROUP = 41, GROUPING = 42, HAVING = 43, HOUR = 44, 
-    ID = 45, IF = 46, ILIKE = 47, INCLUDE = 48, IN = 49, INF = 50, INNER = 51, 
-    INTERSECT = 52, INTERVAL = 53, IS = 54, JOIN = 55, KEY = 56, LAMBDA = 57, 
-    LAST = 58, LEADING = 59, LEFT = 60, LET = 61, LIKE = 62, LIMIT = 63, 
-    MATERIALIZED = 64, MINUTE = 65, MONTH = 66, NAME = 67, NATURAL = 68, 
-    NAN_SQL = 69, NOT = 70, NULL_SQL = 71, NULLS = 72, OFFSET = 73, ON = 74, 
-    OR = 75, ORDER = 76, OUTER = 77, OVER = 78, PARTITION = 79, PIVOT = 80, 
-    POSITIONAL = 81, PRECEDING = 82, PREWHERE = 83, QUALIFY = 84, QUARTER = 85, 
-    RANGE = 86, RECURSIVE = 87, REPLACE = 88, RETURN = 89, RIGHT = 90, ROLLUP = 91, 
-    ROW = 92, ROWS = 93, SAMPLE = 94, SECOND = 95, SELECT = 96, SEMI = 97, 
-    SETS = 98, SETTINGS = 99, SUBSTRING = 100, THEN = 101, THROW = 102, 
-    TIES = 103, TIMESTAMP = 104, TO = 105, TOP = 106, TOTALS = 107, TRAILING = 108, 
-    TRIM = 109, TRUNCATE = 110, TRY = 111, TRY_CAST = 112, UNBOUNDED = 113, 
-    UNION = 114, UNPIVOT = 115, USING = 116, VALUES = 117, WEEK = 118, WHEN = 119, 
-    WHERE = 120, WHILE = 121, WINDOW = 122, WITH = 123, WITHIN = 124, YEAR = 125, 
-    ESCAPE_CHAR_COMMON = 126, IDENTIFIER = 127, FLOATING_LITERAL = 128, 
-    OCTAL_LITERAL = 129, DECIMAL_LITERAL = 130, HEXADECIMAL_LITERAL = 131, 
-    STRING_LITERAL = 132, ARROW = 133, ASTERISK = 134, BACKQUOTE = 135, 
-    BACKSLASH = 136, DOUBLECOLON = 137, COLONEQUALS = 138, COLON = 139, 
-    COMMA = 140, CONCAT = 141, DASH = 142, DOLLAR = 143, DOT = 144, EQ_DOUBLE = 145, 
-    EQ_SINGLE = 146, GT_EQ = 147, GT = 148, HASH = 149, IREGEX_SINGLE = 150, 
-    IREGEX_DOUBLE = 151, LBRACE = 152, LBRACKET = 153, LPAREN = 154, LT_EQ = 155, 
-    LT = 156, LT_SLASH = 157, NOT_EQ = 158, NOT_IREGEX = 159, NOT_REGEX = 160, 
-    NULL_PROPERTY = 161, NULLISH = 162, PERCENT = 163, PLUS = 164, QUERY = 165, 
-    QUOTE_DOUBLE = 166, QUOTE_SINGLE_TEMPLATE = 167, QUOTE_SINGLE_TEMPLATE_FULL = 168, 
-    QUOTE_SINGLE = 169, REGEX_SINGLE = 170, REGEX_DOUBLE = 171, RBRACE = 172, 
-    RBRACKET = 173, RPAREN = 174, SEMICOLON = 175, SLASH = 176, SLASH_GT = 177, 
-    UNDERSCORE = 178, MULTI_LINE_COMMENT = 179, SINGLE_LINE_COMMENT = 180, 
-    WHITESPACE = 181, STRING_TEXT = 182, STRING_ESCAPE_TRIGGER = 183, FULL_STRING_TEXT = 184, 
-    FULL_STRING_ESCAPE_TRIGGER = 185, TAG_WS = 186, TAGC_WS = 187, HOGQLX_TEXT_TEXT = 188, 
-    HOGQLX_TEXT_WS = 189
+    ID = 45, IF = 46, ILIKE = 47, IGNORE = 48, INCLUDE = 49, IN = 50, INF = 51, 
+    INNER = 52, INTERSECT = 53, INTERVAL = 54, IS = 55, JOIN = 56, KEY = 57, 
+    LAMBDA = 58, LAST = 59, LEADING = 60, LEFT = 61, LET = 62, LIKE = 63, 
+    LIMIT = 64, MATERIALIZED = 65, MINUTE = 66, MONTH = 67, NAME = 68, NATURAL = 69, 
+    NAN_SQL = 70, NOT = 71, NULL_SQL = 72, NULLS = 73, OFFSET = 74, ON = 75, 
+    OR = 76, ORDER = 77, OUTER = 78, OVER = 79, PARTITION = 80, PIVOT = 81, 
+    POSITIONAL = 82, PRECEDING = 83, PREWHERE = 84, QUALIFY = 85, QUARTER = 86, 
+    RANGE = 87, RECURSIVE = 88, REPLACE = 89, RETURN = 90, RIGHT = 91, ROLLUP = 92, 
+    ROW = 93, ROWS = 94, SAMPLE = 95, SECOND = 96, SELECT = 97, SEMI = 98, 
+    SETS = 99, SETTINGS = 100, SUBSTRING = 101, THEN = 102, THROW = 103, 
+    TIES = 104, TIMESTAMP = 105, TO = 106, TOP = 107, TOTALS = 108, TRAILING = 109, 
+    TRIM = 110, TRUNCATE = 111, TRY = 112, TRY_CAST = 113, UNBOUNDED = 114, 
+    UNION = 115, UNPIVOT = 116, USING = 117, VALUES = 118, WEEK = 119, WHEN = 120, 
+    WHERE = 121, WHILE = 122, WINDOW = 123, WITH = 124, WITHIN = 125, YEAR = 126, 
+    ESCAPE_CHAR_COMMON = 127, IDENTIFIER = 128, FLOATING_LITERAL = 129, 
+    OCTAL_LITERAL = 130, DECIMAL_LITERAL = 131, HEXADECIMAL_LITERAL = 132, 
+    STRING_LITERAL = 133, ARROW = 134, ASTERISK = 135, BACKQUOTE = 136, 
+    BACKSLASH = 137, DOUBLECOLON = 138, COLONEQUALS = 139, COLON = 140, 
+    COMMA = 141, CONCAT = 142, DASH = 143, DOLLAR = 144, DOT = 145, EQ_DOUBLE = 146, 
+    EQ_SINGLE = 147, GT_EQ = 148, GT = 149, HASH = 150, IREGEX_SINGLE = 151, 
+    IREGEX_DOUBLE = 152, LBRACE = 153, LBRACKET = 154, LPAREN = 155, LT_EQ = 156, 
+    LT = 157, LT_SLASH = 158, NOT_EQ = 159, NOT_IREGEX = 160, NOT_REGEX = 161, 
+    NULL_PROPERTY = 162, NULLISH = 163, PERCENT = 164, PLUS = 165, QUERY = 166, 
+    QUOTE_DOUBLE = 167, QUOTE_SINGLE_TEMPLATE = 168, QUOTE_SINGLE_TEMPLATE_FULL = 169, 
+    QUOTE_SINGLE = 170, REGEX_SINGLE = 171, REGEX_DOUBLE = 172, RBRACE = 173, 
+    RBRACKET = 174, RPAREN = 175, SEMICOLON = 176, SLASH = 177, SLASH_GT = 178, 
+    UNDERSCORE = 179, MULTI_LINE_COMMENT = 180, SINGLE_LINE_COMMENT = 181, 
+    WHITESPACE = 182, STRING_TEXT = 183, STRING_ESCAPE_TRIGGER = 184, FULL_STRING_TEXT = 185, 
+    FULL_STRING_ESCAPE_TRIGGER = 186, TAG_WS = 187, TAGC_WS = 188, HOGQLX_TEXT_TEXT = 189, 
+    HOGQLX_TEXT_WS = 190
   };
 
   enum {
@@ -1115,6 +1115,23 @@ public:
     std::vector<JoinExprContext *> joinExpr();
     JoinExprContext* joinExpr(size_t i);
     JoinOpCrossContext *joinOpCross();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  JoinExprPivotContext : public JoinExprContext {
+  public:
+    JoinExprPivotContext(JoinExprContext *ctx);
+
+    JoinExprContext *joinExpr();
+    antlr4::tree::TerminalNode *PIVOT();
+    antlr4::tree::TerminalNode *LPAREN();
+    std::vector<ColumnExprListContext *> columnExprList();
+    ColumnExprListContext* columnExprList(size_t i);
+    PivotColumnListContext *pivotColumnList();
+    antlr4::tree::TerminalNode *RPAREN();
+    antlr4::tree::TerminalNode *GROUP();
+    antlr4::tree::TerminalNode *BY();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -2418,6 +2435,17 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprIgnoreNullsContext : public ColumnExprContext {
+  public:
+    ColumnExprIgnoreNullsContext(ColumnExprContext *ctx);
+
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *IGNORE();
+    antlr4::tree::TerminalNode *NULLS();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprNullishContext : public ColumnExprContext {
   public:
     ColumnExprNullishContext(ColumnExprContext *ctx);
@@ -2982,10 +3010,14 @@ public:
     std::vector<ColumnExprTupleOrSingleContext *> columnExprTupleOrSingle();
     ColumnExprTupleOrSingleContext* columnExprTupleOrSingle(size_t i);
     antlr4::tree::TerminalNode *FOR();
-    antlr4::tree::TerminalNode *IN();
-    antlr4::tree::TerminalNode *LPAREN();
-    ColumnExprListContext *columnExprList();
-    antlr4::tree::TerminalNode *RPAREN();
+    std::vector<antlr4::tree::TerminalNode *> IN();
+    antlr4::tree::TerminalNode* IN(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> LPAREN();
+    antlr4::tree::TerminalNode* LPAREN(size_t i);
+    std::vector<ColumnExprListContext *> columnExprList();
+    ColumnExprListContext* columnExprList(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> RPAREN();
+    antlr4::tree::TerminalNode* RPAREN(size_t i);
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -3204,6 +3236,7 @@ public:
     antlr4::tree::TerminalNode *IS();
     antlr4::tree::TerminalNode *GROUPING();
     antlr4::tree::TerminalNode *IF();
+    antlr4::tree::TerminalNode *IGNORE();
     antlr4::tree::TerminalNode *ILIKE();
     antlr4::tree::TerminalNode *INCLUDE();
     antlr4::tree::TerminalNode *IN();

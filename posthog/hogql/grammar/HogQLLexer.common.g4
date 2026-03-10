@@ -53,6 +53,7 @@ HOUR: H O U R;
 ID: I D;
 IF: I F;
 ILIKE: I L I K E;
+IGNORE: I G N O R E;
 INCLUDE: I N C L U D E;
 IN: I N;
 INF: I N F | I N F I N I T Y;

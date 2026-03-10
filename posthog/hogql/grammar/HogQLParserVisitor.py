@@ -269,6 +269,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#JoinExprPivot.
+    def visitJoinExprPivot(self, ctx:HogQLParser.JoinExprPivotContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#JoinOpInner.
     def visitJoinOpInner(self, ctx:HogQLParser.JoinOpInnerContext):
         return self.visitChildren(ctx)
@@ -706,6 +711,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#ColumnExprNullArrayAccess.
     def visitColumnExprNullArrayAccess(self, ctx:HogQLParser.ColumnExprNullArrayAccessContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprIgnoreNulls.
+    def visitColumnExprIgnoreNulls(self, ctx:HogQLParser.ColumnExprIgnoreNullsContext):
         return self.visitChildren(ctx)
 
 

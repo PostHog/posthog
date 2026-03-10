@@ -223,6 +223,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitJoinExprPivot(HogQLParser::JoinExprPivotContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitJoinOpInner(HogQLParser::JoinOpInnerContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -572,6 +576,10 @@ public:
   }
 
   virtual std::any visitColumnExprNullArrayAccess(HogQLParser::ColumnExprNullArrayAccessContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprIgnoreNulls(HogQLParser::ColumnExprIgnoreNullsContext *ctx) override {
     return visitChildren(ctx);
   }
 

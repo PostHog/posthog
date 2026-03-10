@@ -123,6 +123,8 @@ public:
 
     virtual std::any visitJoinExprCrossOp(HogQLParser::JoinExprCrossOpContext *context) = 0;
 
+    virtual std::any visitJoinExprPivot(HogQLParser::JoinExprPivotContext *context) = 0;
+
     virtual std::any visitJoinOpInner(HogQLParser::JoinOpInnerContext *context) = 0;
 
     virtual std::any visitJoinOpLeftRight(HogQLParser::JoinOpLeftRightContext *context) = 0;
@@ -298,6 +300,8 @@ public:
     virtual std::any visitColumnExprPropertyAccess(HogQLParser::ColumnExprPropertyAccessContext *context) = 0;
 
     virtual std::any visitColumnExprNullArrayAccess(HogQLParser::ColumnExprNullArrayAccessContext *context) = 0;
+
+    virtual std::any visitColumnExprIgnoreNulls(HogQLParser::ColumnExprIgnoreNullsContext *context) = 0;
 
     virtual std::any visitColumnExprNullish(HogQLParser::ColumnExprNullishContext *context) = 0;
 

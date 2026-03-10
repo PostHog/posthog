@@ -117,6 +117,7 @@ joinExpr
     : joinExpr NATURAL? joinOp? JOIN joinExpr joinConstraintClause?  # JoinExprOp
     | joinExpr POSITIONAL JOIN joinExpr joinConstraintClause?                # JoinExprPositional
     | joinExpr joinOpCross joinExpr                                          # JoinExprCrossOp
+    | joinExpr PIVOT LPAREN columnExprList pivotColumnList (GROUP BY columnExprList)? RPAREN  # JoinExprPivot
     | tableExpr FINAL? sampleClause?                                         # JoinExprTable
     | LPAREN joinExpr RPAREN                                                 # JoinExprParens
     ;
@@ -251,6 +252,7 @@ columnExpr
                  | operator=IREGEX_DOUBLE                                                 // =~*
                  | operator=NOT_IREGEX                                                    // !~*
                  ) right=columnExpr                                                       # ColumnExprPrecedence3
+    | columnExpr IGNORE NULLS                                                            # ColumnExprIgnoreNulls
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
     | columnExpr IS NOT? DISTINCT FROM columnExpr                                         # ColumnExprIsDistinctFrom
     | columnExpr NULLISH columnExpr                                                       # ColumnExprNullish
@@ -334,7 +336,7 @@ tableExpr
 pivotColumnList: FOR pivotColumn+;
 pivotColumn: columnExprTupleOrSingle IN LPAREN columnExprList RPAREN;
 unpivotColumnList: unpivotColumn (COMMA unpivotColumn)* COMMA?;
-unpivotColumn: columnExprTupleOrSingle FOR columnExprTupleOrSingle IN LPAREN columnExprList RPAREN;
+unpivotColumn: columnExprTupleOrSingle FOR columnExprTupleOrSingle IN LPAREN columnExprList RPAREN (columnExprTupleOrSingle IN LPAREN columnExprList RPAREN)*;
 columnExprTupleOrSingle: LPAREN columnExprList RPAREN | columnExpr;
 columnAliases: LPAREN identifier (COMMA identifier)* RPAREN;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
@@ -365,7 +367,7 @@ keyword
     | CAST | COHORT | COLLATE | COLUMNS | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
     | DISTINCT | ELSE | END | EXCLUDE | EXTRACT | FILTER | FINAL | FIRST
     | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
-    | GROUPING | IF | ILIKE | INCLUDE | IN | INNER | INTERVAL | JOIN | KEY
+    | GROUPING | IF | IGNORE | ILIKE | INCLUDE | IN | INNER | INTERVAL | JOIN | KEY
     | LAMBDA | LAST | LEADING | LEFT | LIKE | LIMIT
     | NAME | NATURAL | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
     | PIVOT | POSITIONAL | PRECEDING | PREWHERE | QUALIFY | RANGE | RECURSIVE | REPLACE | RETURN | RIGHT | ROLLUP | ROW
