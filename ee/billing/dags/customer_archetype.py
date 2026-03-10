@@ -10,7 +10,6 @@ from typing import Any, Literal, cast
 
 import polars as pl
 import dagster
-import structlog
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -19,9 +18,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.dags.common import JobOwners
 from posthog.dags.common.utils import compute_dataframe_hashes
+from posthog.llm.gateway_client import get_llm_client
 from posthog.models import Team
 
-logger = structlog.get_logger(__name__)
+from ee.billing.salesforce_enrichment.enrichment import bulk_update_salesforce_accounts
+from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 
 ARCHETYPE_TEAM_ID = 2
 
@@ -272,7 +273,7 @@ def parse_llm_response(raw: str) -> list[AccountClassification]:
         response = BatchClassificationResponse.model_validate(data)
         return response.classifications
     except Exception:
-        logger.exception("Failed to parse LLM response: %s", raw[:500])
+        dagster.get_dagster_logger().exception("Failed to parse LLM response: %s", raw[:500])
         return []
 
 
@@ -411,8 +412,6 @@ def archetype_llm_classification(
     archetype_account_data: pl.DataFrame,
 ) -> pl.DataFrame:
     """Classify all accounts using LLM."""
-    from posthog.llm.gateway_client import get_llm_client
-
     df = archetype_account_data
     if df.is_empty():
         context.log.info("No accounts to classify")
@@ -494,9 +493,6 @@ def archetype_to_salesforce(
     archetype_account_data: pl.DataFrame,
 ) -> None:
     """Push archetype classifications and use case adoption to Salesforce."""
-    from ee.billing.salesforce_enrichment.enrichment import bulk_update_salesforce_accounts
-    from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
-
     if archetype_llm_classification.is_empty():
         context.log.info("No classifications to push")
         return
