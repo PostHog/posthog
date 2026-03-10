@@ -117,8 +117,8 @@ class ErrorTrackingQueryRunnerTestsMixin:
                 person_id=person_id,
             )
 
-    def setUp(self):  # type: ignore[override]
-        super().setUp()  # type: ignore[misc]
+    def setUp(self):
+        super().setUp()
 
         with freeze_time("2020-01-10 12:11:00"):
             _create_person(
@@ -167,7 +167,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
         filterTestAccounts=False,
         searchQuery=None,
         filterGroup=None,
-        orderBy="last_seen",  # type: ignore[arg-type]
+        orderBy="last_seen",
         status=None,
         volumeResolution=1,
         withAggregations=False,
@@ -187,7 +187,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
                     filterTestAccounts=filterTestAccounts,
                     searchQuery=searchQuery,
                     filterGroup=filterGroup,
-                    orderBy=orderBy,
+                    orderBy=orderBy,  # pyright: ignore[reportArgumentType]
                     status=status,
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,

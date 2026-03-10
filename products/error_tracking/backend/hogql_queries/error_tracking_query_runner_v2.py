@@ -251,7 +251,8 @@ class ErrorTrackingQueryV2Builder:
             return ast.Constant(value=v)
 
         if operator == PropertyOperator.EXACT:
-            values = [v for v in (value if isinstance(value, list) else [value]) if v is not None]
+            raw = value if isinstance(value, list) else [value]
+            values: list[str | float | bool] = [v for v in raw if v is not None]
             if not values:
                 return None
             if len(values) == 1:
@@ -263,7 +264,8 @@ class ErrorTrackingQueryV2Builder:
             )
 
         if operator == PropertyOperator.IS_NOT:
-            values = [v for v in (value if isinstance(value, list) else [value]) if v is not None]
+            raw = value if isinstance(value, list) else [value]
+            values: list[str | float | bool] = [v for v in raw if v is not None]
             if not values:
                 return None
             if len(values) == 1:
