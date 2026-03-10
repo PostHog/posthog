@@ -61,7 +61,9 @@ export function Billing(): JSX.Element {
     const { memberCount } = useValues(membersLogic)
 
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        minimumAccessLevel: featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+            ? OrganizationMembershipLevel.Owner
+            : OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
 
