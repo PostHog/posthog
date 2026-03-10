@@ -9,7 +9,13 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
-import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
+import { BusinessType, customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
+
+function setBusinessTypeOnMountedLogic(businessType: BusinessType): void {
+    for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
+        logic.actions.setBusinessType(businessType)
+    }
+}
 
 const meta: Meta = {
     component: App,
@@ -34,6 +40,10 @@ const meta: Meta = {
 export default meta
 
 export const B2CMode: StoryFn = () => {
+    useDelayedOnMountEffect(() => {
+        setBusinessTypeOnMountedLogic('b2c')
+    })
+
     return <App />
 }
 B2CMode.parameters = {
@@ -54,9 +64,10 @@ export const B2BModeWithGroupsEnabled: StoryFn = () => {
     })
 
     useDelayedOnMountEffect(() => {
-        const logic = customerAnalyticsSceneLogic.findMounted()
-        logic?.actions.setBusinessType('b2b')
-        logic?.actions.setSelectedGroupType(0)
+        setBusinessTypeOnMountedLogic('b2b')
+        for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
+            logic.actions.setSelectedGroupType(0)
+        }
     })
 
     return <App />
@@ -69,8 +80,7 @@ export const B2BModeWithoutGroups: StoryFn = () => {
     useAvailableFeatures([])
 
     useDelayedOnMountEffect(() => {
-        const logic = customerAnalyticsSceneLogic.findMounted()
-        logic?.actions.setBusinessType('b2b')
+        setBusinessTypeOnMountedLogic('b2b')
     })
 
     return <App />
