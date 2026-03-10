@@ -22,6 +22,8 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
+    snapshot_replace_all_numbers = True
+
     def setUp(self):
         super().setUp()
         self.feature_flag = self.create_feature_flag()
