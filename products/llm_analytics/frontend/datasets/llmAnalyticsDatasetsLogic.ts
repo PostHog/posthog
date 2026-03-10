@@ -195,10 +195,12 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.llmAnalyticsDatasets()]: (_, searchParams) => {
+        [urls.llmAnalyticsDatasets()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
             if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
+            } else if (method !== 'REPLACE') {
+                actions.loadDatasets(false)
             }
         },
     })),

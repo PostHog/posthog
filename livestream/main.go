@@ -57,6 +57,16 @@ func main() {
 
 	stats := events.NewStatsKeeper()
 	sessionStats := events.NewSessionStatsKeeper(config.SessionRecording.MaxLRUEntries, 0)
+	statsRedis, err := events.NewStatsInRedis(config.Redis)
+
+	if err != nil || statsRedis == nil {
+		log.Printf("WARNING: Redis connection failed, continuing without Redis: %v", err)
+	} else {
+		defer statsRedis.Close()
+		stats.RedisStore = statsRedis
+		sessionStats.RedisStore = statsRedis
+		log.Printf("Redis stats store enabled (address: %s:%s)", config.Redis.Address, config.Redis.Port)
+	}
 
 	phEventChan := make(chan events.PostHogEvent, 10000)
 	statsChan := make(chan events.CountEvent, 10000)
@@ -64,8 +74,9 @@ func main() {
 	subChan := make(chan events.Subscription, 10000)
 	unSubChan := make(chan events.Subscription, 10000)
 
-	go stats.KeepStats(statsChan)
-	go sessionStats.KeepStats(ctx, sessionStatsChan)
+	flushInterval := time.Duration(config.Redis.FlushIntervalMs) * time.Millisecond
+	go stats.KeepStats(statsChan, flushInterval)
+	go sessionStats.KeepStats(ctx, sessionStatsChan, flushInterval)
 
 	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka, geolocator, phEventChan, statsChan, config.Parallelism)
 	if err != nil {
@@ -178,7 +189,7 @@ func main() {
 		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
 	)))
 
-	e.GET("/stats", handlers.StatsHandler(stats, sessionStats))
+	e.GET("/stats", handlers.StatsHandler(stats, sessionStats, statsRedis))
 
 	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
 

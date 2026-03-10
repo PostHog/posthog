@@ -1,1 +1,1 @@
-0001_initial
+0002_schemapropertygroupproperty_is_optional_in_types

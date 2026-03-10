@@ -12,6 +12,7 @@ export enum CostModelSource {
     OpenRouter = 'openrouter',
     Manual = 'manual',
     Custom = 'custom',
+    Passthrough = 'passthrough',
 }
 
 export interface CostModelResult {

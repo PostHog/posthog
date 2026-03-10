@@ -34,16 +34,23 @@ use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_C
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
+    noop_sink: false,
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
     redis_response_timeout_ms: 100,
     redis_connection_timeout_ms: 5000,
     global_rate_limit_enabled: false,
-    global_rate_limit_threshold: 10_000,
     global_rate_limit_window_interval_secs: 60,
-    global_rate_limit_bucket_interval_secs: 10,
-    global_rate_limit_overrides_csv: None,
+    global_rate_limit_sync_interval_secs: 15,
+    global_rate_limit_tick_interval_ms: 1000,
+    global_rate_limit_token_distinctid_threshold: 10_000,
+    global_rate_limit_token_distinctid_overrides_csv: None,
+    global_rate_limit_token_distinctid_local_cache_max_entries: 300_000,
+    global_rate_limit_token_threshold: 300_000,
+    global_rate_limit_token_overrides_csv: None,
+    global_rate_limit_token_local_cache_max_entries: 300_000,
     global_rate_limit_redis_url: None,
+    global_rate_limit_redis_reader_url: None,
     global_rate_limit_redis_response_timeout_ms: None,
     global_rate_limit_redis_connection_timeout_ms: None,
     event_restrictions_enabled: false,
@@ -74,6 +81,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
         kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
         kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
+        kafka_error_tracking_topic: "error_tracking_events".to_string(),
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
@@ -112,6 +120,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
+    error_tracking_dual_write_enabled: false,
+    error_tracking_dual_write_sample_rate: 0.0,
     continuous_profiling: ContinuousProfilingConfig {
         continuous_profiling_enabled: false,
         pyroscope_server_address: String::new(),

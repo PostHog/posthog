@@ -1,8 +1,10 @@
 import re
+from time import perf_counter
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 
+import orjson
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -37,6 +39,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.event_usage import report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -133,6 +136,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
+        start_time = perf_counter()
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
         try:
@@ -162,9 +166,32 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
                 limit_context=limit_context,
+                request=request,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
+
+            total_time_ms = round((perf_counter() - start_time) * 1000, 2)
+            try:
+                response_bytes = len(orjson.dumps(result))
+                report_user_or_team_action(
+                    "query api response",
+                    {
+                        "query_type": getattr(query, "kind", "Other"),
+                        "is_cached": result.get("is_cached", False),
+                        "execution_mode": execution_mode.value,
+                        "total_time_ms": total_time_ms,
+                        "response_bytes": response_bytes,
+                        "client_query_id": client_query_id,
+                    },
+                    user=request.user if isinstance(request.user, User) else None,
+                    team=self.team,
+                    organization=self.team.organization,
+                    request=request,
+                )
+            except Exception:
+                pass
+
             response_status = (
                 status.HTTP_202_ACCEPTED
                 if result.get("query_status") and result["query_status"].get("complete") is False
@@ -239,7 +266,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if len(prompt) > 400:
             raise ValidationError({"prompt": ["This field is too long."]}, code="too_long")
         try:
-            result = write_sql_from_prompt(prompt, current_query=current_query, user=request.user, team=self.team)
+            result = write_sql_from_prompt(
+                prompt, current_query=current_query, user=request.user, team=self.team, request=request
+            )
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})

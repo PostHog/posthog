@@ -15,8 +15,9 @@ test.describe('Annotations', () => {
 
     test('Create annotation', async ({ page }) => {
         // Wait for the create button to be visible before clicking
-        await expect(page.locator('[data-attr=create-annotation]')).toBeVisible()
-        await page.click('[data-attr=create-annotation]')
+        const createButton = page.getByRole('button', { name: 'New annotation' })
+        await expect(createButton).toBeVisible()
+        await createButton.click()
 
         // Use a unique name to avoid conflicts with retries
         const uniqueAnnotationName = `Test Annotation ${Date.now()}`

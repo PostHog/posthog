@@ -233,6 +233,31 @@ export interface PatchedOrganizationMemberApi {
 }
 
 /**
+ * Serializer for organization-scoped OAuth applications (read-only).
+ */
+export interface OrganizationOAuthApplicationApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name?: string
+    /** @maxLength 100 */
+    client_id?: string
+    readonly redirect_uris_list: readonly string[]
+    /** True if this application has been verified by PostHog */
+    is_verified?: boolean
+    readonly created: string
+    readonly updated: string
+}
+
+export interface PaginatedOrganizationOAuthApplicationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationOAuthApplicationApi[]
+}
+
+/**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
 passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
 backward compatibility of the REST API.
@@ -1063,6 +1088,15 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface FlagValueItemApi {
+    name: unknown
+}
+
+export interface FlagValueResponseApi {
+    results: FlagValueItemApi[]
+    refreshing: boolean
+}
+
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -1075,6 +1109,7 @@ export interface SharingConfigurationApi {
 
 /**
  * * `slack` - Slack
+ * `slack-twig` - Slack Twig
  * `salesforce` - Salesforce
  * `hubspot` - Hubspot
  * `google-pubsub` - Google Pubsub
@@ -1099,11 +1134,13 @@ export interface SharingConfigurationApi {
  * `azure-blob` - Azure Blob
  * `firebase` - Firebase
  * `jira` - Jira
+ * `pinterest-ads` - Pinterest Ads
  */
-export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
+export type Kind439EnumApi = (typeof Kind439EnumApi)[keyof typeof Kind439EnumApi]
 
-export const KindCf2EnumApi = {
+export const Kind439EnumApi = {
     Slack: 'slack',
+    SlackTwig: 'slack-twig',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -1128,6 +1165,7 @@ export const KindCf2EnumApi = {
     AzureBlob: 'azure-blob',
     Firebase: 'firebase',
     Jira: 'jira',
+    PinterestAds: 'pinterest-ads',
 } as const
 
 /**
@@ -1135,7 +1173,7 @@ export const KindCf2EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindCf2EnumApi
+    kind: Kind439EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1157,12 +1195,27 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: KindCf2EnumApi
+    kind?: Kind439EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+}
+
+export interface GitHubBranchesResponseApi {
+    /** List of branch names */
+    branches: string[]
+}
+
+export interface GitHubRepoApi {
+    id: number
+    name: string
+    full_name: string
+}
+
+export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
 }
 
 /**
@@ -1380,6 +1433,7 @@ export interface SubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type: TargetTypeEnumApi
     target_value: string
     frequency: FrequencyEnumApi
@@ -1438,6 +1492,7 @@ export interface PatchedSubscriptionApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    dashboard_export_insights?: number[]
     target_type?: TargetTypeEnumApi
     target_value?: string
     frequency?: FrequencyEnumApi
@@ -1833,6 +1888,17 @@ export type MembersListParams = {
     offset?: number
 }
 
+export type OauthApplicationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type List2Params = {
     /**
      * Number of results to return per page.
@@ -1925,8 +1991,6 @@ export type FlagValueValuesRetrieveParams = {
     key?: string
 }
 
-export type FlagValueValuesRetrieve200Item = { [key: string]: unknown }
-
 /**
  * Unspecified response body
  */
@@ -1946,6 +2010,14 @@ export type IntegrationsList2Params = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type IntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
 }
 
 export type PropertyDefinitionsListParams = {

@@ -20,7 +20,8 @@ export const destinationsSceneLogic = kea<destinationsSceneLogicType>([
     }),
     actionToUrl(({ values }) => ({
         setActiveTab: () => {
-            const searchParams = values.activeTab === 'history' ? { tab: 'history' } : {}
+            const { tab: _, ...otherParams } = router.values.searchParams
+            const searchParams = values.activeTab === 'history' ? { ...otherParams, tab: 'history' } : otherParams
             return [router.values.location.pathname, searchParams, router.values.hashParams]
         },
     })),

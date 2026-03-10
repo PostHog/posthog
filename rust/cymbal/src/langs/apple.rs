@@ -6,10 +6,14 @@ use sha2::{Digest, Sha512};
 use symbolic::common::Name;
 use symbolic::demangle::{Demangle, DemangleOptions};
 
+use std::sync::atomic::Ordering;
+
 use crate::{
+    config::FRAME_CONTEXT_LINES,
     error::{AppleError, FrameError, ResolveError, UnhandledError},
     frames::Frame,
-    langs::{utils::add_raw_to_junk, CommonFrameMetadata},
+    langs::utils::{add_raw_to_junk, get_context_lines},
+    langs::CommonFrameMetadata,
     symbol_store::{
         apple::{AppleRef, ParsedAppleSymbols},
         chunk_id::OrChunkId,
@@ -188,12 +192,33 @@ impl RawAppleFrame {
             .ok_or(AppleError::SymbolNotFound(relative_addr))?;
         tracing::debug!(
             "[apple-debug] resolve_impl: found symbol={}, file={:?}, line={}",
-            symbol_info.symbol,
+            symbol_info.display_name,
             symbol_info.filename,
             symbol_info.line
         );
 
-        Ok(self.build_resolved_frame(&symbol_info, debug_image))
+        let mut frame = self.build_resolved_frame(&symbol_info, debug_image);
+
+        // Attach source context if available (graceful — never fails frame resolution)
+        // symcache line numbers are 1-based (0 = unknown); get_context_lines also expects 0-based
+        if let Some(full_path) = &symbol_info.full_path {
+            if let Some(source_text) = symbols.get_source(full_path) {
+                // Use the reported line if known, otherwise default to line 1
+                // (e.g. @main entry points have line 0 but we still want to show the file)
+                let target_line = if symbol_info.line > 0 {
+                    (symbol_info.line - 1) as usize
+                } else {
+                    0
+                };
+                frame.context = get_context_lines(
+                    source_text.lines(),
+                    target_line,
+                    FRAME_CONTEXT_LINES.load(Ordering::Relaxed),
+                );
+            }
+        }
+
+        Ok(frame)
     }
 
     fn find_debug_image<'a>(
@@ -263,7 +288,7 @@ impl RawAppleFrame {
 
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
-            mangled_name: symbol_info.symbol.clone(),
+            mangled_name: symbol_info.full_name.clone(),
             line: if symbol_info.line > 0 {
                 Some(symbol_info.line)
             } else {
@@ -272,8 +297,8 @@ impl RawAppleFrame {
             column: None,
             source: symbol_info.filename.clone(),
             in_app,
-            resolved_name: Some(symbol_info.symbol.clone()),
-            lang: "apple".to_string(),
+            resolved_name: Some(symbol_info.display_name.clone()),
+            lang: lang_from_filename(symbol_info.filename.as_deref()).to_string(),
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
@@ -339,7 +364,7 @@ impl RawAppleFrame {
             source,
             in_app,
             resolved_name,
-            lang: "apple".to_string(),
+            lang: lang_from_filename(self.filename.as_deref()).to_string(),
             resolved: false,
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
@@ -378,6 +403,20 @@ impl RawAppleFrame {
     }
 }
 
+/// Infer the programming language from a source filename for syntax highlighting.
+/// Returns a markdown-compatible language identifier.
+fn lang_from_filename(filename: Option<&str>) -> &'static str {
+    match filename.and_then(|f| f.rsplit('.').next()) {
+        Some("swift") => "swift",
+        Some("m") => "objectivec",
+        Some("mm") => "objectivecpp",
+        Some("c") => "c",
+        Some("cpp" | "cc" | "cxx") => "cpp",
+        Some("h") => "c", // headers default to C
+        _ => "swift",     // default for Apple platforms
+    }
+}
+
 fn parse_hex_address(s: &str) -> Result<u64, AppleError> {
     let s = s.trim().trim_start_matches("0x").trim_start_matches("0X");
     u64::from_str_radix(s, 16).map_err(|_| AppleError::InvalidAddress(s.to_string()))
@@ -393,7 +432,7 @@ impl From<&RawAppleFrame> for Frame {
             source: raw.filename.clone(),
             in_app: raw.meta.in_app,
             resolved_name: raw.function.clone(),
-            lang: "apple".to_string(),
+            lang: lang_from_filename(raw.filename.as_deref()).to_string(),
             resolved: raw.function.is_some(),
             resolve_failure: None,
             junk_drawer: None,

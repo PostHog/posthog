@@ -1,4 +1,5 @@
 import json
+import uuid as uuid_mod
 from typing import Optional, cast
 
 from django.db.models import QuerySet
@@ -286,6 +287,24 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         )
         data["billable_action_types"] = billable_action_types
 
+        conversion = data.get("conversion")
+        if conversion is not None:
+            filters = conversion.get("filters")
+            if filters:
+                serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
+                if self.context.get("is_draft"):
+                    if serializer.is_valid():
+                        compiled_filters = serializer.validated_data
+                        data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                        data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    compiled_filters = serializer.validated_data
+                    data["conversion"]["filters"] = compiled_filters.get("properties", [])
+                    data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
+            if "bytecode" not in data["conversion"]:
+                data["conversion"]["bytecode"] = []
+
         return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
@@ -318,7 +337,7 @@ class HogFlowFilterSet(FilterSet):
 
 
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "hog_flow"
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
@@ -452,6 +471,22 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 "total_users": total_users,
             }
         )
+
+    @action(methods=["POST"], detail=False)
+    def bulk_delete(self, request: Request, **kwargs):
+        ids = request.data.get("ids", [])
+        if not ids or not isinstance(ids, list):
+            return Response({"error": "A non-empty list of 'ids' is required"}, status=400)
+
+        try:
+            validated_ids = [uuid_mod.UUID(str(id)) for id in ids]
+        except ValueError:
+            return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
+
+        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
+        deleted_count, _ = queryset.delete()
+
+        return Response({"deleted": deleted_count})
 
     @action(detail=True, methods=["GET", "POST"])
     def batch_jobs(self, request: Request, *args, **kwargs):

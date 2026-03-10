@@ -4,7 +4,6 @@ import { expectLogic } from 'kea-test-utils'
 
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -217,8 +216,6 @@ describe('taxonomicFilterLogic', () => {
         ]
 
         beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_QUICK_FILTERS]: 'test' })
-
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': (res) => {
@@ -347,7 +344,7 @@ describe('taxonomicFilterLogic', () => {
             noGetValueLogic.unmount()
         })
 
-        it('selecting a top match does not pass originalQuery', async () => {
+        it('selecting a top match dispatches selectItem with the correct group', async () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('$pageview')
             })
@@ -377,43 +374,26 @@ describe('taxonomicFilterLogic', () => {
                 quickListLogic.actionCreators.selectSelected(),
                 ({ type, payload }: { type: string; payload: any }) =>
                     type === quickListLogic.actionTypes.selectItem &&
-                    payload.group.type === TaxonomicFilterGroupType.Events &&
-                    payload.originalQuery === undefined,
+                    payload.group.type === TaxonomicFilterGroupType.Events,
             ])
         })
     })
 
-    describe('QuickFilters opt-in', () => {
+    describe('SuggestedFilters presence', () => {
         it.each([
             {
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                flagValue: 'test',
                 expectQuickFilters: true,
-                description: 'includes QuickFilters when listed and flag enabled',
-            },
-            {
-                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                flagValue: 'control',
-                expectQuickFilters: false,
-                description: 'excludes QuickFilters when listed but flag disabled',
+                description: 'includes SuggestedFilters when listed in groupTypes',
             },
             {
                 groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-                flagValue: 'test',
                 expectQuickFilters: false,
-                description: 'excludes QuickFilters when not listed even with flag enabled',
+                description: 'excludes SuggestedFilters when not listed in groupTypes',
             },
-            {
-                groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
-                flagValue: 'control',
-                expectQuickFilters: false,
-                description: 'breakdown-like contexts without QuickFilters stay without it',
-            },
-        ])('$description', ({ groupTypes, flagValue, expectQuickFilters }) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_QUICK_FILTERS]: flagValue })
-
+        ])('$description', ({ groupTypes, expectQuickFilters }) => {
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testOptIn-${flagValue}-${groupTypes.join('-')}`,
+                taxonomicFilterLogicKey: `testOptIn-${groupTypes.join('-')}`,
                 taxonomicGroupTypes: groupTypes,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)

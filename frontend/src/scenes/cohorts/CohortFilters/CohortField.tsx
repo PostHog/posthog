@@ -259,35 +259,43 @@ export function CohortRelativeAndExactTimeField({
     const { value } = useValues(logic)
     const { onChange } = useActions(logic)
 
+    const isRelativeDate = typeof value === 'string' && /^-\d+[hdwmqy]$/.test(value)
+    const prefix = isRelativeDate ? 'within' : 'after'
+
     return (
-        <DateFilter
-            dateFrom={String(value)}
-            onChange={(fromDate) => {
-                onChange({ [fieldKey]: fromDate })
-            }}
-            max={1000}
-            isFixedDateMode
-            allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-            showCustom
-            dateOptions={[
-                {
-                    key: 'Last 7 days',
-                    values: ['-7d'],
-                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
-                    defaultInterval: 'day',
-                },
-                {
-                    key: 'Last 30 days',
-                    values: ['-30d'],
-                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
-                    defaultInterval: 'day',
-                },
-            ]}
-            size="medium"
-            makeLabel={(_, startOfRange) => (
-                <span className="hide-when-small">Matches all values after {startOfRange} if evaluated today.</span>
-            )}
-        />
+        <div className="flex items-center gap-2">
+            <span className={clsx('CohortField', 'CohortField__CohortTextField')}>{prefix}</span>
+            <DateFilter
+                dateFrom={String(value)}
+                onChange={(fromDate) => {
+                    onChange({ [fieldKey]: fromDate })
+                }}
+                max={1000}
+                isFixedDateMode
+                allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                showCustom
+                dateOptions={[
+                    {
+                        key: 'Last 7 days',
+                        values: ['-7d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
+                        defaultInterval: 'day',
+                    },
+                    {
+                        key: 'Last 30 days',
+                        values: ['-30d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
+                        defaultInterval: 'day',
+                    },
+                ]}
+                size="medium"
+                makeLabel={(_, startOfRange) => (
+                    <span className="hide-when-small">
+                        Matches all values {prefix} {startOfRange} if evaluated today.
+                    </span>
+                )}
+            />
+        </div>
     )
 }
 

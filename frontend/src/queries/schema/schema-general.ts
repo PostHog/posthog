@@ -1,4 +1,5 @@
 import { DataColorToken } from 'lib/colors'
+// eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
@@ -85,7 +86,6 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
-    HogQLASTQuery = 'HogQLASTQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
@@ -177,6 +177,9 @@ export enum NodeKind {
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
     EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
+
+    // Property values
+    PropertyValuesQuery = 'PropertyValuesQuery',
 }
 
 export type AnyDataNode =
@@ -254,7 +257,6 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | HogQLASTQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -330,6 +332,9 @@ export type QuerySchema =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+
+    // Property values
+    | PropertyValuesQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -417,6 +422,7 @@ export interface HogQLQueryModifiers {
     optimizeProjections?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
+    inlineCohortCalculation?: 'off' | 'auto' | 'always'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -473,11 +479,6 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     explain?: boolean
     /** Client provided name of the query */
     name?: string
-}
-
-export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
-    kind: NodeKind.HogQLASTQuery
-    query: Record<string, any>
 }
 
 export interface HogQueryResponse {
@@ -788,6 +789,8 @@ export interface EventsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** Cursor for fetching the next page of results */
+    nextCursor?: string
 }
 
 export type CachedEventsQueryResponse = CachedQueryResponse<EventsQueryResponse>
@@ -1014,7 +1017,7 @@ export interface ChartAxis {
 export interface ChartSettingsFormatting {
     prefix?: string
     suffix?: string
-    style?: 'none' | 'number' | 'percent'
+    style?: 'none' | 'number' | 'short' | 'percent'
     decimalPlaces?: number
 }
 
@@ -1066,6 +1069,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
 }
 
@@ -1314,6 +1318,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    /** @default false */
+    hideWeekends?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1336,12 +1342,28 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'hideWeekends',
 ])
+
+export interface BoxPlotDatum {
+    day: string
+    label: string
+    min: number
+    p25: number
+    median: number
+    p75: number
+    max: number
+    mean: number
+    series_index?: integer
+    series_label?: string
+}
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
+    /** Box plot data when display type is BoxPlot */
+    boxplot_data?: BoxPlotDatum[]
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
@@ -1534,6 +1556,9 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
+    /** @description The type of property to aggregate on (event or person). Defaults to event.
+     * @default event */
+    aggregationPropertyType?: 'event' | 'person'
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1742,6 +1767,8 @@ export interface EndpointRequest {
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
+    /** Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month). */
+    bucket_overrides?: Record<string, string>
 }
 
 /**
@@ -1795,6 +1822,8 @@ export interface EndpointRunRequest {
     debug?: boolean
     /** Maximum number of results to return. If not provided, returns all results. */
     limit?: integer
+    /** Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints. */
+    offset?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -2434,10 +2463,8 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
+    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     orderDirection?: 'ASC' | 'DESC'
-    revenuePeriod?: 'all_time' | 'mrr'
-    revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
     status?: ErrorTrackingQueryStatus
     assignee?: ErrorTrackingIssueAssignee | null
@@ -2574,7 +2601,6 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
         timestamp: string
         properties: string
     }
-    revenue?: number
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
@@ -2918,6 +2944,7 @@ export type FileSystemIconType =
     | 'folder_open'
     | 'conversations'
     | 'toolbar'
+    | 'visual_review'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -2925,6 +2952,7 @@ export type FileSystemIconType =
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_datasets'
+    | 'llm_playground'
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
@@ -4022,6 +4050,7 @@ export interface LLMTrace {
     errorCount?: number
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
+    tools?: string[]
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -4681,6 +4710,7 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedConversion = 'Reported Conversion',
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
+    CostPerReportedConversion = 'Cost per Reported Conversion',
 }
 
 export enum MarketingAnalyticsConstants {
@@ -4976,6 +5006,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'RedditAds',
     'BingAds',
     'SnapchatAds',
+    'PinterestAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -5110,6 +5141,17 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'conversion_subscribe_value',
         ] as const,
     },
+    PinterestAds: {
+        sourceType: 'PinterestAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_analytics',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['analytics'] as const,
+        defaultSources: ['pinterest'] as const,
+        primarySource: 'pinterest',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
@@ -5121,6 +5163,8 @@ export type TikTokAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['Ti
 export type RedditAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['defaultSources'][number]
 export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['defaultSources'][number]
 export type SnapchatAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['defaultSources'][number]
+export type PinterestAdsDefaultSources =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['defaultSources'][number]
 
 export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
 export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
@@ -5129,6 +5173,7 @@ export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['Tik
 export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
 export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
 export type SnapchatAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableKeywords'][number]
+export type PinterestAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableKeywords'][number]
 
 export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
 export type LinkedinAdsTableExclusions =
@@ -5139,6 +5184,8 @@ export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['R
 export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
 export type SnapchatAdsTableExclusions =
     (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableExclusions'][number]
+export type PinterestAdsTableExclusions =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableExclusions'][number]
 
 // Conversion fields for Snapchat Ads - extracted as types so they generate as StrEnum in Python
 export type SnapchatAdsConversionFields =
@@ -5419,6 +5466,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     USER_INTERVIEWS = 'user_interviews',
+    VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',
 }
@@ -5593,3 +5641,28 @@ export interface ReplayInactivityPeriod {
 export enum DomainConnectProviderName {
     Cloudflare = 'Cloudflare',
 }
+
+export enum PropertyType {
+    Event = 'event',
+    Person = 'person',
+}
+
+export interface PropertyValueItem {
+    name: string | number | boolean | null
+    count?: integer
+}
+
+export interface PropertyValuesQuery extends DataNode<PropertyValuesQueryResponse> {
+    kind: NodeKind.PropertyValuesQuery
+    property_type: PropertyType
+    property_key: string
+    search_value?: string
+    event_names?: string[]
+    is_column?: boolean
+}
+
+export interface PropertyValuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: PropertyValueItem[]
+}
+
+export type CachedPropertyValuesQueryResponse = CachedQueryResponse<PropertyValuesQueryResponse>

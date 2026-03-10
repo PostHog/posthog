@@ -1,0 +1,30 @@
+# Push Semgrep Docker Image
+name: docker
+
+on:
+    workflow_dispatch:
+        inputs:
+            message_to_print:
+                type: string
+                required: false
+    push:
+        branches:
+            - develop
+    pull_request:
+        paths-ignore:
+            - '**.md'
+
+jobs:
+    docker-build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Use steps output
+              # ruleid: github-actions-shell-injection
+              run: |
+                  echo "${{ steps.shell_command.outputs.some_value }}"
+
+            # ruleid: github-actions-shell-injection
+            - run: echo "${{ steps.shell_command.outputs.some_value || 'ok' }}"
+
+            # ok: github-actions-shell-injection
+            - run: echo "${{ steps.shell_command.outputs.some_value && 'ok' }}"

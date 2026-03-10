@@ -108,10 +108,6 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
 @csrf_protect
 def logout(request):
-    if request.user.is_authenticated:
-        request.user.temporary_token = None
-        request.user.save()
-
     clear_two_factor_session_flags(request)
 
     request.session.pop("reauth", None)
@@ -825,9 +821,12 @@ class PasswordResetSerializer(serializers.Serializer):
             )
 
         try:
-            user = User.objects.filter(is_active=True).get(email=email)
+            user = User.objects.filter(is_active=True).get(email__iexact=email)
         except User.DoesNotExist:
             user = None
+        except User.MultipleObjectsReturned:
+            # If multiple users share the same email (different casing), use the exact match
+            user = User.objects.filter(is_active=True, email=email).first()
 
         if user:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
@@ -946,7 +945,7 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}"
+        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}{usable_user.password}"
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()

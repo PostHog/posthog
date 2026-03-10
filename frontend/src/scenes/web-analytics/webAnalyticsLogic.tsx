@@ -2163,8 +2163,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     tabAwareActionToUrl(({ values }) => {
         const stateToUrl = (): string => {
-            const searchParams = { ...router.values.searchParams }
-            const urlParams = new URLSearchParams(searchParams)
+            const urlParams = new URLSearchParams(router.values.location.search)
 
             const {
                 rawWebAnalyticsFilters,
@@ -2196,6 +2195,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             // spreading from their individual dropdowns to the global filters list
             if (rawWebAnalyticsFilters.length > 0) {
                 urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
+            } else {
+                urlParams.delete('filters')
             }
             if (conversionGoal) {
                 if ('actionId' in conversionGoal) {

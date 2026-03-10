@@ -37,7 +37,7 @@ import nextjsImage from './logos/nextjs.svg'
 import nodejsImage from './logos/nodejs.svg'
 import nuxtImage from './logos/nuxt.svg'
 import { OpenAILogo } from './logos/OpenAILogo'
-import openrouterImage from './logos/openrouter.png'
+import { OpenRouterLogo } from './logos/OpenRouterLogo'
 import phpImage from './logos/php.svg'
 import pythonImage from './logos/python.svg'
 import railsImage from './logos/rails.svg'
@@ -243,7 +243,7 @@ export const ALL_SDKS: SDK[] = [
         name: 'OpenRouter',
         key: SDKKey.OPENROUTER,
         tags: [SDKTag.GATEWAY],
-        image: openrouterImage,
+        image: <OpenRouterLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openrouter',
     },
     {

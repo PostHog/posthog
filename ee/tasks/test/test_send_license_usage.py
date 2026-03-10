@@ -12,7 +12,7 @@ from ee.tasks.send_license_usage import send_license_usage
 class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
-    @patch("requests.post")
+    @patch("ee.tasks.send_license_usage.external_requests.post")
     def test_send_license_usage(self, mock_post, mock_capture):
         self.license.key = "legacy-key"
         self.license.save()
@@ -137,7 +137,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
-    @patch("requests.post")
+    @patch("ee.tasks.send_license_usage.external_requests.post")
     def test_send_license_usage_already_sent(self, mock_post, mock_capture):
         self.license.key = "legacy-key"
         self.license.save()
@@ -193,7 +193,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
-    @patch("requests.post")
+    @patch("ee.tasks.send_license_usage.external_requests.post")
     def test_send_license_not_found(self, mock_post, mock_capture):
         self.license.key = "legacy-key"
         self.license.save()
@@ -263,7 +263,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
-    @patch("requests.post")
+    @patch("ee.tasks.send_license_usage.external_requests.post")
     def test_send_license_not_triggered_for_v2_licenses(self, mock_post, mock_capture):
         self.license.key = "billing-service::v2-key"
         self.license.save()
@@ -275,7 +275,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
 
 class SendLicenseUsageNoLicenseTest(APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("requests.post")
+    @patch("ee.tasks.send_license_usage.external_requests.post")
     def test_no_license(self, mock_post):
         # Same test, we just don't include the LicensedTestMixin so no license
         _create_event(

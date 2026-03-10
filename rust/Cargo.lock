@@ -1238,9 +1238,9 @@ dependencies = [
  "fernet",
  "flate2",
  "futures-util",
- "health",
  "httpdate",
  "httpmock",
+ "lifecycle",
  "metrics",
  "mockito",
  "moka",
@@ -1255,6 +1255,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "urlencoding",
@@ -2045,6 +2046,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "metrics",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
@@ -2094,6 +2096,7 @@ name = "common-kafka"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-liveness",
  "envconfig",
  "health",
  "rdkafka",
@@ -2105,6 +2108,10 @@ dependencies = [
  "tracing",
  "uuid",
 ]
+
+[[package]]
+name = "common-liveness"
+version = "0.1.0"
 
 [[package]]
 name = "common-metrics"
@@ -2164,6 +2171,7 @@ dependencies = [
  "chrono",
  "dateparser",
  "jiff",
+ "metrics",
  "rdkafka",
  "regex",
  "rust_decimal",
@@ -3187,6 +3195,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-cache",
  "common-compression",
  "common-continuous-profiling",
  "common-cookieless",
@@ -3740,6 +3749,7 @@ name = "health"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "common-liveness",
  "time",
  "tokio",
  "tracing",
@@ -4665,6 +4675,7 @@ dependencies = [
  "etcd-client",
  "kafka-assigner-proto",
  "prost 0.13.5",
+ "rdkafka",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -4708,6 +4719,7 @@ dependencies = [
  "futures-util",
  "health",
  "itertools 0.14.0",
+ "kafka-assigner-proto",
  "metrics",
  "metrics-exporter-prometheus",
  "object_store",
@@ -4730,6 +4742,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-util",
+ "tonic 0.12.3",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -4935,6 +4948,7 @@ name = "lifecycle"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "common-liveness",
  "metrics",
  "thiserror 2.0.18",
  "tokio",
@@ -6061,7 +6075,7 @@ dependencies = [
  "common-database",
  "common-metrics",
  "envconfig",
- "health",
+ "lifecycle",
  "personhog-proto",
  "rand 0.8.5",
  "serde_json",
@@ -6084,11 +6098,12 @@ dependencies = [
  "common-alloc",
  "common-metrics",
  "envconfig",
- "health",
  "http 1.4.0",
+ "lifecycle",
  "metrics",
  "personhog-proto",
  "pin-project",
+ "rand 0.8.5",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",

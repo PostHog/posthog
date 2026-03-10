@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
+from django.core.cache import cache
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -22,6 +23,7 @@ from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.dashboard_tile import Text
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
+from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -628,9 +630,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         group_type.detail_dashboard_id = dashboard.id
         group_type.save()
 
+        cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
+        stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}"
+        cache.set(cache_key, [{"stale": True}], 300)
+        cache.set(stale_cache_key, [{"stale": True}], 300)
+
         self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
         group_type.refresh_from_db()
         self.assertIsNone(group_type.detail_dashboard_id)
+        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(stale_cache_key))
 
     def test_dashboard_items(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
@@ -857,19 +866,35 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
         assert dashboard_json["tiles"][0]["color"] == "red"
 
+    def test_dashboard_tile_show_description_can_be_toggled(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test", "pinned": True})
+        self.dashboard_api.create_insight(
+            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "insight"}
+        )
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        tile_id = dashboard_json["tiles"][0]["id"]
+        assert dashboard_json["tiles"][0]["show_description"] is None
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "show_description": True}]})
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        assert dashboard_json["tiles"][0]["show_description"] is True
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "show_description": False}]})
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        assert dashboard_json["tiles"][0]["show_description"] is False
+
     @patch("posthog.api.dashboards.dashboard.report_user_action")
-    def test_dashboard_from_template(self, mock_capture):
+    def test_dashboard_from_template(self, mock_report_user_action):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
         self.assertGreater(Insight.objects.count(), 1)
         self.assertEqual(response["creation_mode"], "template")
 
         # Assert analytics are sent
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "dashboard created",
             {
-                "$current_url": None,
-                "$session_id": mock.ANY,
                 "created_at": mock.ANY,
                 "dashboard_id": None,
                 "duplicated": False,
@@ -878,11 +903,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
-                "source": "web",
                 "tags_count": 0,
                 "template_key": "DEFAULT_APP",
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     def test_dashboard_creation_validation(self):
@@ -1525,7 +1550,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     @patch("posthog.api.dashboards.dashboard.report_user_action")
-    def test_create_from_template_json(self, mock_capture) -> None:
+    def test_create_from_template_json(self, mock_report_user_action) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
             {"template": valid_template, "creation_context": "onboarding"},
@@ -1545,12 +1570,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(dashboard["tiles"]), 1)
 
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             self.user,
             "dashboard created",
             {
-                "$current_url": "https://posthog.com/my-referer",
-                "$session_id": "my-session-id",
                 "created_at": mock.ANY,
                 "creation_context": "onboarding",
                 "dashboard_id": dashboard["id"],
@@ -1560,11 +1583,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_shared": False,
                 "item_count": 1,
                 "pinned": False,
-                "source": "web",
                 "tags_count": 0,
                 "template_key": valid_template["template_name"],
-                "was_impersonated": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
     def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:
@@ -1598,6 +1621,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "last_refresh": None,
                 "layouts": {},
                 "order": 0,
+                "show_description": None,
                 "text": {
                     "body": "hello world",
                     "created_by": None,
@@ -1710,6 +1734,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "last_refresh": None,
                 "layouts": {},
                 "order": 0,
+                "show_description": None,
                 "text": None,
             },
         ]
@@ -2281,3 +2306,43 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertNotIn(unlisted.id, ids)
         self.assertIn(normal.id, ids)
         self.assertNotIn(template.id, ids)
+
+    def test_analyze_refresh_result_with_empty_cache(self):
+        # Simulate snapshot creating an empty cache entry (e.g. no cached results)
+        # This happens when the dashboard has no data or no cached results before refresh
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
+        cache_key = "dashboard_refresh_test_empty"
+
+        cache.set(cache_key, {}, timeout=60)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/analyze_refresh_result",
+            {"cache_key": cache_key},
+        )
+
+        # Should return 200 with "No significant changes" instead of 400 error
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {"result": "No significant changes detected in the dashboard data."},
+        )
+
+    def test_analyze_refresh_result_with_missing_cache(self):
+        # Simulate cache miss (expired or invalid key)
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
+        cache_key = "dashboard_refresh_test_missing"
+
+        # Ensure key is not in cache
+        cache.delete(cache_key)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/analyze_refresh_result",
+            {"cache_key": cache_key},
+        )
+
+        # Should return 400 error
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"error": "Analysis context expired or not found. Please refresh the dashboard again."},
+        )

@@ -8,7 +8,8 @@ import { GraphEdge, LayoutPosition, SignalNode, SimConfig, SimEdge, SimNode } fr
 
 export function useD3ForceSimulation(
     signals: SignalNode[],
-    config: SimConfig
+    config: SimConfig,
+    options?: { initialScale?: number }
 ): {
     positions: Map<string, LayoutPosition>
     edges: GraphEdge[]
@@ -37,8 +38,7 @@ export function useD3ForceSimulation(
     const transformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity)
     const [transform, setTransform] = useState<d3.ZoomTransform>(d3.zoomIdentity)
     const zoomRef = useRef<d3.ZoomBehavior<HTMLDivElement, unknown> | null>(null)
-    const configRef = useRef<SimConfig>(config)
-    configRef.current = config
+    const initialScaleRef = useRef(options?.initialScale ?? 1)
 
     // Snapshot positions from simulation nodes for React consumption
     const positions = useMemo(() => {
@@ -135,9 +135,9 @@ export function useD3ForceSimulation(
         zoomRef.current = zoom
         d3.select(containerEl).call(zoom)
 
-        // Center the origin (0,0) in the middle of the viewport
         const rect = containerEl.getBoundingClientRect()
-        const initialTransform = d3.zoomIdentity.translate(rect.width / 2, rect.height / 2)
+        const scale = initialScaleRef.current
+        const initialTransform = d3.zoomIdentity.translate(rect.width / 2, rect.height / 2).scale(scale)
         d3.select(containerEl).call(zoom.transform, initialTransform)
 
         return () => {
@@ -266,7 +266,7 @@ export function useD3ForceSimulation(
             return
         }
         const rect = container.getBoundingClientRect()
-        const resetTransform = d3.zoomIdentity.translate(rect.width / 2, rect.height / 2)
+        const resetTransform = d3.zoomIdentity.translate(rect.width / 2, rect.height / 2).scale(initialScaleRef.current)
         d3.select(container).transition().duration(300).call(zoom.transform, resetTransform)
     }, [])
 

@@ -15,7 +15,6 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { isEmail, isURL } from 'lib/utils'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -78,7 +77,7 @@ async function fetchCachedListResponse(path: string, searchParams: Record<string
 }
 
 export const infiniteListLogic = kea<infiniteListLogicType>([
-    props({ showNumericalPropsOnly: false } as InfiniteListLogicProps),
+    props({ showNumericalPropsOnly: false, minSearchQueryLength: undefined } as InfiniteListLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
 
@@ -126,7 +125,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         isExpanded,
                         remoteEndpoint,
                         scopedRemoteEndpoint,
-                        swappedInQuery,
                         searchQuery,
                         excludedProperties,
                         listGroupType,
@@ -135,16 +133,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     } = values
 
                     if (!remoteEndpoint) {
-                        return createEmptyListStorage(swappedInQuery || searchQuery)
+                        return createEmptyListStorage(searchQuery)
                     }
 
-                    const effectiveQuery = swappedInQuery || searchQuery
-                    if (minSearchQueryLength > 0 && effectiveQuery.length < minSearchQueryLength) {
-                        return createEmptyListStorage(effectiveQuery)
+                    if (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) {
+                        return createEmptyListStorage(searchQuery)
                     }
 
                     const searchParams = {
-                        [`${values.group?.searchAlias || 'search'}`]: swappedInQuery || searchQuery,
+                        [`${values.group?.searchAlias || 'search'}`]: searchQuery,
                         limit,
                         offset,
                         excluded_properties:
@@ -171,7 +168,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
                         const groupsResponse = await api.groups.listClickhouse({
                             group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
-                            search: swappedInQuery || searchQuery || '',
+                            search: searchQuery || '',
                             limit,
                         })
 
@@ -206,9 +203,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                     breakpoint()
 
-                    const queryChanged = values.remoteItems.searchQuery !== (swappedInQuery || searchQuery)
+                    const queryChanged = values.remoteItems.searchQuery !== searchQuery
 
-                    await captureTimeToSeeData(values.currentTeamId, {
+                    // Cache before the second await — the logic may unmount during captureTimeToSeeData,
+                    // and kea's no-arg breakpoint() does not protect against unmount (only new invocations).
+                    const currentTeamId = values.currentTeamId
+                    const existingResults = values.remoteItems.results
+
+                    await captureTimeToSeeData(currentTeamId, {
                         type: 'properties_load',
                         context: 'filters',
                         action: listGroupType,
@@ -221,12 +223,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     return {
                         results: appendAtIndex(
-                            queryChanged ? [] : values.remoteItems.results,
+                            queryChanged ? [] : existingResults,
                             response.results || response,
                             offset
                         ),
-                        searchQuery: swappedInQuery || searchQuery,
-                        originalQuery: swappedInQuery ? searchQuery : undefined,
+                        searchQuery,
                         queryChanged,
                         count:
                             response.count ||
@@ -252,25 +253,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        /**
-         * In some circumstances we want to swap out the query that is sent to the backend.
-         * The canonical example is if you search for a URL, then we swap in $current URL,
-         * since that's almost certainly what you want
-         */
-        swappedInQuery: [
-            null as string | null,
-            {
-                setSearchQuery: (_, { searchQuery }) => {
-                    if (props.listGroupType === TaxonomicFilterGroupType.EventProperties && isURL(searchQuery)) {
-                        return '$current_url'
-                    }
-                    if (props.listGroupType === TaxonomicFilterGroupType.PersonProperties && isEmail(searchQuery)) {
-                        return 'email'
-                    }
-                    return null
-                },
-            },
-        ],
         index: [
             (props.selectFirstItem === false || props.autoSelectItem === false ? NO_ITEM_SELECTED : 0) as number,
             {
@@ -309,7 +291,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
-        minSearchQueryLength: [(s) => [s.group], (group) => group?.minSearchQueryLength ?? 0],
+        minSearchQueryLength: [
+            (s) => [s.group, (_, props) => props.minSearchQueryLength],
+            (group, propsMinSearchQueryLength) => propsMinSearchQueryLength ?? group?.minSearchQueryLength ?? 0,
+        ],
         needsMoreSearchCharacters: [
             (s) => [s.minSearchQueryLength, s.searchQuery],
             (minSearchQueryLength, searchQuery) => {
@@ -443,45 +428,43 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return new Fuse(haystack, {
                     keys: ['name', 'posthogName'],
                     threshold: 0.3,
+                    ignoreLocation: true,
                 })
             },
         ],
         localItems: [
-            (s) => [s.rawLocalItems, s.searchQuery, s.swappedInQuery, s.fuse, s.group],
-            (rawLocalItems, searchQuery, swappedInQuery, fuse, group): ListStorage => {
+            (s) => [s.rawLocalItems, s.searchQuery, s.fuse, s.group],
+            (rawLocalItems, searchQuery, fuse, group): ListStorage => {
                 if (group.localItemsSearch) {
-                    const filtered = group.localItemsSearch(rawLocalItems || [], swappedInQuery || searchQuery)
+                    const filtered = group.localItemsSearch(rawLocalItems || [], searchQuery)
                     return {
                         results: filtered,
                         count: filtered.length,
-                        searchQuery: swappedInQuery || searchQuery,
-                        originalQuery: swappedInQuery ? searchQuery : undefined,
+                        searchQuery,
                     }
                 }
 
                 if (rawLocalItems) {
-                    const filteredItems =
-                        swappedInQuery || searchQuery
-                            ? fuse.search(swappedInQuery || searchQuery).map((result) => result.item.item)
-                            : rawLocalItems
+                    const filteredItems = searchQuery
+                        ? fuse.search(searchQuery).map((result) => result.item.item)
+                        : rawLocalItems
 
                     return {
                         results: filteredItems,
                         count: filteredItems.length,
-                        searchQuery: swappedInQuery || searchQuery,
-                        originalQuery: swappedInQuery ? searchQuery : undefined,
+                        searchQuery,
                     }
                 }
                 return createEmptyListStorage()
             },
         ],
         topMatchesForQuery: [
-            (s) => [s.localItems, s.remoteItems, s.swappedInQuery, s.searchQuery, s.hasRemoteDataSource],
-            (localItems, remoteItems, swappedInQuery, searchQuery, hasRemoteDataSource): TaxonomicDefinitionTypes[] => {
+            (s) => [s.localItems, s.remoteItems, s.searchQuery, s.hasRemoteDataSource],
+            (localItems, remoteItems, searchQuery, hasRemoteDataSource): TaxonomicDefinitionTypes[] => {
                 if (!searchQuery) {
                     return []
                 }
-                const remoteIsFresh = remoteItems.searchQuery === (swappedInQuery || searchQuery)
+                const remoteIsFresh = remoteItems.searchQuery === searchQuery
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
                 return results.slice(0, 3)
             },
@@ -494,7 +477,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     results: [...localItems.results, ...remoteItems.results, ...topMatches],
                     count: localItems.count + remoteItems.count + topMatches.length,
                     searchQuery: remoteItems.searchQuery || localItems.searchQuery,
-                    originalQuery: remoteItems.originalQuery || localItems.originalQuery,
                     expandedCount: remoteItems.expandedCount,
                     queryChanged: remoteItems.queryChanged,
                     first: localItems.first && remoteItems.first,
@@ -582,15 +564,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 if (!isDisabledItem) {
                     const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
-                    const isTopMatchItem =
-                        values.listGroupType === TaxonomicFilterGroupType.SuggestedFilters &&
-                        itemGroup.type !== values.listGroupType
-                    actions.selectItem(
-                        itemGroup,
-                        itemValue ?? null,
-                        selectedItem,
-                        isTopMatchItem ? undefined : values.swappedInQuery ? values.searchQuery : undefined
-                    )
+                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem)
                 }
             }
         },

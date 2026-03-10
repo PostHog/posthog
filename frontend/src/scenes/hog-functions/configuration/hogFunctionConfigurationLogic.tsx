@@ -506,22 +506,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    // Capture error tracking specific alert event
-                    if (
-                        res.template?.id === 'error-tracking-issue-created' ||
-                        res.template?.id === 'error-tracking-issue-reopened' ||
-                        res.template?.id === 'error-tracking-issue-spiking'
-                    ) {
-                        const triggerEventMap: Record<string, string> = {
-                            'error-tracking-issue-created': '$error_tracking_issue_created',
-                            'error-tracking-issue-reopened': '$error_tracking_issue_reopened',
-                            'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
-                        }
-                        const triggerEvent = triggerEventMap[res.template.id]
-
+                    const errorTrackingTriggerEvent = res.filters?.events
+                        ?.map((event) => event.id)
+                        ?.find((id) =>
+                            [
+                                '$error_tracking_issue_created',
+                                '$error_tracking_issue_reopened',
+                                '$error_tracking_issue_spiking',
+                            ].includes(id)
+                        )
+                    if (isNew && errorTrackingTriggerEvent) {
                         posthog.capture('error_tracking_alert_created', {
-                            trigger_event: triggerEvent,
-                            subtemplate_id: res.template.id,
+                            source: 'traditional',
+                            trigger_event: errorTrackingTriggerEvent,
+                            subtemplate_id: res.template?.id,
                             has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
                             enabled: res.enabled,
                         })

@@ -21,6 +21,7 @@ class InsightContext:
 
     Accepts insight data directly and provides methods to format schema or execute and format results.
     Supports optional dashboard filter/variable overrides before execution.
+    If `result` is provided, the query will not be re-executed on the backend.
     """
 
     def __init__(
@@ -36,6 +37,8 @@ class InsightContext:
         dashboard_filters: dict | None = None,
         filters_override: dict | None = None,
         variables_override: dict | None = None,
+        # Pre-calculated result from the frontend - skips backend query execution
+        result: object | None = None,
     ):
         self.team = team
         self.query = query
@@ -47,6 +50,7 @@ class InsightContext:
         self.dashboard_filters = dashboard_filters
         self.filters_override = filters_override
         self.variables_override = variables_override
+        self.result = result
 
     @property
     def insight_url(self) -> str | None:
@@ -75,7 +79,7 @@ class InsightContext:
         return_exceptions: bool = False,
         truncate_results: bool = True,
     ) -> str:
-        """Execute query and format results."""
+        """Execute query and format results. Uses pre-calculated result if available."""
         effective_query = await self._get_effective_query()
         query_schema = effective_query.model_dump_json(exclude_none=True)
 
@@ -85,6 +89,7 @@ class InsightContext:
                 effective_query,
                 insight_id=self.insight_model_id,
                 truncate_results=truncate_results,
+                precalculated_result=self.result,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"

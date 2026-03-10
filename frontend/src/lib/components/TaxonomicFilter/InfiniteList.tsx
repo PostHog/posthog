@@ -236,8 +236,7 @@ interface InfiniteListRowProps {
     selectItem: (
         group: TaxonomicFilterGroup,
         value: string | number | null,
-        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
-        originalQuery?: string
+        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true }
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
 }
@@ -262,7 +261,6 @@ const InfiniteListRow = ({
     expandedCount,
     isExpandable,
     isLoading,
-    items,
     showNonCapturedEventOption,
     trimmedSearchQuery,
     dataWarehousePopoverFields,
@@ -290,12 +288,7 @@ const InfiniteListRow = ({
 
     if (showNonCapturedEventOption && rowIndex === 0) {
         const selectNonCapturedEvent = (): void => {
-            selectItem(
-                itemGroup,
-                trimmedSearchQuery,
-                { name: trimmedSearchQuery, isNonCaptured: true },
-                trimmedSearchQuery
-            )
+            selectItem(itemGroup, trimmedSearchQuery, { name: trimmedSearchQuery, isNonCaptured: true })
         }
 
         return (
@@ -355,7 +348,8 @@ const InfiniteListRow = ({
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                role="button"
+                role="option"
+                aria-selected={isSelected}
                 aria-disabled={isDisabledItem}
                 onClick={(event) => {
                     if (isDisabledItem) {
@@ -365,12 +359,7 @@ const InfiniteListRow = ({
                     }
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(
-                            itemGroup,
-                            itemValue ?? null,
-                            item,
-                            isExactMatchItem ? undefined : items.originalQuery
-                        )
+                        selectItem(itemGroup, itemValue ?? null, item)
                     )
                 }}
             >
@@ -397,6 +386,8 @@ const InfiniteListRow = ({
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, 'expand-row')}
                 data-attr={`expand-list-${listGroupType}`}
+                role="button"
+                aria-label="Show more items"
                 onClick={expand}
             >
                 {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
@@ -431,9 +422,11 @@ function InfiniteListEmptyState(): JSX.Element {
 
     const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters } = useValues(infiniteListLogic)
 
+    const emptySearchQuery = searchQuery.trim().length === 0
+    const suggestedFiltersBeforeSearching = isSuggestedFilters && emptySearchQuery
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
-            {isSuggestedFilters ? (
+            {suggestedFiltersBeforeSearching ? (
                 <>
                     <IconSearch className="text-5xl text-tertiary" />
                     <span className="text-secondary text-center">Start searching and we'll suggest filters...</span>
@@ -454,12 +447,12 @@ function InfiniteListEmptyState(): JSX.Element {
                 <>
                     <IconArchive className="text-5xl text-tertiary" />
                     <span>
-                        {searchQuery ? (
+                        {emptySearchQuery ? (
+                            'Start typing to find results'
+                        ) : (
                             <>
                                 No results for "<strong>{searchQuery}</strong>"
                             </>
-                        ) : (
-                            'No results'
                         )}
                     </span>
                 </>
@@ -478,6 +471,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         value,
         taxonomicGroups,
         selectedProperties,
+        selectedItemMeta,
         dataWarehousePopoverFields,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
@@ -592,6 +586,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                     logic={definitionPopoverLogic}
                     props={{
                         type: selectedItemGroup.type,
+                        selectedItemMeta,
                         updateRemoteItem,
                     }}
                 >

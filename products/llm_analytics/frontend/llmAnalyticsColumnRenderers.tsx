@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconFilter } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -20,9 +20,9 @@ import { SentimentBar } from './components/SentimentTag'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { EventData, useAIData } from './hooks/useAIData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { flattenGenerationMessages } from './sentimentUtils'
 import { CompatMessage } from './types'
 import { normalizeMessages, parseJSONPreview } from './utils'
 
@@ -208,14 +208,30 @@ function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element 
         return <>–</>
     }
 
-    return (
-        <SentimentBar
-            label={cached.label}
-            score={cached.score}
-            size="full"
-            messages={flattenGenerationMessages(cached.generations)}
-        />
-    )
+    return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
+}
+
+function LazyGenerationSentimentCell({ generationEventId }: { generationEventId: string }): JSX.Element {
+    const { sentimentByGenerationId, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
+    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+
+    const cached = sentimentByGenerationId[generationEventId]
+    const loading = isGenerationLoading(generationEventId)
+
+    if (cached === undefined && !loading) {
+        ensureGenerationSentimentLoaded(generationEventId, dateFilter)
+    }
+
+    if (loading || cached === undefined) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    if (cached === null) {
+        return <>–</>
+    }
+
+    return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
 }
 
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
@@ -303,6 +319,30 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
     }
 
     return undefined
+}
+
+const MAX_VISIBLE_TOOLS = 5
+
+function ToolsDisplay({ tools }: { tools: string[] | undefined | null }): JSX.Element {
+    if (!tools || tools.length === 0) {
+        return <>–</>
+    }
+    const visible = tools.slice(0, MAX_VISIBLE_TOOLS)
+    const remaining = tools.length - MAX_VISIBLE_TOOLS
+    return (
+        <div className="flex flex-wrap gap-1">
+            {visible.map((tool) => (
+                <LemonTag key={tool} type="muted">
+                    {tool}
+                </LemonTag>
+            ))}
+            {remaining > 0 && (
+                <Tooltip title={tools.slice(MAX_VISIBLE_TOOLS).join(', ')}>
+                    <LemonTag type="muted">+{remaining} more</LemonTag>
+                </Tooltip>
+            )}
+        </div>
+    )
 }
 
 export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
@@ -408,6 +448,53 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
                 return <>–</>
             }
             return <LazySentimentColumnCell traceId={traceRecord.id} />
+        },
+    },
+    "'' -- Sentiment": {
+        title: 'Sentiment',
+        render: ({ record, query }) => {
+            if (!Array.isArray(record) || !isDataTableNode(query) || !isEventsQuery(query.source)) {
+                return <>–</>
+            }
+
+            const select = query.source.select ?? []
+            const uuidIdx = select.findIndex((c) => c === 'uuid')
+
+            if (uuidIdx < 0) {
+                return <>–</>
+            }
+
+            const uuid = record[uuidIdx]
+
+            if (typeof uuid !== 'string') {
+                return <>–</>
+            }
+
+            return <LazyGenerationSentimentCell generationEventId={uuid} />
+        },
+    },
+    'properties.$ai_tools_called': {
+        title: 'Tools',
+        render: ({ value }) => {
+            if (!value || typeof value !== 'string') {
+                return <>–</>
+            }
+            const tools = [
+                ...new Set(
+                    value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean)
+                ),
+            ]
+            return <ToolsDisplay tools={tools} />
+        },
+    },
+    tools: {
+        title: 'Tools',
+        render: ({ record }) => {
+            const row = record as LLMTrace
+            return <ToolsDisplay tools={row.tools} />
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page

@@ -5,12 +5,14 @@ import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { paymentEntryLogic } from './paymentEntryLogic'
 
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
 
 export const PaymentForm = (): JSX.Element => {
-    const { stripeError, isLoading } = useValues(paymentEntryLogic)
+    const { stripeError, isLoading, redirectPath } = useValues(paymentEntryLogic)
     const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
         useActions(paymentEntryLogic)
 
@@ -24,11 +26,12 @@ export const PaymentForm = (): JSX.Element => {
             return
         }
         setLoading(true)
+
+        const returnUrl = `${window.location.origin}${urls.billingAuthorizationStatus()}`
+        const queryParams = redirectPath ? `?postRedirectPath=${encodeURIComponent(redirectPath)}` : ''
         const result = await stripe.confirmPayment({
             elements,
-            confirmParams: {
-                return_url: `${window.location.origin}/billing/authorization_status`,
-            },
+            confirmParams: { return_url: `${returnUrl}${queryParams}` },
             redirect: 'if_required',
         })
 

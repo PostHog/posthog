@@ -6,10 +6,12 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
-import { fromParamsGivenUrl } from 'lib/utils'
+import { fromParamsGivenUrl, isKeyOf } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { integrationsGithubReposRetrieve } from '~/generated/core/api'
+import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
@@ -92,7 +94,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         formData.append('kind', kind)
                         formData.append('key', key)
                         const response = await api.integrations.create(formData)
-                        const responseWithIcon = { ...response, icon_url: ICONS[kind] ?? ICONS['google-pubsub'] }
+                        const responseWithIcon = {
+                            ...response,
+                            icon_url: isKeyOf(kind, ICONS) ? ICONS[kind] : ICONS['google-pubsub'],
+                        }
 
                         // run onChange after updating the integrations loader
                         window.setTimeout(() => callback?.(responseWithIcon), 0)
@@ -117,10 +122,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
         githubRepositories: [
-            {} as Record<number, string[]>,
+            {} as Record<number, GitHubRepoApi[]>,
             {
                 loadGitHubRepositories: async ({ integrationId }) => {
-                    const response = await api.integrations.githubRepositories(integrationId)
+                    const response = await integrationsGithubReposRetrieve('@current', integrationId)
                     return {
                         ...values.githubRepositories,
                         [integrationId]: response.repositories || [],
@@ -132,10 +137,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
     listeners(({ actions, values }) => ({
         handleGithubCallback: async ({ searchParams }) => {
             const { state, installation_id } = searchParams
+            const { next, token } = fromParamsGivenUrl(state ?? '')
+            const stateToken = token || state
+            let replaceUrl: string = next || urls.settings('project-integrations')
 
             try {
                 if (installation_id) {
-                    if (state !== getCookie('ph_github_state')) {
+                    if (stateToken !== getCookie('ph_github_state')) {
                         throw new Error('Invalid state token')
                     }
 
@@ -156,12 +164,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
             } catch {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {
-                router.actions.replace(urls.settings('project-integrations'))
+                router.actions.replace(replaceUrl)
             }
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error } = searchParams
-            const { next, token } = fromParamsGivenUrl(state)
+            const { next, token, source, server_id } = fromParamsGivenUrl(state)
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
@@ -175,18 +183,23 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     throw new Error('Invalid state token')
                 }
 
-                const integration = await api.integrations.create({
-                    kind,
-                    config: { state, code },
-                })
+                if (source === 'mcp_store') {
+                    replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}&server_id=${encodeURIComponent(server_id)}&state_token=${encodeURIComponent(token)}`
+                    lemonToast.success('Authorization successful.')
+                } else {
+                    const integration = await api.integrations.create({
+                        kind,
+                        config: { state, code },
+                    })
 
-                // Add the integration ID to the replaceUrl so that the landing page can use it
-                const url = new URL(replaceUrl, window.location.origin)
-                url.searchParams.set('integration_id', String(integration.id))
-                replaceUrl = url.pathname + url.search + url.hash
+                    // Add the integration ID to the replaceUrl so that the landing page can use it
+                    const url = new URL(replaceUrl, window.location.origin)
+                    url.searchParams.set('integration_id', String(integration.id))
+                    replaceUrl = url.pathname + url.search + url.hash
 
-                actions.loadIntegrations()
-                lemonToast.success(`Integration successful.`)
+                    actions.loadIntegrations()
+                    lemonToast.success(`Integration successful.`)
+                }
             } catch {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {
@@ -237,6 +250,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
+        twigSlackIntegrations: [
+            (s) => [s.integrations],
+            (integrations) => {
+                return integrations?.filter((x) => x.kind === 'slack-twig')
+            },
+        ],
         getIntegrationsByKind: [
             (s) => [s.integrations],
             (integrations) => {
@@ -251,11 +270,22 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return preflight?.slack_service?.available
             },
         ],
-
+        twigSlackAvailable: [
+            (s) => [s.preflight],
+            (preflight) => {
+                return preflight?.twig_slack_service?.available
+            },
+        ],
         getGitHubRepositories: [
             (s) => [s.githubRepositories],
             (githubRepositories) => {
-                return (integrationId: number) => githubRepositories[integrationId] || []
+                return (integrationId: number) => (githubRepositories[integrationId] || []).map((r) => r.name)
+            },
+        ],
+        getGitHubRepositoriesFull: [
+            (s) => [s.githubRepositories],
+            (githubRepositories) => {
+                return (integrationId: number): GitHubRepoApi[] => githubRepositories[integrationId] || []
             },
         ],
 

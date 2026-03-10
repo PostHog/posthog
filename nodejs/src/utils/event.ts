@@ -4,7 +4,7 @@ import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent 
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import { chainToElements } from './elements-chain'
 import { parseJSON } from './json-parse'
-import { clickHouseTimestampToDateTime } from './utils'
+import { clickHouseTimestampToDateTime, normalizeSessionId } from './utils'
 
 /** Parse an event row SELECTed from ClickHouse into a more malleable form. */
 export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHouseEvent {
@@ -126,6 +126,10 @@ export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): 
 
     if (event.sent_at) {
         properties['$sent_at'] = event.sent_at
+    }
+
+    if (typeof properties['$session_id'] === 'string') {
+        properties['$session_id'] = normalizeSessionId(properties['$session_id'])
     }
 
     event.properties = properties

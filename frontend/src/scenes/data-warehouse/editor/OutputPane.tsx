@@ -640,7 +640,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element | null {
     const {
         query,
-        visualizationType,
+        effectiveVisualizationType,
         showEditingUI,
         response,
         responseLoading,
@@ -665,7 +665,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <LoadingBar />
             </div>
         )
-    } else if (visualizationType === ChartDisplayType.ActionsTable) {
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
                 uniqueKey={props.uniqueKey}
@@ -676,10 +676,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             />
         )
     } else if (
-        visualizationType === ChartDisplayType.ActionsLineGraph ||
-        visualizationType === ChartDisplayType.ActionsBar ||
-        visualizationType === ChartDisplayType.ActionsAreaGraph ||
-        visualizationType === ChartDisplayType.ActionsStackedBar
+        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     ) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
@@ -688,16 +688,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
-                visualizationType={visualizationType}
+                visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
                 presetChartHeight={presetChartHeight}
             />
         )
-    } else if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+    } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
-    } else if (visualizationType === ChartDisplayType.BoldNumber) {
+    } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
 

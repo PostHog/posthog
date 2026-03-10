@@ -6,7 +6,7 @@ use sqlx::FromRow;
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::FeatureFlagStorage;
-use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext, HashKeyOverrideInput};
+use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
 
 #[derive(Debug, Clone, FromRow)]
 struct HashKeyOverrideContextRow {
@@ -114,10 +114,11 @@ impl FeatureFlagStorage for PostgresStorage {
     async fn upsert_hash_key_overrides(
         &self,
         team_id: i64,
-        overrides: &[HashKeyOverrideInput],
+        distinct_ids: &[String],
+        feature_flag_keys: &[String],
         hash_key: &str,
     ) -> StorageResult<i64> {
-        if overrides.is_empty() {
+        if distinct_ids.is_empty() || feature_flag_keys.is_empty() {
             return Ok(0);
         }
 
@@ -127,24 +128,21 @@ impl FeatureFlagStorage for PostgresStorage {
         )];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let person_ids: Vec<i64> = overrides.iter().map(|o| o.person_id).collect();
-        let flag_keys: Vec<&str> = overrides
-            .iter()
-            .map(|o| o.feature_flag_key.as_str())
-            .collect();
-
         let result = sqlx::query(
             r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-            SELECT $1, person_id, flag_key, $2
-            FROM UNNEST($3::bigint[], $4::text[]) AS t(person_id, flag_key)
+            SELECT $1, p.person_id, f.flag_key, $2
+            FROM posthog_persondistinctid p
+            CROSS JOIN UNNEST($4::text[]) AS f(flag_key)
+            WHERE p.team_id = $1 AND p.distinct_id = ANY($3)
+              AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
             ON CONFLICT DO NOTHING
             "#,
         )
         .bind(team_id)
         .bind(hash_key)
-        .bind(&person_ids)
-        .bind(&flag_keys)
+        .bind(distinct_ids)
+        .bind(feature_flag_keys)
         .execute(&self.primary_pool)
         .await?;
 

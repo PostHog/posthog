@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconGithub, IconLinear } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -12,7 +12,8 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import iconZendesk from 'public/services/zendesk.svg'
 
-import { inboxSceneLogic } from './inboxSceneLogic'
+import { signalSourcesLogic } from './signalSourcesLogic'
+import { SignalSourceConfigStatus } from './types'
 
 type SourceProps =
     | {
@@ -32,6 +33,7 @@ type SourceProps =
           configButtonLabel: string
           onConfigClick: () => void
           onClearClick?: () => void
+          statusSection?: React.ReactNode
       }
 
 function NotifyMeButton({ source }: { source: string }): JSX.Element {
@@ -70,22 +72,25 @@ function Source(props: SourceProps): JSX.Element {
                 </div>
                 <p className="text-xs text-secondary mt-0.25 mb-0">{props.description}</p>
                 {!isComingSoon && props.checked && (
-                    <div className="mt-2 border rounded">
-                        <div className="flex items-center justify-between px-2 pt-2">
-                            <span className="text-xs font-semibold text-secondary">Filters</span>
-                            <div className="flex items-center gap-1">
-                                {props.onClearClick && (
-                                    <LemonButton type="tertiary" size="xsmall" onClick={props.onClearClick}>
-                                        Clear
+                    <>
+                        <div className="mt-2 border rounded">
+                            <div className="flex items-center justify-between px-2 pt-2">
+                                <span className="text-xs font-semibold text-secondary">Filters</span>
+                                <div className="flex items-center gap-1">
+                                    {props.onClearClick && (
+                                        <LemonButton type="tertiary" size="xsmall" onClick={props.onClearClick}>
+                                            Clear
+                                        </LemonButton>
+                                    )}
+                                    <LemonButton type="secondary" size="xsmall" onClick={props.onConfigClick}>
+                                        {props.configButtonLabel}
                                     </LemonButton>
-                                )}
-                                <LemonButton type="secondary" size="xsmall" onClick={props.onConfigClick}>
-                                    {props.configButtonLabel}
-                                </LemonButton>
+                                </div>
                             </div>
+                            {props.configSection}
                         </div>
-                        {props.configSection}
-                    </div>
+                        {props.statusSection}
+                    </>
                 )}
             </div>
         </div>
@@ -96,9 +101,22 @@ function isNonEmptyFilters(obj: unknown): boolean {
     return obj != null && typeof obj === 'object' && Object.keys(obj as Record<string, unknown>).length > 0
 }
 
+function ClusteringStatusIndicator({ status }: { status: SignalSourceConfigStatus | null }): JSX.Element | null {
+    if (status === SignalSourceConfigStatus.RUNNING) {
+        return (
+            <div className="mt-2 flex items-center gap-2 rounded bg-accent-light text-xs text-accent">
+                <Spinner className="size-3.5" />
+                <span>Session analysis run in progress now… (est. 30 min)</span>
+            </div>
+        )
+    }
+    return null
+}
+
 export function SourcesList(): JSX.Element {
-    const { sessionAnalysisConfig } = useValues(inboxSceneLogic)
-    const { toggleSessionAnalysis, openSessionAnalysisSetup, clearSessionAnalysisFilters } = useActions(inboxSceneLogic)
+    const { sessionAnalysisConfig } = useValues(signalSourcesLogic)
+    const { toggleSessionAnalysis, openSessionAnalysisSetup, clearSessionAnalysisFilters } =
+        useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
     const hasNonEmptyFilters = isNonEmptyFilters(recordingFilters)
@@ -119,6 +137,7 @@ export function SourcesList(): JSX.Element {
                 configButtonLabel={recordingFilters ? 'Edit' : 'Configure'}
                 onConfigClick={openSessionAnalysisSetup}
                 onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
+                statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
                 configSection={
                     recordingFilters ? (
                         <RecordingsUniversalFiltersDisplay filters={recordingFilters} />

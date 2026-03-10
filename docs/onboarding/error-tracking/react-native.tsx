@@ -16,7 +16,9 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                 <CalloutBox type="fyi" title="Client-side configuration only">
                     <Markdown>
                         {dedent`
-                            This configuration is client-side only. Support for remote configuration in the [error tracking settings](https://app.posthog.com/settings/project-error-tracking#exception-autocapture) will be added in a future release.
+                            Support for remote configuration 
+                            in the [error tracking settings](https://app.posthog.com/settings/project-error-tracking#exception-autocapture)
+                            requires SDK version 4.35.0 or higher.
                         `}
                     </Markdown>
                 </CalloutBox>

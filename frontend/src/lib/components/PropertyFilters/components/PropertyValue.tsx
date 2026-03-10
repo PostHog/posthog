@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFeatures } from '@posthog/icons'
+import { IconFeatures, IconRefresh } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
@@ -14,8 +14,10 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
+import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorBetween, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 
@@ -45,6 +47,7 @@ export interface PropertyValueProps {
     preloadValues?: boolean
     forceSingleSelect?: boolean
     validationError?: string | null
+    showInlineValidationErrors?: boolean
 }
 
 export function PropertyValue({
@@ -65,6 +68,7 @@ export function PropertyValue({
     preloadValues = false,
     forceSingleSelect = false,
     validationError = null,
+    showInlineValidationErrors = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -75,12 +79,16 @@ export function PropertyValue({
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const isBetweenProperty = operator && isOperatorBetween(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
+    const { isRefreshing } = useValues(propertyValueLogic({ propertyKey, type: propertyDefinitionType }))
 
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+
+    const isNumericProperty =
+        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -130,10 +138,19 @@ export function PropertyValue({
     // (to avoid overwriting suggestions based on search input)
     useEffect(() => {
         if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
-            const orderedKeys = propertyOptions.values.map((v) => toString(v.name))
-            setInitialSuggestedValues({
-                set: new Set(orderedKeys),
-                orderedKeys,
+            const newKeys = propertyOptions.values.map((v) => toString(v.name))
+            setInitialSuggestedValues((prev) => {
+                // Merge new keys into existing ones so that values already shown are never removed
+                // from under the user's cursor when a background refresh arrives with a different list.
+                const merged = [...prev.orderedKeys]
+                const existingSet = new Set(prev.orderedKeys)
+                for (const key of newKeys) {
+                    if (!existingSet.has(key)) {
+                        merged.push(key)
+                        existingSet.add(key)
+                    }
+                }
+                return { set: existingSet, orderedKeys: merged }
             })
         }
     }, [propertyOptions?.status, propertyOptions?.values])
@@ -296,53 +313,93 @@ export function PropertyValue({
     // Disable comma splitting for user agent properties that contain commas in their values
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
 
-    return (
-        <LemonInputSelect
-            className={inputClassName}
-            data-attr="prop-val"
-            loading={propertyOptions?.status === 'loading'}
-            value={formattedValues}
-            mode={isMultiSelect ? 'multiple' : 'single'}
-            singleValueAsSnack
-            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
-            onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
-            onInputChange={onSearchTextChange}
-            placeholder={placeholder}
-            size={size}
-            disableCommaSplitting={isUserAgentProperty}
-            status={validationError ? 'danger' : 'default'}
-            title={
-                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
-                    ? 'Suggested values (last 7 days)'
-                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-                      ? 'Suggested values'
-                      : undefined
-            }
-            popoverClassName="max-w-200"
-            options={displayOptions.map(({ name: _name }, index) => {
-                const name = toString(_name)
-                const isSuggested = initialSuggestedValues.set.has(name)
-                return {
-                    key: name,
-                    label: name,
-                    value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
-                    labelComponent: (
-                        <span
-                            key={name}
-                            data-attr={'prop-val-' + index}
-                            className="ph-no-capture flex items-center gap-1.5"
-                            title={name}
-                        >
-                            {formatLabelContent(isFlagDependencyProperty ? _name : name)}
-                            {isSuggested && currentSearchInput.current && (
-                                <Tooltip title="Suggested value">
-                                    <IconFeatures className="text-muted shrink-0 w-4 h-4" />
-                                </Tooltip>
-                            )}
-                        </span>
-                    ),
+    const suggestionsLabel = PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+        ? 'Suggested values (last 7 days)'
+        : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+          ? 'Suggested values'
+          : null
+    const refreshDisabledReason =
+        propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
+    const titleNode = suggestionsLabel ? (
+        <span className="flex justify-between items-center gap-4">
+            {suggestionsLabel}
+            <LemonButton
+                size="xsmall"
+                icon={<IconRefresh />}
+                tooltip="Refresh values"
+                disabledReason={refreshDisabledReason}
+                onClick={() =>
+                    loadPropertyValues({
+                        endpoint,
+                        type: propertyDefinitionType,
+                        newInput: currentSearchInput.current || undefined,
+                        propertyKey,
+                        eventNames,
+                        properties: [],
+                        forceRefresh: true,
+                    })
                 }
-            })}
-        />
+                noPadding
+            />
+        </span>
+    ) : undefined
+
+    return (
+        <div>
+            <LemonInputSelect
+                className={inputClassName}
+                data-attr="prop-val"
+                loading={propertyOptions?.status === 'loading' || isRefreshing}
+                value={formattedValues}
+                mode={isMultiSelect ? 'multiple' : 'single'}
+                singleValueAsSnack
+                allowCustomValues={propertyOptions?.allowCustomValues ?? true}
+                inputTransform={
+                    isNumericProperty
+                        ? (input: string) => {
+                              // Only allow numeric characters, decimal point, and +/- signs
+                              return input.replace(/[^0-9+\-.]/g, '')
+                          }
+                        : undefined
+                }
+                onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+                onInputChange={onSearchTextChange}
+                placeholder={placeholder}
+                size={size}
+                disableCommaSplitting={isUserAgentProperty}
+                status={validationError ? 'danger' : 'default'}
+                title={titleNode}
+                popoverClassName="max-w-200"
+                options={displayOptions.map(({ name: _name }, index) => {
+                    const name = toString(_name)
+                    const isSuggested = initialSuggestedValues.set.has(name)
+                    return {
+                        key: name,
+                        label: name,
+                        value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
+                        labelComponent: (
+                            <span
+                                key={name}
+                                data-attr={'prop-val-' + index}
+                                className="ph-no-capture flex items-center gap-1.5"
+                                title={name}
+                            >
+                                {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                {isSuggested && currentSearchInput.current && (
+                                    <Tooltip title="Suggested value">
+                                        <IconFeatures className="text-muted shrink-0 w-4 h-4" />
+                                    </Tooltip>
+                                )}
+                            </span>
+                        ),
+                    }
+                })}
+            />
+            {showInlineValidationErrors && validationError && (
+                <div className="text-danger flex items-center gap-1 text-sm mt-1">
+                    <IconErrorOutline className="text-xl shrink-0" /> {validationError}
+                </div>
+            )}
+        </div>
     )
 }

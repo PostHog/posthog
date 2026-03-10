@@ -10,7 +10,7 @@ import { Thread } from 'scenes/max/Thread'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
-import { inboxSceneLogic } from './inboxSceneLogic'
+import { signalSourcesLogic } from './signalSourcesLogic'
 
 const INBOX_TAB_ID = 'inbox-setup'
 
@@ -88,7 +88,7 @@ function SessionAnalysisSetupChat(): JSX.Element {
 }
 
 export function SessionAnalysisSetup(): JSX.Element {
-    const { saveSessionAnalysisFilters } = useActions(inboxSceneLogic)
+    const { saveSessionAnalysisFilters } = useActions(signalSourcesLogic)
     const maxLogicProps = { tabId: INBOX_TAB_ID, onAcceptSessionFilters: saveSessionAnalysisFilters }
     const { threadLogicKey, conversation } = useValues(maxLogic(maxLogicProps))
 

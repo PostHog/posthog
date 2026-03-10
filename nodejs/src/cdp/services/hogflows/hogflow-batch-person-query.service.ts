@@ -1,4 +1,5 @@
-import { Hub, Team } from '~/types'
+import { InternalFetchService } from '~/common/services/internal-fetch'
+import { Team } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 
@@ -15,17 +16,13 @@ export interface BlastRadiusPersonsResponse {
     has_more: boolean
 }
 
-export interface HogFlowBatchPersonQueryServiceHub {
-    SITE_URL: string
-}
-
 /**
  * Service for querying persons via Django internal API for batch HogFlow processing.
  * Calls internal endpoints authenticated with INTERNAL_API_SECRET.
  * Endpoints: /internal/hog_flows/user_blast_radius and /internal/hog_flows/user_blast_radius_persons
  */
 export class HogFlowBatchPersonQueryService {
-    constructor(private hub: Pick<Hub, 'SITE_URL' | 'internalFetchService'>) {}
+    constructor(private internalFetchService: InternalFetchService) {}
 
     /**
      * Get count of users affected by filters
@@ -35,11 +32,12 @@ export class HogFlowBatchPersonQueryService {
         filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>,
         groupTypeIndex?: number
     ): Promise<BlastRadiusResponse> {
-        const url = `${this.hub.SITE_URL}/api/projects/${team.id}/internal/hog_flows/user_blast_radius`
+        // The /internal endpoints aren't exposed publicly and require INTERNAL_API_SECRET for authentication
+        const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius` as const
 
         try {
-            const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
-                url,
+            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
+                urlPath,
                 fetchParams: {
                     method: 'POST',
                     body: JSON.stringify({
@@ -50,7 +48,7 @@ export class HogFlowBatchPersonQueryService {
             })
 
             if (!fetchResponse || fetchError) {
-                logger.error('Error fetching blast radius from Django', { error: fetchError, url })
+                logger.error('Error fetching blast radius from Django', { error: fetchError, urlPath })
                 throw fetchError
             }
 
@@ -59,7 +57,7 @@ export class HogFlowBatchPersonQueryService {
                 logger.error('Failed to fetch blast radius from Django', {
                     status: fetchResponse.status,
                     error: errorText,
-                    url,
+                    urlPath,
                 })
                 throw new Error(`Failed to fetch blast radius: ${fetchResponse.status} ${errorText}`)
             }
@@ -68,7 +66,7 @@ export class HogFlowBatchPersonQueryService {
 
             return data
         } catch (error) {
-            logger.error('Error calling blast radius endpoint', { error, url })
+            logger.error('Error calling blast radius endpoint', { error, urlPath })
             throw error
         }
     }
@@ -85,11 +83,11 @@ export class HogFlowBatchPersonQueryService {
         groupTypeIndex?: number,
         cursor?: string | null
     ): Promise<BlastRadiusPersonsResponse> {
-        const url = `${this.hub.SITE_URL}/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons`
+        const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons` as const
 
         try {
-            const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
-                url,
+            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
+                urlPath,
                 fetchParams: {
                     method: 'POST',
                     body: JSON.stringify({
@@ -101,7 +99,7 @@ export class HogFlowBatchPersonQueryService {
             })
 
             if (!fetchResponse || fetchError) {
-                logger.error('Error fetching blast radius persons from Django', { error: fetchError, url })
+                logger.error('Error fetching blast radius persons from Django', { error: fetchError, urlPath })
                 throw fetchError
             }
 
@@ -110,7 +108,7 @@ export class HogFlowBatchPersonQueryService {
                 logger.error('Failed to fetch blast radius persons from Django', {
                     status: fetchResponse.status,
                     error: errorText,
-                    url,
+                    urlPath,
                 })
                 throw new Error(`Failed to fetch blast radius persons: ${fetchResponse.status} ${errorText}`)
             }
@@ -119,7 +117,7 @@ export class HogFlowBatchPersonQueryService {
 
             return data
         } catch (error) {
-            logger.error('Error calling blast radius persons endpoint', { error, url })
+            logger.error('Error calling blast radius persons endpoint', { error, urlPath })
             throw error
         }
     }

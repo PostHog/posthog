@@ -24,6 +24,13 @@ type SessionRecordingConfig struct {
 	MaxLRUEntries int `mapstructure:"max_lru_entries"`
 }
 
+type RedisConfig struct {
+	Address         string `mapstructure:"address"`
+	Port            string `mapstructure:"port"`
+	TLS             bool   `mapstructure:"tls"`
+	FlushIntervalMs int    `mapstructure:"flush_interval_ms"`
+}
+
 type Config struct {
 	Debug            bool `mapstructure:"debug"`
 	MMDB             MMDBConfig
@@ -33,6 +40,7 @@ type Config struct {
 	Postgres         PostgresConfig
 	JWT              JWTConfig
 	SessionRecording SessionRecordingConfig `mapstructure:"session_recording"`
+	Redis            RedisConfig
 }
 
 type KafkaConfig struct {
@@ -56,6 +64,7 @@ func InitConfigs(filename, configPath string) {
 	viper.SetDefault("kafka.group_id", "livestream")
 	viper.SetDefault("kafka.session_recording_enabled", true)
 	viper.SetDefault("session_recording.max_lru_entries", 2_000_000_000)
+	viper.SetDefault("redis.flush_interval_ms", 500)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -98,6 +107,12 @@ func InitConfigs(filename, configPath string) {
 
 	// Session recording settings
 	_ = viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
+
+	// Redis settings
+	_ = viper.BindEnv("redis.address")            // LIVESTREAM_REDIS_ADDRESS
+	_ = viper.BindEnv("redis.port")               // LIVESTREAM_REDIS_PORT
+	_ = viper.BindEnv("redis.tls")                // LIVESTREAM_REDIS_TLS
+	_ = viper.BindEnv("redis.flush_interval_ms")  // LIVESTREAM_REDIS_FLUSH_INTERVAL_MS
 }
 
 func LoadConfig() (*Config, error) {
@@ -144,6 +159,11 @@ func LoadConfig() (*Config, error) {
 	}
 	if config.Kafka.GroupID == "" {
 		return nil, errors.New("kafka.group_id must be set")
+	}
+
+	if config.Redis.FlushIntervalMs < 50 {
+		log.Printf("redis.flush_interval_ms=%d is below minimum 50, using default 500", config.Redis.FlushIntervalMs)
+		config.Redis.FlushIntervalMs = 500
 	}
 
 	return &config, nil

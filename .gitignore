@@ -134,6 +134,7 @@ posthog/management/commands/clear_demo_data.py
 
 # Ignore Claude Code settings
 .claude/settings.local.json
+.claude/worktrees/
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
@@ -172,8 +173,11 @@ agent-os/
 # MCP build files
 services/mcp/ui-apps-dist
 
-# Product skills
-.claude/skills/error-tracking
+# Product skills (synced by hogli sync:skill)
+.agents/skills/.gitignore
+
+# Test output
+junit.xml
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/

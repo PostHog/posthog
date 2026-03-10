@@ -2,7 +2,6 @@ from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
-import requests
 import posthoganalytics
 from rest_framework import mixins, request, serializers, viewsets
 from rest_framework.response import Response
@@ -11,6 +10,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.security.outbound_proxy import external_requests
 
 from ee.models.license import License, LicenseError
 
@@ -29,7 +29,7 @@ class LicenseSerializer(serializers.ModelSerializer):
         extra_kwargs = {"key": {"write_only": True}}
 
     def validate(self, data):
-        validation = requests.post("https://license.posthog.com/licenses/activate", data={"key": data["key"]})
+        validation = external_requests.post("https://license.posthog.com/licenses/activate", data={"key": data["key"]})
         resp = validation.json()
         user = self.context["request"].user
         if not validation.ok:
@@ -69,7 +69,9 @@ class LicenseViewSet(
 
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:
         license = get_object_or_404(License, pk=pk)
-        validation = requests.post("https://license.posthog.com/licenses/deactivate", data={"key": license.key})
+        validation = external_requests.post(
+            "https://license.posthog.com/licenses/deactivate", data={"key": license.key}
+        )
         validation.raise_for_status()
 
         has_another_valid_license = License.objects.filter(valid_until__gte=now()).exclude(pk=pk).exists()

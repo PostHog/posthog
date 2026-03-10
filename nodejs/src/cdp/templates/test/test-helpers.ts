@@ -10,8 +10,11 @@ import { defaultConfig } from '~/config/config'
 import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIPService, GeoIp } from '~/utils/geoip'
 
-import { Hub } from '../../../types'
+import { PluginsServerConfig } from '../../../types'
 import { HogExecutorService } from '../../services/hog-executor.service'
+import { HogInputsService } from '../../services/hog-inputs.service'
+import { EmailService } from '../../services/messaging/email.service'
+import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -164,7 +167,7 @@ export class TemplateTester {
     public template: HogFunctionTemplateCompiled
     private hogExecutor: HogExecutorService
     private nativeExecutor: NativeDestinationExecutorService
-    private mockHub: Hub
+    private mockHub: PluginsServerConfig
 
     private geoipService?: GeoIPService
     public geoIp?: GeoIp
@@ -179,8 +182,38 @@ export class TemplateTester {
 
         this.mockHub = { ...defaultConfig } as any
 
-        this.hogExecutor = new HogExecutorService(this.mockHub)
+        this.hogExecutor = this.createHogExecutor()
         this.nativeExecutor = new NativeDestinationExecutorService(defaultConfig)
+    }
+
+    private createHogExecutor(): HogExecutorService {
+        const config = this.mockHub
+        const hogInputsService = new HogInputsService(undefined as any, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+        const emailService = new EmailService(
+            {
+                sesAccessKeyId: config.SES_ACCESS_KEY_ID,
+                sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
+                sesRegion: config.SES_REGION,
+                sesEndpoint: config.SES_ENDPOINT,
+            },
+            undefined as any,
+            config.ENCRYPTION_SALT_KEYS,
+            config.SITE_URL
+        )
+        const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+        return new HogExecutorService(
+            {
+                hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                fetchRetries: config.CDP_FETCH_RETRIES,
+                fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+                fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+            },
+            { teamManager: undefined as any, siteUrl: config.SITE_URL },
+            hogInputsService,
+            emailService,
+            recipientTokensService
+        )
     }
 
     private getExecutor(): HogExecutorService | NativeDestinationExecutorService {
@@ -206,7 +239,7 @@ export class TemplateTester {
             bytecode: await compileHog(this._template.code),
         }
 
-        this.hogExecutor = new HogExecutorService(this.mockHub)
+        this.hogExecutor = this.createHogExecutor()
         this.nativeExecutor = new NativeDestinationExecutorService(this.mockHub)
     }
 

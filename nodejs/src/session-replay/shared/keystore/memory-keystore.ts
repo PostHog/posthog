@@ -8,7 +8,7 @@ import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
  */
 export class MemoryKeyStore implements KeyStore {
     private keystore = new Map<string, SessionKey>()
-    private deletedKeys = new Map<string, number>()
+    private deletedKeys = new Map<string, { deletedAt: number; deletedBy: string }>()
 
     async start(): Promise<void> {
         await sodium.ready
@@ -26,13 +26,14 @@ export class MemoryKeyStore implements KeyStore {
     }
 
     getKey(sessionId: string, teamId: number): Promise<SessionKey> {
-        const deletedAt = this.deletedKeys.get(`${teamId}:${sessionId}`)
-        if (deletedAt) {
+        const deleted = this.deletedKeys.get(`${teamId}:${sessionId}`)
+        if (deleted) {
             return Promise.resolve({
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 sessionState: 'deleted',
-                deletedAt,
+                deletedAt: deleted.deletedAt,
+                deletedBy: deleted.deletedBy,
             })
         }
 
@@ -47,15 +48,19 @@ export class MemoryKeyStore implements KeyStore {
         return Promise.resolve(sessionKey)
     }
 
-    deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
-        const existingDeletedAt = this.deletedKeys.get(`${teamId}:${sessionId}`)
-        if (existingDeletedAt) {
-            return Promise.resolve({ deleted: false, reason: 'already_deleted', deletedAt: existingDeletedAt })
+    deleteKey(sessionId: string, teamId: number, deletedBy: string): Promise<DeleteKeyResult> {
+        const existing = this.deletedKeys.get(`${teamId}:${sessionId}`)
+        if (existing) {
+            return Promise.resolve({
+                status: 'already_deleted',
+                deletedAt: existing.deletedAt,
+                deletedBy: existing.deletedBy,
+            })
         }
         this.keystore.delete(`${teamId}:${sessionId}`)
         const deletedAt = Math.floor(Date.now() / 1000)
-        this.deletedKeys.set(`${teamId}:${sessionId}`, deletedAt)
-        return Promise.resolve({ deleted: true, deletedAt })
+        this.deletedKeys.set(`${teamId}:${sessionId}`, { deletedAt, deletedBy })
+        return Promise.resolve({ status: 'deleted', deletedAt, deletedBy })
     }
 
     stop(): void {}

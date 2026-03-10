@@ -63,7 +63,7 @@ const ProductSubscribed = ({ product }: { product: BillingProductV2Type }): JSX.
 
             {/* Text Below */}
             <h3 className="text-2xl font-bold mt-6">Go forth and build amazing products!</h3>
-            <p className="text-gray-700">
+            <p className="text-gray-700 dark:text-gray-400">
                 You've unlocked all features for <strong>{product.name}</strong>.
             </p>
         </div>

@@ -23,7 +23,6 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -81,18 +80,14 @@ export function TaxonomicPropertyFilter({
     hogQLGlobals,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
-    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
     const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
-    const groupTypes = showQuickFilters
-        ? [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
-        : baseGroupTypes
-    const taxonomicOnChange: (
-        group: TaxonomicFilterGroup,
-        value: TaxonomicFilterValue,
-        item: any,
-        originalQuery?: string
-    ) => void = (taxonomicGroup, value, item, originalQuery) => {
-        selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
+    const groupTypes = [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
+    const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
+        taxonomicGroup,
+        value,
+        item
+    ) => {
+        selectItem(taxonomicGroup, value, item?.propertyFilterType, item)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
             taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters

@@ -10,7 +10,6 @@ Endpoints:
 """
 
 import time
-from typing import cast
 
 from django.core.cache import cache
 
@@ -25,7 +24,6 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
     LLMAnalyticsSummarizationBurstThrottle,
@@ -36,6 +34,7 @@ from posthog.rate_limit import (
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.models import SummarizationMode
+from products.llm_analytics.backend.summarization.utils import get_summary_cache_key
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
     format_event_text_repr,
@@ -178,8 +177,7 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             mode: Summary detail level ('minimal' or 'detailed')
             model: LLM model
         """
-        model_key = model or "default"
-        return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}:{model_key}"
+        return get_summary_cache_key(self.team_id, summarize_type, entity_id, mode, model)
 
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.
@@ -419,7 +417,7 @@ The response includes the summary text and optional metadata.
 
             # Track user action
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma summarization generated",
                 {
                     "summarize_type": summarize_type,
@@ -429,7 +427,8 @@ The response includes the summary text and optional metadata.
                     "force_refresh": force_refresh,
                     "duration_seconds": duration_seconds,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
             return Response(result, status=status.HTTP_200_OK)

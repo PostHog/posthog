@@ -5,6 +5,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { urls } from 'scenes/urls'
@@ -20,7 +22,7 @@ const getSlackAppManifest = (): any => ({
     features: {
         app_home: {
             home_tab_enabled: false,
-            messages_tab_enabled: false,
+            messages_tab_enabled: true,
             messages_tab_read_only_enabled: true,
         },
         bot_user: {
@@ -32,13 +34,26 @@ const getSlackAppManifest = (): any => ({
     oauth_config: {
         redirect_urls: [`${window.location.origin.replace('http://', 'https://')}/integrations/slack/callback`],
         scopes: {
-            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
+            bot: [
+                'app_mentions:read',
+                'channels:history',
+                'channels:read',
+                'chat:write',
+                'groups:history',
+                'links:read',
+                'links:write',
+                'reactions:read',
+                'reactions:write',
+                'team:read',
+                'users:read',
+                'users:read.email',
+            ],
         },
     },
     settings: {
         event_subscriptions: {
-            request_url: `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`,
-            bot_events: ['link_shared'],
+            request_url: `${window.location.origin.replace('http://', 'https://')}/slack/event-callback`,
+            bot_events: ['app_mention', 'link_shared'],
         },
         org_deploy_enabled: false,
         socket_mode_enabled: false,
@@ -50,6 +65,14 @@ export function SlackIntegration(): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    if (restrictedReason) {
+        return <p>{restrictedReason}</p>
+    }
 
     return (
         <div>

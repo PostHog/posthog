@@ -300,7 +300,7 @@ export class SessionBatchRecorder {
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
 
-                    const encryptedBuffer = this.encryptor.encryptBlockWithKey(
+                    const { data: encryptedBuffer } = this.encryptor.encryptBlockWithKey(
                         sessionBlockRecorder.sessionId,
                         sessionBlockRecorder.teamId,
                         buffer,

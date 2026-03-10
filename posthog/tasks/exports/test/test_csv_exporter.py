@@ -53,7 +53,7 @@ regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%2
 class TestCSVExporter(APIBaseTest):
     @pytest.fixture(autouse=True)
     def patched_request(self):
-        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+        with patch("posthog.tasks.exports.csv_exporter.external_requests.request") as patched_request:
             mock_response = Mock()
             mock_response.status_code = 200
             # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
@@ -301,7 +301,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
-    @patch("requests.request")
+    @patch("posthog.tasks.exports.csv_exporter.external_requests.request")
     def test_csv_exporter_limits_breakdown_insights_correctly(
         self, mocked_request, mocked_object_storage_write, mocked_uuidt
     ) -> None:
@@ -324,7 +324,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.tasks.exports.csv_exporter.logger")
     def test_failing_export_api_is_reported(self, _mock_logger: MagicMock) -> None:
-        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+        with patch("posthog.tasks.exports.csv_exporter.external_requests.request") as patched_request:
             exported_asset = self._create_asset()
             mock_response = MagicMock()
             mock_response.status_code = 403
@@ -1539,7 +1539,7 @@ class TestCSVExporter(APIBaseTest):
         self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
     ) -> None:
         """Test that Excel export handles data with illegal XML characters without crashing."""
-        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+        with patch("posthog.tasks.exports.csv_exporter.external_requests.request") as patched_request:
             mock_response = Mock()
             mock_response.status_code = 200
             # Data containing control characters that would normally crash openpyxl

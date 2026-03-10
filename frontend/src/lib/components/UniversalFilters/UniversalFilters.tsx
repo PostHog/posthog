@@ -158,8 +158,8 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
         <LemonDropdown
             overlay={
                 <TaxonomicFilter
-                    onChange={(taxonomicGroup, value, item, originalQuery) => {
-                        addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                    onChange={(taxonomicGroup, value, item) => {
+                        addGroupFilter(taxonomicGroup, value, item)
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
@@ -193,9 +193,9 @@ const PureTaxonomicFilter = ({
     return (
         <TaxonomicFilter
             {...(fullWidth ? { width: '100%' } : {})}
-            onChange={(taxonomicGroup, value, item, originalQuery) => {
+            onChange={(taxonomicGroup, value, item) => {
                 onChange()
-                addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                addGroupFilter(taxonomicGroup, value, item)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}
         />

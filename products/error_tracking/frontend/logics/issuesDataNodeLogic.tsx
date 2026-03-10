@@ -82,11 +82,15 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                 (count: number, group: any) => count + (group?.values?.length ?? 0),
                 0
             )
+            const sortBy = query?.orderBy ?? null
+            const sortDirection = query?.orderDirection ?? null
             posthog.capture('error_tracking_issue_list_loaded', {
                 duration_ms: durationMs,
                 result_count: (results as ErrorTrackingIssue[]).length,
                 is_cached: response?.is_cached ?? null,
                 filter_count: filterCount,
+                sort_by: sortBy,
+                sort_direction: sortDirection,
             })
         },
         // optimistically update local results

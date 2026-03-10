@@ -5,6 +5,7 @@ from posthog.settings.utils import get_from_env, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
 TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "127.0.0.1")
+TEMPORAL_UI_HOST: str = os.getenv("TEMPORAL_UI_HOST", "http://localhost:8081" if DEBUG else "https://cloud.temporal.io")
 TEMPORAL_PORT: str = os.getenv("TEMPORAL_PORT", "7233")
 TEMPORAL_CLIENT_ROOT_CA: str | None = os.getenv("TEMPORAL_CLIENT_ROOT_CA", None)
 TEMPORAL_CLIENT_CERT: str | None = os.getenv("TEMPORAL_CLIENT_CERT", None)
@@ -36,6 +37,7 @@ SANDBOX_PROVIDER: str | None = get_from_env(
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
+SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)

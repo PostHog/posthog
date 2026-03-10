@@ -11,7 +11,7 @@ from .base import EventDefinitionGenerator
 
 class PythonGenerator(EventDefinitionGenerator):
     def generator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def language_name(self) -> str:
         return "Python"
@@ -106,8 +106,12 @@ from posthog.args import OptionalCaptureArgs
         """Capture a `{escaped_event_name}` event."""
         return self.capture("{escaped_event_name}", properties=extra_properties, **kwargs)'''
 
-        required_props = sorted([p for p in properties if p.is_required], key=lambda p: p.name)
-        optional_props = sorted([p for p in properties if not p.is_required], key=lambda p: p.name)
+        required_props = sorted(
+            [p for p in properties if p.is_required and not p.is_optional_in_types], key=lambda p: p.name
+        )
+        optional_props = sorted(
+            [p for p in properties if not p.is_required or p.is_optional_in_types], key=lambda p: p.name
+        )
 
         used_names: set[str] = set()
         param_lines: list[str] = []

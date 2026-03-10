@@ -160,6 +160,16 @@ git tag --contains COMMIT_HASH | sort -V | head -1
 
 **CRITICAL**: Having a field in a data model does NOT mean the feature is implemented. You must check the actual filtering/matching logic.
 
+**SDK rendering capabilities:**
+
+- **posthog-js (browser)**: Built-in survey rendering (HTML/CSS popup)
+- **posthog-react-native**: Built-in survey rendering (React Native components in `packages/react-native/src/surveys/`)
+- **posthog-ios**: Built-in survey rendering (SwiftUI views in `PostHog/Surveys/` — `SurveySheet.swift`, `QuestionTypes.swift`, `MultipleChoiceOptions.swift`)
+- **posthog-android**: **No built-in UI** — pure delegate pattern. Exposes display models (`PostHogDisplaySurvey`, `PostHogDisplayChoiceQuestion`, etc.) for developers to render themselves. Use `issue: false` for rendering-only features.
+- **posthog-flutter**: Built-in survey rendering (Flutter widgets in `lib/src/surveys/widgets/` — `survey_bottom_sheet.dart`, `choice_question.dart`)
+
+For SDKs with built-in rendering, a feature must be **actually implemented in the rendering code**, not just present as a field on the data model. For Android (delegate-only), exposing the field on the display model is sufficient — mark as `issue: false` with a comment.
+
 Key files to check for survey filtering logic:
 
 - **posthog-js (browser)**: `$POSTHOG_JS_PATH/packages/browser/src/extensions/surveys/surveys-extension-utils.tsx` - utility functions like `canActivateRepeatedly`, `getSurveySeen`, `hasEvents`
@@ -179,10 +189,19 @@ Key files to check for survey filtering logic:
 
 **Example pitfall 2**: The browser `canActivateRepeatedly` checks THREE conditions: (1) event repeatedActivation, (2) `schedule === 'always'`, (3) survey in progress. Mobile SDKs may only check condition (1), missing the `schedule` check entirely.
 
+**Key files to check for survey rendering logic:**
+
+- **posthog-js (browser)**: `$POSTHOG_JS_PATH/packages/browser/src/extensions/surveys/surveys-extension-utils.tsx` - `getDisplayOrderQuestions()`, `getDisplayOrderChoices()`
+- **posthog-react-native**: `$POSTHOG_JS_PATH/packages/react-native/src/surveys/surveys-utils.ts` - `getDisplayOrderQuestions()`, `getDisplayOrderChoices()`
+- **posthog-ios**: `$POSTHOG_IOS_PATH/PostHog/Surveys/QuestionTypes.swift` - `SingleChoiceQuestionView`, `MultipleChoiceQuestionView`; `$POSTHOG_IOS_PATH/PostHog/Surveys/SurveySheet.swift` - question ordering
+- **posthog-android**: No built-in UI — only check display model exposure in `$POSTHOG_ANDROID_PATH/posthog/src/main/java/com/posthog/surveys/PostHogDisplaySurveyQuestion.kt` and `PostHogDisplaySurveyAppearance.kt`
+- **posthog-flutter**: `$POSTHOG_FLUTTER_PATH/lib/src/surveys/widgets/survey_bottom_sheet.dart` - question ordering; `$POSTHOG_FLUTTER_PATH/lib/src/surveys/widgets/choice_question.dart` - choice rendering
+
 What to look for:
 
 - Is the field parsed from JSON into the model? (necessary but not sufficient)
 - Is the field used in filtering logic like `getActiveMatchingSurveys()`?
+- **For rendering features**: Is the field actually used by the built-in UI? (check rendering code, not just data models)
 - Does the logic match the reference implementation behavior?
 - Test files don't count as implementation
 
@@ -310,6 +329,7 @@ Before finishing the audit, verify all steps are complete:
 - [ ] **Search for existing issues** - Before creating new ones
 - [ ] **Create GitHub issues** - For any unsupported SDKs (with proper labels)
 - [ ] **Update surveyVersionRequirements.ts** - Fix versions and add issue links to unsupportedSdks
+- [ ] **Regenerate SDK parity docs** - Run `pnpm --filter=@posthog/frontend build:survey-sdk-docs` to update `docs/published/docs/surveys/sdk-feature-support.mdx`
 - [ ] **Update tracking issue** - Add new issues to https://github.com/PostHog/posthog/issues/45658
 
 ## Common Pitfalls
@@ -321,6 +341,8 @@ Before finishing the audit, verify all steps are complete:
 5. **Flutter inherits from native** - its "support" depends on iOS/Android SDK versions it requires
 6. **Always search for existing issues first** - before creating new GitHub issues
 7. **Compare utility function implementations** - functions like `canActivateRepeatedly` may have different logic across SDKs; browser is the source of truth
+8. **Built-in UI ≠ delegate** - iOS, React Native, and Flutter have built-in survey rendering; Android is delegate-only (no built-in UI). A field on the display model is sufficient for Android (`issue: false`) but for SDKs with built-in rendering, the rendering code must actually use the field
+9. **Check rendering code, not just models** - e.g., iOS exposes `shuffleOptions` on `PostHogDisplayChoiceQuestion` but the SwiftUI `QuestionTypes.swift` completely ignores it when rendering choices
 
 ## Post-Audit: Skill Improvement
 

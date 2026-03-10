@@ -25,7 +25,7 @@ from .core_event import CoreEvent
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
-from ..ducklake.models import DuckLakeCatalog
+from ..ducklake.models import DuckgresServer, DuckLakeCatalog
 from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
@@ -93,6 +93,8 @@ from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
+from .repo_routing_rule import RepoRoutingRule
+from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .web_analytics_filter_preset import WebAnalyticsFilterPreset
@@ -129,6 +131,7 @@ __all__ = [
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
+    "DuckgresServer",
     "DuckLakeCatalog",
     "Element",
     "ElementGroup",
@@ -226,6 +229,8 @@ __all__ = [
     "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",
+    "RepoRoutingRule",
+    "UserRepoPreference",
     "UserScenePersonalisation",
     "UserHomeSettings",
     "UserManager",

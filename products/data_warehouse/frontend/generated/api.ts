@@ -615,6 +615,27 @@ export const externalDataSourcesJobsRetrieve = async (
 }
 
 /**
+ * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).
+ */
+export const getExternalDataSourcesRefreshSchemasCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/refresh_schemas/`
+}
+
+export const externalDataSourcesRefreshSchemasCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesRefreshSchemasCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const getExternalDataSourcesReloadCreateUrl = (projectId: string, id: string) => {
@@ -1308,6 +1329,9 @@ export const warehouseTablesFileCreate = async (
     formData.append(`format`, tableApi.format)
     formData.append(`url_pattern`, tableApi.url_pattern)
     formData.append(`credential`, JSON.stringify(tableApi.credential))
+    if (tableApi.options !== undefined) {
+        formData.append(`options`, JSON.stringify(tableApi.options))
+    }
 
     return apiMutator<void>(getWarehouseTablesFileCreateUrl(projectId), {
         ...options,

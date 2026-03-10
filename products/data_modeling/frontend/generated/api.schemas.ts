@@ -31,6 +31,7 @@ export interface PaginatedEdgeListApi {
  * * `table` - Table
  * `view` - View
  * `matview` - Mat View
+ * `endpoint` - Endpoint
  */
 export type NodeTypeEnumApi = (typeof NodeTypeEnumApi)[keyof typeof NodeTypeEnumApi]
 
@@ -38,6 +39,7 @@ export const NodeTypeEnumApi = {
     Table: 'table',
     View: 'view',
     Matview: 'matview',
+    Endpoint: 'endpoint',
 } as const
 
 export interface NodeApi {
@@ -45,6 +47,8 @@ export interface NodeApi {
     /** @maxLength 2048 */
     name: string
     type?: NodeTypeEnumApi
+    /** @maxLength 1024 */
+    description?: string
     /** @maxLength 256 */
     dag_id_text?: string
     /** @nullable */

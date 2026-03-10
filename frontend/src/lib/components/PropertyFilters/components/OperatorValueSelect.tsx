@@ -223,9 +223,9 @@ export function OperatorValueSelect({
                                 onChange(newOperator, null)
                             } else if (
                                 isOperatorDate(newOperator) &&
-                                !isOperatorDate(currentOperator || PropertyOperator.Exact)
+                                (Array.isArray(value) || !dayjs(value as string).isValid())
                             ) {
-                                // Switching to a date operator from a non-date operator: clear the value
+                                // If the new operator is date and the value is not a valid date, clear it
                                 onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
                                 onChange(newOperator, newOperator)

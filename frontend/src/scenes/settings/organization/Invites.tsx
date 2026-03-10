@@ -141,7 +141,7 @@ export function Invites(): JSX.Element {
         scope: RestrictionScope.Organization,
     })
 
-    const userCannotInvite = restrictionReason && !currentOrganization?.members_can_invite
+    const userCannotInvite = restrictionReason || !currentOrganization?.members_can_invite
 
     return (
         <div className="deprecated-space-y-4">

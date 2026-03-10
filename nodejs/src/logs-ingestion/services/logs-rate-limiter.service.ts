@@ -1,6 +1,8 @@
-import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
-import { Hub } from '~/types'
+import { Histogram } from 'prom-client'
 
+import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+
+import { LogsIngestionConsumerConfig } from '../config'
 import { LogsIngestionMessage } from '../types'
 
 /** Convert milliseconds to seconds */
@@ -9,9 +11,14 @@ const msToSeconds = (ms: number): number => Math.round(ms / 1000)
 /** Convert bytes to kilobytes (rounded up) */
 const bytesToKb = (bytes: number): number => Math.ceil(bytes / 1000)
 
-/** Narrowed Hub type for LogsRateLimiterService */
-export type LogsRateLimiterServiceHub = Pick<
-    Hub,
+export const logsMessageLagHistogram = new Histogram({
+    name: 'logs_rate_limiter_message_lag_seconds',
+    help: 'Lag between message observed timestamp and wall clock time (seconds)',
+    buckets: [-60, 0, 1, 5, 10, 30, 60, 300, 600, 1800, 3600],
+})
+
+export type LogsRateLimiterConfig = Pick<
+    LogsIngestionConsumerConfig,
     | 'LOGS_LIMITER_TEAM_BUCKET_SIZE_KB'
     | 'LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND'
     | 'LOGS_LIMITER_DISABLED_FOR_TEAMS'
@@ -48,13 +55,13 @@ export class LogsRateLimiterService {
     private enabledTeamIds: Set<number> | '*' | null
 
     constructor(
-        private hub: LogsRateLimiterServiceHub,
+        private config: LogsRateLimiterConfig,
         private redis: RedisV2
     ) {
-        this.teamBucketSizes = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
-        this.teamRefillRates = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
-        this.disabledTeamIds = this.parseTeamIdList(hub.LOGS_LIMITER_DISABLED_FOR_TEAMS)
-        this.enabledTeamIds = this.parseTeamIdList(hub.LOGS_LIMITER_ENABLED_TEAMS)
+        this.teamBucketSizes = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
+        this.teamRefillRates = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
+        this.disabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_DISABLED_FOR_TEAMS)
+        this.enabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_ENABLED_TEAMS)
     }
 
     private parseTeamIdList(config: string): Set<number> | '*' | null {
@@ -99,9 +106,9 @@ export class LogsRateLimiterService {
             `${REDIS_KEY_TOKENS}/${id}`,
             nowSeconds,
             cost,
-            this.teamBucketSizes.get(teamId) ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB,
-            this.teamRefillRates.get(teamId) ?? this.hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
-            this.hub.LOGS_LIMITER_TTL_SECONDS,
+            this.teamBucketSizes.get(teamId) ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB,
+            this.teamRefillRates.get(teamId) ?? this.config.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
+            this.config.LOGS_LIMITER_TTL_SECONDS,
         ]
     }
 
@@ -144,8 +151,8 @@ export class LogsRateLimiterService {
 
         return idCosts.map(([id, ,], index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const tokensBefore = Number(tokenRes[1]?.[0] ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB)
-            const tokensAfter = Number(tokenRes[1]?.[1] ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB)
+            const tokensBefore = Number(tokenRes[1]?.[0] ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB)
+            const tokensAfter = Number(tokenRes[1]?.[1] ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB)
             return [
                 id,
                 {
@@ -181,8 +188,16 @@ export class LogsRateLimiterService {
         // Group messages by team to calculate total cost per team (only for teams with rate limiting enabled)
         const teamCosts = new Map<number, number>()
         const teamTimestamps = new Map<number, number>()
+        const teamOldestTimestamps = new Map<number, number>()
 
         for (const message of messages) {
+            const messageTimestamp = this.getTimestampFromMessage(message)
+
+            const existing = teamOldestTimestamps.get(message.teamId)
+            if (existing === undefined || messageTimestamp < existing) {
+                teamOldestTimestamps.set(message.teamId, messageTimestamp)
+            }
+
             if (!this.isRateLimitingEnabledForTeam(message.teamId)) {
                 continue
             }
@@ -191,10 +206,16 @@ export class LogsRateLimiterService {
             const costKb = bytesToKb(message.bytesUncompressed)
             teamCosts.set(message.teamId, currentCost + costKb)
 
-            // Store the timestamp for this team (use the first message's timestamp)
+            // Store the first message's timestamp for rate limiting
             if (!teamTimestamps.has(message.teamId)) {
-                teamTimestamps.set(message.teamId, this.getTimestampFromMessage(message))
+                teamTimestamps.set(message.teamId, messageTimestamp)
             }
+        }
+
+        // Track how far behind wall clock the messages are (using oldest per team for worst-case lag)
+        const nowSeconds = msToSeconds(Date.now())
+        for (const [, timestamp] of teamOldestTimestamps) {
+            logsMessageLagHistogram.observe(nowSeconds - timestamp)
         }
 
         // Check rate limits for all teams

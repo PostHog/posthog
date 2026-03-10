@@ -18,7 +18,7 @@ export type LinkedHogFunctionsProps = {
     queryParams?: Record<string, string>
 }
 
-const getFiltersFromSubTemplateId = (
+export const getFiltersFromSubTemplateId = (
     subTemplateId: HogFunctionSubTemplateIdType
 ): CyclotronJobFiltersType | undefined => {
     const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]

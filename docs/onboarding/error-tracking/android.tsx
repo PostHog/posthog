@@ -16,9 +16,9 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 <CalloutBox type="fyi" title="Client-side configuration only">
                     <Markdown>
                         {dedent`
-                            This configuration is client-side only. Support for remote configuration 
+                            Support for remote configuration 
                             in the [error tracking settings](https://app.posthog.com/settings/project-error-tracking#exception-autocapture) 
-                            will be added in a future release.
+                            requires SDK version 3.32.0 or higher.
                         `}
                     </Markdown>
                 </CalloutBox>

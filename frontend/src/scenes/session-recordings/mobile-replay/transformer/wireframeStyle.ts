@@ -1,4 +1,5 @@
 import { wireframe, wireframeProgress } from '../mobile.types'
+// eslint-disable-next-line import/no-cycle
 import { dataURIOrPNG } from './transformers'
 import { StyleOverride } from './types'
 

@@ -59,7 +59,7 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Code quality
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
               with:
@@ -72,7 +72,7 @@ jobs:
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version: 24.13.0
                   cache: pnpm
@@ -96,7 +96,7 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Build
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
               with:
@@ -109,7 +109,7 @@ jobs:
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version: 24.13.0
                   cache: pnpm
@@ -141,7 +141,7 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Tests (${{matrix.shard}}/3)
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30 # We know tests don't take this long
 
         strategy:
@@ -168,8 +168,8 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile localstack down
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile localstack up -d
 
             - name: Wait for Docker services
               run: bin/wait-for-docker
@@ -178,7 +178,7 @@ jobs:
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
 
@@ -223,7 +223,7 @@ jobs:
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version: 24.13.0
                   cache: pnpm
@@ -245,13 +245,17 @@ jobs:
 
             - name: Fetch base branch for diff
               if: github.event_name == 'pull_request'
-              run: git fetch origin ${{ github.base_ref }} --depth=1
+              env:
+                  BASE_REF: ${{ github.base_ref }}
+              run: git fetch origin "$BASE_REF" --depth=1
 
             - name: Check for migrations in this PR
               id: check_migrations
               if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.base_ref }}
               run: |
-                  if git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -E '(migrations/|rust/.*migrate)'; then
+                  if git diff --name-only "origin/$BASE_REF..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
                     echo "has_migrations=true" >> $GITHUB_OUTPUT
                   else
                     echo "has_migrations=false" >> $GITHUB_OUTPUT
@@ -281,6 +285,9 @@ jobs:
                   # Run Rust migrations for test databases
                   cd nodejs && pnpm run setup:test:rust
 
+                  # Create dedicated persons database for postgres-parity tests
+                  pnpm run setup:test:persons-parity
+
                   # Set up ClickHouse test database and schema
                   cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
 
@@ -291,7 +298,10 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-              run: pnpm --filter=@posthog/nodejs setup:test
+              run: |
+                  pnpm --filter=@posthog/nodejs setup:test
+                  # Create dedicated persons database for postgres-parity tests
+                  cd nodejs && pnpm run setup:test:persons-parity
 
             - name: Test with Jest
               env:
@@ -308,6 +318,18 @@ jobs:
                   # Enable localstack integration tests for DynamoDB/KMS
                   LOCALSTACK_ENABLED: '1'
               run: bin/turbo run test --filter=@posthog/nodejs
+
+            - name: Test postgres-parity (isolated DB)
+              if: (success() || failure()) && matrix.shard == 1
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
+                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
+                  REDIS_URL: 'redis://localhost'
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+                  LOG_LEVEL: info
+              run: cd nodejs && pnpm run test:postgres-parity
 
             - name: Output logs on failure
               if: failure()

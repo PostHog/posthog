@@ -3,6 +3,7 @@ import time
 import uuid
 import random
 import urllib
+import builtins
 import dataclasses
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
@@ -41,7 +42,12 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    EventValuesBurstThrottle,
+    EventValuesSustainedThrottle,
+)
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, generate_short_id, relative_date_parse
 
@@ -161,6 +167,11 @@ class EventViewSet(
     serializer_class = ClickhouseEventSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     pagination_class = UncountedLimitOffsetPagination
+
+    def get_throttles(self):
+        if self.action == "values":
+            return [EventValuesBurstThrottle(), EventValuesSustainedThrottle()]
+        return super().get_throttles()
 
     def _build_next_url(
         self,
@@ -441,6 +452,15 @@ class EventViewSet(
         event_names = request.GET.getlist("event_name", None)
         has_event_name = bool(event_names and len(event_names) > 0)
         is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+
+        # Reject personal API key requests without event_name filter
+        if is_personal_api_key and not has_event_name:
+            raise serializers.ValidationError(
+                "The event_name parameter is required when using a personal API key. "
+                "For queries without event filters, please use the Query endpoint instead: "
+                "https://posthog.com/docs/api/query"
+            )
+
         EVENT_VALUES_COUNTER.labels(
             has_event_name=str(has_event_name),
             auth="personal_api_key" if is_personal_api_key else "app",
@@ -455,19 +475,31 @@ class EventViewSet(
             value=request.GET.get("value"),
         )
 
+        force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
+
         if key == "custom_event":
             return self._custom_event_values(query_params)
         else:
             # Check if this property is hidden (enterprise feature)
             if self._is_property_hidden(key, team):
-                return self._return_with_short_cache([])
+                return self._return_with_short_cache([], refreshing=False)
 
-            return self._event_property_values(query_params)
+            return self._event_property_values(query_params, force_refresh=force_refresh)
 
     def _event_property_values(
         self,
         query_params: EventValueQueryParams,
+        force_refresh: bool = False,
     ) -> response.Response:
+        from posthog.hogql_queries.property_values_query_runner import (
+            CachedPropertyValuesQueryResponse,
+            PropertyType,
+            PropertyValuesQuery,
+            PropertyValuesQueryResponse,
+            PropertyValuesQueryRunner,
+        )
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
         with tracer.start_as_current_span("events_api_event_property_values") as span:
             span.set_attribute("team_id", query_params.team.pk)
             span.set_attribute("property_key", query_params.key)
@@ -475,100 +507,144 @@ class EventViewSet(
             span.set_attribute("has_value_filter", query_params.value is not None)
             span.set_attribute("event_names_count", len(query_params.event_names) if query_params.event_names else 0)
 
-            date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-            date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
-
-            chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
-            conditions: list[ast.Expr] = [
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=date_from),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=date_to),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=chain),
-                    right=ast.Constant(value=None),
-                ),
+            property_filters = [
+                (param_key, param_value)
+                for param_key, param_value in query_params.items
+                if param_key.startswith("properties_") and isinstance(param_value, str)
             ]
-            # Handle property filters from query parameters
-            property_filter_count = 0
-            for param_key, param_value in query_params.items:
-                if param_key.startswith("properties_"):
-                    property_filter_count += 1
-                    property_key = param_key.replace("properties_", "", 1)
-                    try:
-                        # Expect properly encoded JSON from frontend
-                        property_values = (
-                            json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
-                        )
-                        conditions.append(create_property_conditions(property_key, property_values))
-                    except json.JSONDecodeError:
-                        # If not JSON, treat as single value
-                        conditions.append(create_property_conditions(property_key, param_value))
-            span.set_attribute("property_filter_count", property_filter_count)
+            span.set_attribute("property_filter_count", len(property_filters))
 
-            if query_params.event_names and len(query_params.event_names) > 0:
-                event_conditions: list[ast.Expr] = [
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=event_name),
-                    )
-                    for event_name in query_params.event_names
-                ]
-                if len(event_conditions) > 1:
-                    conditions.append(ast.Or(exprs=event_conditions))
-                else:
-                    conditions.append(event_conditions[0])
-            if query_params.value:
-                conditions.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.ILike,
-                        left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                        right=ast.Constant(value=f"%{query_params.value}%"),
-                    )
-                )
-            order_by = []
-            if query_params.value:
-                order_by = [
-                    ast.OrderExpr(
-                        expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
-                        order="ASC",
-                    )
-                ]
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=chain)],
-                distinct=True,
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                where=ast.And(exprs=conditions),
-                order_by=order_by,
-                limit=ast.Constant(value=10),
+            if property_filters:
+                # Ad-hoc filtered queries are not cached — run directly
+                return self._event_property_values_filtered(query_params, property_filters)
+
+            runner = PropertyValuesQueryRunner(
+                team=query_params.team,
+                query=PropertyValuesQuery(
+                    property_type=PropertyType.EVENT,
+                    property_key=query_params.key,
+                    is_column=query_params.is_column,
+                    search_value=query_params.value,
+                    event_names=query_params.event_names or None,
+                ),
+                request=self.request,
+            )
+            execution_mode = (
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                if force_refresh
+                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            result = runner.run(execution_mode)
+            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            is_refreshing = (
+                isinstance(result, CachedPropertyValuesQueryResponse)
+                and result.query_status is not None
+                and not result.query_status.complete
+            )
+            span.set_attribute("result_count", len(result.results))
+            span.set_attribute("is_refreshing", is_refreshing)
+            return self._return_with_short_cache(
+                [item.model_dump(exclude_none=True) for item in result.results], refreshing=is_refreshing
             )
 
-            result = execute_hogql_query(query, team=query_params.team)
+    def _event_property_values_filtered(
+        self,
+        query_params: EventValueQueryParams,
+        property_filters: builtins.list[tuple[str, str]],
+    ) -> response.Response:
+        # TODO: this duplicates most of PropertyValuesQueryRunner._event_query. We should prob extend
+        # PropertyValuesQuery with an optional property_filters field so the runner handles both paths
+        # in the future.
+        chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
+        date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
+        date_to = timezone.now().astimezone(query_params.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
 
-            values = []
-            for value in result.results:
-                if isinstance(value[0], float | int | bool | uuid.UUID):
-                    values.append(value[0])
-                else:
-                    try:
-                        values.append(json.loads(value[0]))
-                    except json.JSONDecodeError:
-                        values.append(value[0])
+        conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_from),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_to),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Field(chain=chain),
+                right=ast.Constant(value=None),
+            ),
+        ]
 
-            span.set_attribute("result_count", len(values))
-            return self._return_with_short_cache([{"name": convert_property_value(value)} for value in flatten(values)])
+        for param_key, param_value in property_filters:
+            filter_key = param_key.replace("properties_", "", 1)
+            try:
+                filter_values = json.loads(param_value)
+                conditions.append(create_property_conditions(filter_key, filter_values))
+            except json.JSONDecodeError:
+                conditions.append(create_property_conditions(filter_key, param_value))
+
+        if query_params.event_names:
+            event_conditions: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=name),
+                )
+                for name in query_params.event_names
+            ]
+            conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
+
+        if query_params.value:
+            escaped = query_params.value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.ILike,
+                    left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
+                    right=ast.Constant(value=f"%{escaped}%"),
+                )
+            )
+
+        order_by: list[ast.OrderExpr] = (
+            [
+                ast.OrderExpr(
+                    expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
+                    order="ASC",
+                )
+            ]
+            if query_params.value
+            else []
+        )
+
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=chain)],
+            distinct=True,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=conditions),
+            order_by=order_by,
+            limit=ast.Constant(value=10),
+        )
+
+        result = execute_hogql_query(query, team=query_params.team)
+
+        values = []
+        for row in result.results:
+            if isinstance(row[0], float | int | bool | uuid.UUID):
+                values.append(row[0])
+            else:
+                try:
+                    values.append(json.loads(row[0]))
+                except json.JSONDecodeError:
+                    values.append(row[0])
+
+        return self._return_with_short_cache(
+            [{"name": convert_property_value(v)} for v in flatten(values)], refreshing=False
+        )
 
     @staticmethod
-    def _return_with_short_cache(values) -> response.Response:
-        resp = response.Response(values)
+    def _return_with_short_cache(values: builtins.list, refreshing: bool = False) -> response.Response:
+        resp = response.Response({"results": values, "refreshing": refreshing})
         resp["Cache-Control"] = "max-age=10"
         return resp
 
@@ -611,7 +687,7 @@ class EventViewSet(
 
         result = execute_hogql_query(query, team=query_params.team)
 
-        return self._return_with_short_cache([{"name": event[0]} for event in result.results])
+        return self._return_with_short_cache([{"name": event[0]} for event in result.results], refreshing=False)
 
 
 class LegacyEventViewSet(EventViewSet):

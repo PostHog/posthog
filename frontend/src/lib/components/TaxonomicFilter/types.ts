@@ -4,6 +4,7 @@ import { ReactNode } from 'react'
 
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+// eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
@@ -60,9 +61,7 @@ export type AllowedProperties = TaxonomicFilterGroupValueMap
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
-    // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
-    // in that case the original value is returned here as well as the property that the user chose
-    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
+    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onEnter?: (query: string) => void
     onClose?: () => void
     filter?: LocalFilter
@@ -99,6 +98,8 @@ export interface TaxonomicFilterProps {
     hogQLGlobals?: Record<string, any>
     /** Optionally customize definition popover contents for selected items. */
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    /** Override the group-level minSearchQueryLength for all groups in this instance. */
+    minSearchQueryLength?: number
 }
 
 export interface DataWarehousePopoverField {
@@ -219,6 +220,7 @@ export enum TaxonomicFilterGroupType {
     LogResourceAttributes = 'log_resource_attributes',
     // Misc
     Replay = 'replay',
+    ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
@@ -237,11 +239,7 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 
 export interface ListStorage {
     results: TaxonomicDefinitionTypes[]
-    // Query used for the results currently in state
     searchQuery?: string
-    // some list logics alter the query to make it more useful
-    // the original query might be different to the search query
-    originalQuery?: string
     count: number
     expandedCount?: number
     queryChanged?: boolean

@@ -20,18 +20,15 @@ export interface GenerationSentiment {
     label: string
     score: number
     scores: Record<string, number>
-    // Keyed by original position in $ai_input array — stable across
-    // backend extraction and frontend normalizeMessages rendering.
-    messages: Record<number, MessageSentiment>
+    messages: Record<string, MessageSentiment>
+    message_count?: number
 }
 
 export interface SentimentResult {
-    trace_id: string
     label: string
     score: number
     scores: Record<string, number>
-    generations: Record<string, GenerationSentiment>
-    generation_count: number
+    messages: Record<string, MessageSentiment>
     message_count: number
 }
 
@@ -43,7 +40,7 @@ function isValidSentimentResult(value: unknown): value is SentimentResult {
     return !!value && typeof value === 'object' && 'label' in value && !('error' in value)
 }
 
-const BATCH_MAX_SIZE = 10
+const BATCH_MAX_SIZE = 5
 
 function chunk<T>(arr: T[], size: number): T[][] {
     const chunks: T[][] = []
@@ -150,13 +147,6 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
                 return (traceId: string) => sentimentByTraceId[traceId]
             },
         ],
-        getGenerationSentiment: [
-            (s) => [s.sentimentByTraceId],
-            (sentimentByTraceId): ((traceId: string, generationEventId: string) => GenerationSentiment | undefined) => {
-                return (traceId: string, generationEventId: string) =>
-                    sentimentByTraceId[traceId]?.generations?.[generationEventId]
-            },
-        ],
     }),
 
     listeners(({ values, actions }) => {
@@ -199,29 +189,32 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
 
                     const chunks = chunk(allIds, BATCH_MAX_SIZE)
 
-                    for (const batch of chunks) {
-                        try {
-                            const response = await api.create<BatchSentimentResponse>(
-                                `api/environments/${teamId}/llm_analytics/sentiment/`,
-                                {
-                                    trace_ids: batch,
-                                    date_from: dateRangeForBatch?.dateFrom || undefined,
-                                    date_to: dateRangeForBatch?.dateTo || undefined,
+                    await Promise.allSettled(
+                        chunks.map(async (batch) => {
+                            try {
+                                const response = await api.create<BatchSentimentResponse>(
+                                    `api/environments/${teamId}/llm_analytics/sentiment/`,
+                                    {
+                                        ids: batch,
+                                        analysis_level: 'trace',
+                                        date_from: dateRangeForBatch?.dateFrom || undefined,
+                                        date_to: dateRangeForBatch?.dateTo || undefined,
+                                    }
+                                )
+
+                                const results: Record<string, SentimentResult | null> = {}
+
+                                for (const traceId of batch) {
+                                    const raw = response.results[traceId]
+                                    results[traceId] = isValidSentimentResult(raw) ? raw : null
                                 }
-                            )
 
-                            const results: Record<string, SentimentResult | null> = {}
-
-                            for (const traceId of batch) {
-                                const raw = response.results[traceId]
-                                results[traceId] = isValidSentimentResult(raw) ? raw : null
+                                actions.loadSentimentBatchSuccess(results, batch)
+                            } catch {
+                                actions.loadSentimentBatchFailure(batch)
                             }
-
-                            actions.loadSentimentBatchSuccess(results, batch)
-                        } catch {
-                            actions.loadSentimentBatchFailure(batch)
-                        }
-                    }
+                        })
+                    )
                 }, 0)
             },
         }

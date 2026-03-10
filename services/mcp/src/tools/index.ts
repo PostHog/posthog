@@ -1,11 +1,5 @@
 import { hasScopes } from '@/lib/api'
 
-// Actions
-import createAction from './actions/create'
-import deleteAction from './actions/delete'
-import getAction from './actions/get'
-import getAllActions from './actions/getAll'
-import updateAction from './actions/update'
 // Dashboards
 import addInsightToDashboard from './dashboards/addInsight'
 import createDashboard from './dashboards/create'
@@ -14,13 +8,14 @@ import getDashboard from './dashboards/get'
 import getAllDashboards from './dashboards/getAll'
 import reorderDashboardTiles from './dashboards/reorderTiles'
 import updateDashboard from './dashboards/update'
-// Demo
-import demoMcpUiApps from './demo/demoMcpUiApps'
+// Debug
+import debugMcpUiApps from './debug/debugMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
 // Error Tracking
 import errorDetails from './errorTracking/errorDetails'
 import listErrors from './errorTracking/listErrors'
+import updateIssueStatus from './errorTracking/updateIssueStatus'
 // Experiments
 import createExperiment from './experiments/create'
 import deleteExperiment from './experiments/delete'
@@ -34,6 +29,8 @@ import deleteFeatureFlag from './featureFlags/delete'
 import getAllFeatureFlags from './featureFlags/getAll'
 import getFeatureFlagDefinition from './featureFlags/getDefinition'
 import updateFeatureFlag from './featureFlags/update'
+// Generated tools (from definitions/*.yaml)
+import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import createInsight from './insights/create'
 import deleteInsight from './insights/delete'
@@ -41,7 +38,13 @@ import getInsight from './insights/get'
 import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
 import updateInsight from './insights/update'
-// LLM Observability
+// LLM Analytics
+import evaluationCreate from './llmAnalytics/evaluations/create'
+import evaluationDelete from './llmAnalytics/evaluations/delete'
+import evaluationGet from './llmAnalytics/evaluations/get'
+import evaluationsGet from './llmAnalytics/evaluations/getAll'
+import evaluationRun from './llmAnalytics/evaluations/run'
+import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 import logsListAttributes from './logs/listAttributes'
 import logsListAttributeValues from './logs/listAttributeValues'
@@ -59,6 +62,11 @@ import getProjects from './projects/getProjects'
 import getProperties from './projects/propertyDefinitions'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
+// Prompts
+import createPrompt from './prompts/create'
+import getPrompt from './prompts/get'
+import listPrompts from './prompts/list'
+import updatePrompt from './prompts/update'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
@@ -107,6 +115,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Error Tracking
     'list-errors': listErrors,
     'error-details': errorDetails,
+    'update-issue-status': updateIssueStatus,
 
     // Logs
     'logs-query': logsQuery,
@@ -142,8 +151,14 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-reorder-tiles': reorderDashboardTiles,
     'add-insight-to-dashboard': addInsightToDashboard,
 
-    // LLM Observability
+    // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,
+    'evaluations-get': evaluationsGet,
+    'evaluation-get': evaluationGet,
+    'evaluation-create': evaluationCreate,
+    'evaluation-update': evaluationUpdate,
+    'evaluation-delete': evaluationDelete,
+    'evaluation-run': evaluationRun,
 
     // Surveys
     'surveys-get-all': getAllSurveys,
@@ -154,18 +169,17 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'surveys-global-stats': surveysGlobalStats,
     'survey-stats': surveyStats,
 
-    // Actions
-    'actions-get-all': getAllActions,
-    'action-get': getAction,
-    'action-create': createAction,
-    'action-update': updateAction,
-    'action-delete': deleteAction,
-
     // Search
     'entity-search': entitySearch,
 
-    // Demo
-    'demo-mcp-ui-apps': demoMcpUiApps,
+    // Debug
+    'debug-mcp-ui-apps': debugMcpUiApps,
+
+    // Prompts
+    'prompt-list': listPrompts,
+    'prompt-get': getPrompt,
+    'prompt-create': createPrompt,
+    'prompt-update': updatePrompt,
 
     // PostHog AI tools
     'execute-sql': executeSql,
@@ -177,6 +191,7 @@ export const getToolsFromContext = async (
     context: Context,
     options?: ToolFilterOptions
 ): Promise<Tool<ZodObjectAny>[]> => {
+    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(options).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
@@ -186,7 +201,7 @@ export const getToolsFromContext = async (
         if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
             toolBases.push(searchDocs())
         } else {
-            const toolFactory = TOOL_MAP[toolName]
+            const toolFactory = effectiveMap[toolName]
             if (toolFactory) {
                 toolBases.push(toolFactory())
             }

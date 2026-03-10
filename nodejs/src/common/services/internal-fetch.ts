@@ -1,33 +1,36 @@
 import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/api/middleware/internal-api-auth'
-import { cdpTrackedFetch } from '~/cdp/services/hog-executor.service'
 import { PluginsServerConfig } from '~/types'
 import { logger } from '~/utils/logger'
-import { FetchOptions, FetchResponse } from '~/utils/request'
+import { FetchOptions, FetchResponse, internalFetch } from '~/utils/request'
+import { tryCatch } from '~/utils/try-catch'
 
 export class InternalFetchService {
-    constructor(private config: Pick<PluginsServerConfig, 'INTERNAL_API_SECRET'>) {}
+    constructor(private config: Pick<PluginsServerConfig, 'INTERNAL_API_SECRET' | 'INTERNAL_API_BASE_URL'>) {}
 
     async fetch({
-        url,
+        urlPath,
         fetchParams,
     }: {
-        url: string
+        urlPath: `/${string}`
         fetchParams: FetchOptions
-    }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
-        logger.debug('Making internal fetch request', { url })
-        return await cdpTrackedFetch({
-            url,
-            fetchParams: {
-                ...fetchParams,
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...fetchParams.headers,
-                    ...(this.config.INTERNAL_API_SECRET
-                        ? { [INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()]: this.config.INTERNAL_API_SECRET }
-                        : {}),
-                },
+    }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null }> {
+        logger.debug('Making internal fetch request', { urlPath })
+
+        const internalUrl = `${this.config.INTERNAL_API_BASE_URL || 'http://localhost:8000'}${urlPath}`
+        const internalFetchParams = {
+            ...fetchParams,
+            headers: {
+                'Content-Type': 'application/json',
+                ...fetchParams.headers,
+                ...(this.config.INTERNAL_API_SECRET
+                    ? { [INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()]: this.config.INTERNAL_API_SECRET }
+                    : {}),
             },
-            templateId: 'InternalFetchService',
-        })
+        }
+
+        const [fetchError, fetchResponse] = await tryCatch(
+            async () => await internalFetch(internalUrl, internalFetchParams)
+        )
+        return { fetchError, fetchResponse }
     }
 }

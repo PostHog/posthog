@@ -15,7 +15,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 
 # Test RSA private key for JWT tests (RS256)
@@ -565,6 +565,169 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(log_entries[1]["type"], "progress")
         self.assertEqual(log_entries[1]["message"], "Step 1 complete")
 
+    @patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.post_slack_update")
+    def test_set_output_with_pr_url_posts_slack_update_when_mapping_exists(self, mock_post_slack_update):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/1"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_post_slack_update.assert_called_once()
+        input_arg = mock_post_slack_update.call_args[0][0]
+        self.assertEqual(input_arg.run_id, str(run.id))
+        self.assertEqual(input_arg.slack_thread_context["integration_id"], integration.pk)
+        self.assertEqual(input_arg.slack_thread_context["channel"], "C123")
+        self.assertEqual(input_arg.slack_thread_context["thread_ts"], "1234.5678")
+
+    @patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.post_slack_update")
+    def test_partial_update_with_pr_url_posts_slack_update_when_mapping_exists(self, mock_post_slack_update):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/2"}, "status": "in_progress"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_post_slack_update.assert_called_once()
+        input_arg = mock_post_slack_update.call_args[0][0]
+        self.assertEqual(input_arg.run_id, str(run.id))
+        self.assertEqual(input_arg.slack_thread_context["integration_id"], integration.pk)
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        mock_execute_relay.return_value = "relay-1"
+
+        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Which license should I use?"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "accepted", "relay_id": "relay-1"})
+        mock_execute_relay.assert_called_once_with(
+            run_id=str(run.id),
+            text="Which license should I use?",
+            delete_progress=True,
+        )
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_skips_for_terminal_run(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Done"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    def test_relay_message_rejects_blank_text(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "   "},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow", side_effect=Exception("temporal down"))
+    def test_relay_message_returns_503_on_enqueue_failure(self, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C456",
+            thread_ts="5678.1234",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U456",
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "hello"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("error", response.json())
+
     def test_append_log_to_existing_entries(self):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -612,6 +775,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.tasks.backend.models.TaskRun.heartbeat_workflow")
+    def test_append_log_calls_heartbeat_workflow(self, mock_heartbeat):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": [{"type": "info", "message": "hello"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_heartbeat.assert_called_once()
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
@@ -1053,11 +1230,27 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/", "POST"),
         ]
 
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
+
+    def test_invite_redemption_grants_access_when_flag_disabled(self):
+        self.set_tasks_feature_flag(False)
+        invite = CodeInvite.objects.create(code="TESTCODE", max_redemptions=0, is_active=True)
+        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_no_flag_no_redemption_blocked(self):
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_authentication_required(self):
         task = self.create_task()
@@ -1241,3 +1434,554 @@ class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
     def test_repository_readiness_requires_repository(self):
         response = self.client.get("/api/projects/@current/tasks/repository_readiness/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestTaskRunCommandAPI(BaseTaskAPITest):
+    def _command_url(self, task, run):
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/"
+
+    def _make_user_message(self, content="Hello agent", request_id="req-1"):
+        return {
+            "jsonrpc": "2.0",
+            "method": "user_message",
+            "params": {"content": content},
+            "id": request_id,
+        }
+
+    def _create_run_with_sandbox(self, task, sandbox_url="http://localhost:9999", connect_token=None):
+        state = {"sandbox_url": sandbox_url, "mode": "interactive"}
+        if connect_token:
+            state["sandbox_connect_token"] = connect_token
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state=state,
+        )
+
+    def _mock_agent_response(self, mock_post, body, status_code=200):
+        mock_resp = MagicMock()
+        mock_resp.status_code = status_code
+        mock_resp.ok = 200 <= status_code < 300
+        mock_resp.json.return_value = body
+        mock_resp.text = json.dumps(body) if isinstance(body, dict) else str(body)
+        mock_post.return_value = mock_resp
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_user_message(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {
+                "jsonrpc": "2.0",
+                "id": "req-1",
+                "result": {"stopReason": "end_turn"},
+            },
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["jsonrpc"], "2.0")
+        self.assertEqual(data["result"]["stopReason"], "end_turn")
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args
+        self.assertEqual(call_kwargs[1]["json"]["method"], "user_message")
+        self.assertEqual(call_kwargs[1]["json"]["params"]["content"], "Hello agent")
+        self.assertIn("Bearer ", call_kwargs[1]["headers"]["Authorization"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_cancel(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {
+                "jsonrpc": "2.0",
+                "id": "req-2",
+                "result": {"cancelled": True},
+            },
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["result"]["cancelled"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_proxies_close(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {
+                "jsonrpc": "2.0",
+                "id": "req-3",
+                "result": {"closed": True},
+            },
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "close", "id": "req-3"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["result"]["closed"])
+
+    def test_command_fails_without_sandbox_url(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={},
+        )
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("No active sandbox", response.json()["error"])
+
+    @parameterized.expand(
+        [
+            ("missing_jsonrpc", {"method": "user_message", "params": {"content": "hi"}}),
+            ("invalid_jsonrpc", {"jsonrpc": "1.0", "method": "user_message", "params": {"content": "hi"}}),
+            ("unknown_method", {"jsonrpc": "2.0", "method": "unknown_method", "params": {}}),
+            ("user_message_empty_content", {"jsonrpc": "2.0", "method": "user_message", "params": {"content": ""}}),
+            ("user_message_missing_content", {"jsonrpc": "2.0", "method": "user_message", "params": {}}),
+        ]
+    )
+    def test_command_rejects_invalid_payloads(self, _name, payload):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_passes_modal_connect_token_as_query_param(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(
+            task,
+            sandbox_url="https://sandbox.modal.run",
+            connect_token="modal-token-abc123",
+        )
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["params"]["_modal_connect_token"], "modal-token-abc123")
+        self.assertNotIn("_modal_connect_token", call_kwargs["headers"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_no_query_params_for_docker(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url="http://localhost:47821")
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["params"], {})
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_returns_502_on_connection_error(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        mock_post.side_effect = __import__("requests").ConnectionError("Connection refused")
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("not reachable", response.json()["error"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_returns_504_on_timeout(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        mock_post.side_effect = __import__("requests").Timeout("Request timed out")
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_504_GATEWAY_TIMEOUT)
+        self.assertIn("timed out", response.json()["error"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_forwards_agent_server_auth_error(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {"error": "Missing authorization header"},
+            status_code=401,
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("Missing authorization header", response.json()["error"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_forwards_agent_server_no_session_error(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(
+            mock_post,
+            {"error": "No active session for this run"},
+            status_code=400,
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("No active session", response.json()["error"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_sends_jwt_with_correct_claims(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        call_kwargs = mock_post.call_args[1]
+        auth_header = call_kwargs["headers"]["Authorization"]
+        token = auth_header.replace("Bearer ", "")
+
+        public_key = get_sandbox_jwt_public_key()
+        decoded = jwt.decode(
+            token,
+            public_key,
+            audience="posthog:sandbox_connection",
+            algorithms=["RS256"],
+        )
+
+        self.assertEqual(decoded["run_id"], str(run.id))
+        self.assertEqual(decoded["task_id"], str(task.id))
+        self.assertEqual(decoded["team_id"], self.team.id)
+        self.assertEqual(decoded["user_id"], self.user.id)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_posts_to_correct_url(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url="http://localhost:47821")
+
+        self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        call_args = mock_post.call_args
+        self.assertEqual(call_args[0][0], "http://localhost:47821/command")
+
+    def test_command_cannot_access_other_team_run(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            title="Other Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_run = TaskRun.objects.create(
+            task=other_task,
+            team=other_team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_url": "http://localhost:9999"},
+        )
+
+        response = self.client.post(
+            self._command_url(other_task, other_run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_command_rejects_posthog_prefixed_methods(self):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "_posthog/user_message",
+                "params": {"content": "Hello via posthog prefix"},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_with_trailing_slash_sandbox_url(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url="http://localhost:47821/")
+
+        self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        call_args = mock_post.call_args
+        self.assertEqual(call_args[0][0], "http://localhost:47821/command")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_accepts_numeric_id(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": 42, "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": 42},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["id"], 42)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_uses_600s_timeout(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["timeout"], 600)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_omits_params_for_cancel(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {"cancelled": True}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel"},
+            format="json",
+        )
+
+        call_kwargs = mock_post.call_args[1]
+        self.assertNotIn("params", call_kwargs["json"])
+
+    @parameterized.expand(
+        [
+            ("aws_metadata", "http://169.254.169.254/latest/meta-data/"),
+            ("internal_service", "http://internal-api.company.com:8080"),
+            ("file_scheme", "file:///etc/passwd"),
+            ("ftp", "ftp://evil.com/file"),
+            ("http_arbitrary", "http://evil.com/command"),
+            ("https_arbitrary", "https://evil.com/command"),
+            ("http_with_at_sign", "http://localhost@evil.com/"),
+            ("cloud_metadata_gcp", "http://metadata.google.internal/"),
+        ]
+    )
+    def test_command_blocks_ssrf_urls(self, _name, malicious_url):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url=malicious_url)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid sandbox URL", response.json()["error"])
+
+    @parameterized.expand(
+        [
+            ("docker_localhost", "http://localhost:47821"),
+            ("docker_127", "http://127.0.0.1:47821"),
+            ("modal_run", "https://sb-abc123.modal.run"),
+            ("modal_run_subdomain", "https://test-sandbox-xyz.modal.run"),
+            ("modal_host", "https://sb-abc123.w.modal.host"),
+            (
+                "modal_host_connect_token",
+                "https://a-ta-01kjnh54bc9wwbh7ydrk4yqq1d-b778iwq0t2a33tyjqdu6eyfjn.w.modal.host",
+            ),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_allows_valid_sandbox_urls(self, _name, valid_url, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url=valid_url)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_command_with_empty_state(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+        )
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("No active sandbox", response.json()["error"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_accepts_id_zero(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": 0, "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": 0},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["id"], 0)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_generic_error_does_not_leak_details(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        mock_post.side_effect = RuntimeError("internal DNS resolve failed for secret-host.internal:8080")
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertNotIn("secret-host", response.json()["error"])
+        self.assertNotIn("DNS", response.json()["error"])
+        self.assertEqual(response.json()["error"], "Failed to send command to agent server")

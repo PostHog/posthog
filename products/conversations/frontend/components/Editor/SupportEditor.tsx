@@ -1,18 +1,27 @@
 import './SupportEditor.scss'
 
 import { JSONContent, TextSerializer } from '@tiptap/core'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
-import { EditorContent } from '@tiptap/react'
+import {
+    EditorContent,
+    Extension,
+    NodeViewContent,
+    NodeViewProps,
+    NodeViewWrapper,
+    ReactNodeViewRenderer,
+} from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
+import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCode, IconImage } from '@posthog/icons'
+import { IconCode, IconCopy, IconImage, IconTerminal } from '@posthog/icons'
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
@@ -30,8 +39,81 @@ import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+const lowlight = createLowlight(common)
+lowlight.register('plaintext', () => ({ contains: [] }))
+
+function SupportCodeBlockComponent({ node }: NodeViewProps): JSX.Element {
+    const code = node.textContent
+
+    return (
+        <NodeViewWrapper className="SupportEditor__code-block">
+            <div className="SupportEditor__code-block-copy" contentEditable={false}>
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconCopy />}
+                    onClick={() => void copyToClipboard(code, 'code')}
+                    tooltip="Copy code"
+                />
+            </div>
+            <pre>
+                <code>
+                    <NodeViewContent />
+                </code>
+            </pre>
+        </NodeViewWrapper>
+    )
+}
+
+const SupportCodeBlockExtension = CodeBlockLowlight.extend({
+    addNodeView() {
+        return ReactNodeViewRenderer(SupportCodeBlockComponent)
+    },
+    addKeyboardShortcuts() {
+        return {
+            ...this.parent?.(),
+            Tab: ({ editor }) => {
+                if (editor.isActive('codeBlock')) {
+                    editor.commands.insertContent('\t')
+                    return true
+                }
+                return false
+            },
+            'Shift-Tab': ({ editor }) => {
+                if (editor.isActive('codeBlock')) {
+                    return true
+                }
+                return false
+            },
+        }
+    },
+}).configure({ lowlight })
+
+type LinkShortcutExtensionOptions = {
+    onLinkShortcut: () => void
+}
+
+const LinkShortcutExtension = Extension.create<LinkShortcutExtensionOptions>({
+    name: 'link-shortcut',
+
+    addOptions() {
+        return {
+            onLinkShortcut: () => {},
+        }
+    },
+
+    addKeyboardShortcuts() {
+        return {
+            'Mod-Shift-u': () => {
+                this.options.onLinkShortcut()
+                return true
+            },
+        }
+    },
+})
 
 // Underline icon (not in @posthog/icons)
 function IconUnderline(): JSX.Element {
@@ -99,7 +181,7 @@ export const SUPPORT_EXTENSIONS = [
         // bold: enabled - Cmd+B
         bulletList: false,
         // code: enabled - inline code (Cmd+E) - just visual styling, not executable
-        codeBlock: false,
+        codeBlock: false, // We use our own SupportCodeBlockExtension
         // hardBreak: enabled - allows Shift+Enter for line breaks within paragraphs
         // dropcursor: enabled - shows visual indicator when dragging content
         // gapcursor: enabled - helps position cursor near images/blocks
@@ -113,6 +195,7 @@ export const SUPPORT_EXTENSIONS = [
     Underline, // Cmd+U
     ImageExtension,
     LinkExtension,
+    SupportCodeBlockExtension,
 ]
 
 // Plain text serialization options for generateText() - used by Comment.tsx
@@ -228,6 +311,12 @@ function serializeNode(node: JSONContent): string {
         case RichContentNodeType.Mention:
             return `@member:${node.attrs?.id}`
 
+        case 'codeBlock': {
+            const language = node.attrs?.language || ''
+            const code = (node.content || []).map((n) => n.text || '').join('')
+            return `\`\`\`${language}\n${code}\n\`\`\`\n\n`
+        }
+
         default:
             // For unknown nodes, try to serialize children
             if (node.content) {
@@ -256,11 +345,25 @@ export function SupportEditor({
     const [linkUrl, setLinkUrl] = useState('')
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
+
+    const openLinkPopover = useCallback(() => {
+        const existingHref = ttEditor?.getAttributes('link').href
+        setLinkUrl(existingHref || '')
+        setLinkPopoverOpen(true)
+    }, [ttEditor])
+
+    // Use ref to hold the link shortcut callback so it can access latest state
+    const linkShortcutCallbackRef = useRef<() => void>(() => {})
+    const handleLinkShortcut = useCallback(() => {
+        linkShortcutCallbackRef.current()
+    }, [])
+
     const editor = useRichContentEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
             CommandEnterExtension.configure({ onPressCmdEnter }),
+            LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
         ],
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
@@ -295,6 +398,11 @@ export function SupportEditor({
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
+
+    // Update the link shortcut callback ref when ttEditor changes
+    useEffect(() => {
+        linkShortcutCallbackRef.current = openLinkPopover
+    }, [openLinkPopover])
 
     // Notify parent of upload state changes
     useEffect(() => {
@@ -373,6 +481,13 @@ export function SupportEditor({
                         icon={<IconCode />}
                         tooltip="Inline code (Cmd+E)"
                     />
+                    <LemonButton
+                        size="small"
+                        active={ttEditor?.isActive('codeBlock')}
+                        onClick={() => ttEditor?.chain().focus().toggleCodeBlock().run()}
+                        icon={<IconTerminal />}
+                        tooltip="Code block (Cmd+Alt+C)"
+                    />
                     <Popover
                         visible={linkPopoverOpen}
                         onClickOutside={() => {
@@ -434,14 +549,9 @@ export function SupportEditor({
                         <LemonButton
                             size="small"
                             active={ttEditor?.isActive('link')}
-                            onClick={() => {
-                                // Pre-fill with existing link URL if editing
-                                const existingHref = ttEditor?.getAttributes('link').href
-                                setLinkUrl(existingHref || '')
-                                setLinkPopoverOpen(true)
-                            }}
+                            onClick={openLinkPopover}
                             icon={<IconLink />}
-                            tooltip="Add link (Cmd+K)"
+                            tooltip="Add link (Cmd+Shift+U)"
                         />
                     </Popover>
                     <div className="w-px h-4 bg-border mx-1" />

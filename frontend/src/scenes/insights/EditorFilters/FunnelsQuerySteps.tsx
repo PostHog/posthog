@@ -107,11 +107,26 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     definitionPopoverRenderer={
                         isFunnelDwhStepPopoverVariant ? FunnelDataWarehouseStepDefinitionPopover : undefined
                     }
+                    dataWarehousePopoverFields={[
+                        {
+                            key: 'id_field',
+                            label: 'Unique ID',
+                        },
+                        {
+                            key: 'timestamp_field',
+                            label: 'Timestamp',
+                        },
+                        {
+                            key: 'distinct_id_field',
+                            label: 'Aggregation target',
+                            allowHogQL: true,
+                        },
+                    ]}
                 />
             </div>
             <div className="mt-4 deprecated-space-y-4">
                 {showGroupsOptions && (
-                    <div className="flex items-center w-full gap-2">
+                    <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
                         <span>Aggregating by</span>
                         <AggregationSelect insightProps={insightProps} hogqlAvailable />
                     </div>

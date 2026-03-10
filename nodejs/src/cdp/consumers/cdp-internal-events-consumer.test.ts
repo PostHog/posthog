@@ -27,7 +27,7 @@ describe('CDP Internal Events Consumer', () => {
         })
         team = await getFirstTeam(hub)
 
-        processor = new CdpInternalEventsConsumer(hub)
+        processor = new CdpInternalEventsConsumer(hub, hub)
         await processor.start()
     })
 

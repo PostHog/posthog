@@ -22,7 +22,22 @@ from posthog.email import is_email_available, is_http_email_service_available
 from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.redis import get_client
 from posthog.settings.web import AUTHENTICATION_BACKENDS
+
+EMAIL_MFA_BYPASS_REDIS_KEY = "email_mfa_bypass_emails"
+
+
+def is_email_mfa_bypass(email: str) -> bool:
+    return bool(get_client().sismember(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower()))
+
+
+def add_email_mfa_bypass(email: str) -> None:
+    get_client().sadd(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower())
+
+
+def remove_email_mfa_bypass(email: str) -> None:
+    get_client().srem(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower())
 
 
 def has_passkeys(user: User) -> bool:
@@ -333,20 +348,8 @@ class EmailMFAVerifier:
                 suppression_cached=False,
             )
 
-        try:
-            organization = user.organization
-            if not organization:
-                return EmailMFACheckResult(should_send=False)
-
-            feature_enabled = posthoganalytics.feature_enabled(
-                "email-mfa",
-                str(user.distinct_id),
-                groups={"organization": str(organization.id)},
-            )
-            if not feature_enabled:
-                return EmailMFACheckResult(should_send=False)
-
-        except Exception:
+        if is_email_mfa_bypass(user.email):
+            mfa_logger.info("Email MFA bypassed via admin bypass list", user_id=user.pk)
             return EmailMFACheckResult(should_send=False)
 
         suppression_result = check_esp_suppression(user.email)

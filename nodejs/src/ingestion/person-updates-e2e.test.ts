@@ -20,6 +20,7 @@ import { resetKafka } from '~/tests/helpers/kafka'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../tests/helpers/sql'
+import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
@@ -219,7 +220,11 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         team = fetchedTeam
         currentToken = team.api_token
 
-        ingester = new IngestionConsumer(hub)
+        ingester = new IngestionConsumer(hub, {
+            ...hub,
+            kafkaMetricsProducer: hub.kafkaProducer,
+            hogTransformer: createHogTransformerService(hub, hub),
+        })
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
             disconnect: jest.fn(),
@@ -581,6 +586,52 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 expect(person).toBeDefined()
                 expect(person!.last_seen_at).toBeDefined()
                 expect(person!.last_seen_at!.toMillis()).toBe(baseTime.plus({ hours: 2 }).toMillis())
+            })
+        })
+
+        it('should not update last_seen_at when $update_person_last_seen_at is false', async () => {
+            const distinctId = new UUIDT().toString()
+            const baseTime = DateTime.now().startOf('hour')
+            const firstTimestamp = baseTime.toMillis()
+            const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
+
+            // First event creates the person
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({ $set: { initial: true } })
+                        .withTimestamp(firstTimestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
+            })
+
+            // Second event 2 hours later with $update_person_last_seen_at=false should NOT update last_seen_at
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('pageview')
+                        .withProperties({ $update_person_last_seen_at: false })
+                        .withTimestamp(secondTimestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                // last_seen_at should remain unchanged
+                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
             })
         })
 

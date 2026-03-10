@@ -89,7 +89,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         endReached,
     } = useValues(sessionRecordingPlayerLogic)
 
-    const { isNotFound, isRecentAndInvalid, isRecordingDeleted, recordingDeletedAt } = useValues(
+    const { isNotFound, isRecentAndInvalid, isRecordingDeleted, recordingDeletedAt, recordingDeletedBy } = useValues(
         sessionRecordingDataCoordinatorLogic(logicProps)
     )
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
@@ -237,7 +237,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
     if (isRecordingDeleted) {
         return (
             <div className="flex-1 w-full flex justify-center items-center">
-                <RecordingDeleted deletedAt={recordingDeletedAt} />
+                <RecordingDeleted deletedAt={recordingDeletedAt} deletedBy={recordingDeletedBy} />
             </div>
         )
     }

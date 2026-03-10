@@ -21,21 +21,35 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
-import { AnyPropertyFilter, FeatureFlagGroupType, MultivariateFlagVariant, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagGroupType,
+    MultivariateFlagVariant,
+    PropertyFilterType,
+} from '~/types'
 
+import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
+
+import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
+import { FeatureFlagLogicProps } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
+    flagId?: FeatureFlagLogicProps['id']
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
     isDisabled?: boolean
+    bucketingIdentifier?: FeatureFlagBucketingIdentifier | null
+    onBucketingIdentifierChange?: (value: FeatureFlagBucketingIdentifier | null) => void
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -172,13 +186,93 @@ function ConditionHeader({
     )
 }
 
+function IntentIssuesSummary({
+    issues,
+    intent,
+    expanded,
+    onToggle,
+}: {
+    issues: string[]
+    intent: FlagIntent | null
+    expanded: boolean
+    onToggle: () => void
+}): JSX.Element | null {
+    if (issues.length === 0 || !intent) {
+        return null
+    }
+
+    const metadata = INTENT_METADATA[intent]
+    const label = issues.length === 1 ? '1 issue detected' : `${issues.length} issues detected`
+
+    return (
+        <LemonBanner type="warning">
+            <div>
+                <div className="flex items-center justify-between cursor-pointer select-none" onClick={onToggle}>
+                    <span className="text-sm font-medium">{label}</span>
+                    <span className="text-xs text-secondary">{expanded ? 'Hide' : 'Show'}</span>
+                </div>
+                {expanded && (
+                    <div className="mt-1.5">
+                        <p className="text-xs text-secondary mb-1.5">{metadata.consequence}</p>
+                        <ul className="list-disc pl-4 mb-0 space-y-0.5">
+                            {issues.map((issue, i) => (
+                                <li key={i} className="text-xs">
+                                    {issue}
+                                </li>
+                            ))}
+                        </ul>
+                        <Link to={metadata.docUrl} target="_blank" className="text-xs mt-1.5 block">
+                            Learn more
+                        </Link>
+                    </div>
+                )}
+            </div>
+        </LemonBanner>
+    )
+}
+
+function IntentWarningsBanner({ flagId }: { flagId: FeatureFlagLogicProps['id'] }): JSX.Element | null {
+    const { intentIssues, flagIntent, issuesExpanded } = useValues(featureFlagIntentWarningLogic({ id: flagId }))
+    const { toggleIssuesExpanded } = useActions(featureFlagIntentWarningLogic({ id: flagId }))
+    return (
+        <IntentIssuesSummary
+            issues={intentIssues}
+            intent={flagIntent}
+            expanded={issuesExpanded}
+            onToggle={toggleIssuesExpanded}
+        />
+    )
+}
+
+function UnreachableConditionBanner({
+    flagId,
+    groupIndex,
+}: {
+    flagId: FeatureFlagLogicProps['id']
+    groupIndex: number
+}): JSX.Element | null {
+    const { unreachableGroups } = useValues(featureFlagIntentWarningLogic({ id: flagId }))
+    if (!unreachableGroups.has(groupIndex)) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning" className="mb-1">
+            <strong>Unreachable condition</strong> — A previous condition matches all users at 100% rollout, so this
+            condition will never be evaluated.
+        </LemonBanner>
+    )
+}
+
 export function FeatureFlagReleaseConditionsCollapsible({
     id,
+    flagId,
     filters,
     onChange,
     readOnly,
     variants,
     isDisabled,
+    bucketingIdentifier,
+    onBucketingIdentifierChange,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -198,6 +292,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         groupTypes,
         openConditions,
     } = useValues(releaseConditionsLogic)
+
     const {
         updateConditionSet,
         removeConditionSet,
@@ -288,20 +383,31 @@ export function FeatureFlagReleaseConditionsCollapsible({
             )}
 
             {/* Match by selector */}
-            {showGroupsOptions && (
+            {(showGroupsOptions || onBucketingIdentifierChange) && (
                 <div className="mb-2">
                     <LemonLabel className="mb-2">Match by</LemonLabel>
                     <LemonRadio
                         data-attr="feature-flag-aggregation-filter"
-                        value={releaseFilters.aggregation_group_type_index != null ? 'group' : 'user'}
+                        value={
+                            releaseFilters.aggregation_group_type_index != null
+                                ? 'group'
+                                : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                  ? 'device'
+                                  : 'user'
+                        }
                         onChange={(value: string) => {
                             if (value === 'user') {
                                 setAggregationGroupTypeIndex(null)
+                                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+                            } else if (value === 'device') {
+                                setAggregationGroupTypeIndex(null)
+                                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
                             } else if (value === 'group') {
                                 const firstGroupType = Array.from(groupTypes.values())[0]
                                 if (firstGroupType) {
                                     setAggregationGroupTypeIndex(firstGroupType.group_type_index)
                                 }
+                                onBucketingIdentifierChange?.(null)
                             }
                         }}
                         options={[
@@ -316,18 +422,49 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     </div>
                                 ),
                             },
-                            {
-                                value: 'group',
-                                label: (
-                                    <div>
-                                        <div className="font-medium">Group</div>
-                                        <div className="text-xs text-muted">
-                                            Stable assignment for everyone in an organization, company, or other custom
-                                            group type.
-                                        </div>
-                                    </div>
-                                ),
-                            },
+                            ...(onBucketingIdentifierChange
+                                ? [
+                                      {
+                                          value: 'device',
+                                          label: (
+                                              <div>
+                                                  <div className="font-medium">
+                                                      Device{' '}
+                                                      <LemonTag type="warning" size="small">
+                                                          BETA
+                                                      </LemonTag>
+                                                  </div>
+                                                  <div className="text-xs text-muted">
+                                                      Stable assignment per device. Good fit for experiments on
+                                                      anonymous users.{' '}
+                                                      <Link
+                                                          to="https://posthog.com/docs/feature-flags/device-bucketing"
+                                                          target="_blank"
+                                                      >
+                                                          Learn more
+                                                      </Link>
+                                                  </div>
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : []),
+                            ...(showGroupsOptions
+                                ? [
+                                      {
+                                          value: 'group',
+                                          label: (
+                                              <div>
+                                                  <div className="font-medium">Group</div>
+                                                  <div className="text-xs text-muted">
+                                                      Stable assignment for everyone in an organization, company, or
+                                                      other custom group type.
+                                                  </div>
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : []),
                         ]}
                         radioPosition="top"
                     />
@@ -352,6 +489,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 </div>
             )}
 
+            {flagId && <IntentWarningsBanner flagId={flagId} />}
+
             <div ref={collapseRef}>
                 {filterGroups.map((group, index) => (
                     <div key={group.sort_key ?? index}>
@@ -360,6 +499,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 or
                             </div>
                         )}
+                        {flagId && <UnreachableConditionBanner flagId={flagId} groupIndex={index} />}
                         <LemonCollapse
                             multiple
                             activeKeys={openConditions}
@@ -500,6 +640,24 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 </>
                                                             )
                                                         })()}
+                                                        {releaseFilters.aggregation_group_type_index == null && (
+                                                            <Tooltip
+                                                                title={
+                                                                    <>
+                                                                        A user may have{' '}
+                                                                        <Link
+                                                                            to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
+                                                                            target="_blank"
+                                                                        >
+                                                                            multiple profiles
+                                                                        </Link>
+                                                                    </>
+                                                                }
+                                                                interactive
+                                                            >
+                                                                <IconInfo className="text-muted text-xs ml-0.5" />
+                                                            </Tooltip>
+                                                        )}
                                                     </div>
                                                 ) : (
                                                     <div className="text-xs text-muted mt-2 flex items-center gap-1">

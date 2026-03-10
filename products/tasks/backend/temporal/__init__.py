@@ -10,6 +10,7 @@ from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .process_task.activities import (
     cleanup_sandbox,
     execute_task_in_sandbox,
+    forward_pending_user_message,
     get_sandbox_for_repository,
     get_task_processing_context,
     post_slack_update,
@@ -19,10 +20,12 @@ from .process_task.activities import (
     update_task_run_status,
 )
 from .process_task.workflow import ProcessTaskWorkflow
+from .slack_relay import TwigAgentRelayWorkflow, relay_slack_message
 
 WORKFLOWS = [
     ProcessTaskWorkflow,
     CreateSnapshotForRepositoryWorkflow,
+    TwigAgentRelayWorkflow,
 ]
 
 ACTIVITIES = [
@@ -30,12 +33,14 @@ ACTIVITIES = [
     get_task_processing_context,
     get_sandbox_for_repository,
     execute_task_in_sandbox,
+    forward_pending_user_message,
     start_agent_server,
     read_sandbox_logs,
     cleanup_sandbox,
     track_workflow_event,
     post_slack_update,
     update_task_run_status,
+    relay_slack_message,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,

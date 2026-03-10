@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
+import type { GitHubRepoApi } from '~/generated/core/api.schemas'
+
 import type { githubIntegrationLogicType } from './githubIntegrationLogicType'
 
 export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
@@ -15,7 +17,7 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
 
     loaders(({ props }) => ({
         repositories: [
-            [] as string[],
+            [] as GitHubRepoApi[],
             {
                 loadRepositories: async () => {
                     const response = await api.integrations.githubRepositories(props.id)

@@ -4,14 +4,19 @@ from typing import Any, Literal
 
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import MaxExperimentMetricResult
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Experiment, FeatureFlag
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
+
+from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
 
 from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
@@ -105,7 +110,6 @@ class CreateExperimentTool(MaxTool):
         description: str | None = None,
         type: Literal["product", "web"] = "product",
     ) -> tuple[str, dict[str, Any] | None]:
-        # Validate inputs
         if not name or not name.strip():
             return "Experiment name cannot be empty", {"error": "invalid_name"}
 
@@ -114,17 +118,15 @@ class CreateExperimentTool(MaxTool):
 
         @database_sync_to_async
         def create_experiment() -> Experiment:
-            # Check if experiment with this name already exists
             existing_experiment = Experiment.objects.filter(team=self._team, name=name, deleted=False).first()
             if existing_experiment:
                 raise ValueError(f"An experiment with name '{name}' already exists")
 
             try:
-                feature_flag = FeatureFlag.objects.get(team=self._team, key=feature_flag_key, deleted=False)
+                feature_flag = FeatureFlag.objects.get(team=self._team, key=feature_flag_key)
             except FeatureFlag.DoesNotExist:
                 raise ValueError(f"Feature flag '{feature_flag_key}' does not exist")
 
-            # Validate that the flag has multivariate variants
             multivariate = feature_flag.filters.get("multivariate")
             if not multivariate or not multivariate.get("variants"):
                 raise ValueError(
@@ -133,26 +135,21 @@ class CreateExperimentTool(MaxTool):
                 )
 
             variants = multivariate["variants"]
-            if len(variants) < 2:
-                raise ValueError(
-                    f"Feature flag '{feature_flag_key}' must have at least 2 variants for an experiment (e.g., control and test)"
-                )
-
-            # Validate that the first variant is "control" - required for experiment statistics
-            if variants[0].get("key") != "control":
+            # Intentionally stricter than service validation for multi-variant flags:
+            # require control first for Max-created experiments.
+            # Single-variant flags are validated by the service with a clearer error.
+            if len(variants) >= 2 and variants[0].get("key") != "control":
                 raise ValueError(
                     f"Feature flag '{feature_flag_key}' must have 'control' as the first variant. "
                     f"Found '{variants[0].get('key')}' instead. Please update the feature flag variants."
                 )
 
-            # If flag already exists and is already used by another experiment, raise error
             existing_experiment_with_flag = Experiment.objects.filter(feature_flag=feature_flag, deleted=False).first()
             if existing_experiment_with_flag:
                 raise ValueError(
                     f"Feature flag '{feature_flag_key}' is already used by experiment '{existing_experiment_with_flag.name}'"
                 )
 
-            # Use the actual variants from the feature flag
             feature_flag_variants = [
                 {
                     "key": variant["key"],
@@ -162,24 +159,18 @@ class CreateExperimentTool(MaxTool):
                 for variant in variants
             ]
 
-            # Create the experiment as a draft (no start_date)
-            experiment = Experiment.objects.create(
-                team=self._team,
-                created_by=self._user,
+            service = ExperimentService(team=self._team, user=self._user)
+            return service.create_experiment(
                 name=name,
+                feature_flag_key=feature_flag_key,
                 description=description or "",
                 type=type,
-                feature_flag=feature_flag,
-                filters={},  # Empty filters for draft
                 parameters={
                     "feature_flag_variants": feature_flag_variants,
                     "minimum_detectable_effect": 30,
                 },
-                metrics=[],
-                metrics_secondary=[],
+                event_source=EventSource.POSTHOG_AI,
             )
-
-            return experiment
 
         try:
             experiment = await create_experiment()
@@ -196,7 +187,7 @@ class CreateExperimentTool(MaxTool):
                     "url": experiment_url,
                 },
             )
-        except ValueError as e:
+        except (ValueError, ValidationError) as e:
             return f"Failed to create experiment: {str(e)}", {"error": str(e)}
         except Exception as e:
             capture_exception(e)
@@ -317,8 +308,6 @@ class ExperimentSummaryTool(MaxTool):
 
     async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
         """Fetch experiment data from query runners and format it."""
-        from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
-
         data_service = ExperimentSummaryDataService(self._team)
 
         try:
@@ -455,13 +444,15 @@ class SessionReplaySummaryTool(MaxTool):
 
             experiment = await get_experiment()
 
-            if not experiment.start_date:
+            if experiment.is_draft:
                 output = SessionReplaySummaryOutput(
                     experiment_id=experiment_id,
                     experiment_name=experiment.name,
                     error="not_started",
                 )
                 return "❌ Experiment has not started yet. No session replays available.", output.model_dump()
+            if not experiment.start_date:
+                raise ValueError(f"Experiment {experiment_id} has no start date")
 
             # Get variants from feature flag
             feature_flag = experiment.feature_flag

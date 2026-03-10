@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import cached_property
-from typing import Generic, Optional, TypeVar, cast
+from typing import Generic, Optional, TypeVar
 
 import structlog
 
@@ -11,7 +11,6 @@ from posthog.schema import (
     ConversionGoalFilter3,
     DateRange,
     MarketingAnalyticsConstants,
-    NodeKind,
 )
 
 from posthog.hogql import ast
@@ -23,6 +22,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
+from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
@@ -43,6 +43,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = MarketingAnalyticsConfig()
+        self._conversion_goal_warnings: list[str] = []
 
     @cached_property
     def query_date_range(self):
@@ -222,25 +223,67 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
     def _filter_invalid_conversion_goals(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
-    ) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
+    ) -> tuple[list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3], list[str]]:
         """
-        Filter out invalid conversion goals (e.g., those using "All Events").
-        Returns only valid conversion goals.
+        Filter out invalid conversion goals (e.g., those using "All Events" or
+        referencing missing Data Warehouse columns).
+        Returns (valid_goals, warnings).
         """
-        valid_goals = []
+        valid_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = []
+        warnings: list[str] = []
+
         for goal in conversion_goals:
+            goal_name = getattr(goal, "conversion_goal_name", "Unknown")
+
             # Skip "All Events" goals
-            if goal.kind == cast(str, NodeKind.EVENTS_NODE):
+            if goal.kind == "EventsNode":
                 event_name = getattr(goal, "event", None)
                 if event_name is None or event_name == "":
                     logger.info(
                         "filtering_out_all_events_conversion_goal",
-                        goal_name=getattr(goal, "conversion_goal_name", "Unknown"),
+                        goal_name=goal_name,
+                    )
+                    warnings.append(f"Conversion goal '{goal_name}' skipped: 'All Events' cannot be used")
+                    continue
+
+            # Validate DataWarehouseNode column existence
+            if goal.kind == "DataWarehouseNode" and isinstance(goal, ConversionGoalFilter3):
+                table = get_view_or_table_by_name(team=self.team, name=goal.table_name)
+                if table is None:
+                    logger.warning(
+                        "filtering_out_missing_dw_table_goal",
+                        goal_name=goal_name,
+                        table_name=goal.table_name,
+                    )
+                    warnings.append(f"Conversion goal '{goal_name}' skipped: table '{goal.table_name}' not found")
+                    continue
+
+                schema_map = goal.schema_map or {}
+                table_columns = getattr(table, "columns", None) or {}
+                missing_cols = []
+                for schema_key, default_col in [
+                    ("utm_campaign_name", "utm_campaign"),
+                    ("utm_source_name", "utm_source"),
+                ]:
+                    col_name = schema_map.get(schema_key) or default_col
+                    if col_name not in table_columns:
+                        missing_cols.append(col_name)
+
+                if missing_cols:
+                    logger.warning(
+                        "filtering_out_missing_column_goal",
+                        goal_name=goal_name,
+                        table_name=goal.table_name,
+                        missing_columns=missing_cols,
+                    )
+                    warnings.append(
+                        f"Conversion goal '{goal_name}' skipped: columns {missing_cols} not found on table '{goal.table_name}'"
                     )
                     continue
+
             valid_goals.append(goal)
 
-        return valid_goals
+        return valid_goals, warnings
 
     def _create_conversion_goal_processors(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
@@ -390,7 +433,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
             # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()
-            valid_conversion_goals = self._filter_invalid_conversion_goals(conversion_goals)
+            valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
+                conversion_goals
+            )
 
             # Create processors only for valid conversion goals
             processors = (
