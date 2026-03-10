@@ -247,6 +247,7 @@ def slack_source(
     channel_id: str | None = None,
 ) -> SourceResponse:
     items: Callable[[], Iterable[Any]]
+    sort_mode = "asc"
 
     if endpoint in ENDPOINTS:
         # Metadata endpoints ($channels, $users) — served via REST
@@ -271,6 +272,7 @@ def slack_source(
     else:
         # Per-channel message endpoint
         endpoint_config = messages_endpoint_config()
+        sort_mode = "desc"
 
         if channel_id is None:
             raise Exception(f"channel_not_found: {endpoint}")
@@ -290,6 +292,7 @@ def slack_source(
         partition_keys=endpoint_config.partition_keys,
         partition_mode=endpoint_config.partition_mode,
         partition_format=endpoint_config.partition_format,
+        sort_mode=sort_mode,
     )
 
 
