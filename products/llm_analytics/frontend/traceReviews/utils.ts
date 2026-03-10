@@ -22,6 +22,16 @@ export function getTraceReviewDisplayValue(review: TraceReview): string {
     return 'Reviewed'
 }
 
+export function getTraceReviewStatusDisplayValue(review: TraceReview | null): string {
+    if (!review) {
+        return 'Not reviewed'
+    }
+
+    const reviewValue = getTraceReviewDisplayValue(review)
+
+    return reviewValue === 'Reviewed' ? 'Reviewed' : `Reviewed: ${reviewValue}`
+}
+
 export function getTraceReviewTagType(review: TraceReview): 'success' | 'danger' | 'completion' | 'muted' {
     if (review.score_kind === 'label') {
         return review.score_label === 'good' ? 'success' : 'danger'
@@ -32,6 +42,18 @@ export function getTraceReviewTagType(review: TraceReview): 'success' | 'danger'
     }
 
     return 'muted'
+}
+
+export function getTraceReviewStatusTagType(review: TraceReview | null): 'success' | 'danger' | 'completion' | 'muted' {
+    if (!review) {
+        return 'muted'
+    }
+
+    if (review.score_kind === null) {
+        return 'success'
+    }
+
+    return getTraceReviewTagType(review)
 }
 
 export function getTraceReviewerName(review: TraceReview): string | null {

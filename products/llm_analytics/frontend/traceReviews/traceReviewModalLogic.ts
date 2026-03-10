@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { traceReviewModalLogicType } from './traceReviewModalLogicType'
 import { traceReviewsApi } from './traceReviewsApi'
+import { traceReviewsLazyLoaderLogic } from './traceReviewsLazyLoaderLogic'
 import type { TraceReview, TraceReviewFormScoreMode, TraceReviewScoreLabel, TraceReviewUpsertPayload } from './types'
 
 export interface TraceReviewModalLogicProps {
@@ -26,6 +27,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
 
     connect({
         values: [teamLogic, ['currentTeamId']],
+        actions: [traceReviewsLazyLoaderLogic, ['setTraceReview as cacheTraceReview', 'setTraceAsUnreviewed']],
     }),
 
     actions({
@@ -191,6 +193,11 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
                 const review = await traceReviewsApi.getByTraceId(props.traceId, values.currentTeamId)
                 actions.loadCurrentReviewSuccess(review)
                 actions.populateForm(review)
+                if (review) {
+                    actions.cacheTraceReview(review)
+                } else {
+                    actions.setTraceAsUnreviewed(props.traceId)
+                }
             } catch {
                 lemonToast.error('Failed to load the current trace review.')
                 actions.loadCurrentReviewFailure()
@@ -211,6 +218,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
                 )
                 actions.saveCurrentReviewSuccess(review)
                 actions.populateForm(review)
+                actions.cacheTraceReview(review)
                 lemonToast.success('Trace review saved.')
                 actions.closeModal()
             } catch (error) {
@@ -228,6 +236,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
             try {
                 await traceReviewsApi.delete(values.currentReview.id, values.currentTeamId)
                 actions.removeCurrentReviewSuccess()
+                actions.setTraceAsUnreviewed(props.traceId)
                 lemonToast.info('Trace review removed.')
                 actions.closeModal()
             } catch (error) {

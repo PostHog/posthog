@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 import { traceReviewModalLogic } from './traceReviewModalLogic'
 import { traceReviewsApi } from './traceReviewsApi'
+import { traceReviewsLazyLoaderLogic } from './traceReviewsLazyLoaderLogic'
 import type { TraceReview } from './types'
 
 jest.mock('./traceReviewsApi')
@@ -38,6 +39,9 @@ describe('traceReviewModalLogic', () => {
     it('loads the existing review when the modal opens', async () => {
         mockTraceReviewsApi.getByTraceId.mockResolvedValue(mockReview)
 
+        const lazyLoaderLogic = traceReviewsLazyLoaderLogic()
+        lazyLoaderLogic.mount()
+
         const logic = traceReviewModalLogic({ traceId: 'trace_123' })
         logic.mount()
 
@@ -49,6 +53,7 @@ describe('traceReviewModalLogic', () => {
         expect(logic.values.scoreMode).toBe('label')
         expect(logic.values.scoreLabel).toBe('bad')
         expect(logic.values.comment).toBe('Missed the constraint')
+        expect(lazyLoaderLogic.values.getTraceReview('trace_123')).toEqual(mockReview)
     })
 
     it('saves a review without requiring a score or comment', async () => {
@@ -61,6 +66,9 @@ describe('traceReviewModalLogic', () => {
 
         mockTraceReviewsApi.getByTraceId.mockResolvedValue(null)
         mockTraceReviewsApi.save.mockResolvedValue(savedReview)
+
+        const lazyLoaderLogic = traceReviewsLazyLoaderLogic()
+        lazyLoaderLogic.mount()
 
         const logic = traceReviewModalLogic({ traceId: 'trace_123' })
         logic.mount()
@@ -85,11 +93,15 @@ describe('traceReviewModalLogic', () => {
             MOCK_DEFAULT_TEAM.id
         )
         expect(lemonToast.success).toHaveBeenCalledWith('Trace review saved.')
+        expect(lazyLoaderLogic.values.getTraceReview('trace_123')).toEqual(savedReview)
     })
 
     it('removes an existing review', async () => {
         mockTraceReviewsApi.getByTraceId.mockResolvedValue(mockReview)
         mockTraceReviewsApi.delete.mockResolvedValue(undefined)
+
+        const lazyLoaderLogic = traceReviewsLazyLoaderLogic()
+        lazyLoaderLogic.mount()
 
         const logic = traceReviewModalLogic({ traceId: 'trace_123' })
         logic.mount()
@@ -105,5 +117,6 @@ describe('traceReviewModalLogic', () => {
         expect(mockTraceReviewsApi.delete).toHaveBeenCalledWith('review_1', MOCK_DEFAULT_TEAM.id)
         expect(logic.values.currentReview).toBeNull()
         expect(lemonToast.info).toHaveBeenCalledWith('Trace review removed.')
+        expect(lazyLoaderLogic.values.getTraceReview('trace_123')).toBeNull()
     })
 })

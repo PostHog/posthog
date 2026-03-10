@@ -106,7 +106,6 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                     columns: [
                         'id',
                         'traceName',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW] ? ['review'] : []),
                         ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
                             ? ['inputState', 'outputState']
                             : []),
@@ -117,6 +116,7 @@ export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
                         'totalLatency',
                         'usage',
                         'totalCost',
+                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW] ? ['review'] : []),
                         'timestamp',
                     ],
                     showDateRange: true,

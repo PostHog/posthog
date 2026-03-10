@@ -80,6 +80,8 @@ import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
 import { TraceReviewButton } from './traceReviews/TraceReviewButton'
+import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
+import { TraceReviewStatusTag } from './traceReviews/TraceReviewValue'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
     formatLLMCost,
@@ -296,14 +298,16 @@ function Chip({
     title,
     children,
     icon,
+    type,
 }: {
     title: string
     children: React.ReactNode
     icon?: JSX.Element
+    type?: LemonTagProps['type']
 }): JSX.Element {
     return (
         <Tooltip title={title}>
-            <LemonTag size="medium" className="bg-surface-primary" icon={icon}>
+            <LemonTag size="medium" className="bg-surface-primary" icon={icon} type={type}>
                 <span className="sr-only">{title}</span>
                 {children}
             </LemonTag>
@@ -341,12 +345,26 @@ function TraceMetadata({
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
     const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
     const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+    const {
+        getTraceReview,
+        isTraceLoading: isTraceReviewLoading,
+        didTraceReviewLoadFail,
+    } = useValues(traceReviewsLazyLoaderLogic)
+    const { ensureReviewsLoaded } = useActions(traceReviewsLazyLoaderLogic)
 
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+    const showTraceReview = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
     const sentimentResult = showSentiment ? getTraceSentiment(trace.id) : undefined
     const sentimentLoading = showSentiment ? isTraceLoading(trace.id) : false
     if (showSentiment && sentimentResult === undefined && !sentimentLoading) {
         ensureSentimentLoaded(trace.id)
+    }
+
+    const traceReview = showTraceReview ? getTraceReview(trace.id) : undefined
+    const traceReviewLoading = showTraceReview ? isTraceReviewLoading(trace.id) : false
+    const traceReviewLoadFailed = showTraceReview ? didTraceReviewLoadFail(trace.id) : false
+    if (showTraceReview && traceReview === undefined && !traceReviewLoading && !traceReviewLoadFailed) {
+        ensureReviewsLoaded([trace.id])
     }
 
     const cached = personsCache[trace.distinctId]
@@ -411,6 +429,18 @@ function TraceMetadata({
                     {formatLLMCost(trace.totalCost)}
                 </Chip>
             )}
+            {showTraceReview &&
+                (traceReviewLoadFailed ? (
+                    <Chip title="Failed to load the review status." type="muted">
+                        Review unavailable
+                    </Chip>
+                ) : traceReviewLoading || traceReview === undefined ? (
+                    <Chip title="Loading the review status." type="muted">
+                        Checking review...
+                    </Chip>
+                ) : (
+                    <TraceReviewStatusTag review={traceReview} size="medium" className="bg-surface-primary" />
+                ))}
             {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
                 <Chip title="Billed total" icon={<span className="text-base">💰</span>}>
                     billed: {formatLLMCost(billedTotalUsd)}

@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { traceReviewModalLogic } from './traceReviewModalLogic'
+import { traceReviewsLazyLoaderLogic } from './traceReviewsLazyLoaderLogic'
 import type { TraceReviewFormScoreMode, TraceReviewScoreLabel } from './types'
 
 const SCORE_MODE_OPTIONS: { value: TraceReviewFormScoreMode; label: string }[] = [
@@ -25,6 +26,7 @@ const SCORE_LABEL_OPTIONS: { value: TraceReviewScoreLabel; label: string }[] = [
 export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element {
     const logic = useMountedLogic(traceReviewModalLogic({ traceId }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { getTraceReview } = useValues(traceReviewsLazyLoaderLogic)
     const {
         openModal,
         closeModal,
@@ -47,6 +49,10 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
         comment,
         canSave,
     } = useValues(logic)
+    const cachedReview = getTraceReview(traceId)
+    const effectiveReview = cachedReview === undefined ? currentReview : cachedReview
+    const buttonLabel = effectiveReview ? 'Edit review' : 'Review trace'
+    const modalTitle = effectiveReview ? 'Edit review' : 'Review trace'
 
     if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]) {
         return <></>
@@ -59,11 +65,11 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
                 minAccessLevel={AccessControlLevel.Editor}
             >
                 <LemonButton type="secondary" size="xsmall" onClick={openModal} data-attr="review-trace-button">
-                    Review trace
+                    {buttonLabel}
                 </LemonButton>
             </AccessControlAction>
 
-            <LemonModal isOpen={isOpen} onClose={closeModal} title="Review trace" width={560}>
+            <LemonModal isOpen={isOpen} onClose={closeModal} title={modalTitle} width={560}>
                 {currentReviewLoading ? (
                     <div className="py-12 flex justify-center">
                         <Spinner />
@@ -72,24 +78,27 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
                     <div className="space-y-4">
                         <div className="space-y-2">
                             <div className="text-sm font-medium">Score</div>
-                            <LemonSelect
+                            <LemonSegmentedButton
                                 value={scoreMode}
                                 onChange={(value) => setScoreMode(value as TraceReviewFormScoreMode)}
                                 options={SCORE_MODE_OPTIONS}
                                 fullWidth
+                                size="small"
                             />
+                            <div className="text-xs text-muted">
+                                Optional. Choose a score only if you want to add one.
+                            </div>
                         </div>
 
                         {scoreMode === 'label' ? (
                             <div className="space-y-2">
                                 <div className="text-sm font-medium">Label</div>
-                                <LemonSelect
-                                    value={scoreLabel}
+                                <LemonSegmentedButton
+                                    value={scoreLabel ?? undefined}
                                     onChange={(value) => setScoreLabel(value as TraceReviewScoreLabel | null)}
                                     options={SCORE_LABEL_OPTIONS}
-                                    placeholder="Select a score"
-                                    allowClear
                                     fullWidth
+                                    size="small"
                                 />
                             </div>
                         ) : null}
@@ -111,13 +120,16 @@ export function TraceReviewButton({ traceId }: { traceId: string }): JSX.Element
                         ) : null}
 
                         <div className="space-y-2">
-                            <div className="text-sm font-medium">Comment</div>
+                            <div className="text-sm font-medium">Reasoning (optional)</div>
                             <LemonTextArea
                                 value={comment}
                                 onChange={setComment}
                                 placeholder="Add optional reasoning or notes"
                                 rows={4}
                             />
+                            <div className="text-xs text-muted">
+                                Leave this blank if you only want to mark the trace as reviewed.
+                            </div>
                         </div>
 
                         <div className="flex items-center justify-between gap-2 pt-2">

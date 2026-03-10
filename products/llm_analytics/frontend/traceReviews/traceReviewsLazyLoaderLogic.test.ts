@@ -102,4 +102,17 @@ describe('traceReviewsLazyLoaderLogic', () => {
         expect(logic.values.didTraceReviewLoadFail('trace_123')).toBe(false)
         expect(logic.values.isTraceLoading('trace_123')).toBe(true)
     })
+
+    it('can update the cached review state after edits', () => {
+        const logic = traceReviewsLazyLoaderLogic()
+        logic.mount()
+
+        logic.actions.setTraceReview(mockReview)
+        expect(logic.values.getTraceReview('trace_123')).toEqual(mockReview)
+        expect(logic.values.didTraceReviewLoadFail('trace_123')).toBe(false)
+
+        logic.actions.setTraceAsUnreviewed('trace_123')
+        expect(logic.values.getTraceReview('trace_123')).toBeNull()
+        expect(logic.values.isTraceLoading('trace_123')).toBe(false)
+    })
 })

@@ -28,6 +28,8 @@ export const traceReviewsLazyLoaderLogic = kea<traceReviewsLazyLoaderLogicType>(
     actions({
         ensureReviewsLoaded: (traceIds: string[]) => ({ traceIds }),
         markTraceIdsLoading: (traceIds: string[]) => ({ traceIds }),
+        setTraceReview: (review: TraceReview) => ({ review }),
+        setTraceAsUnreviewed: (traceId: string) => ({ traceId }),
         loadReviewsBatchSuccess: (results: Record<string, TraceReview | null>, requestedTraceIds: string[]) => ({
             results,
             requestedTraceIds,
@@ -39,6 +41,14 @@ export const traceReviewsLazyLoaderLogic = kea<traceReviewsLazyLoaderLogicType>(
         reviewsByTraceId: [
             {} as Record<string, TraceReview | null>,
             {
+                setTraceReview: (state, { review }) => ({
+                    ...state,
+                    [review.trace_id]: review,
+                }),
+                setTraceAsUnreviewed: (state, { traceId }) => ({
+                    ...state,
+                    [traceId]: null,
+                }),
                 loadReviewsBatchSuccess: (state, { results, requestedTraceIds }) => {
                     const nextState = { ...state }
 
@@ -54,6 +64,16 @@ export const traceReviewsLazyLoaderLogic = kea<traceReviewsLazyLoaderLogicType>(
         loadingTraceIds: [
             new Set<string>(),
             {
+                setTraceReview: (state, { review }) => {
+                    const nextState = new Set(state)
+                    nextState.delete(review.trace_id)
+                    return nextState
+                },
+                setTraceAsUnreviewed: (state, { traceId }) => {
+                    const nextState = new Set(state)
+                    nextState.delete(traceId)
+                    return nextState
+                },
                 markTraceIdsLoading: (state, { traceIds }) => {
                     const nextState = new Set(state)
 
@@ -89,6 +109,16 @@ export const traceReviewsLazyLoaderLogic = kea<traceReviewsLazyLoaderLogicType>(
         failedTraceIds: [
             new Set<string>(),
             {
+                setTraceReview: (state, { review }) => {
+                    const nextState = new Set(state)
+                    nextState.delete(review.trace_id)
+                    return nextState
+                },
+                setTraceAsUnreviewed: (state, { traceId }) => {
+                    const nextState = new Set(state)
+                    nextState.delete(traceId)
+                    return nextState
+                },
                 markTraceIdsLoading: (state, { traceIds }) => {
                     const nextState = new Set(state)
 
