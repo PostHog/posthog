@@ -742,17 +742,15 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 )
 
 
-class ExperimentStatus(str, Enum):
+class ExperimentQueryStatus(str, Enum):
     """
-    Note: The frontend also uses a "ProgressStatus.Paused" status, but this is purely a
-    virtual status to have better UX for the user. Technically, paused experiments have
-    feature flags disabled while the experiment is still "running" in the backend, i.e.
-    they have start_date but no end_date).
+    Note: The frontend still treats paused experiments as a UI-only variant of "running"
+    when the linked flag is disabled, so the API only filters on stored experiment statuses.
     """
 
     DRAFT = "draft"
     RUNNING = "running"
-    COMPLETE = "complete"
+    STOPPED = "stopped"
     ALL = "all"
 
 
@@ -783,18 +781,29 @@ class EnterpriseExperimentsViewSet(
             # filtering by status
             status = self.request.query_params.get("status")
             if status:
+                normalized_status = status.lower()
+                if normalized_status == "complete":
+                    normalized_status = ExperimentQueryStatus.STOPPED.value
+
                 try:
-                    status_enum = ExperimentStatus(status.lower())
+                    status_enum = ExperimentQueryStatus(normalized_status)
                 except ValueError:
                     status_enum = None
 
-                if status_enum and status_enum != ExperimentStatus.ALL:
-                    if status_enum == ExperimentStatus.DRAFT:
-                        queryset = queryset.filter(start_date__isnull=True)
-                    elif status_enum == ExperimentStatus.RUNNING:
-                        queryset = queryset.filter(start_date__isnull=False, end_date__isnull=True)
-                    elif status_enum == ExperimentStatus.COMPLETE:
-                        queryset = queryset.filter(end_date__isnull=False)
+                if status_enum and status_enum != ExperimentQueryStatus.ALL:
+                    if status_enum == ExperimentQueryStatus.DRAFT:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.DRAFT) | Q(status__isnull=True, start_date__isnull=True)
+                        )
+                    elif status_enum == ExperimentQueryStatus.RUNNING:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.RUNNING)
+                            | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                        )
+                    elif status_enum == ExperimentQueryStatus.STOPPED:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.STOPPED) | Q(status__isnull=True, end_date__isnull=False)
+                        )
 
             # filtering by creator id
             created_by_id = self.request.query_params.get("created_by_id")
