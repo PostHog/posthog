@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconTrending, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -43,6 +43,7 @@ const HealthCard = ({
 const DetailedViewCards = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
+    const spikeAlertsEnabled = !!featureFlags[FEATURE_FLAGS.SPIKE_ALERTS_PAGE]
 
     return (
         <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4 max-w-3xl">
@@ -64,6 +65,14 @@ const DetailedViewCards = (): JSX.Element => {
                     description="Click to view"
                     icon={<IconDatabase className="size-6" />}
                     to={urls.pipelineStatus()}
+                />
+            )}
+            {spikeAlertsEnabled && (
+                <HealthCard
+                    title="Spike alerts"
+                    description="Click to view"
+                    icon={<IconTrending className="size-6" />}
+                    to={urls.spikeAlerts()}
                 />
             )}
         </div>

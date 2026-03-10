@@ -242,6 +242,7 @@ export const urls = {
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
+    spikeAlerts: (): string => '/health/spike-alerts',
     exports: (): string => '/exports',
 }
 

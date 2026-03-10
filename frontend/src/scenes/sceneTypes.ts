@@ -134,7 +134,7 @@ export enum Scene {
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
-
+    SpikeAlerts = 'SpikeAlerts',
     Site = 'Site',
     Coupons = 'Coupons',
     Sources = 'Sources',

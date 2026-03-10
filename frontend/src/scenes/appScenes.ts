@@ -33,9 +33,15 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
 
-    [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
-    [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
-    [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
+    [Scene.Error404]: () => ({
+        default: preloadedScenes[Scene.Error404].component,
+    }),
+    [Scene.ErrorNetwork]: () => ({
+        default: preloadedScenes[Scene.ErrorNetwork].component,
+    }),
+    [Scene.ErrorProjectUnavailable]: () => ({
+        default: preloadedScenes[Scene.ErrorProjectUnavailable].component,
+    }),
     [Scene.EventDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
     [Scene.EventDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
@@ -101,6 +107,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebScripts]: () => import('./data-pipelines/WebScriptsScene'),
     [Scene.Health]: () => import('./health/HealthScene'),
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
+    [Scene.SpikeAlerts]: () => import('./health/spikeAlerts/SpikeAlertsScene'),
     [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
     [Scene.SessionAttributionExplorer]: () =>

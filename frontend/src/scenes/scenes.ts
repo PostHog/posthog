@@ -17,7 +17,11 @@ import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayT
 import { BillingSectionId } from './billing/types'
 import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 
-export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
+export const emptySceneParams = {
+    params: {},
+    searchParams: {},
+    hashParams: {},
+}
 
 export const preloadedScenes: Record<string, SceneExport> = {
     [Scene.Error404]: {
@@ -94,8 +98,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: false,
         layout: 'plain',
     },
-    [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
-    [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
+    [Scene.Cohort]: {
+        projectBased: true,
+        name: 'Cohort',
+        defaultDocsPath: '/docs/data/cohorts',
+    },
+    [Scene.CohortCalculationHistory]: {
+        projectBased: true,
+        name: 'Cohort Calculation History',
+    },
     [Scene.Cohorts]: {
         projectBased: true,
         name: 'Cohorts',
@@ -268,8 +279,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'People & groups',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
-    [Scene.GroupsNew]: { projectBased: true, defaultDocsPath: '/docs/product-analytics/group-analytics' },
-    [Scene.Groups]: { projectBased: true, name: 'Groups', defaultDocsPath: '/docs/product-analytics/group-analytics' },
+    [Scene.GroupsNew]: {
+        projectBased: true,
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
+    [Scene.Groups]: {
+        projectBased: true,
+        name: 'Groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
     [Scene.Heatmaps]: {
         projectBased: true,
         name: 'Heatmaps',
@@ -296,7 +314,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Heatmap recording',
         iconType: 'heatmap',
     },
-    [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
+    [Scene.HogFunction]: {
+        projectBased: true,
+        name: 'Hog function',
+        activityScope: ActivityScope.HOG_FUNCTION,
+    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -319,7 +341,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
-    [Scene.Coupons]: { name: 'Coupons', organizationBased: true, layout: 'app-container' },
+    [Scene.Coupons]: {
+        name: 'Coupons',
+        organizationBased: true,
+        layout: 'app-container',
+    },
     [Scene.Link]: { projectBased: true },
     [Scene.Links]: { projectBased: true, name: 'Links' },
     [Scene.LiveEvents]: {
@@ -329,11 +355,20 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Real-time events from your app or website.',
         iconType: 'live',
     },
-    [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger', defaultDocsPath: '/docs/data/events' },
+    [Scene.LiveDebugger]: {
+        projectBased: true,
+        name: 'Live debugger',
+        defaultDocsPath: '/docs/data/events',
+    },
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA' },
     [Scene.EmailMFAVerify]: { onlyUnauthenticated: true },
     [Scene.Login]: { onlyUnauthenticated: true },
-    [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
+    [Scene.Max]: {
+        projectBased: true,
+        name: 'Max',
+        layout: 'app-raw-no-header',
+        hideProjectNotice: true,
+    },
     [Scene.Models]: {
         projectBased: true,
         name: 'Models',
@@ -341,7 +376,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/data-warehouse/views/materialize',
         iconType: 'sql_editor',
     },
-    [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
+    [Scene.MoveToPostHogCloud]: {
+        name: 'Move to PostHog Cloud',
+        hideProjectNotice: true,
+    },
     [Scene.NewTab]: {
         projectBased: true,
         name: 'Search',
@@ -370,8 +408,16 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: false,
         allowUnauthenticated: true,
     },
-    [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
-    [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },
+    [Scene.Onboarding]: {
+        projectBased: true,
+        name: 'Onboarding',
+        layout: 'plain',
+    },
+    [Scene.OnboardingCoupon]: {
+        projectBased: true,
+        name: 'Claim coupon',
+        layout: 'plain',
+    },
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
         defaultDocsPath: '/docs/data/organizations-and-projects',
@@ -516,6 +562,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Monitor the status of your data pipelines.',
         iconType: 'pipeline_status',
     },
+    [Scene.SpikeAlerts]: {
+        projectBased: true,
+        name: 'Spike alerts',
+        description: 'Monitor spike alerts.',
+        iconType: 'health',
+    },
     [Scene.SdkDoctor]: {
         projectBased: true,
         name: 'SDK doctor',
@@ -531,12 +583,27 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
     },
-    [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
-    [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
+    [Scene.SessionAttributionExplorer]: {
+        projectBased: true,
+        name: 'Session attribution explorer (beta)',
+    },
+    [Scene.SessionProfile]: {
+        projectBased: true,
+        name: 'Session profile',
+        iconType: 'session_profile',
+    },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.Signup]: { onlyUnauthenticated: true },
-    [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
-    [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
+    [Scene.Site]: {
+        projectBased: true,
+        hideProjectNotice: true,
+        layout: 'app-raw',
+    },
+    [Scene.StartupProgram]: {
+        name: 'PostHog for Startups',
+        organizationBased: true,
+        layout: 'app-container',
+    },
     [Scene.SurveyTemplates]: {
         projectBased: true,
         name: 'New survey',
@@ -578,7 +645,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/product-tours',
     },
     [Scene.SystemStatus]: { instanceLevel: true, name: 'Instance panel' },
-    [Scene.ToolbarLaunch]: { projectBased: true, name: 'Launch toolbar', defaultDocsPath: '/docs/toolbar' },
+    [Scene.ToolbarLaunch]: {
+        projectBased: true,
+        name: 'Launch toolbar',
+        defaultDocsPath: '/docs/toolbar',
+    },
     [Scene.Sources]: {
         projectBased: true,
         name: 'Sources',
@@ -943,6 +1014,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    [urls.spikeAlerts()]: [Scene.SpikeAlerts, 'spikeAlerts'],
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],

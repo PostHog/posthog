@@ -1,7 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
-import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
+import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconTrending, IconWarning } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
@@ -38,6 +38,7 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
     const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
+    const spikeAlertsEnabled = !!featureFlags[FEATURE_FLAGS.SPIKE_ALERTS_PAGE]
     const { issueCount: pipelineIssueCount } = useValues(sidePanelHealthLogic)
 
     const sdkDoctorTooltip = needsAttention
@@ -150,6 +151,21 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
                     </Link>
                 )}
             />
+            {spikeAlertsEnabled && (
+                <Menu.Item
+                    render={(props) => (
+                        <Link
+                            {...props}
+                            to={urls.spikeAlerts()}
+                            buttonProps={{ menuItem: true }}
+                            data-attr="health-menu-spike-alerts-button"
+                        >
+                            <IconTrending className="size-5" />
+                            Spike alerts
+                        </Link>
+                    )}
+                />
+            )}
         </HealthMenuShell>
     )
 }
@@ -161,6 +177,7 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
     const { triggerBadgeContent, triggerBadgeStatus, totalIssues } = useValues(unifiedHealthMenuLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
+    const spikeAlertsEnabled = !!featureFlags[FEATURE_FLAGS.SPIKE_ALERTS_PAGE]
 
     const combinedBadgeContent = postHogStatusBadgeContent === '!' || triggerBadgeContent === '!' ? '!' : '✓'
     const combinedBadgeStatus: 'danger' | 'warning' | 'success' =
@@ -265,6 +282,21 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                     </Link>
                 )}
             />
+            {spikeAlertsEnabled && (
+                <Menu.Item
+                    render={(props) => (
+                        <Link
+                            {...props}
+                            to={urls.spikeAlerts()}
+                            buttonProps={{ menuItem: true }}
+                            data-attr="health-menu-spike-alerts-button"
+                        >
+                            <IconTrending className="size-5" />
+                            Spike alerts
+                        </Link>
+                    )}
+                />
+            )}
         </HealthMenuShell>
     )
 }

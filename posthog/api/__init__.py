@@ -131,6 +131,7 @@ from . import (
     schema_property_group,
     search,
     sharing,
+    spike_alerts,
     survey,
     tagged_item,
     team,
@@ -323,6 +324,12 @@ register_grandfathered_environment_nested_viewset(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "environment_ingestion_warnings",
+    ["team_id"],
+)
+register_grandfathered_environment_nested_viewset(
+    r"spike_alerts",
+    spike_alerts.SpikeAlertsViewSet,
+    "environment_spike_alerts",
     ["team_id"],
 )
 
