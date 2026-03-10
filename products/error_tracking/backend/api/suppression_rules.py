@@ -43,8 +43,8 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         if json_filters:
             try:
                 parsed_filters = PropertyGroupFilterValue(**json_filters)
-            except (PydanticValidationError, TypeError) as e:
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            except (PydanticValidationError, TypeError):
+                return Response({"error": "Invalid filters"}, status=status.HTTP_400_BAD_REQUEST)
             suppression_rule.filters = json_filters
             suppression_rule.bytecode = generate_byte_code(self.team, parsed_filters)
             suppression_rule.disabled_data = None
@@ -77,8 +77,8 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
 
         try:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
-        except (PydanticValidationError, TypeError) as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except (PydanticValidationError, TypeError):
+            return Response({"error": "Invalid filters"}, status=status.HTTP_400_BAD_REQUEST)
         bytecode = generate_byte_code(self.team, parsed_filters)
 
         suppression_rule = ErrorTrackingSuppressionRule.objects.create(
