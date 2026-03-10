@@ -9,7 +9,6 @@ process.env.TZ = process.env.TZ || 'UTC'
 
 const esmModules = [
     'query-selector-shadow-dom',
-    'react-syntax-highlighter',
     '@react-hook',
     '@medv',
     'monaco-editor',

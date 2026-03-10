@@ -43,7 +43,7 @@ env:
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
 permissions:
-    contents: write
+    contents: read
     pull-requests: write
 
 jobs:
@@ -120,7 +120,8 @@ jobs:
                         - docker/clickhouse
                       legacy:
                         # Non-product backend code — when only products/ change,
-                        # turbo contract-check decides whether Django tests run.
+                        # turbo-discover diffs backend:test vs backend:contract-check
+                        # to detect isolated products and decide whether Django runs.
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
                         - 'common/**/*'
@@ -160,10 +161,14 @@ jobs:
                         - 'frontend/src/generated/**/*'
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
+                        - 'services/mcp/src/api/generated.ts'
                         # Generation tooling - changes here could affect output
+                        - 'tools/openapi-codegen/**/*'
+                        - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
                         - 'services/mcp/scripts/generate-orval-schemas.mjs'
+                        - 'services/mcp/scripts/generate-mcp-types.mjs'
                         - 'services/mcp/scripts/generate-tools.ts'
                         - 'services/mcp/definitions/**/*.yaml'
                         - 'products/*/mcp/**/*.yaml'
@@ -180,15 +185,19 @@ jobs:
         steps:
             - name: Detect mode
               id: detect
+              env:
+                  PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  REPO: ${{ github.repository }}
+                  HAS_NO_SNAPSHOT_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-snapshot-update') }}
+                  AUTHOR: ${{ github.actor }}
               run: |
-                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                  if [ "$PR_REPO" != "$REPO" ] && [ -n "$PR_REPO" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in CHECK mode (no commits allowed)"
-                  elif [ "${{ contains(github.event.pull_request.labels.*.name, 'no-snapshot-update') }}" == "true" ]; then
+                  elif [ "$HAS_NO_SNAPSHOT_LABEL" == "true" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "::notice::🔍 Running in CHECK mode - 'no-snapshot-update' label detected"
                   else
-                    AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
                     # Dependabot is excluded - it creates new PRs that may need snapshot updates
                     # Other bots (github-actions, posthog-bot) commit snapshots and must use CHECK mode to avoid loops
@@ -212,7 +221,7 @@ jobs:
         timeout-minutes: 5
         name: Discover product tests
         outputs:
-            run_legacy: ${{ steps.contract-check.outputs.run_legacy }}
+            run_legacy: ${{ steps.discover.outputs.run_legacy }}
             matrix: ${{ steps.discover.outputs.matrix }}
 
         steps:
@@ -221,9 +230,6 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
             - name: Setup Node.js
               uses: actions/setup-node@v6
               with:
@@ -231,60 +237,25 @@ jobs:
                   cache: pnpm
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
-
-            - name: Check contract changes
-              id: contract-check
-              run: |
-                  # Determines if Django needs to run based on contract changes.
-                  #
-                  # Logic:
-                  # - Push to master: run Django (full CI)
-                  # - Legacy (posthog/ee/common) changed: run Django
-                  # - Any contract-check cache miss: run Django
-                  # - All cache hits: skip Django (isolated impl-only changes)
-                  #
-                  # Always runs contract-check at the end to keep the remote cache
-                  # warm as a baseline for future product-only PRs.
-
-                  if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-                    echo "Push to master - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  elif [[ "${{ needs.changes.outputs.legacy }}" == "true" ]]; then
-                    echo "Legacy code changed - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  else
-                    # Product-only change — check contract cache to decide
-                    CACHE_STATUS=$(./node_modules/.bin/turbo run backend:contract-check --dry-run=json 2>/dev/null | jq -r '
-                      [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
-                      if length == 0 then "NO_TASKS"
-                      elif any(. == "MISS") then "MISS"
-                      else "HIT"
-                      end
-                    ' || echo "PARSE_ERROR")
-
-                    echo "Contract check cache status: $CACHE_STATUS"
-
-                    if [[ "$CACHE_STATUS" == "HIT" || "$CACHE_STATUS" == "NO_TASKS" ]]; then
-                      echo "Contracts unchanged (cache $CACHE_STATUS) - Django can be skipped"
-                      echo "run_legacy=false" >> $GITHUB_OUTPUT
-                    else
-                      echo "Contract files changed ($CACHE_STATUS) - Django will run"
-                      echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    fi
-                  fi
-
-                  # Always run to keep remote cache warm as baseline
-                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
+              run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Discover products to test
               id: discover
               env:
-                  LEGACY_CHANGED: ${{ needs.changes.outputs.legacy }}
+                  # On pushes to master, always run everything.
+                  # On PRs, use the path filter to detect legacy changes.
+                  LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
               run: |
-                  MATRIX=$(node .github/scripts/turbo-discover.js)
-                  echo "Matrix: $MATRIX"
-                  echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+                  # turbo-discover.js diffs backend:test vs backend:contract-check
+                  # to detect isolated products. Non-isolated product changes trigger
+                  # the full suite (all products + Django).
+                  RESULT=$(node .github/scripts/turbo-discover.js)
+                  echo "Result: $RESULT"
+                  echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
+                  echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
+
+                  # Keep contract-check remote cache warm for future runs
+                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
 
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
@@ -326,9 +297,6 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
             - name: Setup Node.js
               uses: actions/setup-node@v6
               with:
@@ -336,7 +304,7 @@ jobs:
                   cache: pnpm
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Set up Python
               uses: actions/setup-python@v6
@@ -588,10 +556,8 @@ jobs:
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
-                  # Read the changed files from the output
-                  CHANGED_FILES="${{ needs.changes.outputs.migrations_files }}"
-
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
                     echo "No migration files changed"
@@ -768,13 +734,15 @@ jobs:
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
+              env:
+                  MIGRATIONS_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
                   # Check migration safety using old SQL-based checker (still uses stdin from git diff)
-                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
+                  echo "$MIGRATIONS_FILES" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
@@ -874,6 +842,7 @@ jobs:
                   git add products/*/frontend/generated/ 2>/dev/null || true
                   git add products/*/mcp/*.yaml 2>/dev/null || true
                   git add services/mcp/definitions/*.yaml 2>/dev/null || true
+                  git add services/mcp/src/api/generated.ts 2>/dev/null || true
                   git commit -m "chore: update OpenAPI generated types"
                   git push origin "$BRANCH"
                   echo "::notice::Pushed updated OpenAPI types to $BRANCH"

@@ -262,7 +262,7 @@ const ExceptionsTab = (): JSX.Element => {
                 </ErrorFilters.Root>
             </div>
             <LemonDivider className="my-0 shrink-0" />
-            <Metadata className="flex flex-col flex-1 min-h-0 overflow-y-auto">
+            <Metadata className="flex flex-col flex-1 min-h-0">
                 {issueFingerprintsLoading ? (
                     <div className="text-muted text-sm px-2 py-3">Loading exceptions...</div>
                 ) : issueFingerprints.length === 0 ? (

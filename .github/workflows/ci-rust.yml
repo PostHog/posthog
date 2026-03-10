@@ -293,7 +293,12 @@ jobs:
               run: |
                   for pkg in ${{ matrix.packages }}; do
                       echo "::group::Testing $pkg"
-                      cargo test -p "$pkg"
+                      extra_args=""
+                      # Limit test threads for packages with sqlx pool exhaustion issues
+                      if [ "$pkg" = "property-defs-rs" ]; then
+                          extra_args="-- --test-threads=4"
+                      fi
+                      cargo test -p "$pkg" $extra_args
                       echo "::endgroup::"
                   done
 
