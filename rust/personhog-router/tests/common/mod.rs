@@ -348,5 +348,6 @@ pub fn create_test_person() -> Person {
         version: 1,
         is_identified: true,
         is_user_id: None,
+        last_seen_at: None,
     }
 }
