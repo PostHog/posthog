@@ -54,6 +54,9 @@ FORBIDDEN_REQUEST_PARAMS = frozenset(
 
 
 def _sanitize_request_value(value: Any) -> Any:
+    # Recursively strip forbidden params from nested dicts and lists.
+    # litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
+    # to the upstream provider, so a shallow filter is insufficient.
     if isinstance(value, dict):
         return {k: _sanitize_request_value(v) for k, v in value.items() if k not in FORBIDDEN_REQUEST_PARAMS}
     if isinstance(value, list):
