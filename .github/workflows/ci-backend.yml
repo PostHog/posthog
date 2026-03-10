@@ -226,9 +226,6 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
             - name: Setup Node.js
               uses: actions/setup-node@v6
               with:
@@ -236,7 +233,7 @@ jobs:
                   cache: pnpm
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Discover products to test
               id: discover
@@ -296,9 +293,6 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
 
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
             - name: Setup Node.js
               uses: actions/setup-node@v6
               with:
@@ -306,7 +300,7 @@ jobs:
                   cache: pnpm
 
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Set up Python
               uses: actions/setup-python@v6
