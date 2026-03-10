@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ChatCompletionRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     model: str
     messages: list[dict[str, Any]]
@@ -18,7 +18,7 @@ class ResponsesRequest(BaseModel):
     multimodal inputs, reasoning models, and persistent conversations.
     """
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     model: str
     input: str | list[dict[str, Any]]
@@ -28,7 +28,7 @@ class ResponsesRequest(BaseModel):
 
 
 class TranscriptionRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     model: str
     file: tuple[str, bytes, str]  # (filename, content, content_type)
