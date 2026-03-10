@@ -1,4 +1,4 @@
-import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 
 import {
     FunnelsQuery,
@@ -15,12 +15,13 @@ import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPerio
 
 function getTrendsQueryDefault(): TrendsQuery {
     const defaultEvent = getDefaultEventName()
+    const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
                 kind: NodeKind.EventsNode,
-                name: defaultEvent === null ? 'All events' : defaultEvent,
+                name: defaultLabel,
                 event: defaultEvent,
                 math: BaseMathType.TotalCount,
             },
@@ -31,12 +32,13 @@ function getTrendsQueryDefault(): TrendsQuery {
 
 function getCalendarHeatmapQueryDefault(): TrendsQuery {
     const defaultEvent = getDefaultEventName()
+    const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
                 kind: NodeKind.EventsNode,
-                name: defaultEvent === null ? 'All events' : defaultEvent,
+                name: defaultLabel,
                 event: defaultEvent,
                 math: BaseMathType.TotalCount,
             },
@@ -49,12 +51,13 @@ function getCalendarHeatmapQueryDefault(): TrendsQuery {
 
 function getFunnelsQueryDefault(): FunnelsQuery {
     const defaultEvent = getDefaultEventName()
+    const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.FunnelsQuery,
         series: [
             {
                 kind: NodeKind.EventsNode,
-                name: defaultEvent === null ? 'All events' : defaultEvent,
+                name: defaultLabel,
                 event: defaultEvent,
             },
         ],
@@ -66,7 +69,7 @@ function getFunnelsQueryDefault(): FunnelsQuery {
 
 function getRetentionQueryDefault(): RetentionQuery {
     const defaultEvent = getDefaultEventName()
-    const eventName = defaultEvent === null ? 'All events' : defaultEvent
+    const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.RetentionQuery,
         retentionFilter: {
@@ -74,12 +77,12 @@ function getRetentionQueryDefault(): RetentionQuery {
             totalIntervals: 8,
             targetEntity: {
                 id: defaultEvent ?? undefined,
-                name: eventName,
+                name: defaultLabel,
                 type: 'events',
             },
             returningEntity: {
                 id: defaultEvent ?? undefined,
-                name: eventName,
+                name: defaultLabel,
                 type: 'events',
             },
             retentionType: 'retention_first_time',
@@ -108,12 +111,13 @@ function getPathsQueryDefault(): PathsQuery {
 
 function getStickinessQueryDefault(): StickinessQuery {
     const defaultEvent = getDefaultEventName()
+    const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.StickinessQuery,
         series: [
             {
                 kind: NodeKind.EventsNode,
-                name: defaultEvent === null ? 'All events' : defaultEvent,
+                name: defaultLabel,
                 event: defaultEvent,
                 math: BaseMathType.UniqueUsers,
             },
@@ -126,12 +130,13 @@ function getStickinessQueryDefault(): StickinessQuery {
 
 function getLifecycleQueryDefault(): LifecycleQuery {
     const defaultEvent = getDefaultEventName()
+    const defaultLabel = getDefaultEventLabel()
     return {
         kind: NodeKind.LifecycleQuery,
         series: [
             {
                 kind: NodeKind.EventsNode,
-                name: defaultEvent === null ? 'All events' : defaultEvent,
+                name: defaultLabel,
                 event: defaultEvent,
             },
         ],

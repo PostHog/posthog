@@ -2,7 +2,11 @@
 
 import uuid
 
+import structlog
+
 from ..runner import AcceptanceTest
+
+logger = structlog.get_logger(__name__)
 
 
 class TestBasicCapture(AcceptanceTest):
@@ -13,7 +17,10 @@ class TestBasicCapture(AcceptanceTest):
         event_name = "$test_basic_capture"
         distinct_id = str(uuid.uuid4())
 
+        logger.info("test_capture_event: capturing event", event_name=event_name, distinct_id=distinct_id)
         event_uuid = self.client.capture_event(event_name, distinct_id)
+
+        logger.info("test_capture_event: querying for event", event_uuid=event_uuid)
         found_event = self.client.query_event_by_uuid(event_uuid)
         self.assert_event(found_event, event_uuid, event_name, distinct_id)
 
@@ -27,7 +34,12 @@ class TestBasicCapture(AcceptanceTest):
             "referrer": "google",
         }
 
+        logger.info(
+            "test_capture_event_with_properties: capturing event", event_name=event_name, distinct_id=distinct_id
+        )
         event_uuid = self.client.capture_event(event_name, distinct_id, properties)
+
+        logger.info("test_capture_event_with_properties: querying for event", event_uuid=event_uuid)
         found_event = self.client.query_event_by_uuid(event_uuid)
         found_event = self.assert_event(found_event, event_uuid, event_name, distinct_id)
         self.assert_properties_contain(found_event.properties, properties)

@@ -209,6 +209,32 @@ describe('Hog Inputs', () => {
             `)
         })
 
+        it('should coerce string results to booleans for boolean schema fields', async () => {
+            hogFunction.inputs = {
+                is_enabled: {
+                    value: 'true',
+                    templating: 'liquid',
+                },
+            }
+            hogFunction.inputs_schema = [{ key: 'is_enabled', type: 'boolean', required: false, templating: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            expect(inputs.is_enabled).toBe(true)
+        })
+
+        it('should coerce "false" string to false for boolean schema fields', async () => {
+            hogFunction.inputs = {
+                is_enabled: {
+                    value: 'false',
+                    templating: 'liquid',
+                },
+            }
+            hogFunction.inputs_schema = [{ key: 'is_enabled', type: 'boolean', required: false, templating: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            expect(inputs.is_enabled).toBe(false)
+        })
+
         it('should not load integrations from a different team', async () => {
             hogFunction.team_id = 100
 

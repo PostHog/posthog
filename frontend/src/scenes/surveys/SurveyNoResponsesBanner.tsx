@@ -181,7 +181,7 @@ function getFilterBubbleText(activeFilterTypes?: Props['activeFilterTypes']): st
         return 'Try a wider date range'
     }
     if (answerFilters) {
-        return 'Try different answer choices'
+        return 'Try different answer filters'
     }
     if (propertyFilters) {
         return 'Try fewer property filters'

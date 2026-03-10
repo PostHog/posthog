@@ -12,11 +12,7 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import createActionTool from '@/tools/actions/create'
-import deleteActionTool from '@/tools/actions/delete'
-import getActionTool from '@/tools/actions/get'
-import getAllActionsTool from '@/tools/actions/getAll'
-import updateActionTool from '@/tools/actions/update'
+import { GENERATED_TOOLS } from '@/tools/generated/actions'
 import type { Context } from '@/tools/types'
 
 describe('Actions', { concurrent: false }, () => {
@@ -42,7 +38,7 @@ describe('Actions', { concurrent: false }, () => {
     })
 
     describe('action-create tool', () => {
-        const createTool = createActionTool()
+        const createTool = GENERATED_TOOLS['action-create']!()
 
         it('should create an action with event-based step', async () => {
             const params = {
@@ -64,7 +60,7 @@ describe('Actions', { concurrent: false }, () => {
             expect(actionData.id).toBeTruthy()
             expect(actionData.name).toBe(params.name)
             expect(actionData.description).toBe(params.description)
-            expect(actionData.url).toContain('/data-management/actions/')
+            expect(actionData._posthogUrl).toContain('/data-management/actions/')
 
             createdResources.actions.push(actionData.id)
         })
@@ -142,11 +138,10 @@ describe('Actions', { concurrent: false }, () => {
     })
 
     describe('actions-get-all tool', () => {
-        const getAllTool = getAllActionsTool()
-        const createTool = createActionTool()
+        const getAllTool = GENERATED_TOOLS['actions-get-all']!()
+        const createTool = GENERATED_TOOLS['action-create']!()
 
         it('should list all actions', async () => {
-            // Create a test action first
             const createResult = await createTool.handler(context, {
                 name: `List Test Action ${generateUniqueKey('list')}`,
                 steps: [{ event: '$pageview' }],
@@ -154,31 +149,27 @@ describe('Actions', { concurrent: false }, () => {
             const createdAction = parseToolResponse(createResult)
             createdResources.actions.push(createdAction.id)
 
-            // List actions
             const result = await getAllTool.handler(context, {})
-            const actions = parseToolResponse(result)
+            const response = parseToolResponse(result)
 
-            expect(Array.isArray(actions)).toBe(true)
-            expect(actions.some((a: { id: number }) => a.id === createdAction.id)).toBe(true)
+            expect(Array.isArray(response.results)).toBe(true)
+            expect(response.results.some((a: { id: number }) => a.id === createdAction.id)).toBe(true)
         })
 
         it('should support pagination', async () => {
-            const result = await getAllTool.handler(context, {
-                data: { limit: 5, offset: 0 },
-            })
-            const actions = parseToolResponse(result)
+            const result = await getAllTool.handler(context, { limit: 5, offset: 0 })
+            const response = parseToolResponse(result)
 
-            expect(Array.isArray(actions)).toBe(true)
-            expect(actions.length).toBeLessThanOrEqual(5)
+            expect(Array.isArray(response.results)).toBe(true)
+            expect(response.results.length).toBeLessThanOrEqual(5)
         })
     })
 
     describe('action-get tool', () => {
-        const getTool = getActionTool()
-        const createTool = createActionTool()
+        const getTool = GENERATED_TOOLS['action-get']!()
+        const createTool = GENERATED_TOOLS['action-create']!()
 
         it('should get a specific action by ID', async () => {
-            // Create a test action first
             const createResult = await createTool.handler(context, {
                 name: `Get Test Action ${generateUniqueKey('get')}`,
                 description: 'Test description for get',
@@ -192,23 +183,21 @@ describe('Actions', { concurrent: false }, () => {
             const createdAction = parseToolResponse(createResult)
             createdResources.actions.push(createdAction.id)
 
-            // Get the action
-            const result = await getTool.handler(context, { actionId: createdAction.id })
+            const result = await getTool.handler(context, { id: createdAction.id })
             const actionData = parseToolResponse(result)
 
             expect(actionData.id).toBe(createdAction.id)
             expect(actionData.name).toBe(createdAction.name)
             expect(actionData.description).toBe('Test description for get')
-            expect(actionData.url).toContain('/data-management/actions/')
+            expect(actionData._posthogUrl).toContain('/data-management/actions/')
         })
     })
 
     describe('action-update tool', () => {
-        const updateTool = updateActionTool()
-        const createTool = createActionTool()
+        const updateTool = GENERATED_TOOLS['action-update']!()
+        const createTool = GENERATED_TOOLS['action-create']!()
 
         it('should update an action name and description', async () => {
-            // Create a test action first
             const originalName = `Original Action ${generateUniqueKey('original')}`
             const createResult = await createTool.handler(context, {
                 name: originalName,
@@ -217,14 +206,11 @@ describe('Actions', { concurrent: false }, () => {
             const createdAction = parseToolResponse(createResult)
             createdResources.actions.push(createdAction.id)
 
-            // Update the action
             const updatedName = `Updated Action ${generateUniqueKey('updated')}`
             const result = await updateTool.handler(context, {
-                actionId: createdAction.id,
-                data: {
-                    name: updatedName,
-                    description: 'Updated description',
-                },
+                id: createdAction.id,
+                name: updatedName,
+                description: 'Updated description',
             })
             const updatedAction = parseToolResponse(result)
 
@@ -234,7 +220,6 @@ describe('Actions', { concurrent: false }, () => {
         })
 
         it('should update action steps', async () => {
-            // Create a test action first
             const createResult = await createTool.handler(context, {
                 name: `Steps Update Action ${generateUniqueKey('steps')}`,
                 steps: [{ event: '$pageview' }],
@@ -242,22 +227,19 @@ describe('Actions', { concurrent: false }, () => {
             const createdAction = parseToolResponse(createResult)
             createdResources.actions.push(createdAction.id)
 
-            // Update with new steps
             const result = await updateTool.handler(context, {
-                actionId: createdAction.id,
-                data: {
-                    steps: [
-                        {
-                            event: '$pageview',
-                            url: '/updated-page',
-                            url_matching: 'contains' as const,
-                        },
-                        {
-                            event: '$autocapture',
-                            tag_name: 'button',
-                        },
-                    ],
-                },
+                id: createdAction.id,
+                steps: [
+                    {
+                        event: '$pageview',
+                        url: '/updated-page',
+                        url_matching: 'contains' as const,
+                    },
+                    {
+                        event: '$autocapture',
+                        tag_name: 'button',
+                    },
+                ],
             })
             const updatedAction = parseToolResponse(result)
 
@@ -266,7 +248,6 @@ describe('Actions', { concurrent: false }, () => {
         })
 
         it('should update action tags', async () => {
-            // Create a test action first
             const createResult = await createTool.handler(context, {
                 name: `Tags Update Action ${generateUniqueKey('tags')}`,
                 steps: [{ event: '$pageview' }],
@@ -275,12 +256,9 @@ describe('Actions', { concurrent: false }, () => {
             const createdAction = parseToolResponse(createResult)
             createdResources.actions.push(createdAction.id)
 
-            // Update tags
             const result = await updateTool.handler(context, {
-                actionId: createdAction.id,
-                data: {
-                    tags: ['updated', 'new-tag'],
-                },
+                id: createdAction.id,
+                tags: ['updated', 'new-tag'],
             })
             const updatedAction = parseToolResponse(result)
 
@@ -291,12 +269,11 @@ describe('Actions', { concurrent: false }, () => {
     })
 
     describe('action-delete tool', () => {
-        const deleteTool = deleteActionTool()
-        const createTool = createActionTool()
-        const getAllTool = getAllActionsTool()
+        const deleteTool = GENERATED_TOOLS['action-delete']!()
+        const createTool = GENERATED_TOOLS['action-create']!()
+        const getAllTool = GENERATED_TOOLS['actions-get-all']!()
 
-        it('should soft delete an action', async () => {
-            // Create a test action first
+        it('should delete an action', async () => {
             const createResult = await createTool.handler(context, {
                 name: `Delete Test Action ${generateUniqueKey('delete')}`,
                 steps: [{ event: '$pageview' }],
@@ -304,16 +281,12 @@ describe('Actions', { concurrent: false }, () => {
             const createdAction = parseToolResponse(createResult)
             // Don't add to createdResources since we're deleting it
 
-            // Delete the action
-            const deleteResult = await deleteTool.handler(context, { actionId: createdAction.id })
-            const deleteData = parseToolResponse(deleteResult)
-
-            expect(deleteData.success).toBe(true)
+            await deleteTool.handler(context, { id: createdAction.id })
 
             // Verify it's no longer in the list
             const listResult = await getAllTool.handler(context, {})
-            const actions = parseToolResponse(listResult)
-            expect(actions.some((a: { id: number }) => a.id === createdAction.id)).toBe(false)
+            const response = parseToolResponse(listResult)
+            expect(response.results.some((a: { id: number }) => a.id === createdAction.id)).toBe(false)
         })
     })
 })

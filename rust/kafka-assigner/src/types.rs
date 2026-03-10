@@ -99,8 +99,12 @@ pub enum HandoffPhase {
 
 /// A command the assigner sends to a consumer via gRPC.
 ///
-/// This is the domain-level representation. It gets converted to the proto
-/// `AssignmentCommand` at the gRPC boundary.
+/// This is the domain-level representation. It gets converted to one or more
+/// proto `AssignmentCommand` messages at the gRPC boundary.
+///
+/// `Warm` and `Release` carry batched handoffs per-consumer so the relay can
+/// send a single event per consumer per watch response, avoiding channel
+/// overflow when many partitions are handed off simultaneously.
 #[derive(Debug, Clone)]
 pub enum AssignmentEvent {
     /// Batch assignment update: partitions added and/or removed.
@@ -109,10 +113,10 @@ pub enum AssignmentEvent {
         assigned: Vec<TopicPartition>,
         unassigned: Vec<TopicPartition>,
     },
-    /// Start warming a partition for handoff.
-    Warm(HandoffState),
-    /// Release a partition after handoff completion.
-    Release(HandoffState),
+    /// Start warming one or more partitions for handoff.
+    Warm(Vec<HandoffState>),
+    /// Release one or more partitions after handoff completion.
+    Release(Vec<HandoffState>),
 }
 
 impl PartitionAssignment {

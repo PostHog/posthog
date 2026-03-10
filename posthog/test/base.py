@@ -254,6 +254,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
 
+    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    query = re.sub(
+        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
+        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        query,
+    )
+
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
 

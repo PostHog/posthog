@@ -77,7 +77,7 @@ async function fetchCachedListResponse(path: string, searchParams: Record<string
 }
 
 export const infiniteListLogic = kea<infiniteListLogicType>([
-    props({ showNumericalPropsOnly: false } as InfiniteListLogicProps),
+    props({ showNumericalPropsOnly: false, minSearchQueryLength: undefined } as InfiniteListLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
 
@@ -205,7 +205,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     const queryChanged = values.remoteItems.searchQuery !== searchQuery
 
-                    await captureTimeToSeeData(values.currentTeamId, {
+                    // Cache before the second await — the logic may unmount during captureTimeToSeeData,
+                    // and kea's no-arg breakpoint() does not protect against unmount (only new invocations).
+                    const currentTeamId = values.currentTeamId
+                    const existingResults = values.remoteItems.results
+
+                    await captureTimeToSeeData(currentTeamId, {
                         type: 'properties_load',
                         context: 'filters',
                         action: listGroupType,
@@ -218,7 +223,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     return {
                         results: appendAtIndex(
-                            queryChanged ? [] : values.remoteItems.results,
+                            queryChanged ? [] : existingResults,
                             response.results || response,
                             offset
                         ),
@@ -286,7 +291,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
-        minSearchQueryLength: [(s) => [s.group], (group) => group?.minSearchQueryLength ?? 0],
+        minSearchQueryLength: [
+            (s) => [s.group, (_, props) => props.minSearchQueryLength],
+            (group, propsMinSearchQueryLength) => propsMinSearchQueryLength ?? group?.minSearchQueryLength ?? 0,
+        ],
         needsMoreSearchCharacters: [
             (s) => [s.minSearchQueryLength, s.searchQuery],
             (minSearchQueryLength, searchQuery) => {

@@ -11,47 +11,12 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { sourceProductColor } from 'scenes/debug/signals/helpers'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
-interface SessionReplaySegment {
-    session_id: string
-    start_time: string
-    end_time: string
-    distinct_id: string
-    content: string
-}
-
-interface SessionReplaySignalExtra {
-    label_title: string
-    actionable: boolean
-    segments: SessionReplaySegment[]
-    metrics: { relevant_user_count: number; active_users_in_period: number; occurrence_count: number }
-}
-
-interface GithubIssueSignalExtra {
-    html_url: string
-    number: number
-    labels: string[]
-    created_at: string
-    updated_at: string
-    state: string
-}
-
-interface ZendeskTicketSignalExtra {
-    url: string
-    type: string
-    tags: string[]
-    created_at: string
-    priority: string
-    status: string
-}
-
-interface LlmEvalSignalExtra {
-    evaluation_id: string
-    target_event_id: string
-    target_event_type: string
-    trace_id: string
-    model: string
-    provider: string
-}
+import type {
+    GithubIssueSignalExtra,
+    LlmEvalSignalExtra,
+    SessionSegmentClusterSignalExtra,
+    ZendeskTicketSignalExtra,
+} from '~/queries/schema/schema-signals'
 
 export function SignalCard({ signal }: { signal: SignalNode }): JSX.Element {
     if (isSessionReplayExtra(signal.extra)) {
@@ -74,7 +39,7 @@ function SessionReplaySignalCard({
     extra,
 }: {
     signal: SignalNode
-    extra: SessionReplaySignalExtra
+    extra: SessionSegmentClusterSignalExtra
 }): JSX.Element {
     const [showAllSegments, setShowAllSegments] = useState(false)
     const maxVisible = 3
@@ -283,7 +248,7 @@ function SignalCardHeader({ signal, label }: { signal: SignalNode; label?: strin
 
 function isSessionReplayExtra(
     extra: Record<string, unknown>
-): extra is Record<string, unknown> & SessionReplaySignalExtra {
+): extra is Record<string, unknown> & SessionSegmentClusterSignalExtra {
     return 'segments' in extra && Array.isArray(extra.segments)
 }
 

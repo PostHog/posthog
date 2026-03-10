@@ -3,7 +3,10 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
-from typing import Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 from posthog.schema import (
     CachedPathsQueryResponse,
@@ -53,8 +56,11 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        request: Optional["Request"] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(
+            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, request=request
+        )
 
         if not self.query.pathsFilter:
             self.query.pathsFilter = PathsFilter()

@@ -94,6 +94,15 @@
   GROUP BY toString(meta_campaigns.name), toString(meta_campaigns.id)
   '''
 # ---
+# name: TestMarketingAnalyticsAdapters.test_pinterest_ads_native_query_generation
+  '''
+  
+  SELECT toString(pinterest_campaigns.name) AS match_key, toString(pinterest_campaigns.name) AS campaign, toString(pinterest_campaigns.id) AS id, toString('pinterest') AS source, toFloat(SUM(ifNull(toFloat(pinterest_campaign_analytics.total_impression), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(pinterest_campaign_analytics.total_clickthrough), 0))) AS clicks, SUM(toFloat(pinterest_campaign_analytics.spend_in_dollar)) AS cost, toFloat(0) AS reported_conversion, toFloat(0) AS reported_conversion_value 
+  FROM pinterest_campaigns LEFT JOIN pinterest_campaign_analytics ON equals(pinterest_campaigns.id, pinterest_campaign_analytics.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(pinterest_campaign_analytics.date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(pinterest_campaign_analytics.date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(pinterest_campaigns.name), toString(pinterest_campaigns.id)
+  '''
+# ---
 # name: TestMarketingAnalyticsAdapters.test_reddit_ads_query_generation
   '''
   
