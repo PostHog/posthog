@@ -23,6 +23,8 @@ export interface PromptConfig {
     selectedProviderKeyId: string | null
     systemPrompt: string
     maxTokens: number | null
+    temperature: number | null
+    topP: number | null
     thinking: boolean
     reasoningLevel: ReasoningLevel
     tools: Record<string, unknown>[] | null
@@ -45,6 +47,8 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         selectedProviderKeyId: partial.selectedProviderKeyId ?? null,
         systemPrompt: partial.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
         maxTokens: partial.maxTokens ?? null,
+        temperature: partial.temperature ?? null,
+        topP: partial.topP ?? null,
         thinking: partial.thinking ?? false,
         reasoningLevel: partial.reasoningLevel ?? 'medium',
         tools: partial.tools ?? null,
@@ -156,6 +160,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setModel: (model: string, providerKeyId?: string, promptId?: string) => ({ model, providerKeyId, promptId }),
         setSystemPrompt: (systemPrompt: string, promptId?: string) => ({ systemPrompt, promptId }),
         setMaxTokens: (maxTokens: number | null, promptId?: string) => ({ maxTokens, promptId }),
+        setTemperature: (temperature: number | null, promptId?: string) => ({ temperature, promptId }),
+        setTopP: (topP: number | null, promptId?: string) => ({ topP, promptId }),
         setThinking: (thinking: boolean, promptId?: string) => ({ thinking, promptId }),
         setReasoningLevel: (reasoningLevel: ReasoningLevel, promptId?: string) => ({ reasoningLevel, promptId }),
         setTools: (tools: Record<string, unknown>[] | null, promptId?: string) => ({ tools, promptId }),
@@ -211,6 +217,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     state: PromptConfig[],
                     { maxTokens, promptId }: { maxTokens: number | null; promptId?: string }
                 ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, maxTokens })),
+                setTemperature: (
+                    state: PromptConfig[],
+                    { temperature, promptId }: { temperature: number | null; promptId?: string }
+                ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, temperature })),
+                setTopP: (state: PromptConfig[], { topP, promptId }: { topP: number | null; promptId?: string }) =>
+                    updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, topP })),
                 setThinking: (
                     state: PromptConfig[],
                     { thinking, promptId }: { thinking: boolean; promptId?: string }
@@ -392,6 +404,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         thinking: [
             (s) => [s.activePromptConfig],
             (activePromptConfig: PromptConfig): boolean => activePromptConfig.thinking,
+        ],
+        temperature: [
+            (s) => [s.activePromptConfig],
+            (activePromptConfig: PromptConfig): number | null => activePromptConfig.temperature,
+        ],
+        topP: [
+            (s) => [s.activePromptConfig],
+            (activePromptConfig: PromptConfig): number | null => activePromptConfig.topP,
         ],
         reasoningLevel: [
             (s) => [s.activePromptConfig],
