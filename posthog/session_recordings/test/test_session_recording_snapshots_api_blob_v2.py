@@ -121,7 +121,9 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_storage.fetch_block.call_count == 2
         call_args_list = mock_storage.fetch_block.await_args_list
         assert call_args_list[0].args == ("s3://bucket/key0?range=bytes=0-100", session_id, self.team.pk)
+        assert call_args_list[0].kwargs.get("decompress") is True
         assert call_args_list[1].args == ("s3://bucket/key1?range=bytes=101-200", session_id, self.team.pk)
+        assert call_args_list[1].kwargs.get("decompress") is True
 
     @parameterized.expand(
         [
@@ -506,6 +508,44 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_decompressed_blocks_with_trailing_newlines_concatenate_cleanly(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_recording_api_client,
+    ) -> None:
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_blocks = [
+            MagicMock(url="s3://bucket/key0?range=bytes=0-100"),
+            MagicMock(url="s3://bucket/key1?range=bytes=101-200"),
+        ]
+        mock_list_blocks.return_value = mock_blocks
+
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(
+            side_effect=[
+                b'{"timestamp": 1000}\n{"timestamp": 2000}\n',
+                b'{"timestamp": 3000}\n{"timestamp": 4000}\n',
+            ]
+        )
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.content == b'{"timestamp": 1000}\n{"timestamp": 2000}\n{"timestamp": 3000}\n{"timestamp": 4000}'
+
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     def test_blob_v2_decompress_false_returns_length_prefixed_format(
         self,
         mock_get_session_recording,
@@ -622,7 +662,9 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_storage.fetch_block.call_count == 2
         call_args_list = mock_storage.fetch_block.await_args_list
         assert call_args_list[0].args == ("s3://bucket/key0?range=bytes=0-100", session_id, self.team.pk)
+        assert call_args_list[0].kwargs.get("decompress") is True
         assert call_args_list[1].args == ("s3://bucket/key1?range=bytes=101-200", session_id, self.team.pk)
+        assert call_args_list[1].kwargs.get("decompress") is True
 
     @parameterized.expand(
         [

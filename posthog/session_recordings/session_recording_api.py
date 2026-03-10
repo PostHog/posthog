@@ -1444,7 +1444,7 @@ class SessionRecordingViewSet(
 
                 if decompress:
                     response = HttpResponse(
-                        content=b"\n".join(blocks_data),
+                        content=b"".join(blocks_data).rstrip(b"\n"),
                         content_type="application/jsonl",
                     )
                 else:
