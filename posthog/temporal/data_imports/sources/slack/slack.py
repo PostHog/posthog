@@ -279,6 +279,10 @@ def slack_source(
 
         oldest_ts: str | None = None
         if should_use_incremental_field and db_incremental_field_last_value is not None:
+            # Known limitation: incremental polling only fetches thread replies for parent messages
+            # returned by conversations.history in this window. Replies added to older parent threads
+            # (parent ts < oldest_ts) are intentionally not captured here and are expected to be
+            # addressed by webhook sources.
             oldest_ts = str(db_incremental_field_last_value.timestamp())
 
         resolved_id = channel_id
