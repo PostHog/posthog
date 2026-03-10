@@ -9,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
-import { llmSentimentLazyLoaderLogic } from '../llmSentimentLazyLoaderLogic'
+import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import { formatLLMCost } from '../utils'
 import { SentimentBar } from './SentimentTag'
 
@@ -32,7 +32,7 @@ export function LLMAnalyticsEventCard({
     traceId,
 }: LLMAnalyticsEventCardProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
+    const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
 
     const isGeneration = event.event === '$ai_generation'
     const isEmbedding = event.event === '$ai_embedding'
@@ -102,7 +102,7 @@ export function LLMAnalyticsEventCard({
                         traceId &&
                         !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] &&
                         (() => {
-                            const genSentiment = getGenerationSentiment(traceId, event.id)
+                            const genSentiment = getGenerationSentiment(event.id)
                             return genSentiment ? (
                                 <SentimentBar
                                     label={genSentiment.label}

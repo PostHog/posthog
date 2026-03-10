@@ -2,7 +2,7 @@ import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from 
 import { ErrorCode } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash } from '@/lib/utils'
+import { hash, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
@@ -65,15 +65,30 @@ function getRegionFromRequest(request: Request): CloudRegion | null {
 }
 
 // Detect error codes and return appropriate responses
-const errorHandler = async (response: Response): Promise<Response> => {
+const onThenErrorHandler = async (response: Response): Promise<Response> => {
     if (!response.ok) {
         const body = await response.clone().text()
-        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-            return new Response('OAuth token is inactive', { status: 401 })
+        const errorResponse = generateErrorResponse(body)
+        if (errorResponse) {
+            return errorResponse
         }
     }
 
     return response
+}
+
+const onCatchErrorHandler = async (error: Error): Promise<Response> => {
+    return generateErrorResponse(error.message) || new Response('Internal server error', { status: 500 })
+}
+
+const generateErrorResponse = (message: string): Response | null => {
+    if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
+        return new Response('OAuth token is inactive', { status: 401 })
+    } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
+        return new Response('Invalid API key', { status: 401 })
+    }
+
+    return null
 }
 
 const handleRequest = async (
@@ -202,11 +217,8 @@ const handleRequest = async (
         request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
     const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
 
-    // Extract posthog/foo identifier from the client's User-Agent (e.g. "posthog/wizard")
-    // so we can forward it in outgoing API requests for source attribution
-    const clientUserAgent = request.headers.get('User-Agent') || ''
-    const clientIdentifierMatch = clientUserAgent.match(/posthog\/([\w.-]+)/)
-    const clientIdentifier = clientIdentifierMatch ? clientIdentifierMatch[0] : undefined
+    const rawUserAgent = request.headers.get('User-Agent') || undefined
+    const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
 
     Object.assign(ctx.props, {
         apiToken: token,
@@ -214,7 +226,7 @@ const handleRequest = async (
         sessionId: sessionId || undefined,
         organizationId,
         projectId,
-        clientIdentifier,
+        clientUserAgent,
     })
 
     // Search params are used to build up the list of available tools. If no features are provided, all tools are available.
@@ -230,15 +242,22 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    Object.assign(ctx.props, { features, region: regionParam, version })
-    log.extend({ features, version })
+    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
+    const extraContextProps = { features, region: regionParam, version, readOnly }
+    Object.assign(ctx.props, extraContextProps)
+    log.extend(extraContextProps)
+
+    let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
-        return MCP.serve('/mcp').fetch(request, env, ctx).then(errorHandler)
+        server = MCP.serve('/mcp').fetch(request, env, ctx)
+    } else if (url.pathname.startsWith('/sse')) {
+        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 
-    if (url.pathname.startsWith('/sse')) {
-        return MCP.serveSSE('/sse').fetch(request, env, ctx).then(errorHandler)
+    if (server !== null) {
+        return server.then(onThenErrorHandler).catch(onCatchErrorHandler)
     }
 
     log.extend({ error: 'route_not_found' })

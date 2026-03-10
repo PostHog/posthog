@@ -10,6 +10,7 @@ import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scene
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { Breadcrumb } from '~/types'
 
 import { parseTrialProviderKeyId } from '../ModelPicker'
@@ -25,8 +26,17 @@ import {
     EvaluationRun,
     EvaluationSummary,
     EvaluationSummaryFilter,
+    EvaluationType,
+    HogTestResult,
     ModelConfiguration,
 } from './types'
+
+export const DEFAULT_HOG_SOURCE = `// Check that the output is not empty
+let result := length(output) > 0
+if (not result) {
+    print('Output is empty')
+}
+return result`
 
 export interface LLMEvaluationLogicProps {
     evaluationId: string
@@ -72,6 +82,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
+        setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
+        setHogSource: (source: string) => ({ source }),
 
         // Signal emission
         setSignalEmission: (enabled: boolean) => ({ enabled }),
@@ -89,6 +101,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Model selection actions
         selectModelFromPicker: (modelId: string, providerKeyId: string) => ({ modelId, providerKeyId }),
 
+        // Hog test actions
+        clearHogTestResults: true,
+
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
             filter,
@@ -100,6 +115,45 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     loaders(({ props, values }) => ({
+        hogTestResults: [
+            null as HogTestResult[] | null,
+            {
+                testHogOnSample: async (): Promise<HogTestResult[] | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const evaluation = values.evaluation
+                    if (!evaluation || evaluation.evaluation_type !== 'hog') {
+                        return null
+                    }
+                    try {
+                        const conditions = evaluation.conditions
+                            .filter((c) => c.properties && c.properties.length > 0)
+                            .map((c) => ({ properties: c.properties }))
+                        const response = await api.create(`/api/environments/${teamId}/evaluations/test_hog/`, {
+                            source: evaluation.evaluation_config.source,
+                            sample_count: 5,
+                            allows_na: evaluation.output_config?.allows_na ?? false,
+                            conditions,
+                        })
+                        return response.results
+                    } catch (e: unknown) {
+                        const message = e instanceof Error ? e.message : typeof e === 'string' ? e : 'Unknown error'
+                        return [
+                            {
+                                event_uuid: 'error',
+                                input_preview: '',
+                                output_preview: '',
+                                result: null,
+                                reasoning: '',
+                                error: typeof message === 'string' ? message : JSON.stringify(message),
+                            },
+                        ]
+                    }
+                },
+            },
+        ],
         evaluationRuns: [
             [] as EvaluationRun[],
             {
@@ -159,17 +213,46 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationName: (state, { name }) => (state ? { ...state, name } : null),
                 setEvaluationDescription: (state, { description }) => (state ? { ...state, description } : null),
                 setEvaluationPrompt: (state, { prompt }) =>
-                    state ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } } : null,
+                    state && state.evaluation_type === 'llm_judge'
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } }
+                        : state,
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setAllowsNA: (state, { allowsNA }) =>
                     state ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } } : null,
                 setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
                 setModelConfiguration: (state, { modelConfiguration }) =>
                     state ? { ...state, model_configuration: modelConfiguration } : null,
+                setEvaluationType: (state, { evaluationType }) => {
+                    if (!state) {
+                        return null
+                    }
+                    if (evaluationType === 'hog') {
+                        return {
+                            ...state,
+                            evaluation_type: 'hog',
+                            evaluation_config: { source: DEFAULT_HOG_SOURCE },
+                            model_configuration: null,
+                            output_config: { ...state.output_config, allows_na: false },
+                        }
+                    }
+                    return {
+                        ...state,
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: '' },
+                    }
+                },
+                setHogSource: (state, { source }) =>
+                    state && state.evaluation_type === 'hog'
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, source } }
+                        : state,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
             },
         ],
+        hogTestResults: {
+            clearHogTestResults: () => null,
+            setHogSource: () => null,
+        },
         selectedModel: [
             '' as string,
             {
@@ -224,6 +307,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setAllowsNA: () => true,
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
+                setEvaluationType: () => true,
+                setHogSource: () => true,
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
                 resetEvaluation: () => false,
@@ -279,16 +364,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     ? defaultEvaluationTemplates.find((t) => t.key === props.templateKey)
                     : undefined
 
-                const newEvaluation: EvaluationConfig = {
+                const baseFields = {
                     id: '',
                     name: template?.name || '',
                     description: template?.description || '',
                     enabled: true,
-                    evaluation_type: 'llm_judge',
-                    evaluation_config: {
-                        prompt: template?.prompt || '',
-                    },
-                    output_type: 'boolean',
+                    output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
                         {
@@ -302,6 +383,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                 }
+                const newEvaluation: EvaluationConfig =
+                    template?.evaluation_type === 'hog'
+                        ? {
+                              ...baseFields,
+                              evaluation_type: 'hog' as const,
+                              evaluation_config: { source: template.source, bytecode: [] },
+                          }
+                        : {
+                              ...baseFields,
+                              evaluation_type: 'llm_judge' as const,
+                              evaluation_config: {
+                                  prompt: template && 'prompt' in template ? template.prompt : '',
+                              },
+                          }
                 actions.loadEvaluationSuccess(newEvaluation)
             }
         },
@@ -466,12 +561,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation) {
                     return false
                 }
-                return (
-                    evaluation.name.length > 0 &&
-                    evaluation.evaluation_config.prompt.length > 0 &&
+                const hasValidName = evaluation.name.length > 0
+                const hasValidConditions =
                     evaluation.conditions.length > 0 &&
                     evaluation.conditions.every((c) => c.rollout_percentage > 0 && c.rollout_percentage <= 100)
-                )
+
+                let hasValidConfig = false
+                if (evaluation.evaluation_type === 'hog') {
+                    hasValidConfig = evaluation.evaluation_config.source.trim().length > 0
+                } else {
+                    hasValidConfig = evaluation.evaluation_config.prompt.length > 0
+                }
+
+                return hasValidName && hasValidConfig && hasValidConditions
             },
         ],
 
@@ -572,6 +674,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     iconType: 'llm_evaluations',
                 },
             ],
+        ],
+
+        maxContext: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): MaxContextInput[] => {
+                if (!evaluation) {
+                    return []
+                }
+                return [
+                    createMaxContextHelpers.evaluation({
+                        id: evaluation.id || 'new',
+                        name: evaluation.name,
+                        description: evaluation.description,
+                        evaluation_type: evaluation.evaluation_type,
+                        hog_source: evaluation.evaluation_type === 'hog' ? evaluation.evaluation_config.source : null,
+                    }),
+                ]
+            },
         ],
     }),
 

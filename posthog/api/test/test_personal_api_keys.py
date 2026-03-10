@@ -388,12 +388,20 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
         assert response.status_code == status.HTTP_200_OK
 
-    def test_does_not_interfere_with_temporary_token_auth(self):
+    def test_does_not_interfere_with_other_auth_methods(self):
+        from django.utils import timezone
+
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+
+        self.client.logout()
+
+        # Personal API key works
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value}"}
         )
         assert response.status_code == status.HTTP_200_OK
 
+        # JWT auth works
         impersonated_access_token = encode_jwt(
             {"id": self.user.id},
             timedelta(minutes=15),
@@ -403,6 +411,29 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
             headers={"authorization": f"Bearer {impersonated_access_token}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # OAuth token works
+        oauth_app = OAuthApplication.objects.create(
+            name="Test App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        oauth_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="pha_test_oauth_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="*",
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            headers={"authorization": f"Bearer {oauth_token.token}"},
         )
         assert response.status_code == status.HTTP_200_OK
 

@@ -28,11 +28,13 @@
         "generate-client": "tsx scripts/update-openapi-client.ts",
         "generate-orval-schemas": "node scripts/generate-orval-schemas.mjs",
         "generate-tools": "tsx scripts/generate-tools.ts",
-        "scaffold-yaml": "tsx scripts/scaffold-yaml.ts"
+        "scaffold-yaml": "tsx scripts/scaffold-yaml.ts",
+        "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
         "@modelcontextprotocol/ext-apps": "^1.0.1",
         "@modelcontextprotocol/sdk": "^1.26.0",
+        "@posthog/mosaic": "workspace:*",
         "@toon-format/toon": "^2.1.0",
         "agents": "^0.3.6",
         "ai": "^6.0.0",
@@ -40,10 +42,11 @@
         "posthog-js-lite": "4.2.2",
         "posthog-node": "^5.25.0",
         "uuid": "^11.1.0",
-        "zod": "^3.24.4"
+        "zod": "^4.3.6"
     },
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260120.0",
+        "@tailwindcss/postcss": "^4.1.10",
         "@types/dotenv": "^6.1.1",
         "@types/node": "^22.17.2",
         "@types/react": "^17.0.39",
@@ -57,15 +60,15 @@
         "oxlint": "^1.8.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
+        "tailwindcss": "^4.1.10",
         "tsx": "^4.20.5",
         "typed-openapi": "^2.2.2",
-        "typescript": "^5.2.2",
+        "typescript": "catalog:",
         "vite": "^5.4.21",
         "vite-plugin-singlefile": "^2.3.0",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
         "wrangler": "^4.59.0",
-        "yaml": "^2.8.2",
-        "zod-to-json-schema": "^3.24.6"
+        "yaml": "^2.8.2"
     }
 }

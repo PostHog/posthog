@@ -7,6 +7,7 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -42,6 +43,7 @@ describe('PropertyFilters', () => {
         initKeaTests()
         actionsModel.mount()
         groupsModel.mount()
+        propertyDefinitionsModel.mount()
     })
 
     afterEach(() => {
@@ -91,7 +93,7 @@ describe('PropertyFilters', () => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
         })
 
-        userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
 
         await waitFor(() => {
             expect(screen.getAllByText('$browser').length).toBeGreaterThanOrEqual(1)
@@ -148,7 +150,7 @@ describe('PropertyFilters', () => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
         })
 
-        userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
         await waitFor(() => {
             expect(screen.getAllByText('$browser').length).toBeGreaterThanOrEqual(1)
         })

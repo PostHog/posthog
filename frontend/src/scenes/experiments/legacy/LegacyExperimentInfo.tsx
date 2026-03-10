@@ -188,7 +188,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
 
                 <div className="flex flex-col">
                     <div className="inline-flex deprecated-space-x-8">
-                        {experiment.start_date && (
+                        {status !== ExperimentProgressStatus.Draft && (
                             <ExperimentLastRefresh
                                 isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
                                 lastRefresh={lastRefresh}

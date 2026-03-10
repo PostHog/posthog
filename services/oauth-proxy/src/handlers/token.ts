@@ -1,5 +1,5 @@
 import type { Region } from '@/lib/constants'
-import { getClientMapping, getRegionSelection } from '@/lib/kv'
+import { getCallbackRedirectUri, getClientMapping, getRegionSelection } from '@/lib/kv'
 import { proxyPostWithClientId, tryBothRegions } from '@/lib/proxy'
 
 /**
@@ -38,7 +38,15 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
     if (clientId) {
         const region = await getRegionSelection(kv, clientId)
         if (region) {
-            return proxyWithMapping(rebuild(), kv, clientId, region)
+            // If we intercepted the authorize callback, rewrite redirect_uri
+            // so the regional server sees the proxy callback URL (which the auth code was issued for)
+            const storedRedirectUri = await getCallbackRedirectUri(kv, clientId)
+            let redirectUriRewrite: { from: string; to: string } | undefined
+            if (storedRedirectUri) {
+                const proxyCallbackUrl = `${new URL(request.url).origin}/oauth/callback/`
+                redirectUriRewrite = { from: storedRedirectUri, to: proxyCallbackUrl }
+            }
+            return proxyWithMapping(rebuild(), kv, clientId, region, redirectUriRewrite)
         }
     }
 
@@ -63,14 +71,29 @@ async function proxyWithMapping(
     request: Request,
     kv: KVNamespace,
     proxyClientId: string | null,
-    region: Region
+    region: Region,
+    redirectUriRewrite?: { from: string; to: string }
 ): Promise<Response> {
     if (proxyClientId) {
         const mapping = await getClientMapping(kv, proxyClientId)
         if (mapping) {
             const regionalClientId = region === 'eu' ? mapping.eu_client_id : mapping.us_client_id
             if (regionalClientId) {
-                return proxyPostWithClientId(request, region, '/oauth/token/', proxyClientId, regionalClientId)
+                const proxySecret = mapping.us_client_secret
+                const regionalSecret = region === 'eu' ? mapping.eu_client_secret : mapping.us_client_secret
+                let clientSecretRewrite: { from: string; to: string } | undefined
+                if (proxySecret && regionalSecret && proxySecret !== regionalSecret) {
+                    clientSecretRewrite = { from: proxySecret, to: regionalSecret }
+                }
+                return proxyPostWithClientId(
+                    request,
+                    region,
+                    '/oauth/token/',
+                    proxyClientId,
+                    regionalClientId,
+                    redirectUriRewrite,
+                    clientSecretRewrite
+                )
             }
         }
     }

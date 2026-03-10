@@ -5,7 +5,6 @@ from posthog.temporal.proxy_service.create import (
     CreateManagedProxyInputs,
     CreateManagedProxyWorkflow,
     create_cloudflare_custom_hostname,
-    create_cloudflare_worker_route,
     create_managed_proxy,
     schedule_monitor_job,
     wait_for_certificate,
@@ -45,7 +44,6 @@ ACTIVITIES = [
     cleanup_monitor_job,
     # Cloudflare for SaaS activities
     create_cloudflare_custom_hostname,
-    create_cloudflare_worker_route,
     wait_for_cloudflare_certificate,
     delete_cloudflare_proxy,
 ]

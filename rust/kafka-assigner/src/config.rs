@@ -49,6 +49,16 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub handoff_timeout_secs: u64,
 
+    // ── Kafka (for admin metadata lookups) ─────────────────────────
+    #[envconfig(default = "localhost:9092")]
+    pub kafka_hosts: String,
+
+    #[envconfig(default = "false")]
+    pub kafka_tls: bool,
+
+    #[envconfig(default = "15")]
+    pub kafka_metadata_timeout_secs: u64,
+
     // ── Strategy ────────────────────────────────────────────────────
     #[envconfig(default = "sticky-balanced")]
     pub assignment_strategy: String,
@@ -89,6 +99,10 @@ impl Config {
 
     pub fn handoff_timeout(&self) -> Duration {
         Duration::from_secs(self.handoff_timeout_secs)
+    }
+
+    pub fn kafka_metadata_timeout(&self) -> Duration {
+        Duration::from_secs(self.kafka_metadata_timeout_secs)
     }
 
     pub fn build_strategy(&self) -> Result<Arc<dyn AssignmentStrategy>, String> {
