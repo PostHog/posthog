@@ -21,6 +21,7 @@ describe('Hog Functions', { concurrent: false }, () => {
     const createTool = GENERATED_TOOLS['hog-functions-create']!()
     const retrieveTool = GENERATED_TOOLS['hog-functions-retrieve']!()
     const partialUpdateTool = GENERATED_TOOLS['hog-functions-partial-update']!()
+    const deleteTool = GENERATED_TOOLS['hog-functions-delete']!()
     const invocationsTool = GENERATED_TOOLS['hog-functions-invocations-create']!()
     const rearrangeTool = GENERATED_TOOLS['hog-functions-rearrange-partial-update']!()
 
@@ -34,7 +35,7 @@ describe('Hog Functions', { concurrent: false }, () => {
     afterEach(async () => {
         for (const id of createdFunctionIds) {
             try {
-                await partialUpdateTool.handler(context, { id, deleted: true })
+                await deleteTool.handler(context, { id })
             } catch {
                 // best effort — function may already be deleted
             }
@@ -176,7 +177,7 @@ describe('Hog Functions', { concurrent: false }, () => {
             expect(updated.id).toBe(fn.id)
         })
 
-        it('should soft-delete a hog function', async () => {
+        it('should soft-delete a hog function via the delete tool', async () => {
             const created = await createTool.handler(context, {
                 name: `test-fn-${generateUniqueKey('delete')}`,
                 type: 'destination' as const,
@@ -185,11 +186,7 @@ describe('Hog Functions', { concurrent: false }, () => {
             })
             const fn = parseToolResponse(created)
 
-            const result = await partialUpdateTool.handler(context, { id: fn.id, deleted: true })
-            const deleted = parseToolResponse(result)
-            // `deleted` is write_only on the serializer, so it won't appear in the response.
-            // Verify the delete took effect by confirming the retrieve now throws (filtered out).
-            expect(deleted.id).toBe(fn.id)
+            await deleteTool.handler(context, { id: fn.id })
             await expect(retrieveTool.handler(context, { id: fn.id })).rejects.toThrow()
         })
     })
@@ -266,9 +263,7 @@ describe('Hog Functions', { concurrent: false }, () => {
             expect(updated.enabled).toBe(true)
 
             // Delete
-            const deleteResult = await partialUpdateTool.handler(context, { id: created.id, deleted: true })
-            const deleted = parseToolResponse(deleteResult)
-            expect(deleted.id).toBe(created.id)
+            await deleteTool.handler(context, { id: created.id })
             await expect(retrieveTool.handler(context, { id: created.id })).rejects.toThrow()
         })
 

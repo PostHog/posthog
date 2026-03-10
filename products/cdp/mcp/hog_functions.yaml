@@ -137,22 +137,32 @@ tools:
         title: Update hog function
         description: >
             Partially update a hog function. Can enable/disable the function, change its name, description, source code,
-            inputs, filters, mappings, or masking config. Set 'deleted: true' to soft-delete. The 'type' field cannot be
-            changed after creation.
+            inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a
+            function, use the hog-functions-delete tool instead.
         exclude_params:
             - bytecode
             - transpiled
             - status
+            - deleted
             - _create_in_folder
             - batch_export_id
         param_overrides:
             enabled:
                 description: Set to true to activate or false to deactivate the function.
-            deleted:
-                description: Set to true to soft-delete the function. Set to false to restore a deleted function.
-    hog-functions-destroy:
+    hog-functions-delete:
         operation: hog_functions_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete hog function
+        description: >
+            Delete a hog function by ID (soft delete). The function will no longer appear in lists or process events,
+            but historical data is preserved.
+        soft_delete: true
     hog-functions-enable-backfills-create:
         operation: hog_functions_enable_backfills_create
         enabled: false

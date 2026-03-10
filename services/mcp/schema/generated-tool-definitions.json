@@ -150,7 +150,7 @@
         }
     },
     "hog-functions-partial-update": {
-        "description": "Partially update a hog function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. Set 'deleted: true' to soft-delete. The 'type' field cannot be changed after creation.",
+        "description": "Partially update a hog function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the hog-functions-delete tool instead.",
         "category": "Hog functions",
         "feature": "hog_functions",
         "summary": "Update hog function",
@@ -160,6 +160,21 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-functions-delete": {
+        "description": "Delete a hog function by ID (soft delete). The function will no longer appear in lists or process events, but historical data is preserved.",
+        "category": "Hog functions",
+        "feature": "hog_functions",
+        "summary": "Delete hog function",
+        "title": "Delete hog function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }

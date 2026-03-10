@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     HogFunctionsCreateBody,
+    HogFunctionsDestroyParams,
     HogFunctionsInvocationsCreateBody,
     HogFunctionsInvocationsCreateParams,
     HogFunctionsListQueryParams,
@@ -121,7 +122,7 @@ const hogFunctionsRetrieve = (): ToolBase<typeof HogFunctionsRetrieveSchema, Sch
 })
 
 const HogFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(
-    HogFunctionsPartialUpdateBody.omit({ _create_in_folder: true }).shape
+    HogFunctionsPartialUpdateBody.omit({ deleted: true, _create_in_folder: true }).shape
 )
 
 const hogFunctionsPartialUpdate = (): ToolBase<typeof HogFunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
@@ -141,9 +142,6 @@ const hogFunctionsPartialUpdate = (): ToolBase<typeof HogFunctionsPartialUpdateS
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
         }
         if (params.hog !== undefined) {
             body['hog'] = params.hog
@@ -176,6 +174,22 @@ const hogFunctionsPartialUpdate = (): ToolBase<typeof HogFunctionsPartialUpdateS
             method: 'PATCH',
             path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
             body,
+        })
+        return result
+    },
+})
+
+const HogFunctionsDeleteSchema = HogFunctionsDestroyParams.omit({ project_id: true })
+
+const hogFunctionsDelete = (): ToolBase<typeof HogFunctionsDeleteSchema, unknown> => ({
+    name: 'hog-functions-delete',
+    schema: HogFunctionsDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof HogFunctionsDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'PATCH',
+            path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
+            body: { deleted: true },
         })
         return result
     },
@@ -243,6 +257,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'hog-functions-create': hogFunctionsCreate,
     'hog-functions-retrieve': hogFunctionsRetrieve,
     'hog-functions-partial-update': hogFunctionsPartialUpdate,
+    'hog-functions-delete': hogFunctionsDelete,
     'hog-functions-invocations-create': hogFunctionsInvocationsCreate,
     'hog-functions-rearrange-partial-update': hogFunctionsRearrangePartialUpdate,
 }
