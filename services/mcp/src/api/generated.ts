@@ -18017,6 +18017,7 @@ export namespace Schemas {
     /**
      * * `session_replay` - Session replay
     * `llm_analytics` - LLM analytics
+    * `error_tracking` - Error tracking
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -18024,11 +18025,14 @@ export namespace Schemas {
     export const SourceProductEnum = {
       SessionReplay: 'session_replay',
       LlmAnalytics: 'llm_analytics',
+      ErrorTracking: 'error_tracking',
     } as const;
 
     /**
      * * `session_analysis_cluster` - Session analysis cluster
     * `evaluation` - Evaluation
+    * `new_exception` - New exception
+    * `spike_detected` - Spike detected
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -18036,6 +18040,8 @@ export namespace Schemas {
     export const SignalSourceConfigSourceTypeEnum = {
       SessionAnalysisCluster: 'session_analysis_cluster',
       Evaluation: 'evaluation',
+      NewException: 'new_exception',
+      SpikeDetected: 'spike_detected',
     } as const;
 
     export interface SignalSourceConfig {
@@ -18165,6 +18171,8 @@ export namespace Schemas {
       readonly summary: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
+      /** @nullable */
+      integration_id?: number | null;
       /** @nullable */
       invite_message?: string | null;
     }
@@ -21304,6 +21312,8 @@ export namespace Schemas {
       readonly summary?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
+      /** @nullable */
+      integration_id?: number | null;
       /** @nullable */
       invite_message?: string | null;
     }
