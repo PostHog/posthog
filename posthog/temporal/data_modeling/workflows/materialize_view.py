@@ -180,7 +180,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         saved_query_id=materialize_result.saved_query_id,
                         table_uri=materialize_result.table_uri,
                     )
-                    ducklake_inputs = DataModelingDuckLakeCopyInputs(team_id=inputs.team_id, job_id=job_id, models=[model])
+                    ducklake_inputs = DataModelingDuckLakeCopyInputs(
+                        team_id=inputs.team_id, job_id=job_id, models=[model]
+                    )
                     await temporalio.workflow.start_child_workflow(
                         workflow="ducklake-copy.data-modeling",
                         arg=dataclasses.asdict(ducklake_inputs),
