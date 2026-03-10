@@ -71,7 +71,6 @@ from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
-MISSING = object()
 CREDENTIAL_LIKE_FIELD_NAMES = {"connection_string"}
 
 
@@ -86,89 +85,60 @@ def get_password_field_names(fields: list[FieldType]) -> set[str]:
     return password_fields
 
 
-def normalize_credential_value(value: Any) -> Any:
-    if value is MISSING or value is None or value == "":
-        return None
-    return value
+def field_contains_credentials(field: FieldType) -> bool:
+    if isinstance(field, SourceFieldInputConfig):
+        return field.type == SourceFieldInputConfigType.PASSWORD or field.name in CREDENTIAL_LIKE_FIELD_NAMES
+
+    if isinstance(field, (SourceFieldFileUploadConfig, SourceFieldOauthConfig, SourceFieldSSHTunnelConfig)):
+        return True
+
+    if isinstance(field, SourceFieldSwitchGroupConfig):
+        return any(field_contains_credentials(nested_field) for nested_field in field.fields)
+
+    if isinstance(field, SourceFieldSelectConfig):
+        return any(
+            field_contains_credentials(nested_field)
+            for option in field.options
+            for nested_field in (option.fields or [])
+        )
+
+    return False
 
 
-def _get_nested_dict(data: dict[str, Any], field_name: str) -> dict[str, Any]:
-    nested_data = data.get(field_name, {})
-    return nested_data if isinstance(nested_data, dict) else {}
-
-
-def _get_file_upload_fingerprint_value(field: SourceFieldFileUploadConfig, value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: normalize_credential_value(value.get(key, MISSING)) for key in field.fileFormat.keys}
-    return normalize_credential_value(value)
-
-
-def _add_ssh_tunnel_fingerprint(
-    fingerprint: dict[tuple[str, ...], Any], prefix: tuple[str, ...], ssh_tunnel_data: dict[str, Any]
-) -> None:
-    auth_data = ssh_tunnel_data.get("auth") or ssh_tunnel_data.get("auth_type") or {}
-    if not isinstance(auth_data, dict):
-        auth_data = {}
-
-    auth_prefix = (*prefix, "auth")
-    fingerprint[(*auth_prefix, "selection")] = normalize_credential_value(
-        auth_data.get("type", auth_data.get("selection", MISSING))
-    )
-    for field_name in ("username", "password", "passphrase", "private_key"):
-        fingerprint[(*auth_prefix, field_name)] = normalize_credential_value(auth_data.get(field_name, MISSING))
-
-
-def _collect_credential_fingerprint(
-    fingerprint: dict[tuple[str, ...], Any],
-    data: dict[str, Any],
-    fields: list[FieldType],
-    prefix: tuple[str, ...] = (),
-) -> None:
+def credentials_touched(data: dict[str, Any], fields: list[FieldType]) -> bool:
     for field in fields:
-        field_prefix = (*prefix, field.name)
+        if field.name not in data:
+            continue
+
+        field_value = data[field.name]
 
         if isinstance(field, SourceFieldInputConfig):
-            if field.type == SourceFieldInputConfigType.PASSWORD or field.name in CREDENTIAL_LIKE_FIELD_NAMES:
-                fingerprint[field_prefix] = normalize_credential_value(data.get(field.name, MISSING))
+            if field_contains_credentials(field):
+                return True
             continue
 
-        if isinstance(field, SourceFieldSwitchGroupConfig):
-            _collect_credential_fingerprint(fingerprint, _get_nested_dict(data, field.name), field.fields, field_prefix)
+        if isinstance(field, SourceFieldSwitchGroupConfig) and isinstance(field_value, dict):
+            if credentials_touched(field_value, field.fields):
+                return True
             continue
 
-        if isinstance(field, SourceFieldSelectConfig):
-            nested_data = _get_nested_dict(data, field.name)
-            fingerprint[(*field_prefix, "selection")] = normalize_credential_value(
-                nested_data.get("selection", MISSING)
-            )
+        if isinstance(field, SourceFieldSelectConfig) and isinstance(field_value, dict):
             for option in field.options:
-                if option.fields:
-                    _collect_credential_fingerprint(fingerprint, nested_data, option.fields, field_prefix)
+                if option.fields and credentials_touched(field_value, option.fields):
+                    return True
             continue
 
-        if isinstance(field, SourceFieldFileUploadConfig):
-            fingerprint[field_prefix] = _get_file_upload_fingerprint_value(field, data.get(field.name, MISSING))
-            continue
+        if isinstance(field, (SourceFieldFileUploadConfig, SourceFieldOauthConfig)):
+            return True
 
-        if isinstance(field, SourceFieldOauthConfig):
-            fingerprint[field_prefix] = normalize_credential_value(data.get(field.name, MISSING))
-            continue
+        if isinstance(field, SourceFieldSSHTunnelConfig) and isinstance(field_value, dict):
+            auth_data = field_value.get("auth") or field_value.get("auth_type") or {}
+            if not isinstance(auth_data, dict):
+                auth_data = {}
+            if {"password", "passphrase", "private_key"} & set(auth_data.keys()):
+                return True
 
-        if isinstance(field, SourceFieldSSHTunnelConfig):
-            _add_ssh_tunnel_fingerprint(fingerprint, field_prefix, _get_nested_dict(data, field.name))
-
-
-def get_credential_fingerprint(data: dict[str, Any], fields: list[FieldType]) -> dict[tuple[str, ...], Any]:
-    fingerprint: dict[tuple[str, ...], Any] = {}
-    _collect_credential_fingerprint(fingerprint, data, fields)
-
-    return fingerprint
-
-
-def credentials_changed(
-    existing_job_inputs: dict[str, Any], new_job_inputs: dict[str, Any], fields: list[FieldType]
-) -> bool:
-    return get_credential_fingerprint(existing_job_inputs, fields) != get_credential_fingerprint(new_job_inputs, fields)
+    return False
 
 
 def validate_updated_host_configuration(
@@ -484,9 +454,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
         if "job_inputs" in validated_data:
-            should_validate_credentials = credentials_changed(
-                existing_job_inputs, new_job_inputs, source.get_source_config.fields
-            )
+            should_validate_credentials = credentials_touched(incoming_job_inputs, source.get_source_config.fields)
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:

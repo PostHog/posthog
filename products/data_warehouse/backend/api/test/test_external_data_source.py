@@ -47,7 +47,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
-from products.data_warehouse.backend.api.external_data_source import get_credential_fingerprint
+from products.data_warehouse.backend.api.external_data_source import credentials_touched
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -76,7 +76,7 @@ class TestExternalDataSource(APIBaseTest):
             name="Customers", team_id=self.team.pk, source_id=source_id, table=None
         )
 
-    def test_get_credential_fingerprint_handles_nested_fields(self):
+    def test_credentials_touched_handles_nested_fields(self):
         fields: list[FieldType] = [
             SourceFieldInputConfig(
                 name="password",
@@ -129,49 +129,72 @@ class TestExternalDataSource(APIBaseTest):
             SourceFieldOauthConfig(name="oauth_token", label="OAuth token", required=False, kind="oauth2"),
         ]
 
-        fingerprint = get_credential_fingerprint(
+        assert credentials_touched(
             {
-                "password": "secret",
                 "advanced": {"connection_string": ""},
-                "auth_method": {"selection": "basic", "api_key": "api-secret"},
-                "service_account": {"private_key": "pem", "client_email": ""},
-                "oauth_token": None,
             },
             fields,
         )
 
-        self.assertEqual(
-            fingerprint,
+        assert credentials_touched(
             {
-                ("password",): "secret",
-                ("advanced", "connection_string"): None,
-                ("auth_method", "selection"): "basic",
-                ("auth_method", "api_key"): "api-secret",
-                ("service_account",): {"private_key": "pem", "client_email": None},
-                ("oauth_token",): None,
+                "auth_method": {"selection": "basic", "api_key": "api-secret"},
             },
+            fields,
         )
 
-    @parameterized.expand(
-        [
-            ("auth", {"auth": {"selection": "password", "username": "root", "password": "secret"}}),
-            ("auth_type", {"auth_type": {"type": "password", "username": "root", "password": "secret"}}),
+        assert credentials_touched(
+            {
+                "service_account": {"private_key": "pem", "client_email": ""},
+            },
+            fields,
+        )
+
+        assert credentials_touched({"oauth_token": None}, fields)
+
+    def test_credentials_touched_ignores_non_credential_fields(self):
+        fields: list[FieldType] = [
+            SourceFieldInputConfig(
+                name="host",
+                label="Host",
+                placeholder="db.example.com",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+            ),
+            SourceFieldSwitchGroupConfig(
+                name="use_custom_region",
+                label="Use custom region",
+                default=False,
+                fields=[
+                    SourceFieldInputConfig(
+                        name="region",
+                        label="Region",
+                        placeholder="us-east1",
+                        required=True,
+                        type=SourceFieldInputConfigType.TEXT,
+                    )
+                ],
+            ),
         ]
-    )
-    def test_get_credential_fingerprint_handles_ssh_tunnel_auth_shapes(self, _label: str, ssh_value: dict):
+
+        assert not credentials_touched({"host": "db.example.com"}, fields)
+        assert not credentials_touched({"use_custom_region": {"enabled": True, "region": "us-east1"}}, fields)
+
+    def test_credentials_touched_handles_ssh_tunnel_updates(self):
         fields: list[FieldType] = [SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="SSH tunnel")]
 
-        fingerprint = get_credential_fingerprint({"ssh_tunnel": ssh_value}, fields)
-
-        self.assertEqual(
-            fingerprint,
+        assert credentials_touched(
             {
-                ("ssh_tunnel", "auth", "selection"): "password",
-                ("ssh_tunnel", "auth", "username"): "root",
-                ("ssh_tunnel", "auth", "password"): "secret",
-                ("ssh_tunnel", "auth", "passphrase"): None,
-                ("ssh_tunnel", "auth", "private_key"): None,
+                "ssh_tunnel": {"auth": {"password": "secret"}},
             },
+            fields,
+        )
+
+        assert not credentials_touched(
+            {
+                "ssh_tunnel": {"enabled": True},
+            },
+            fields,
         )
 
     @patch(
