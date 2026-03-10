@@ -105,11 +105,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if not integration_id:
                 raise ValidationError({"integration_id": ["A Slack integration is required for Slack subscriptions."]})
             try:
-                integration = Integration.objects.get(id=integration_id)
+                integration = Integration.objects.get(id=integration_id, team_id=self.context["team_id"])
             except Integration.DoesNotExist:
-                raise ValidationError({"integration_id": ["This integration does not exist."]})
-            if integration.team_id != self.context["team_id"]:
-                raise ValidationError({"integration_id": ["This integration does not belong to your team."]})
+                raise ValidationError(
+                    {"integration_id": ["This integration does not exist or does not belong to your team."]}
+                )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
 
