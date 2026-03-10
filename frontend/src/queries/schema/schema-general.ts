@@ -81,6 +81,7 @@ export enum NodeKind {
     GroupNode = 'GroupNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
+    LifecycleDataWarehouseNode = 'LifecycleDataWarehouseNode',
     EventsQuery = 'EventsQuery',
     SessionsQuery = 'SessionsQuery',
     PersonsNode = 'PersonsNode',
@@ -246,6 +247,7 @@ export type QuerySchema =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
+    | LifecycleDataWarehouseNode
     | EventsQuery
     | SessionsQuery
     | ActorsQuery
@@ -755,6 +757,15 @@ export interface DataWarehouseNode extends EntityNode {
     timestamp_field: string
     distinct_id_field: string
     dw_source_type?: string
+}
+
+export interface LifecycleDataWarehouseNode extends EntityNode {
+    id: string
+    kind: NodeKind.LifecycleDataWarehouseNode
+    table_name: string
+    timestamp_field: string
+    aggregation_target_field: string
+    created_at_field: string
 }
 
 export interface ActionsNode extends EntityNode {
@@ -2010,7 +2021,7 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (EventsNode | ActionsNode | LifecycleDataWarehouseNode)[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
 }
