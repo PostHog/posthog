@@ -31,7 +31,7 @@ std::thread_local! {
 /// # Example
 /// ```ignore
 /// with_canonical_log(|log| log.team_id = Some(123));
-/// with_canonical_log(|log| log.property_cache_hits += 1);
+/// with_canonical_log(|log| log.eval.property_cache_hits += 1);
 /// ```
 pub fn with_canonical_log(f: impl FnOnce(&mut FlagsCanonicalLogLine)) {
     // Probe whether the tokio task-local is accessible without consuming `f`.
@@ -124,8 +124,11 @@ fn truncate_chars(s: &str, max_chars: usize) -> &str {
 pub struct EvalCounters {
     /// Number of flags that used device_id for bucketing (instead of distinct_id).
     pub flags_device_id_bucketing: usize,
+    /// Number of cohort property filters evaluated across all flags.
     pub cohorts_evaluated: usize,
+    /// Number of property lookups served from the evaluation state cache.
     pub property_cache_hits: usize,
+    /// Number of property lookups that missed the evaluation state cache.
     pub property_cache_misses: usize,
     /// True if person properties were not found in evaluation state cache.
     pub person_properties_not_cached: bool,
@@ -213,6 +216,8 @@ pub struct FlagsCanonicalLogLine {
     pub group_query_time_ms: u64,
     /// Time spent on static cohort membership queries in milliseconds.
     pub cohort_query_time_ms: u64,
+    /// Number of flags whose evaluation returned an error. Not in `EvalCounters` because it is
+    /// incremented in `process_flag_result`, which runs on the tokio task after rayon returns.
     pub flags_errored: usize,
     /// Number of errors encountered during dependency graph construction.
     /// These errors (like missing dependencies or cycles) set errors_while_computing_flags=true
@@ -847,6 +852,71 @@ mod tests {
             .await;
 
             assert_eq!(final_log.hash_key_override_status, Some("empty"));
+        }
+    }
+
+    mod eval_counters_tests {
+        use super::*;
+
+        #[test]
+        fn test_merge_sums_counters_and_ors_booleans() {
+            let mut base = EvalCounters {
+                flags_device_id_bucketing: 1,
+                cohorts_evaluated: 2,
+                property_cache_hits: 3,
+                property_cache_misses: 4,
+                person_properties_not_cached: false,
+                group_properties_not_cached: true,
+            };
+
+            let other = EvalCounters {
+                flags_device_id_bucketing: 10,
+                cohorts_evaluated: 20,
+                property_cache_hits: 30,
+                property_cache_misses: 40,
+                person_properties_not_cached: true,
+                group_properties_not_cached: false,
+            };
+
+            base.merge(&other);
+
+            assert_eq!(base.flags_device_id_bucketing, 11);
+            assert_eq!(base.cohorts_evaluated, 22);
+            assert_eq!(base.property_cache_hits, 33);
+            assert_eq!(base.property_cache_misses, 44);
+            assert!(base.person_properties_not_cached);
+            assert!(base.group_properties_not_cached);
+        }
+
+        #[test]
+        fn test_merge_default_is_identity() {
+            let mut base = EvalCounters {
+                flags_device_id_bucketing: 5,
+                cohorts_evaluated: 3,
+                property_cache_hits: 7,
+                property_cache_misses: 2,
+                person_properties_not_cached: true,
+                group_properties_not_cached: false,
+            };
+            let snapshot = base.clone();
+
+            base.merge(&EvalCounters::default());
+
+            assert_eq!(
+                base.flags_device_id_bucketing,
+                snapshot.flags_device_id_bucketing
+            );
+            assert_eq!(base.cohorts_evaluated, snapshot.cohorts_evaluated);
+            assert_eq!(base.property_cache_hits, snapshot.property_cache_hits);
+            assert_eq!(base.property_cache_misses, snapshot.property_cache_misses);
+            assert_eq!(
+                base.person_properties_not_cached,
+                snapshot.person_properties_not_cached
+            );
+            assert_eq!(
+                base.group_properties_not_cached,
+                snapshot.group_properties_not_cached
+            );
         }
     }
 
