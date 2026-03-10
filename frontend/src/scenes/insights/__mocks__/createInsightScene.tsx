@@ -83,6 +83,11 @@ export function createInsightStory(
                         is_cached: true,
                         query_status: null,
                         results: insight.result,
+                        // sql insights
+                        columns: (insight as any).columns,
+                        types: (insight as any).types,
+                        // trends box plot insight
+                        boxplot_data: (insight as any).boxplot_data,
                     }),
                 ],
             },

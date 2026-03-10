@@ -98,6 +98,8 @@ export interface TaxonomicFilterProps {
     hogQLGlobals?: Record<string, any>
     /** Optionally customize definition popover contents for selected items. */
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    /** Override the group-level minSearchQueryLength for all groups in this instance. */
+    minSearchQueryLength?: number
 }
 
 export interface DataWarehousePopoverField {

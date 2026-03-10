@@ -19,6 +19,8 @@ from posthog.models.alert import AlertConfiguration
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
+from products.notebooks.backend.models import Notebook
+
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type
 from ee.hogai.context.context import AssistantContextManager
 
@@ -97,6 +99,12 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "enabled", "state", "calculation_interval"],
         "filters": {},
     },
+    "notebook": {
+        "klass": Notebook,
+        "search_fields": {"title": "A", "text_content": "C"},
+        "extra_fields": ["title", "text_content"],
+        "filters": {"deleted": False},
+    },
 }
 """
 Map of entity names to their class, search_fields and extra_fields.
@@ -106,8 +114,12 @@ The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C 
 
 EXCLUDE_FROM_DISPLAY: dict[str, set[str]] = {
     "insight": {"query", "query_metadata"},
+    "notebook": {"title"},
 }
 """Fields to exclude from display output per entity type (they're still used for search ranking)."""
+
+MAX_FIELD_LENGTH = 1000
+"""Maximum length for field values in search result display to avoid bloating context."""
 
 INSIGHTS_CUTOFF_DAYS = 180
 """Only include insights viewed within this many days."""
@@ -335,7 +347,7 @@ class EntitySearchContext:
         extra_fields = result.get("extra_fields", {})
 
         # Get name (from extra_fields or generate default)
-        name = extra_fields.get("name", f"{entity_type.upper()} {result_id}")
+        name = extra_fields.get("name") or extra_fields.get("title") or f"{entity_type.upper()} {result_id}"
 
         # Get URL if available
         try:
@@ -357,6 +369,8 @@ class EntitySearchContext:
                 values.append("-")
             else:
                 val = extra_fields.get(col)
+                if isinstance(val, str) and len(val) > MAX_FIELD_LENGTH:
+                    val = val[:MAX_FIELD_LENGTH] + "..."
                 values.append(self._escape_value(val))
 
         # URL goes last

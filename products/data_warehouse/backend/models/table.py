@@ -17,6 +17,7 @@ from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -368,7 +369,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLDataWarehouseTable:
+    def hogql_definition(
+        self, modifiers: Optional[HogQLQueryModifiers] = None
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -409,6 +412,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 hogql_type = STR_TO_HOGQL_MAPPING.get(type["hogql"], STR_TO_HOGQL_MAPPING["UnknownDatabaseField"])
 
             fields[column] = hogql_type(name=column, nullable=is_nullable)
+
+        if self.external_data_source and self.external_data_source.is_direct_postgres:
+            postgres_schema = (self.external_data_source.job_inputs or {}).get("schema", "public")
+            return DirectPostgresTable(
+                name=self.name,
+                fields=fields,
+                postgres_schema=postgres_schema,
+                postgres_table_name=self.name,
+                external_data_source_id=str(self.external_data_source_id),
+            )
 
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())
@@ -472,6 +485,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         {
             27,  # CANNOT_PARSE_INPUT ("expected ',' at end of stream")
             117,  # INCORRECT_DATA ("Expected end of line")
+            636,  # CANNOT_EXTRACT_TABLE_STRUCTURE (wraps inner parse errors like 117)
         }
     )
 

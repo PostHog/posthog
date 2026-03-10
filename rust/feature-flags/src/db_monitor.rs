@@ -9,7 +9,7 @@ use tracing::error;
 
 use crate::metrics::consts::{
     DB_CONNECTION_POOL_ACTIVE_COUNTER, DB_CONNECTION_POOL_IDLE_COUNTER,
-    DB_CONNECTION_POOL_MAX_COUNTER,
+    DB_CONNECTION_POOL_MAX_COUNTER, DB_CONNECTION_POOL_SIZE_GAUGE,
 };
 
 pub struct DatabasePoolMonitor {
@@ -98,39 +98,35 @@ impl DatabasePoolMonitor {
         let pool_size = pool.size();
         let pool_idle = pool.num_idle();
         let pool_max = pool.options().get_max_connections();
+        let pool_active = pool_size.saturating_sub(pool_idle as u32);
 
+        let labels = [("pool".to_string(), pool_name.to_string())];
+
+        gauge(DB_CONNECTION_POOL_SIZE_GAUGE, &labels, pool_size as f64);
         gauge(
             DB_CONNECTION_POOL_ACTIVE_COUNTER,
-            &[("pool".to_string(), pool_name.to_string())],
-            (pool_size as i32 - pool_idle as i32) as f64,
+            &labels,
+            pool_active as f64,
         );
-        gauge(
-            DB_CONNECTION_POOL_IDLE_COUNTER,
-            &[("pool".to_string(), pool_name.to_string())],
-            pool_idle as f64,
-        );
-        gauge(
-            DB_CONNECTION_POOL_MAX_COUNTER,
-            &[("pool".to_string(), pool_name.to_string())],
-            pool_max as f64,
-        );
+        gauge(DB_CONNECTION_POOL_IDLE_COUNTER, &labels, pool_idle as f64);
+        gauge(DB_CONNECTION_POOL_MAX_COUNTER, &labels, pool_max as f64);
 
         tracing::debug!(
             "{} pool metrics - active: {}, idle: {}, max: {}",
             pool_name,
-            pool_size as i32 - pool_idle as i32,
+            pool_active,
             pool_idle,
             pool_max
         );
 
         // Warn if pool utilization is high
-        let pool_utilization = (pool_size as i32 - pool_idle as i32) as f64 / pool_max as f64;
+        let pool_utilization = pool_active as f64 / pool_max as f64;
         if pool_utilization > self.warn_utilization_threshold {
             tracing::warn!(
                 "High {} pool utilization: {:.1}% ({}/{})",
                 pool_name,
                 pool_utilization * 100.0,
-                pool_size as i32 - pool_idle as i32,
+                pool_active,
                 pool_max
             );
         }

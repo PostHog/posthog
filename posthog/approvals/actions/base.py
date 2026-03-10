@@ -73,6 +73,20 @@ class BaseAction(ABC):
         pass
 
     @classmethod
+    def check_staleness(
+        cls,
+        intent_data: dict[str, Any],
+        context: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Check if the underlying resource has changed since the CR was created.
+
+        Returns True if the resource is stale (has been modified).
+        Override in subclasses that store preconditions in intent.
+        """
+        return False
+
+    @classmethod
     def validate_intent(
         cls,
         intent_data: dict[str, Any],
