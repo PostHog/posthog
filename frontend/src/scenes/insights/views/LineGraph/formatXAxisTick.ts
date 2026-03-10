@@ -24,12 +24,9 @@ export function createXAxisTickCallback({
         return (value) => String(value)
     }
 
-    // Both datetime and date-only strings represent wall-clock times in the project
-    // timezone. We must avoid `dayjs.tz(string, tz)` because it internally parses the
-    // string in the *browser's* local timezone first, then converts — during DST
-    // transitions this intermediate step can shift the date by a day.
-    // Instead, parse as UTC (browser-independent) then reinterpret in the target
-    // timezone with `keepLocalTime: true` so the wall-clock time stays unchanged.
+    // Parse as UTC then reinterpret in the target timezone with keepLocalTime: true.
+    // Using dayjs.tz(string, tz) directly can shift dates near DST transitions because
+    // it parses via the browser's local timezone first.
     const parsedDates = allDays.map((d) => {
         const s = String(d)
         const hasTime = s.includes(' ') || s.includes('T')
