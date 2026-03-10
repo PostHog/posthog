@@ -283,7 +283,7 @@ def slack_source(
 
         oldest_ts: str | None = None
         if should_use_incremental_field and db_incremental_field_last_value is not None:
-            oldest_ts = str(datetime.datetime.fromisoformat(db_incremental_field_last_value).timestamp())
+            oldest_ts = str(db_incremental_field_last_value.timestamp())
 
         resolved_id = channel_id
         resolved_oldest_ts = oldest_ts
