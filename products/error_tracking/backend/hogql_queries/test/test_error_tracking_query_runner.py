@@ -122,7 +122,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._materialized_ctx = materialized("events", "$exception_issue_id")
+        cls._materialized_ctx = materialized("events", "$exception_issue_id", is_nullable=True)
         cls._materialized_ctx.__enter__()
         super(ErrorTrackingQueryRunnerTestsMixin, cls).setUpClass()  # type: ignore[misc] # noqa: UP008
 
