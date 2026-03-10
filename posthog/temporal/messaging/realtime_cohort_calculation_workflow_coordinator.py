@@ -279,7 +279,9 @@ async def get_realtime_cohort_selection_activity(
                         thresholds,
                         is_p100=(inputs.duration_percentile_max is not None and inputs.duration_percentile_max >= 99.9),
                     )
-                team_cohort_ids = list(team_cohort_queryset.order_by("id").values_list("id", flat=True))
+                team_cohort_ids = list(
+                    team_cohort_queryset.order_by("last_calculation_duration_ms", "id").values_list("id", flat=True)
+                )
 
                 selected_cohort_ids.extend(team_cohort_ids)
 
@@ -302,7 +304,9 @@ async def get_realtime_cohort_selection_activity(
                     thresholds,
                     is_p100=(inputs.duration_percentile_max is not None and inputs.duration_percentile_max >= 99.9),
                 )
-            other_teams_cohort_ids = list(other_teams_queryset.order_by("id").values_list("id", flat=True))
+            other_teams_cohort_ids = list(
+                other_teams_queryset.order_by("last_calculation_duration_ms", "id").values_list("id", flat=True)
+            )
 
             if other_teams_cohort_ids:
                 # Apply global percentage with random sampling
@@ -440,23 +444,25 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
             f"in batches of {inputs.workflows_per_batch} every {inputs.batch_delay_minutes} minutes"
         )
 
-        # Step 2: Distribute cohort IDs across workers
-        cohorts_per_workflow = math.ceil(total_cohorts / inputs.parallelism)
+        # Step 2: Distribute cohort IDs using round-robin to balance workload
+        # This distributes cohorts ordered by duration across workers to prevent
+        # any single worker from getting all the slow cohorts
 
-        # Step 3: Prepare all workflow configs with specific cohort ID lists
+        # Initialize lists for each worker
+        worker_cohort_lists: list[list[int]] = [[] for _ in range(inputs.parallelism)]
+
+        # Distribute cohorts round-robin style
+        for idx, cohort_id in enumerate(all_cohort_ids):
+            worker_idx = idx % inputs.parallelism
+            worker_cohort_lists[worker_idx].append(cohort_id)
+
+        # Step 3: Prepare all workflow configs with balanced cohort ID lists
         workflow_configs: list[WorkflowConfig] = []
         for i in range(inputs.parallelism):
-            start_idx = i * cohorts_per_workflow
-            end_idx = min(start_idx + cohorts_per_workflow, total_cohorts)
-
-            if start_idx >= total_cohorts:
-                break
-
-            # Get the specific cohort IDs for this worker
-            worker_cohort_ids = all_cohort_ids[start_idx:end_idx]
+            worker_cohort_ids = worker_cohort_lists[i]
 
             if not worker_cohort_ids:
-                continue  # Skip empty ranges
+                continue  # Skip workers with no cohorts
 
             workflow_configs.append(
                 WorkflowConfig(
