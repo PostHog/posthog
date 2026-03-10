@@ -29,6 +29,7 @@ class Migration(migrations.Migration):
                     ("session_analysis_cluster", "Session analysis cluster"),
                     ("evaluation", "Evaluation"),
                     ("new_exception", "New exception"),
+                    ("spike_detected", "Spike detected"),
                 ],
                 max_length=100,
             ),

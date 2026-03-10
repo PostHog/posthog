@@ -90,15 +90,15 @@ export interface GithubIssueSignalInput extends SignalInputBase {
 
 // Error tracking
 
-export interface ErrorTrackingNewExceptionSignalExtra {
+export interface ErrorTrackingSignalExtra {
     issue_id: string
     fingerprint: string
 }
 
-export interface ErrorTrackingNewExceptionSignalInput extends SignalInputBase {
-    source_type: 'new_exception'
+export interface ErrorTrackingSignalInput extends SignalInputBase {
+    source_type: 'new_exception' | 'spike_detected'
     source_product: 'error_tracking'
-    extra: ErrorTrackingNewExceptionSignalExtra
+    extra: ErrorTrackingSignalExtra
 }
 
 // Linear issue
@@ -132,4 +132,4 @@ export type SignalInput =
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
-    | ErrorTrackingNewExceptionSignalInput
+    | ErrorTrackingSignalInput

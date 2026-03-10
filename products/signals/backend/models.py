@@ -16,6 +16,7 @@ class SignalSourceConfig(UUIDModel):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION = "evaluation", "Evaluation"
         NEW_EXCEPTION = "new_exception", "New exception"
+        SPIKE_DETECTED = "spike_detected", "Spike detected"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
