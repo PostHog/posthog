@@ -25,9 +25,8 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import resolve_database_for_connection
 from posthog.hogql.metadata import get_hogql_metadata
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -36,40 +35,11 @@ from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode,
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.data_warehouse.backend.models import DataWarehouseJoin, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_source import get_direct_external_data_source_for_connection
+from products.data_warehouse.backend.models import DataWarehouseJoin
 
 from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
-
-
-def _validated_source_for_connection(team: Team, connection_id: str | None) -> ExternalDataSource | None:
-    source = get_direct_external_data_source_for_connection(team_id=team.pk, connection_id=connection_id)
-    if connection_id and source is None:
-        raise ValidationError("Invalid connectionId for this team")
-    return source
-
-
-def _database_for_connection_source(team: Team, user: User | None, source: ExternalDataSource | None) -> Database:
-    return Database.create_for(
-        team=team,
-        modifiers=create_default_modifiers_for_team(team),
-        user=user,
-        connection_id=str(source.id) if source else None,
-    )
-
-
-def _connection_context(
-    team: Team,
-    connection_id: str | None,
-    user: User | None,
-    *,
-    require_database: bool,
-) -> tuple[ExternalDataSource | None, Database | None]:
-    source = _validated_source_for_connection(team, connection_id)
-    database = _database_for_connection_source(team, user, source) if require_database or source else None
-    return source, database
 
 
 def process_query_dict(
@@ -157,8 +127,12 @@ def process_query_model(
     result: dict | BaseModel
 
     if isinstance(query, HogQLAutocomplete):
-        _, database = _connection_context(team, query.connectionId, user, require_database=True)
-        assert database is not None
+        _, database = resolve_database_for_connection(
+            team,
+            query.connectionId,
+            user=user,
+            error_factory=ValidationError,
+        )
         return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
@@ -166,8 +140,12 @@ def process_query_model(
         return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
-        _, database = _connection_context(team, query.connectionId, user, require_database=True)
-        assert database is not None
+        _, database = resolve_database_for_connection(
+            team,
+            query.connectionId,
+            user=user,
+            error_factory=ValidationError,
+        )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
         serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
         table_names = set(serialized_tables.keys()) if database.has_schema_scope() else None
