@@ -21,10 +21,11 @@ class CanApprove(permissions.BasePermission):
         allow_self_approve = policy_snapshot.get("allow_self_approve", False)
         is_requester = obj.created_by == request.user
 
-        # Check self-approval first - if requester and not allowed, deny immediately
-        if is_requester and not allow_self_approve:
-            self.message = "You cannot approve your own change request"
-            return False
+        # Check self-approval: if requester, self-approve flag determines access
+        if is_requester:
+            if not allow_self_approve:
+                self.message = "You cannot approve your own change request"
+            return allow_self_approve
 
         # Check if user is in explicit approver set (users/roles)
         if self._user_in_approver_set(request.user, policy_snapshot, obj):

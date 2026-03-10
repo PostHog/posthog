@@ -173,6 +173,57 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert response.json()["status"] == "applied"
         assert Approval.objects.filter(change_request=cr, decision=ApprovalDecision.APPROVED).exists()
 
+    def test_can_approve_true_for_requester_with_self_approve(self):
+        other_user = User.objects.create(email="other-approver@posthog.com")
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 1, "users": [other_user.id], "allow_self_approve": True},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_approve"] is True
+
+    def test_can_approve_false_for_requester_without_self_approve(self):
+        other_user = User.objects.create(email="other-approver@posthog.com")
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 1, "users": [other_user.id], "allow_self_approve": False},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_approve"] is False
+
+    @patch("posthog.approvals.services.apply_change_request")
+    def test_approve_success_for_requester_with_self_approve_not_in_approvers(self, mock_apply):
+        mock_apply.return_value = type("obj", (object,), {"id": 123, "version": 1})()
+        other_user = User.objects.create(email="other-approver@posthog.com")
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 1, "users": [other_user.id], "allow_self_approve": True},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/",
+            {"reason": "Self-approving"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "applied"
+
+    def test_approve_denied_for_requester_without_self_approve(self):
+        other_user = User.objects.create(email="other-approver@posthog.com")
+        cr = self._create_change_request(
+            policy_snapshot={"quorum": 1, "users": [other_user.id], "allow_self_approve": False},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/",
+            {"reason": "Trying to self-approve"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_approve_already_voted(self):
         cr = self._create_change_request()
         Approval.objects.create(change_request=cr, created_by=self.user, decision=ApprovalDecision.APPROVED)
