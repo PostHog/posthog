@@ -8,12 +8,12 @@ import dart from 'highlight.js/lib/languages/dart'
 import elixir from 'highlight.js/lib/languages/elixir'
 import go from 'highlight.js/lib/languages/go'
 import groovy from 'highlight.js/lib/languages/groovy'
+import html from 'highlight.js/lib/languages/html'
 import http from 'highlight.js/lib/languages/http'
 import java from 'highlight.js/lib/languages/java'
 import javascript from 'highlight.js/lib/languages/javascript'
 import json from 'highlight.js/lib/languages/json'
 import kotlin from 'highlight.js/lib/languages/kotlin'
-import markdown from 'highlight.js/lib/languages/markdown'
 import objectivec from 'highlight.js/lib/languages/objectivec'
 import php from 'highlight.js/lib/languages/php'
 import python from 'highlight.js/lib/languages/python'
@@ -48,7 +48,7 @@ lowlight.register({
     javascript,
     json,
     kotlin,
-    markdown,
+    html,
     objectivec,
     php,
     python,
@@ -79,7 +79,7 @@ export enum Language {
     HTML = 'html',
     XML = 'xml',
     HTTP = 'http',
-    Markup = 'markdown',
+    Markup = 'html',
     SQL = 'sql',
     Kotlin = 'kotlin',
     Groovy = 'groovy',
@@ -96,9 +96,9 @@ export const getLanguage = (lang: string): Language => {
             return Language.CSharp
         case 'javascript':
         case 'jsx':
-        case 'tsx':
             return Language.JavaScript
         case 'typescript':
+        case 'tsx':
             return Language.TypeScript
         case 'java':
             return Language.Java
@@ -236,14 +236,19 @@ export function CodeLine({
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const highlighted = useMemo(() => lowlight.highlight(language, text), [language, text])
+    const highlighted = useMemo(
+        () => (lowlight.registered(language) ? lowlight.highlight(language, text) : lowlight.highlightAuto(text)),
+        [language, text]
+    )
     const style = wrapLines ? ({ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const) : {}
 
     return (
         <pre className="m-0">
-            <code className={clsx('hljs', isDarkModeOn && 'hljs-dark')} style={style}>
-                {toHtml(highlighted)}
-            </code>
+            <code
+                className={clsx('hljs', isDarkModeOn && 'hljs-dark')}
+                style={style}
+                dangerouslySetInnerHTML={{ __html: toHtml(highlighted) }}
+            />
         </pre>
     )
 }
