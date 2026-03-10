@@ -187,8 +187,10 @@ describe('Hog Functions', { concurrent: false }, () => {
 
             const result = await partialUpdateTool.handler(context, { id: fn.id, deleted: true })
             const deleted = parseToolResponse(result)
-            expect(deleted.deleted).toBe(true)
-            // No need to add to cleanup — already deleted
+            // `deleted` is write_only on the serializer, so it won't appear in the response.
+            // Verify the delete took effect by confirming the retrieve now throws (filtered out).
+            expect(deleted.id).toBe(fn.id)
+            await expect(retrieveTool.handler(context, { id: fn.id })).rejects.toThrow()
         })
     })
 
@@ -266,7 +268,8 @@ describe('Hog Functions', { concurrent: false }, () => {
             // Delete
             const deleteResult = await partialUpdateTool.handler(context, { id: created.id, deleted: true })
             const deleted = parseToolResponse(deleteResult)
-            expect(deleted.deleted).toBe(true)
+            expect(deleted.id).toBe(created.id)
+            await expect(retrieveTool.handler(context, { id: created.id })).rejects.toThrow()
         })
 
         it('should appear in list results after creation', async () => {

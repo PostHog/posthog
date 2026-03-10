@@ -89,10 +89,10 @@ describe('Hog Function Templates', { concurrent: false }, () => {
             const pagedResult = await listTool.handler(context, { offset: 1, limit: 10 })
             const paged = parseToolResponse(pagedResult)
 
-            expect(paged.results.length).toBeLessThanOrEqual(Math.max(0, all.results.length - 1))
-            if (paged.results.length > 0) {
-                expect(paged.results[0].id).toBe(all.results[1].id)
-            }
+            // The offset shifts the starting position but doesn't reduce page size
+            // when there are more items than limit. Verify the first item is shifted.
+            expect(paged.results.length).toBeGreaterThan(0)
+            expect(paged.results[0].id).toBe(all.results[1].id)
         })
     })
 
