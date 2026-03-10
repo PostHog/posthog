@@ -387,11 +387,7 @@ export function InsightMeta({
                                                 </span>
                                             ),
                                             key: availableColor,
-                                            active:
-                                                availableColor ===
-                                                (ribbonColor === null
-                                                    ? InsightColor.White
-                                                    : ribbonColor || InsightColor.White),
+                                            active: availableColor === (ribbonColor || InsightColor.White),
                                             onClick: () => {
                                                 if (availableColor === InsightColor.White) {
                                                     updateColor?.(null)

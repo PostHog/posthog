@@ -59,7 +59,10 @@ export function TopHeading({
             query == undefined || isInsightQueryNode(query) || isInsightVizNode(query) ? 'Last 7 days' : null
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
-    const dateClassName = clsx('whitespace-nowrap', colorClassName)
+    // Use accent color only for the insight type label and bullet.
+    // For the date range text, prefer the standard muted text color so it has good contrast,
+    // especially on dark themed headers.
+    const dateClassName = clsx('whitespace-nowrap', showInsightType ? 'text-muted' : colorClassName)
 
     const resolvedDateTooltip = formatResolvedDateRange(resolvedDateRange)
 
