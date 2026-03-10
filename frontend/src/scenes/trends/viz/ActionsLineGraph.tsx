@@ -201,6 +201,7 @@ export function ActionsLineGraph({
                       }
                     : {
                           groupTypeLabel: context?.groupTypeLabel,
+                          inspectLabel: context?.inspectLabel,
                           filter: (s) => !s.hideTooltip,
                       }
             }

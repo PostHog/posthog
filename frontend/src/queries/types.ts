@@ -58,6 +58,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     ignoreActionsInSeriesLabels?: boolean
     /** Transform dataTableRows after they are created (e.g., to add date labels) */
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
+    /** Custom label for the tooltip inspect hint (e.g. "Click to zoom in") */
+    inspectLabel?: string
     /** Compare filter for Web Analytics queries */
     compareFilter?: any
     /** Base currency for formatting monetary values */

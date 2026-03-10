@@ -1,5 +1,6 @@
 import { BreakPointFunction } from 'kea'
 
+import { dayjs } from 'lib/dayjs'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
 
@@ -14,7 +15,7 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types'
+import { InsightLogicProps, IntervalType, PropertyFilterType, PropertyMathType } from '~/types'
 
 /** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
 export const BREAKDOWN_NULL_DISPLAY = '(none)'
@@ -586,5 +587,38 @@ export const parseWebAnalyticsURL = (urlString: string): ParsedURL => {
             pathname: null,
             isValid: false,
         }
+    }
+}
+
+export function getZoomDateRange(
+    day: string,
+    currentInterval: IntervalType
+): { dateFrom: string; dateTo: string; interval: IntervalType } | null {
+    const d = dayjs(day.slice(0, 10))
+    if (!d.isValid()) {
+        return null
+    }
+
+    switch (currentInterval) {
+        case 'month':
+            return {
+                dateFrom: d.startOf('month').format('YYYY-MM-DD'),
+                dateTo: d.endOf('month').format('YYYY-MM-DD'),
+                interval: 'day',
+            }
+        case 'week':
+            return {
+                dateFrom: d.format('YYYY-MM-DD'),
+                dateTo: d.add(6, 'day').format('YYYY-MM-DD'),
+                interval: 'day',
+            }
+        case 'day':
+            return {
+                dateFrom: d.format('YYYY-MM-DD'),
+                dateTo: d.add(1, 'day').format('YYYY-MM-DD'),
+                interval: 'hour',
+            }
+        default:
+            return null
     }
 }
