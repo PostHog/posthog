@@ -608,6 +608,8 @@ export const WebStatsTrendTile = ({
         dateFilter: { interval },
         preZoomDateFilter,
     } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const graphDateZoomEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_GRAPH_DATE_ZOOM]
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
     const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
 
@@ -684,7 +686,7 @@ export const WebStatsTrendTile = ({
             }
         }
 
-        const canZoom = interval !== 'hour'
+        const canZoom = graphDateZoomEnabled && interval !== 'hour'
         return {
             ...baseContext,
             ...(canZoom
@@ -699,11 +701,11 @@ export const WebStatsTrendTile = ({
                   }
                 : {}),
         }
-    }, [onWorldMapClick, onRegionMapClick, insightProps, query, interval, zoomIntoPeriod])
+    }, [onWorldMapClick, onRegionMapClick, insightProps, query, interval, zoomIntoPeriod, graphDateZoomEnabled])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            {(showIntervalTile || preZoomDateFilter) && (
+            {(showIntervalTile || (graphDateZoomEnabled && preZoomDateFilter)) && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center gap-2">
                         {showIntervalTile && (
@@ -712,7 +714,7 @@ export const WebStatsTrendTile = ({
                                 <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />
                             </>
                         )}
-                        {preZoomDateFilter && (
+                        {graphDateZoomEnabled && preZoomDateFilter && (
                             <LemonButton type="secondary" size="small" icon={<IconUndo />} onClick={resetZoom}>
                                 Reset zoom
                             </LemonButton>
