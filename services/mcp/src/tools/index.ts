@@ -191,9 +191,25 @@ export const getToolsFromContext = async (
     context: Context,
     options?: ToolFilterOptions
 ): Promise<Tool<ZodObjectAny>[]> => {
+    // Check org AI consent to gate tools that use LLMs internally
+    let aiConsentGiven: boolean | undefined
+    try {
+        const orgId = await context.stateManager.getOrgID()
+        if (orgId) {
+            const orgResult = await context.api.organizations().get({ orgId })
+            if (orgResult.success) {
+                const org = orgResult.data as { is_ai_data_processing_approved?: boolean | null }
+                aiConsentGiven = org.is_ai_data_processing_approved !== false
+            }
+        }
+    } catch {
+        // Default to allowing tools if we can't determine consent
+    }
+
+    const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
     const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
     const excludeTools = options?.excludeTools ?? []
-    const allowedToolNames = getFilteredToolNames(options).filter((name) => !excludeTools.includes(name))
+    const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
