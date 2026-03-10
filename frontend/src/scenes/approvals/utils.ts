@@ -70,6 +70,24 @@ export function getApprovalResourceLabel(resourceType: string): string {
     return APPROVAL_RESOURCE_CONFIG[resourceType]?.label || resourceType.replace(/_/g, ' ')
 }
 
+export type ApprovalResourceTypeValue = (typeof ApprovalResourceType)[keyof typeof ApprovalResourceType]
+
+export interface ChangeRequestCreatedEventDetail {
+    resourceType: ApprovalResourceTypeValue
+    resourceId: string | number
+}
+
+export function dispatchChangeRequestCreated(detail: ChangeRequestCreatedEventDetail): void {
+    window.dispatchEvent(
+        new CustomEvent('change-request-created', {
+            detail: {
+                resourceType: detail.resourceType,
+                resourceId: String(detail.resourceId),
+            },
+        })
+    )
+}
+
 export function getApprovalResourceName(resourceType: string, intent: Record<string, any>): string | null {
     switch (resourceType) {
         case ApprovalResourceType.FEATURE_FLAG:

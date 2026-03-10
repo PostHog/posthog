@@ -8,6 +8,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
+import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -171,6 +172,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                                       ? 'disable this feature flag'
                                       : 'update this feature flag'
                             showApprovalRequiredToast(e.data.change_request_id, actionDescription)
+                            dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: id })
                         }
                         throw e
                     }

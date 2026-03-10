@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, ChangeRequest, ChangeRequestState } from '~/types'
 
 import type { changeRequestsLogicType } from './changeRequestsLogicType'
-import type { ApprovalContext } from './utils'
+import type { ApprovalContext, ChangeRequestCreatedEventDetail } from './utils'
 
 export interface ChangeRequestsLogicProps {
     resourceType: string
@@ -162,7 +162,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
     afterMount(({ actions, props }) => {
         actions.loadChangeRequests()
 
-        const handleChangeRequestCreated = (event: CustomEvent): void => {
+        const handleChangeRequestCreated = (event: CustomEvent<ChangeRequestCreatedEventDetail>): void => {
             const { resourceType, resourceId } = event.detail
             if (resourceType === props.resourceType && String(resourceId) === String(props.resourceId)) {
                 actions.loadChangeRequests()
