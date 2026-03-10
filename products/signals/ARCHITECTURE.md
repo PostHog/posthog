@@ -73,7 +73,7 @@ Defined in `backend/temporal/buffer.py`.
 
 - New signals arrive via `@workflow.signal` (`submit_signal`), sent by `SignalEmitterWorkflow` instances.
 - Exposes `@workflow.query` (`get_buffer_size`) so emitters can implement backpressure by polling buffer occupancy before sending.
-- The main loop waits for signals, then waits until either the buffer reaches `BUFFER_MAX_SIZE` (100) or `BUFFER_FLUSH_TIMEOUT_SECONDS` (60s) elapses since the first signal arrived.
+- The main loop waits for signals, then waits until either the buffer reaches `BUFFER_MAX_SIZE` (20) or `BUFFER_FLUSH_TIMEOUT_SECONDS` (60s) elapses since the first signal arrived.
 - On flush: drains the buffer, writes all signals to S3 at `signals/signal_batches/<uuid>` via `flush_signals_to_s3_activity`, then sends the object key to the grouping v2 workflow via `signal_with_start_grouping_v2_activity` (which creates the grouping workflow if not already running).
 - If the buffer is already full again after flushing (signals arrived during the flush activities), loops immediately to flush again rather than `continue_as_new` (avoids losing throughput to workflow restart).
 - Otherwise calls `continue_as_new`, carrying over any signals that arrived between drain and now via `BufferSignalsInput.pending_signals`.
