@@ -112,27 +112,28 @@ fn make_test_client(sink: &CapturingSink) -> TestClient {
         liveness,
         sink.clone(),
         redis,
-        None,
+        None,                // global_rate_limiter_token_distinctid
+        None,                // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
-        None,
-        false,
+        None,                // event_restriction_service
+        false,               // metrics
         CaptureMode::Events,
         String::from("capture-otel-test"),
-        None,
-        25 * 1024 * 1024,
-        false,
-        1_i64,
-        false,
-        0.0_f32,
-        26_214_400,
+        None,                // concurrency_limit
+        25 * 1024 * 1024,    // event_payload_size_limit
+        false,               // enable_historical_rerouting
+        1_i64,               // historical_rerouting_threshold_days
+        false,               // is_mirror_deploy
+        0.0_f32,             // verbose_sample_percent
+        26_214_400,          // ai_max_sum_of_parts_bytes
         Some(Arc::new(MockBlobStorage::new(
             "test-bucket".to_string(),
             "llma/".to_string(),
-        ))),
-        Some(10),
-        None,
-        256,
+        ))),                 // ai_blob_storage
+        Some(10),            // request_timeout_seconds
+        None,                // body_chunk_read_timeout_ms
+        256,                 // body_read_chunk_size_kb
     );
 
     TestClient::new(app)
