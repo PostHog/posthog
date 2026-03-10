@@ -69,7 +69,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         if self.query.holdout:
             self.variants.append(f"holdout-{self.query.holdout.id}")
 
-        self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
