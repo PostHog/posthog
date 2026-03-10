@@ -617,6 +617,8 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
         assert self.clickhouse_sql
+        clickhouse_context = self.clickhouse_context
+        assert clickhouse_context is not None
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             tag_queries(
@@ -632,13 +634,13 @@ class HogQLQueryExecutor:
 
             # Use workload detected during AST resolution, falling back to explicitly set workload
             workload = self.workload
-            if workload == Workload.DEFAULT and self.clickhouse_context.workload is not None:
-                workload = self.clickhouse_context.workload
+            if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
+                workload = clickhouse_context.workload
 
             try:
                 self.results, self.types = sync_execute(
                     self.clickhouse_sql,
-                    self.clickhouse_context.values,
+                    clickhouse_context.values,
                     with_column_types=True,
                     workload=workload,
                     team_id=self.team.pk,
@@ -659,7 +661,7 @@ class HogQLQueryExecutor:
                 # nosemgrep: clickhouse-injection-taint - HogQL-compiled SQL, values in context
                 explain_results = sync_execute(
                     f"EXPLAIN {self.clickhouse_sql}",
-                    self.clickhouse_context.values,
+                    clickhouse_context.values,
                     with_column_types=True,
                     workload=workload,
                     team_id=self.team.pk,

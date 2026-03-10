@@ -49,13 +49,13 @@ class TestTable(BaseTest):
 
     @parameterized.expand(
         [
-            ("legacy_prefix_with_separator", "ph3_postgres_accounts", "accounts"),
-            ("legacy_prefix_without_separator", "ph3postgres_accounts", "accounts"),
-            ("source_scoped_prefix", "postgres_{source_hex}_accounts", "accounts"),
-            ("raw_schema_name", "posthog_dashboard", "posthog_dashboard"),
+            ("legacy_prefix_with_separator", "ph3_postgres_accounts"),
+            ("legacy_prefix_without_separator", "ph3postgres_accounts"),
+            ("source_scoped_prefix", "postgres_{source_hex}_accounts"),
+            ("raw_schema_name", "posthog_dashboard"),
         ]
     )
-    def test_direct_postgres_table_strips_only_known_prefixes(self, _name: str, table_name: str, expected: str):
+    def test_direct_postgres_table_uses_stored_name(self, _name: str, table_name: str):
         source = ExternalDataSource.objects.create(
             source_id="source-id",
             connection_id="connection-id",
@@ -78,7 +78,7 @@ class TestTable(BaseTest):
         definition = table.hogql_definition()
 
         assert isinstance(definition, DirectPostgresTable)
-        assert definition.postgres_table_name == expected
+        assert definition.postgres_table_name == table_name.format(source_hex=source.pk.hex)
 
     def test_direct_postgres_table_cannot_be_printed_to_clickhouse(self):
         source = ExternalDataSource.objects.create(

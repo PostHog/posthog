@@ -2078,7 +2078,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "Postgres",
                 "ph3",
                 "ph3_postgres_analytics_platform_preaggregationjob",
-                "postgres.ph3.analytics_platform_preaggregationjob",
+                "ph3_postgres_analytics_platform_preaggregationjob",
             ),
             (
                 "direct_source_without_prefix",
@@ -2086,7 +2086,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "Postgres",
                 None,
                 "postgres_analytics_platform_preaggregationjob",
-                "postgres.analytics_platform_preaggregationjob",
+                "postgres_analytics_platform_preaggregationjob",
             ),
         ]
     )
@@ -2110,63 +2110,3 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         assert get_data_warehouse_table_name(source, table_name) == expected
-
-    @parameterized.expand(
-        [
-            (
-                "direct_source_with_prefix",
-                "Postgres",
-                "ph3",
-                "ph3_postgres_analytics_platform_preaggregationjob",
-                "analytics_platform_preaggregationjob",
-            ),
-            (
-                "direct_source_without_prefix",
-                "Postgres",
-                None,
-                "postgres_analytics_platform_preaggregationjob",
-                "analytics_platform_preaggregationjob",
-            ),
-            (
-                "direct_source_with_source_scoped_prefix",
-                "Postgres",
-                "ph3",
-                "postgres_{source_hex}_analytics_platform_preaggregationjob",
-                "analytics_platform_preaggregationjob",
-            ),
-            (
-                "direct_source_with_legacy_prefix_without_separator",
-                "Postgres",
-                "ph3",
-                "ph3postgres_accounts",
-                "accounts",
-            ),
-            (
-                "direct_source_with_raw_table_name",
-                "Postgres",
-                "ph3",
-                "posthog_dashboard",
-                "posthog_dashboard",
-            ),
-        ]
-    )
-    def test_get_data_warehouse_table_name_in_direct_mode(
-        self,
-        _name: str,
-        source_type: str,
-        prefix: str | None,
-        table_name: str,
-        expected: str,
-    ) -> None:
-        source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="source_id",
-            connection_id="connection_id",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=source_type,
-            prefix=prefix,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-        )
-
-        resolved_table_name = table_name.format(source_hex=source.pk.hex)
-        assert get_data_warehouse_table_name(source, resolved_table_name, use_direct_database_names=True) == expected

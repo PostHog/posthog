@@ -181,25 +181,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return False
 
     def _direct_postgres_table_name(self) -> str:
-        if self.external_data_source is None:
-            return self.table_name_without_prefix()
-
-        source_type = self.external_data_source.source_type.lower()
-        source_scoped_prefix = f"{source_type}_{self.external_data_source.pk.hex}_"
-        if self.name.lower().startswith(source_scoped_prefix):
-            return self.name[len(source_scoped_prefix) :]
-
-        prefix = self.external_data_source.prefix or ""
-        known_prefixes = [
-            f"{prefix}_{source_type}_" if prefix else None,
-            f"{prefix}{source_type}_" if prefix else None,
-            f"{source_type}_",
-        ]
-
-        for known_prefix in filter(None, known_prefixes):
-            if self.name.lower().startswith(known_prefix.lower()):
-                return self.name[len(known_prefix) :]
-
         return self.name
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:

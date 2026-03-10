@@ -630,11 +630,9 @@ class Database(BaseModel):
                     last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
                 )
 
-            # Temp until we migrate all table names in the DB to use dot notation
             table_key = get_data_warehouse_table_name(
                 warehouse_table.external_data_source,
                 warehouse_table.name,
-                use_direct_database_names=self._connection_scope == "connection",
             )
 
             if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
@@ -1053,7 +1051,6 @@ class Database(BaseModel):
                         table_key = get_data_warehouse_table_name(
                             table.external_data_source,
                             table.name,
-                            use_direct_database_names=database._connection_scope == "connection",
                         )
                         table_chain = table_key.split(".")
 
@@ -1297,10 +1294,11 @@ class Database(BaseModel):
         return database
 
 
-def get_data_warehouse_table_name(
-    source: ExternalDataSource | None, table_name: str, *, use_direct_database_names: bool = False
-):
+def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
     if source is None:
+        return table_name
+
+    if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
         return table_name
 
     source_type = source.source_type.lower()
@@ -1318,9 +1316,6 @@ def get_data_warehouse_table_name(
         if table_name_stripped.lower().startswith(known_prefix):
             table_name_stripped = table_name_stripped[len(known_prefix) :]
             break
-
-    if source.access_method == ExternalDataSource.AccessMethod.DIRECT and use_direct_database_names:
-        return table_name_stripped
 
     if prefix:
         return f"{source_type}.{prefix}.{table_name_stripped}".lower()
