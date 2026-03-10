@@ -162,6 +162,8 @@ jobs:
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'
                         # Generation tooling - changes here could affect output
+                        - 'tools/openapi-codegen/**/*'
+                        - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
                         - 'services/mcp/scripts/generate-orval-schemas.mjs'

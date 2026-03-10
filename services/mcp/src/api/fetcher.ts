@@ -13,7 +13,6 @@ export interface Fetcher {
         parameters?: { body?: unknown; header?: Record<string, unknown> }
         path: string
         overrides?: RequestInit
-        throwOnStatusError?: boolean
     }) => Promise<Response>
 }
 
