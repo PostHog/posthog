@@ -2932,11 +2932,7 @@
   SELECT 1 AS "a"
   FROM "posthog_team"
   WHERE ("posthog_team"."project_id" = 99999
-<<<<<<< fix_funnels_a_couple_of_data_warehouse_related_fixes
-         AND "posthog_team"."session_recording_linked_flag" @> '{"id": 41}'::jsonb)
-=======
          AND "posthog_team"."session_recording_linked_flag" @> '{"id": 99999}'::jsonb)
->>>>>>> master
   LIMIT 1
   '''
 # ---
