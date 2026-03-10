@@ -62,6 +62,8 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
         return null
     }
 
+    const isAnomalyDetection = !!alert.detector_config
+
     return (
         <div className="bg-primary p-4 mt-10 rounded-lg">
             <div className="flex flex-row gap-2 items-center mb-2">
@@ -77,20 +79,30 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
                         <th>Status</th>
                         <th className="text-right">Time</th>
                         <th className="text-right pr-4">Value</th>
+                        {isAnomalyDetection && <th className="text-right pr-4">Score</th>}
                         <th>Targets notified</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {alert.checks.map((check) => (
-                        <tr key={check.id}>
-                            <td>{check.state}</td>
-                            <td className="text-right">
-                                <TZLabel time={check.created_at} />
-                            </td>
-                            <td className="text-right pr-4">{check.calculated_value}</td>
-                            <td>{check.targets_notified ? 'Yes' : 'No'}</td>
-                        </tr>
-                    ))}
+                    {alert.checks.map((check) => {
+                        const scores = check.anomaly_scores
+                        const lastScore = scores?.length ? scores[scores.length - 1] : null
+                        return (
+                            <tr key={check.id}>
+                                <td>{check.state}</td>
+                                <td className="text-right">
+                                    <TZLabel time={check.created_at} />
+                                </td>
+                                <td className="text-right pr-4">{check.calculated_value}</td>
+                                {isAnomalyDetection && (
+                                    <td className="text-right pr-4">
+                                        {lastScore != null ? lastScore.toFixed(3) : '—'}
+                                    </td>
+                                )}
+                                <td>{check.targets_notified ? 'Yes' : 'No'}</td>
+                            </tr>
+                        )
+                    })}
                 </tbody>
             </table>
         </div>
