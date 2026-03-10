@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import {
@@ -463,6 +464,10 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 selectedProviderKeyId={prompt.selectedProviderKeyId}
                 onSelect={(modelId, providerKeyId) => {
                     const trialProvider = parseTrialProviderKeyId(providerKeyId)
+                    posthog.capture('llma playground model changed', {
+                        model: modelId,
+                        is_byok: !trialProvider,
+                    })
                     setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
                 }}
                 groups={groups}
@@ -595,6 +600,17 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
                 overlay={<SettingsDropdownOverlay promptId={promptId} />}
                 closeOnClickInside={false}
                 placement="bottom-end"
+                onVisibilityChange={(visible) => {
+                    if (!visible && prompt) {
+                        posthog.capture('llma playground parameters configured', {
+                            max_tokens: prompt.maxTokens,
+                            temperature: prompt.temperature,
+                            top_p: prompt.topP,
+                            reasoning_level: prompt.reasoningLevel,
+                            thinking: prompt.thinking,
+                        })
+                    }
+                }}
             >
                 <LemonButton
                     type="secondary"
@@ -720,6 +736,7 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
                                 type="button"
                                 className="text-xs text-link"
                                 onClick={() => {
+                                    posthog.capture('llma playground tools example inserted')
                                     const exampleJson = JSON.stringify(EXAMPLE_TOOL, null, 2)
                                     handleToolsChange(exampleJson)
                                     setLocalToolsJson(exampleJson, promptId)
@@ -802,6 +819,9 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
             return
         }
 
+        posthog.capture('llma playground system prompt synced', {
+            target_prompt_count: promptConfigs.length - 1,
+        })
         for (const otherPrompt of promptConfigs) {
             if (otherPrompt.id !== promptId) {
                 setSystemPrompt(prompt.systemPrompt, otherPrompt.id)
@@ -820,7 +840,10 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                         icon={<IconCopy />}
                         tooltip="Copy system prompt"
                         noPadding
-                        onClick={() => void copyToClipboard(prompt.systemPrompt, 'system prompt')}
+                        onClick={() => {
+                            posthog.capture('llma playground response copied', { content_type: 'system_prompt' })
+                            void copyToClipboard(prompt.systemPrompt, 'system prompt')
+                        }}
                         data-attr="llma-playground-copy-system-prompt"
                     />
                     {hasOtherPrompts && (
@@ -928,6 +951,7 @@ function MessageDisplay({
         editModal?.type === 'message' && editModal.promptId === promptId && editModal.messageIndex === index
 
     const handleRoleChange = (newRole: MessageRole): void => {
+        posthog.capture('llma playground message role changed', { from: message.role, to: newRole })
         updateMessage(index, { role: newRole }, promptId)
     }
 
@@ -978,7 +1002,12 @@ function MessageDisplay({
                         icon={<IconCopy />}
                         tooltip="Copy message"
                         noPadding
-                        onClick={() => void copyToClipboard(message.content, `${message.role} message`)}
+                        onClick={() => {
+                            posthog.capture('llma playground response copied', {
+                                content_type: message.role === 'assistant' ? 'assistant_message' : 'user_message',
+                            })
+                            void copyToClipboard(message.content, `${message.role} message`)
+                        }}
                     />
                     <LemonButton
                         size="small"

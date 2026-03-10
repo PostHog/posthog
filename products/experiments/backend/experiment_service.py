@@ -14,6 +14,7 @@ from posthog.schema import ActionsNode, ExperimentEventExposureConfig, Experimen
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import (
@@ -141,6 +142,7 @@ class ExperimentService:
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         serializer_context: dict | None = None,
+        event_source: EventSource | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         is_draft = start_date is None
@@ -220,12 +222,40 @@ class ExperimentService:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
         self._validate_metric_ordering_on_create(experiment)
+        self._report_experiment_created(
+            experiment,
+            serializer_context=serializer_context,
+            event_source=event_source,
+        )
 
         return experiment
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _report_experiment_created(
+        self,
+        experiment: Experiment,
+        *,
+        serializer_context: dict | None,
+        event_source: EventSource | None,
+    ) -> None:
+        request = serializer_context.get("request") if serializer_context else None
+        if request is None and event_source is None:
+            return
+
+        analytics_metadata = experiment.get_analytics_metadata()
+        if event_source is not None:
+            analytics_metadata["source"] = event_source
+
+        report_user_action(
+            self.user,
+            "experiment created",
+            analytics_metadata,
+            team=experiment.team,
+            request=request,
+        )
 
     def _ensure_feature_flag(
         self,
