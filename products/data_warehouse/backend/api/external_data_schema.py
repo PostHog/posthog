@@ -359,7 +359,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = new_source.get_schemas(config, self.team_id)
+            schemas = new_source.get_schemas(config, self.team_id, names=[instance.name])
         except Exception as e:
             capture_exception(e)
             return Response(
@@ -367,17 +367,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
-        schema: SourceSchema | None = None
-
-        for s in schemas:
-            if s.name == instance.name:
-                schema = s
-                break
-
-        if schema is None:
+        if not schemas:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
+
+        schema = schemas[0]
 
         data = {
             "incremental_fields": schema.incremental_fields,
