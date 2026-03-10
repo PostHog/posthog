@@ -13,6 +13,7 @@ import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
@@ -39,6 +40,7 @@ export function EditModeActions(): JSX.Element {
                 intent="Save dashboard"
                 interaction="click"
                 scope={Scene.Dashboard}
+                disabled={!canEditDashboard}
             >
                 <LemonButton
                     data-attr="dashboard-edit-mode-save"
@@ -54,6 +56,11 @@ export function EditModeActions(): JSX.Element {
                     }
                 >
                     Save
+                    {canEditDashboard && (
+                        <span className="hidden md:inline-flex ml-2">
+                            <KeyboardShortcut control s />
+                        </span>
+                    )}
                 </LemonButton>
             </AppShortcut>
         </>

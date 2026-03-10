@@ -4148,7 +4148,7 @@ export type HotKey =
     | 'forwardslash'
     | 'delete'
     | 'atsign'
-export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
+export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command' | 'control'
 
 export enum SchemaEnforcementMode {
     Allow = 'allow',
