@@ -25,9 +25,8 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import resolve_database_for_connection
 from posthog.hogql.metadata import get_hogql_metadata
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -131,19 +130,34 @@ def process_query_model(
     result: dict | BaseModel
 
     if isinstance(query, HogQLAutocomplete):
-        return get_hogql_autocomplete(query=query, team=team, user=user)
+        _, database = resolve_database_for_connection(
+            team,
+            query.connectionId,
+            user=user,
+            error_factory=ValidationError,
+        )
+        return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
         metadata_query = HogQLMetadata.model_validate(query)
         return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
-        joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-        database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team), user=user)
+        _, database = resolve_database_for_connection(
+            team,
+            query.connectionId,
+            user=user,
+            error_factory=ValidationError,
+        )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
-        return DatabaseSchemaQueryResponse(
-            tables=database.serialize(context, include_hidden_posthog_tables=True),
-            joins=[
+        serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
+        table_names = set(serialized_tables.keys())
+        joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+        joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
+
+        join_models: list[DataWarehouseViewLink] = []
+        for join in joins.iterator():
+            join_models.append(
                 DataWarehouseViewLink.model_validate(
                     {
                         "id": str(join.id),
@@ -155,8 +169,11 @@ def process_query_model(
                         "created_at": join.created_at.isoformat(),
                     }
                 )
-                for join in joins
-            ],
+            )
+
+        return DatabaseSchemaQueryResponse(
+            tables=serialized_tables,
+            joins=join_models,
         )
 
     try:

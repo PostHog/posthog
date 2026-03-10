@@ -1077,6 +1077,7 @@ class DatabaseSchemaSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    access_method: str | None = None
     id: str
     last_synced_at: str | None = None
     prefix: str
@@ -18653,6 +18654,10 @@ class DatabaseSchemaQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description="Optional direct external data source id for schema introspection",
+    )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: DatabaseSchemaQueryResponse | None = None
@@ -19170,6 +19175,10 @@ class HogQLAutocomplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct external data source id for running against a specific source"),
+    )
     endPosition: int = Field(..., description="End position of the editor word")
     filters: HogQLFilters | None = Field(default=None, description="Table to validate the expression against")
     globals: dict[str, Any] | None = Field(default=None, description="Global values in scope")
@@ -19242,6 +19251,10 @@ class HogQLAutocomplete(BaseModel):
 class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct external data source id for running against a specific source"),
     )
     debug: bool | None = Field(
         default=None,
