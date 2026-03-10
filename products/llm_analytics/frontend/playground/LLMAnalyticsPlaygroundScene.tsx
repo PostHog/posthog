@@ -352,9 +352,11 @@ function PromptCard({
                 <ModelConfigBar promptId={prompt.id} />
             </div>
 
-            <div className="min-h-0 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                 <MessagesSection promptId={prompt.id} />
             </div>
+
+            <MessageActions promptId={prompt.id} />
         </div>
     )
 }
@@ -628,8 +630,6 @@ function ModelConfigBar({ promptId }: { promptId: string }): JSX.Element {
 
 function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { submitting } = useValues(llmPlaygroundRunLogic)
-    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-16" />
@@ -641,18 +641,26 @@ function MessagesSection({ promptId }: { promptId: string }): JSX.Element {
             {prompt.messages.map((message, index) => (
                 <MessageDisplay key={`${promptId}-${index}`} promptId={promptId} index={index} message={message} />
             ))}
-            <div className="flex items-center gap-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlus />}
-                    onClick={() => addMessage(undefined, promptId)}
-                    disabledReason={submitting ? 'Generating...' : undefined}
-                >
-                    Message
-                </LemonButton>
-                <ToolsButton promptId={promptId} />
-            </div>
+        </div>
+    )
+}
+
+function MessageActions({ promptId }: { promptId: string }): JSX.Element {
+    const { submitting } = useValues(llmPlaygroundRunLogic)
+    const { addMessage } = useActions(llmPlaygroundPromptsLogic)
+
+    return (
+        <div className="flex items-center gap-2 shrink-0 mt-3">
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                onClick={() => addMessage(undefined, promptId)}
+                disabledReason={submitting ? 'Generating...' : undefined}
+            >
+                Message
+            </LemonButton>
+            <ToolsButton promptId={promptId} />
         </div>
     )
 }

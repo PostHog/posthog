@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
-import { llmPromptLogic } from '../prompts/llmPromptLogic'
+import { getApiErrorDetail, llmPromptLogic } from '../prompts/llmPromptLogic'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { normalizeRole } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
@@ -823,8 +823,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         logic.actions.loadPrompt()
                     }
                 }
-            } catch {
-                lemonToast.error('Failed to update prompt')
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to update prompt')
             } finally {
                 actions.saveComplete()
             }
@@ -868,8 +868,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         logic.actions.loadEvaluation()
                     }
                 }
-            } catch {
-                lemonToast.error('Failed to update evaluation')
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to update evaluation')
             } finally {
                 actions.saveComplete()
             }
@@ -908,8 +908,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         action: () => router.actions.push(urls.llmAnalyticsPrompt(name)),
                     },
                 })
-            } catch {
-                lemonToast.error('Failed to save prompt')
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to save prompt')
             } finally {
                 actions.saveComplete()
             }
@@ -961,8 +961,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         action: () => router.actions.push(urls.llmAnalyticsEvaluation(created.id)),
                     },
                 })
-            } catch {
-                lemonToast.error('Failed to save evaluation')
+            } catch (error: unknown) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to save evaluation')
             } finally {
                 actions.saveComplete()
             }
