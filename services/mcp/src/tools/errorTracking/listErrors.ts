@@ -6,7 +6,7 @@ import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ErrorTrackingListSchema
 type Params = z.infer<typeof schema>
-type Result = any & { __posthogUrl: string }
+type Result = any & { _posthogUrl: string }
 
 export const listErrorsHandler: ToolBase<typeof schema, Result>['handler'] = async (
     context: Context,
@@ -35,7 +35,7 @@ export const listErrorsHandler: ToolBase<typeof schema, Result>['handler'] = asy
 
     return {
         results: errorsResult.data.results,
-        __posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking`,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking`,
     }
 }
 
