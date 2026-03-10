@@ -4,6 +4,7 @@ import time
 import hashlib
 
 from django.conf import settings
+from django.http.request import RawPostDataException
 
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -55,10 +56,7 @@ def verify_stripe_signature(request: Request) -> Response | None:
             status=401,
         )
 
-    # DRF's @api_view parses request.data before decorators run, consuming
-    # the raw stream. Access the underlying Django request which caches body.
-    django_request = getattr(request, "_request", request)
-    body = django_request.body if hasattr(django_request, "body") else b""
+    body = _get_raw_body(request)
     expected_hex = _compute_hmac(secret, timestamp_str, body)
 
     if not hmac.compare_digest(expected_hex.lower(), signature_hex.lower()):
@@ -79,6 +77,27 @@ def _compute_hmac(secret: str, timestamp_str: str, body: bytes) -> str:
     mac.update(f"{timestamp_str}.".encode())
     mac.update(body)
     return mac.digest().hex()
+
+
+def _get_raw_body(request: Request) -> bytes:
+    """Get raw request body, resilient to DRF stream consumption.
+
+    DRF's default throttle classes can access request.data (via
+    PersonalAPIKeyAuthentication.find_key_with_source) during
+    check_throttles(), which consumes the WSGI input stream. After that,
+    HttpRequest.body raises RawPostDataException because _read_started is
+    True but _body was never cached.
+
+    This helper tries the underlying Django request's cached _body first,
+    falls back to .body, and handles the exception gracefully.
+    """
+    django_request = getattr(request, "_request", request)
+    if hasattr(django_request, "_body"):
+        return django_request._body
+    try:
+        return django_request.body
+    except RawPostDataException:
+        return b""
 
 
 _SIG_RE = re.compile(r"t=(\d+),v1=([0-9a-fA-F]{64})")
