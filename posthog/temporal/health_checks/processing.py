@@ -22,10 +22,11 @@ def _process_batch_detection(
     issues_by_team = detect_fn(team_ids)
     result.detect_duration = time.monotonic() - start
 
-    issues_by_team = _validate_batch_output(issues_by_team, set(team_ids), kind)
+    issues_by_team, teams_dropped = _validate_batch_output(issues_by_team, set(team_ids), kind)
 
+    result.teams_skipped = teams_dropped
     result.teams_with_issues = len(issues_by_team)
-    result.teams_healthy = len(team_ids) - len(issues_by_team)
+    result.teams_healthy = len(team_ids) - len(issues_by_team) - teams_dropped
 
     if dry_run:
         issue_count = sum(len(v) for v in issues_by_team.values())

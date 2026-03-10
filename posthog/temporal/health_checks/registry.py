@@ -1,4 +1,5 @@
 import importlib
+import threading
 from typing import TYPE_CHECKING
 
 from posthog.temporal.health_checks.models import BatchDetectFn
@@ -16,6 +17,7 @@ HEALTH_CHECK_MODULES = [
 ]
 
 _registry_loaded = False
+_registry_lock = threading.Lock()
 
 
 def get_detect_fn(kind: str) -> BatchDetectFn:
@@ -29,9 +31,12 @@ def ensure_registry_loaded() -> None:
     global _registry_loaded
     if _registry_loaded:
         return
-    for module_path in HEALTH_CHECK_MODULES:
-        importlib.import_module(module_path)
-    _registry_loaded = True
+    with _registry_lock:
+        if _registry_loaded:
+            return
+        for module_path in HEALTH_CHECK_MODULES:
+            importlib.import_module(module_path)
+        _registry_loaded = True
 
 
 def _reset_registry() -> None:
