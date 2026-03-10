@@ -169,14 +169,12 @@ pub struct Config {
     pub behavioral_cohorts_read_database_url: String,
 
     // Cache TTL for realtime cohort membership lookups (seconds).
-    // Realtime cohorts are recalculated every 1-5 minutes, so 60s provides
-    // good cache hit rates while keeping data relatively fresh.
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
     pub cohort_membership_cache_ttl_seconds: u64,
 
     // Max entries in the cohort membership cache.
-    // Each entry represents one (team_id, person_uuid) pair.
-    #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES", default = "50000")]
+    // Each entry represents one (team_id, person_uuid) pair with a map of cohort memberships.
+    #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES", default = "500000")]
     pub cohort_membership_cache_max_entries: u64,
 
     #[envconfig(default = "1000")]

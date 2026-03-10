@@ -11,9 +11,8 @@ use super::provider::{CohortMembershipError, CohortMembershipProvider};
 
 /// Queries the behavioral cohorts PostgreSQL database for realtime cohort membership.
 ///
-/// The `cohort_membership` table stores the current membership state for each
-/// (team_id, cohort_id, person_id) triple. Only rows with status='entered'
-/// indicate active membership.
+/// The `cohort_membership` table has a unique constraint on (team_id, cohort_id, person_id)
+/// with an `in_cohort` boolean indicating active membership.
 #[derive(Clone)]
 pub struct RealtimeCohortMembershipProvider {
     pool: Arc<PgPool>,
@@ -37,7 +36,6 @@ impl CohortMembershipProvider for RealtimeCohortMembershipProvider {
             return Ok(HashMap::new());
         }
 
-        // Only rows with status='entered' indicate active membership.
         let matched_cohort_ids: Vec<CohortMembershipRow> = sqlx::query_as(
             r#"
             SELECT cohort_id
@@ -45,7 +43,7 @@ impl CohortMembershipProvider for RealtimeCohortMembershipProvider {
             WHERE team_id = $1
               AND person_id = $2
               AND cohort_id = ANY($3)
-              AND status = 'entered'
+              AND in_cohort = true
             "#,
         )
         .bind(team_id)

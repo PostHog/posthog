@@ -15,9 +15,9 @@ type MembershipCacheKey = (TeamId, Uuid);
 /// Wraps a CohortMembershipProvider with a Moka cache layer.
 ///
 /// Caches explicit membership results (cohort_id -> bool) keyed by (team_id, person_uuid).
-/// Only serves from cache when all requested cohort IDs have been previously queried —
-/// if any requested cohort ID is missing from the cache, the uncached IDs are fetched
-/// from the inner provider and merged into the cached entry.
+/// Uses `try_get_with` for per-key coalescing on cache miss to avoid thundering herd.
+/// If any requested cohort ID is missing from a cache hit, only the uncached IDs are
+/// fetched from the inner provider and the cache entry is updated.
 pub struct CachedCohortMembershipProvider<
     P: CohortMembershipProvider = super::realtime_provider::RealtimeCohortMembershipProvider,
 > {
@@ -27,7 +27,7 @@ pub struct CachedCohortMembershipProvider<
 
 impl<P: CohortMembershipProvider> CachedCohortMembershipProvider<P> {
     const DEFAULT_TTL_SECONDS: u64 = 60;
-    const DEFAULT_MAX_ENTRIES: u64 = 50_000;
+    const DEFAULT_MAX_ENTRIES: u64 = 500_000;
 
     pub fn new(inner: P, ttl_seconds: Option<u64>, max_entries: Option<u64>) -> Self {
         let cache = Cache::builder()
@@ -58,6 +58,8 @@ impl<P: CohortMembershipProvider> CohortMembershipProvider for CachedCohortMembe
 
         let cache_key = (team_id, person_uuid);
 
+        // Check for a partial cache hit: if some cohort IDs are already cached,
+        // only fetch the missing ones from the inner provider.
         if let Some(cached) = self.cache.get(&cache_key).await {
             let uncached_ids: Vec<CohortId> = cohort_ids
                 .iter()
@@ -87,14 +89,22 @@ impl<P: CohortMembershipProvider> CohortMembershipProvider for CachedCohortMembe
                 .collect());
         }
 
+        // Full cache miss: use try_get_with for per-key coalescing so concurrent
+        // requests for the same (team_id, person_uuid) share a single fetch.
+        let inner = self.inner.clone();
+        let ids = cohort_ids.to_vec();
         let result = self
-            .inner
-            .check_memberships(team_id, person_uuid, cohort_ids)
-            .await?;
+            .cache
+            .try_get_with(cache_key, async move {
+                inner.check_memberships(team_id, person_uuid, &ids).await
+            })
+            .await
+            .map_err(|e| CohortMembershipError::QueryFailed(e.to_string()))?;
 
-        self.cache.insert(cache_key, result.clone()).await;
-
-        Ok(result)
+        Ok(cohort_ids
+            .iter()
+            .map(|id| (*id, result.get(id).copied().unwrap_or(false)))
+            .collect())
     }
 }
 
