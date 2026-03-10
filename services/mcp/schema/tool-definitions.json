@@ -420,9 +420,9 @@
         }
     },
     "query-run": {
-        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel or HogQL query. Where possible, use a trend or funnel rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.).",
+        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps.",
         "category": "Insights & analytics",
-        "summary": "Run a trend, funnel or HogQL query.",
+        "summary": "Run a trend, funnel, paths or HogQL query.",
         "feature": "insights",
         "title": "Run query",
         "required_scopes": ["query:read"],
@@ -746,81 +746,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "actions-get-all": {
-        "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not supported on this endpoint.",
-        "category": "Actions",
-        "feature": "actions",
-        "summary": "Get all actions in the project.",
-        "title": "Get all actions",
-        "required_scopes": ["action:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "action-get": {
-        "description": "Get a specific action by ID. Returns the action configuration including all steps and their trigger conditions.",
-        "category": "Actions",
-        "feature": "actions",
-        "summary": "Get a specific action by ID.",
-        "title": "Get action",
-        "required_scopes": ["action:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "action-create": {
-        "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching button clicks on the signup page.",
-        "category": "Actions",
-        "feature": "actions",
-        "summary": "Create a new action in the project.",
-        "title": "Create action",
-        "required_scopes": ["action:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "action-update": {
-        "description": "Update an existing action by ID. Can update name, description, steps, tags, and Slack notification settings.",
-        "category": "Actions",
-        "feature": "actions",
-        "summary": "Update an existing action.",
-        "title": "Update action",
-        "required_scopes": ["action:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "action-delete": {
-        "description": "Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but historical data is preserved.",
-        "category": "Actions",
-        "feature": "actions",
-        "summary": "Delete an action by ID.",
-        "title": "Delete action",
-        "required_scopes": ["action:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "entity-search": {

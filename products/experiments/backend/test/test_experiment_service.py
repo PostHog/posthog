@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import FeatureFlag
@@ -473,6 +474,44 @@ class TestExperimentService(APIBaseTest):
             secondary_metric_uuid,
             "saved-secondary",
         }
+
+    # ------------------------------------------------------------------
+    # Status field
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("draft", None, None),
+            ("running", timezone.now(), None),
+            ("stopped", timezone.now(), timezone.now() + timedelta(days=7)),
+        ]
+    )
+    def test_create_experiment_sets_correct_status(self, expected_status, start_date, end_date):
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name=f"Status {expected_status}",
+            feature_flag_key=f"status-{expected_status}",
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        assert experiment.status == expected_status
+
+    def test_partial_save_with_update_fields_still_persists_status(self):
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Partial Save",
+            feature_flag_key="partial-save-flag",
+        )
+        assert experiment.status == "draft"
+
+        experiment.start_date = timezone.now()
+        experiment.save(update_fields=["start_date"])
+
+        experiment.refresh_from_db()
+        assert experiment.status == "running"
 
     def test_create_experiment_with_unknown_field_raises_type_error(self):
         self._create_flag(key="unknown-key-flag")

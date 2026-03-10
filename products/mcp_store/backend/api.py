@@ -1,14 +1,16 @@
 import time
+import hashlib
 import secrets
+from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.http import HttpResponse, StreamingHttpResponse
+from django.utils import timezone
 
-import requests
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, renderers, serializers, status, viewsets
@@ -24,14 +26,24 @@ from posthog.models import User
 from posthog.models.integration import OauthIntegration
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
+    MCPOAuthRedirectBurstThrottle,
+    MCPOAuthRedirectSustainedThrottle,
     MCPOAuthSustainedThrottle,
     MCPProxyBurstThrottle,
     MCPProxySustainedThrottle,
 )
 from posthog.security.url_validation import is_url_allowed
 
-from .models import RECOMMENDED_SERVERS, MCPServer, MCPServerInstallation, SensitiveConfig
-from .oauth import TIMEOUT, discover_oauth_metadata, generate_pkce, register_dcr_client
+from .models import RECOMMENDED_SERVERS, MCPOAuthState, MCPServer, MCPServerInstallation, SensitiveConfig
+from .oauth import (
+    OAuthAuthorizeURLError,
+    OAuthTokenExchangeError,
+    discover_oauth_metadata,
+    exchange_dcr_token,
+    exchange_known_provider_token,
+    generate_pkce,
+    register_dcr_client,
+)
 from .proxy import proxy_mcp_request, validate_installation_auth
 
 
@@ -47,7 +59,39 @@ class MCPProxyRenderer(renderers.BaseRenderer):
 
 logger = structlog.get_logger(__name__)
 
-_SECURE_COOKIES = settings.SITE_URL.startswith("https")
+OAUTH_STATE_MAX_AGE_SECONDS = 600  # 10 minutes
+
+
+class DCRNotSupportedError(Exception):
+    """Raised when an MCP server does not support Dynamic Client Registration."""
+
+
+class DCRRegistrationFailedError(Exception):
+    """Raised when Dynamic Client Registration fails."""
+
+
+def _hash_oauth_state_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _create_oauth_state(
+    installation: MCPServerInstallation,
+    server: MCPServer,
+    token: str,
+    install_source: str,
+    twig_callback_url: str = "",
+    pkce_verifier: str = "",
+) -> MCPOAuthState:
+    return MCPOAuthState.objects.create(
+        token_hash=_hash_oauth_state_token(token),
+        installation=installation,
+        team=installation.team,
+        server=server,
+        install_source=install_source,
+        twig_callback_url=twig_callback_url,
+        pkce_verifier=pkce_verifier,
+        expires_at=timezone.now() + timedelta(seconds=OAUTH_STATE_MAX_AGE_SECONDS),
+    )
 
 
 def _is_https(url: str) -> bool:
@@ -57,11 +101,25 @@ def _is_https(url: str) -> bool:
     return urlparse(url).scheme == "https"
 
 
+def _is_valid_twig_callback_url(url: str) -> bool:
+    """Validate that a Twig callback URL is safe to redirect to (prevents open redirect)."""
+    parsed = urlparse(url)
+    if parsed.scheme in ("array", "twig"):
+        return True
+    if is_dev_mode() and parsed.scheme == "http" and parsed.hostname == "localhost":
+        return True
+    return False
+
+
+def _get_oauth_redirect_uri() -> str:
+    """Get the global OAuth redirect URI."""
+    return f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"
+
+
 class RecommendedServerSerializer(serializers.Serializer):
     name = serializers.CharField()
     url = serializers.URLField()
     description = serializers.CharField()
-    icon_url = serializers.CharField()
     auth_type = serializers.ChoiceField(choices=["none", "api_key", "oauth"])
     oauth_provider_kind = serializers.CharField(required=False, default="")
 
@@ -97,6 +155,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "url",
             "description",
             "auth_type",
+            "is_enabled",
             "needs_reauth",
             "pending_oauth",
             "proxy_url",
@@ -140,6 +199,8 @@ class InstallCustomSerializer(serializers.Serializer):
     api_key = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
     oauth_provider_kind = serializers.CharField(required=False, allow_blank=True, default="")
+    install_source = serializers.ChoiceField(choices=["posthog", "twig"], required=False, default="posthog")
+    twig_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_url(self, value: str) -> str:
         allowed, error = is_url_allowed(value)
@@ -147,20 +208,22 @@ class InstallCustomSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"URL not allowed: {error}")
         return value
 
+    def validate_twig_callback_url(self, value: str) -> str:
+        if value and not _is_valid_twig_callback_url(value):
+            raise serializers.ValidationError("Invalid callback URL")
+        return value
+
 
 class AuthorizeQuerySerializer(serializers.Serializer):
     server_id = serializers.UUIDField(required=True)
-
-
-class OAuthCallbackRequestSerializer(serializers.Serializer):
-    code = serializers.CharField(required=True)
-    server_id = serializers.UUIDField(required=True)
-    state_token = serializers.CharField(required=True)
+    install_source = serializers.ChoiceField(choices=["posthog", "twig"], required=False, default="posthog")
+    twig_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class MCPServerInstallationUpdateSerializer(serializers.Serializer):
     display_name = serializers.CharField(required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
+    is_enabled = serializers.BooleanField(required=False)
 
 
 class OAuthRedirectResponseSerializer(serializers.Serializer):
@@ -178,7 +241,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         "patch",
         "destroy",
         "install_custom",
-        "oauth_callback",
     ]
     queryset = MCPServerInstallation.objects.all()
     serializer_class = MCPServerInstallationSerializer
@@ -188,7 +250,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     # Installations are user-scoped (safely_get_queryset filters by user), so
     # write actions like install/uninstall don't need project admin access.
     # Return project:read so AccessControlPermission requires "member" not "admin".
-    _USER_SCOPED_ACTIONS = {"destroy", "install_custom", "oauth_callback"}
+    _USER_SCOPED_ACTIONS = {"destroy", "partial_update", "install_custom"}
 
     def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
         if self.action in self._USER_SCOPED_ACTIONS:
@@ -204,6 +266,51 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def _validate_mcp_url_or_error_response(self, mcp_url: str) -> Response | None:
+        allowed, reason = is_url_allowed(mcp_url)
+        if not allowed:
+            logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
+            return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
+        return None
+
+    def _register_dcr_client_or_raise(self, metadata: dict, redirect_uri: str, *, server_url: str = "") -> str:
+        log_context = {"error": ""} if not server_url else {"server_url": server_url, "error": ""}
+        try:
+            return register_dcr_client(metadata, redirect_uri)
+        except ValueError as e:
+            log_context["error"] = str(e)
+            logger.warning("DCR not supported", **log_context)
+            raise DCRNotSupportedError from e
+        except Exception as e:
+            log_context["error"] = str(e)
+            logger.exception("DCR registration failed", **log_context)
+            raise DCRRegistrationFailedError from e
+
+    def _build_dcr_authorize_url(
+        self,
+        server: MCPServer,
+        *,
+        redirect_uri: str,
+        state_token: str,
+        code_challenge: str,
+    ) -> str:
+        query_params = {
+            "client_id": server.oauth_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "state": state_token,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+        }
+        if scopes := server.oauth_metadata.get("scopes_supported"):
+            query_params["scope"] = " ".join(scopes)
+
+        auth_endpoint = server.oauth_metadata["authorization_endpoint"]
+        if not _is_https(auth_endpoint):
+            raise OAuthAuthorizeURLError("Authorization endpoint must use HTTPS")
+
+        return f"{auth_endpoint}?{urlencode(query_params)}"
 
     @validated_request(
         MCPServerInstallationUpdateSerializer,
@@ -260,42 +367,62 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         description = data.get("description", "")
         oauth_provider_kind = data.get("oauth_provider_kind", "")
 
+        install_source = data.get("install_source", "posthog")
+        twig_callback_url = data.get("twig_callback_url", "")
+
         # If the auth type is OAuth, we need to authorize the user for the custom server
         if auth_type == "oauth":
             return self._authorize_for_custom(
-                request, name=name, mcp_url=url, description=description, oauth_provider_kind=oauth_provider_kind
+                request,
+                name=name,
+                mcp_url=url,
+                description=description,
+                oauth_provider_kind=oauth_provider_kind,
+                install_source=install_source,
+                twig_callback_url=twig_callback_url,
             )
-        sensitive_config: SensitiveConfig = {}
-        if auth_type == "api_key" and api_key:
-            sensitive_config["api_key"] = api_key
+        elif auth_type == "api_key":
+            sensitive_config: SensitiveConfig = {}
+            if api_key:
+                sensitive_config["api_key"] = api_key
 
-        installation, created = MCPServerInstallation.objects.get_or_create(
-            team_id=self.team_id,
-            user=request.user,
-            url=url,
-            defaults={
-                "display_name": name,
-                "description": description,
-                "auth_type": auth_type,
-                "sensitive_configuration": sensitive_config,
-            },
-        )
+            installation, created = MCPServerInstallation.objects.get_or_create(
+                team_id=self.team_id,
+                user=request.user,
+                url=url,
+                defaults={
+                    "display_name": name,
+                    "description": description,
+                    "auth_type": "api_key",
+                    "sensitive_configuration": sensitive_config,
+                },
+            )
 
-        if not created:
-            return Response({"detail": "This server URL is already installed."}, status=status.HTTP_400_BAD_REQUEST)
+            if not created:
+                return Response({"detail": "This server URL is already installed."}, status=status.HTTP_400_BAD_REQUEST)
 
-        result_serializer = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
-        return Response(result_serializer.data, status=status.HTTP_201_CREATED)
+            result_serializer = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
+            return Response(result_serializer.data, status=status.HTTP_201_CREATED)
 
+        return Response(status=status.HTTP_400_BAD_REQUEST)
+
+    # Initialize OAuth authorization for custom servers using Dynamic Client Registration (DCR):
+    # Register a new client if needed, or reuse an existing registration.
     def _authorize_for_custom(
-        self, request: Request, *, name: str, mcp_url: str, description: str, oauth_provider_kind: str = ""
+        self,
+        request: Request,
+        *,
+        name: str,
+        mcp_url: str,
+        description: str,
+        oauth_provider_kind: str = "",
+        install_source: str = "posthog",
+        twig_callback_url: str = "",
     ) -> HttpResponse:
-        allowed, reason = is_url_allowed(mcp_url)
-        if not allowed:
-            logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
-            return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
+        if blocked_response := self._validate_mcp_url_or_error_response(mcp_url):
+            return blocked_response
 
-        redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/settings/mcp-servers"
+        redirect_uri = _get_oauth_redirect_uri()
 
         installation, created = MCPServerInstallation.objects.get_or_create(
             team_id=self.team_id,
@@ -308,6 +435,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             },
         )
 
+        # Discover the OAuth server metadata using RFC 9728 Protected Resource Metadata.
         try:
             metadata = discover_oauth_metadata(mcp_url)
         except Exception as e:
@@ -322,52 +450,53 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 installation.delete()
             return Response({"detail": "Could not determine OAuth issuer"}, status=status.HTTP_400_BAD_REQUEST)
 
-        server = self._get_or_register_dcr_server(
-            metadata=metadata,
-            issuer_url=issuer_url,
-            redirect_uri=redirect_uri,
-            name=name,
-            request=request,
-            oauth_provider_kind=oauth_provider_kind,
-        )
-        if isinstance(server, Response):
+        # Register or reuse an existing DCR client for this server.
+        try:
+            server = self._get_or_register_dcr_server(
+                metadata=metadata,
+                issuer_url=issuer_url,
+                redirect_uri=redirect_uri,
+                name=name,
+                request=request,
+                oauth_provider_kind=oauth_provider_kind,
+            )
+        except DCRNotSupportedError:
             if created:
                 installation.delete()
-            return server
+            return Response(
+                {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except DCRRegistrationFailedError:
+            if created:
+                installation.delete()
+            return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Store the server in the installation if it's not already set.
+        # Typically happens on fresh install, but also covers relinking if the installations points to a different server.
         if installation.server != server:
             installation.server = server
             installation.save(update_fields=["server", "updated_at"])
 
+        # Generate a PKCE challenge and state token for the OAuth flow.
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
-        state = urlencode({"token": token, "server_id": str(server.id)})
+        _create_oauth_state(installation, server, token, install_source, twig_callback_url, pkce_verifier=code_verifier)
 
-        query_params = {
-            "client_id": server.oauth_client_id,
-            "redirect_uri": redirect_uri,
-            "response_type": "code",
-            "state": state,
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-        }
-        if scopes := server.oauth_metadata.get("scopes_supported"):
-            query_params["scope"] = " ".join(scopes)
-
-        auth_endpoint = server.oauth_metadata["authorization_endpoint"]
-        if not _is_https(auth_endpoint):
+        try:
+            authorize_url = self._build_dcr_authorize_url(
+                server,
+                redirect_uri=redirect_uri,
+                state_token=token,
+                code_challenge=code_challenge,
+            )
+        except OAuthAuthorizeURLError:
             if created:
                 installation.delete()
             return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
 
-        authorize_url = f"{auth_endpoint}?{urlencode(query_params)}"
-
-        response = Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
-        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES)
-        response.set_cookie(
-            "ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES
-        )
-        return response
+        # Return the OAuth provider's authorization URL to redirect the user to.
+        return Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
 
     def _get_or_register_dcr_server(
         self,
@@ -378,7 +507,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         name: str,
         request: Request,
         oauth_provider_kind: str = "",
-    ) -> MCPServer | Response:
+    ) -> MCPServer:
         existing_server = MCPServer.objects.filter(url=issuer_url).first()
 
         if existing_server and existing_server.oauth_client_id:
@@ -387,43 +516,29 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 return existing_server
 
             try:
-                client_id = register_dcr_client(existing_server.oauth_metadata, redirect_uri)
+                client_id = self._register_dcr_client_or_raise(existing_server.oauth_metadata, redirect_uri)
                 new_metadata = dict(existing_server.oauth_metadata)
                 new_metadata["dcr_redirect_uri"] = redirect_uri
                 existing_server.oauth_metadata = new_metadata
                 existing_server.oauth_client_id = client_id
                 existing_server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
                 return existing_server
-            except ValueError as e:
-                logger.warning("DCR not supported", error=str(e))
-                return Response(
-                    {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            except Exception as e:
-                logger.exception("DCR registration failed", error=str(e))
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+            except DCRNotSupportedError:
+                raise
+            except DCRRegistrationFailedError:
+                raise
 
-        try:
-            client_id = register_dcr_client(metadata, redirect_uri)
-        except ValueError as e:
-            logger.warning("DCR not supported", error=str(e))
-            return Response(
-                {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except Exception as e:
-            logger.exception("DCR registration failed", error=str(e))
-            return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+        client_id = self._register_dcr_client_or_raise(metadata, redirect_uri)
 
-        metadata["dcr_redirect_uri"] = redirect_uri
+        metadata_with_redirect = dict(metadata)
+        metadata_with_redirect["dcr_redirect_uri"] = redirect_uri
         try:
             server, created = MCPServer.objects.get_or_create(
                 url=issuer_url,
                 defaults={
                     "name": name,
                     "oauth_provider_kind": oauth_provider_kind,
-                    "oauth_metadata": metadata,
+                    "oauth_metadata": metadata_with_redirect,
                     "oauth_client_id": client_id,
                     "created_by": request.user,
                 },
@@ -431,12 +546,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except IntegrityError:
             existing = MCPServer.objects.filter(url=issuer_url).first()
             if not existing:
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+                raise DCRRegistrationFailedError
             server = existing
             created = False
 
         if not created and not server.oauth_client_id:
-            server.oauth_metadata = metadata
+            server.oauth_metadata = metadata_with_redirect
             server.oauth_client_id = client_id
             server.save(update_fields=["oauth_metadata", "oauth_client_id", "updated_at"])
 
@@ -451,45 +566,67 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     )
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         server_id = request.validated_query_data["server_id"]
+        install_source = request.validated_query_data.get("install_source", "posthog")
+        twig_callback_url = request.validated_query_data.get("twig_callback_url", "")
+
+        if twig_callback_url and not _is_valid_twig_callback_url(twig_callback_url):
+            return Response({"detail": "Invalid callback URL"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             server = MCPServer.objects.get(id=server_id)
         except MCPServer.DoesNotExist:
             return Response({"detail": "Server not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if server.oauth_provider_kind:
-            try:
-                return self._authorize_known_provider(server.oauth_provider_kind, server_id)
-            except NotImplementedError:
-                pass
-
         # Look up the user's installation to get the MCP URL for RFC 9728 discovery
         installation = MCPServerInstallation.objects.filter(
             team_id=self.team_id, user=cast(User, request.user), server=server
         ).first()
+
+        if server.oauth_provider_kind:
+            try:
+                return self._authorize_known_provider(
+                    server.oauth_provider_kind,
+                    server,
+                    install_source=install_source,
+                    twig_callback_url=twig_callback_url,
+                    installation=installation,
+                )
+            except NotImplementedError:
+                pass
+
         mcp_url = installation.url if installation else server.url
 
-        return self._authorize_dcr(server, server_id, mcp_url=mcp_url)
+        return self._authorize_dcr(
+            server,
+            mcp_url=mcp_url,
+            installation=installation,
+            install_source=install_source,
+            twig_callback_url=twig_callback_url,
+        )
 
-    def _authorize_known_provider(self, kind: str, server_id: str) -> HttpResponse:
+    def _authorize_known_provider(
+        self,
+        kind: str,
+        server: MCPServer,
+        *,
+        install_source: str = "posthog",
+        twig_callback_url: str = "",
+        installation: MCPServerInstallation | None = None,
+    ) -> HttpResponse:
         oauth_config = OauthIntegration.oauth_config_for_kind(kind)
+        redirect_uri = _get_oauth_redirect_uri()
 
         token = secrets.token_urlsafe(32)
-        state_params = urlencode(
-            {
-                "next": "/settings/mcp-servers",
-                "token": token,
-                "source": "mcp_store",
-                "server_id": str(server_id),
-            }
-        )
+
+        if installation:
+            _create_oauth_state(installation, server, token, install_source, twig_callback_url)
 
         query_params = {
             "client_id": oauth_config.client_id,
             "scope": oauth_config.scope,
-            "redirect_uri": OauthIntegration.redirect_uri(kind),
+            "redirect_uri": redirect_uri,
             "response_type": "code",
-            "state": state_params,
+            "state": token,
             **(oauth_config.additional_authorize_params or {}),
         }
 
@@ -497,16 +634,21 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         response = HttpResponse(status=302)
         response["Location"] = authorize_url
-        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES)
         return response
 
-    def _authorize_dcr(self, server: MCPServer, server_id: str, *, mcp_url: str) -> HttpResponse:
-        allowed, reason = is_url_allowed(mcp_url)
-        if not allowed:
-            logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
-            return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
+    def _authorize_dcr(
+        self,
+        server: MCPServer,
+        *,
+        mcp_url: str,
+        installation: MCPServerInstallation | None = None,
+        install_source: str = "posthog",
+        twig_callback_url: str = "",
+    ) -> HttpResponse:
+        if blocked_response := self._validate_mcp_url_or_error_response(mcp_url):
+            return blocked_response
 
-        redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/settings/mcp-servers"
+        redirect_uri = _get_oauth_redirect_uri()
 
         cached_redirect_uri = server.oauth_metadata.get("dcr_redirect_uri", "") if server.oauth_metadata else ""
         needs_registration = (
@@ -520,15 +662,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     metadata = dict(server.oauth_metadata)
                 else:
                     metadata = discover_oauth_metadata(mcp_url)
-                client_id = register_dcr_client(metadata, redirect_uri)
-            except ValueError as e:
-                logger.warning("DCR not supported", server_url=server.url, error=str(e))
+                client_id = self._register_dcr_client_or_raise(metadata, redirect_uri, server_url=server.url)
+            except DCRNotSupportedError:
                 return Response(
                     {"detail": "This MCP server does not support automatic client registration (DCR)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except Exception as e:
-                logger.exception("DCR registration failed", server_url=server.url, error=str(e))
+            except DCRRegistrationFailedError:
                 return Response({"detail": "OAuth discovery/registration failed."}, status=status.HTTP_400_BAD_REQUEST)
             metadata["dcr_redirect_uri"] = redirect_uri
             server.oauth_metadata = metadata
@@ -537,85 +677,141 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
-        state = urlencode({"token": token, "server_id": str(server_id)})
 
-        query_params = {
-            "client_id": server.oauth_client_id,
-            "redirect_uri": redirect_uri,
-            "response_type": "code",
-            "state": state,
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-        }
-        if scopes := server.oauth_metadata.get("scopes_supported"):
-            query_params["scope"] = " ".join(scopes)
+        if installation:
+            _create_oauth_state(
+                installation, server, token, install_source, twig_callback_url, pkce_verifier=code_verifier
+            )
 
-        auth_endpoint = server.oauth_metadata["authorization_endpoint"]
-        if not _is_https(auth_endpoint):
+        try:
+            authorize_url = self._build_dcr_authorize_url(
+                server,
+                redirect_uri=redirect_uri,
+                state_token=token,
+                code_challenge=code_challenge,
+            )
+        except OAuthAuthorizeURLError:
             return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
-
-        authorize_url = f"{auth_endpoint}?{urlencode(query_params)}"
 
         response = HttpResponse(status=302)
         response["Location"] = authorize_url
-        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES)
-        response.set_cookie(
-            "ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES
-        )
         return response
 
-    @validated_request(
-        OAuthCallbackRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=MCPServerInstallationSerializer),
-            201: OpenApiResponse(response=MCPServerInstallationSerializer),
-        },
-    )
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="oauth_callback",
-        throttle_classes=[MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle],
-    )
-    def oauth_callback(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        code = request.validated_data["code"]
-        server_id = request.validated_data["server_id"]
-        state_token = request.validated_data["state_token"]
 
-        cookie_token = request.COOKIES.get("ph_oauth_state")
-        if not cookie_token or not secrets.compare_digest(cookie_token, state_token):
-            return Response({"detail": "Invalid OAuth state token"}, status=status.HTTP_403_FORBIDDEN)
+@extend_schema(tags=["mcp_store"])
+class MCPOAuthRedirectViewSet(viewsets.ViewSet):
+    """Team-agnostic public OAuth callback endpoint.
+
+    OAuth providers redirect here after authorization. This endpoint
+    validates the state token, exchanges the code for tokens, and
+    redirects to the originating client (PostHog web or Twig).
+    """
+
+    permission_classes: list = []
+    authentication_classes: list = []
+    throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        state_token = request.query_params.get("state")
+        if not state_token:
+            return Response({"detail": "Missing state parameter"}, status=status.HTTP_400_BAD_REQUEST)
+
+        oauth_state = self._consume_oauth_state(state_token)
+        if not oauth_state:
+            logger.warning("OAuth redirect: invalid or expired state")
+            return Response({"detail": "Invalid or expired OAuth state"}, status=status.HTTP_400_BAD_REQUEST)
+
+        installation = oauth_state.installation
+        install_source = oauth_state.install_source
+        twig_callback_url = oauth_state.twig_callback_url
+        server = oauth_state.server
+
+        error = request.query_params.get("error")
+        if error:
+            logger.warning("OAuth redirect: provider error", error=error)
+            error_msg = "cancelled" if error == "access_denied" else error
+            return self._build_oauth_redirect(
+                install_source, installation, error=error_msg, twig_callback_url=twig_callback_url
+            )
+
+        code = request.query_params.get("code")
+        if not code:
+            return self._build_oauth_redirect(
+                install_source, installation, error="Missing authorization code", twig_callback_url=twig_callback_url
+            )
 
         try:
-            server = MCPServer.objects.get(id=server_id)
-        except MCPServer.DoesNotExist:
-            return Response({"detail": "Server not found"}, status=status.HTTP_404_NOT_FOUND)
+            self._exchange_and_store_tokens(installation, server, code, oauth_state.pkce_verifier)
+        except OAuthTokenExchangeError:
+            return self._build_oauth_redirect(
+                install_source,
+                installation,
+                error="token_exchange_failed",
+                twig_callback_url=twig_callback_url,
+            )
 
-        # Determine which exchange method to use based on how the authorization
-        # was initiated. The DCR path sets a ph_pkce_verifier cookie; the known
-        # provider path does not. Without this check, a server with
-        # oauth_provider_kind set (e.g. "linear") that was authorized via DCR
-        # would incorrectly try to exchange the code at the known provider's
-        # token endpoint, which fails because the code was issued by the MCP
-        # server, not the provider directly.
-        has_pkce = bool(request.COOKIES.get("ph_pkce_verifier"))
+        return self._build_oauth_redirect(install_source, installation, twig_callback_url=twig_callback_url)
 
+    @staticmethod
+    def _consume_oauth_state(state_token: str) -> MCPOAuthState | None:
+        token_hash = _hash_oauth_state_token(state_token)
+        now = timezone.now()
+
+        with transaction.atomic():
+            oauth_state = (
+                MCPOAuthState.objects.select_for_update()
+                .select_related("installation", "server")
+                .filter(token_hash=token_hash, consumed_at__isnull=True)
+                .first()
+            )
+            if not oauth_state or oauth_state.expires_at <= now:
+                return None
+
+            oauth_state.consumed_at = now
+            oauth_state.save(update_fields=["consumed_at", "updated_at"])
+            return oauth_state
+
+    @staticmethod
+    def _exchange_and_store_tokens(
+        installation: MCPServerInstallation, server: MCPServer, code: str, pkce_verifier: str
+    ) -> None:
+        has_pkce = bool(pkce_verifier)
+        redirect_uri = _get_oauth_redirect_uri()
         if has_pkce:
-            token_data = self._exchange_dcr_token(request, server, code)
+            token_data = exchange_dcr_token(
+                server=server,
+                code=code,
+                pkce_verifier=pkce_verifier,
+                redirect_uri=redirect_uri,
+                is_https=_is_https,
+            )
         elif server.oauth_provider_kind:
             try:
-                token_data = self._exchange_known_provider_token(server.oauth_provider_kind, code)
+                token_data = exchange_known_provider_token(
+                    kind=server.oauth_provider_kind,
+                    code=code,
+                    redirect_uri=redirect_uri,
+                )
             except NotImplementedError:
-                token_data = self._exchange_dcr_token(request, server, code)
+                token_data = exchange_dcr_token(
+                    server=server,
+                    code=code,
+                    pkce_verifier=pkce_verifier,
+                    redirect_uri=redirect_uri,
+                    is_https=_is_https,
+                )
         else:
-            token_data = self._exchange_dcr_token(request, server, code)
-
-        if isinstance(token_data, Response):
-            return token_data
+            token_data = exchange_dcr_token(
+                server=server,
+                code=code,
+                pkce_verifier=pkce_verifier,
+                redirect_uri=redirect_uri,
+                is_https=_is_https,
+            )
 
         access_token = token_data.get("access_token")
         if not access_token:
-            return Response({"detail": "No access token in response"}, status=status.HTTP_400_BAD_REQUEST)
+            raise OAuthTokenExchangeError("No access token in response")
 
         sensitive_config: SensitiveConfig = {
             "access_token": access_token,
@@ -626,86 +822,30 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if expires_in := token_data.get("expires_in"):
             sensitive_config["expires_in"] = expires_in
 
-        existing = MCPServerInstallation.objects.filter(
-            team_id=self.team_id, user=cast(User, request.user), server=server
-        ).first()
+        installation.sensitive_configuration = sensitive_config
+        installation.save(update_fields=["sensitive_configuration", "updated_at"])
 
-        install_url = existing.url if existing else server.url
-        display_name = existing.display_name if existing else server.name
-        description = existing.description if existing else server.description
-
-        installation, created = MCPServerInstallation.objects.update_or_create(
-            team_id=self.team_id,
-            user=request.user,
-            url=install_url,
-            defaults={
-                "server": server,
-                "display_name": display_name or server.name,
-                "description": description or server.description,
-                "auth_type": "oauth",
-                "sensitive_configuration": sensitive_config,
-            },
-        )
-
-        serializer = self.get_serializer(installation)
-        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-
-    def _exchange_known_provider_token(self, kind: str, code: str) -> dict | Response:
-        oauth_config = OauthIntegration.oauth_config_for_kind(kind)
-
-        token_response = requests.post(
-            oauth_config.token_url,
-            data={
-                "client_id": oauth_config.client_id,
-                "client_secret": oauth_config.client_secret,
-                "code": code,
-                "redirect_uri": OauthIntegration.redirect_uri(kind),
-                "grant_type": "authorization_code",
-            },
-            timeout=TIMEOUT,
-        )
-
-        if token_response.status_code != 200:
-            logger.error(
-                "OAuth token exchange failed", status_code=token_response.status_code, error=token_response.text
+    @staticmethod
+    def _build_oauth_redirect(
+        install_source: str,
+        installation: MCPServerInstallation,
+        *,
+        team_id: int | None = None,
+        error: str | None = None,
+        twig_callback_url: str = "",
+    ) -> HttpResponse:
+        if install_source == "twig" and twig_callback_url:
+            params = {"status": "error", "error": error} if error else {"status": "success"}
+            separator = "&" if "?" in twig_callback_url else "?"
+            redirect_url = f"{twig_callback_url}{separator}{urlencode(params)}"
+        elif error:
+            fallback_team_id = installation.team_id if installation else team_id
+            redirect_url = f"{settings.SITE_URL}/project/{fallback_team_id}/settings/mcp-servers?oauth_error=true"
+        else:
+            redirect_url = (
+                f"{settings.SITE_URL}/project/{installation.team_id}/settings/mcp-servers?oauth_complete=true"
             )
-            return Response({"detail": "Failed to exchange authorization code"}, status=status.HTTP_400_BAD_REQUEST)
 
-        return token_response.json()
-
-    def _exchange_dcr_token(self, request: Request, server: MCPServer, code: str) -> dict | Response:
-        code_verifier = request.COOKIES.get("ph_pkce_verifier")
-        if not code_verifier:
-            return Response({"detail": "Missing PKCE verifier"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not server.oauth_metadata or not server.oauth_client_id:
-            return Response({"detail": "Server missing OAuth configuration"}, status=status.HTTP_400_BAD_REQUEST)
-
-        redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/settings/mcp-servers"
-        token_endpoint = server.oauth_metadata["token_endpoint"]
-
-        allowed, reason = is_url_allowed(token_endpoint)
-        if not allowed:
-            logger.warning("SSRF blocked token endpoint", url=token_endpoint, reason=reason)
-            return Response({"detail": "Token endpoint blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not _is_https(token_endpoint):
-            return Response({"detail": "Token endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
-
-        token_response = requests.post(
-            token_endpoint,
-            data={
-                "client_id": server.oauth_client_id,
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "grant_type": "authorization_code",
-                "code_verifier": code_verifier,
-            },
-            timeout=TIMEOUT,
-        )
-
-        if token_response.status_code != 200:
-            logger.error("DCR token exchange failed", status_code=token_response.status_code, error=token_response.text)
-            return Response({"detail": "Failed to exchange authorization code"}, status=status.HTTP_400_BAD_REQUEST)
-
-        return token_response.json()
+        response = HttpResponse(status=302)
+        response["Location"] = redirect_url
+        return response

@@ -296,7 +296,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         )
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             ProductTourEventName.CREATED,
             {**instance.get_analytics_metadata(), "creation_context": creation_context},
             team=team,
@@ -801,7 +801,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         )
 
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             ProductTourEventName.DELETED,
             analytics_metadata,
             team=self.team,
@@ -851,7 +851,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
             )
 
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 ProductTourEventName.AI_CONTENT_GENERATED,
                 tour.get_analytics_metadata(),
                 team=self.team,

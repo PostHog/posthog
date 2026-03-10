@@ -15,6 +15,7 @@ import {
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
+import { isString } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -22,6 +23,7 @@ import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { LineGraphProps, onChartClick } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { teamLogic } from 'scenes/teamLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -69,6 +71,7 @@ export function PieChart({
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
     const { getTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
+    const { baseCurrency } = useValues(teamLogic)
 
     const { canvasRef } = useChart<'pie'>({
         getConfig: () => {
@@ -126,7 +129,11 @@ export function PieChart({
                             color: 'white',
                             anchor: 'end',
                             backgroundColor: (context) => {
-                                return context.dataset.backgroundColor?.[context.dataIndex] || 'black'
+                                const { backgroundColor } = context.dataset
+                                if (Array.isArray(backgroundColor)) {
+                                    return backgroundColor[context.dataIndex] || 'black'
+                                }
+                                return isString(backgroundColor) ? backgroundColor : 'black'
                             },
                             display: (context) => {
                                 const percentage = getPercentageForDataPoint(context)
@@ -149,7 +156,7 @@ export function PieChart({
                                     return `${percentage.toFixed(1)}%`
                                 }
 
-                                return formatAggregationAxisValue(trendsFilter, value)
+                                return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
                             },
                             font: {
                                 weight: 500,
@@ -233,7 +240,8 @@ export function PieChart({
                                                     )
                                                     return `${formatAggregationAxisValue(
                                                         trendsFilter,
-                                                        value
+                                                        value,
+                                                        baseCurrency
                                                     )} (${percentageLabel}%)`
                                                 })
                                             }

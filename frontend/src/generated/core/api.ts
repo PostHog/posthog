@@ -23,8 +23,10 @@ import type {
     FileSystemListParams,
     FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
+    GitHubBranchesResponseApi,
     GitHubReposResponseApi,
     IntegrationApi,
+    IntegrationsGithubBranchesRetrieveParams,
     IntegrationsList2Params,
     InvitesListParams,
     List2Params,
@@ -1800,6 +1802,38 @@ export const integrationsEmailVerifyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(integrationApi),
+    })
+}
+
+export const getIntegrationsGithubBranchesRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: IntegrationsGithubBranchesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_branches/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_branches/`
+}
+
+export const integrationsGithubBranchesRetrieve = async (
+    projectId: string,
+    id: number,
+    params: IntegrationsGithubBranchesRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubBranchesResponseApi> => {
+    return apiMutator<GitHubBranchesResponseApi>(getIntegrationsGithubBranchesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

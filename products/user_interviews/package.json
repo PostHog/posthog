@@ -1,5 +1,9 @@
 {
     "name": "@posthog/products-user-interviews",
+    "scripts": {
+        "backend:test": "echo 'No backend tests'",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",

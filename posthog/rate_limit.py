@@ -262,6 +262,8 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
             # For unauthenticated requests, we want to throttle on something unique to the user they are trying to work with
             # This could be email for example when logging in or uuid when verifying email
             ident = request.data.get("email") or request.data.get("uuid") or self.get_ident(request)
+            if isinstance(ident, str):
+                ident = ident.lower()
             ident = hashlib.sha256(ident.encode()).hexdigest()
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -715,6 +717,26 @@ class MCPOAuthBurstThrottle(UserRateThrottle):
 class MCPOAuthSustainedThrottle(UserRateThrottle):
     scope = "mcp_oauth_sustained"
     rate = "50/hour"
+
+
+class MCPOAuthRedirectBurstThrottle(SimpleRateThrottle):
+    """IP-based rate limit for the public oauth_redirect endpoint."""
+
+    scope = "mcp_oauth_redirect_burst"
+    rate = "5/minute"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class MCPOAuthRedirectSustainedThrottle(SimpleRateThrottle):
+    """IP-based rate limit for the public oauth_redirect endpoint."""
+
+    scope = "mcp_oauth_redirect_sustained"
+    rate = "50/hour"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
 class MCPProxyBurstThrottle(UserRateThrottle):

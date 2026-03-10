@@ -42,6 +42,7 @@ export type RequestProperties = {
     organizationId?: string
     projectId?: string
     clientUserAgent?: string
+    readOnly?: boolean
 }
 
 export class MCP extends McpAgent<Env> {
@@ -337,7 +338,7 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, version, organizationId, projectId } = this.requestProperties
+        const { features, version, organizationId, projectId, readOnly } = this.requestProperties
         const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_TEMPLATE_V1
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
@@ -370,6 +371,7 @@ export class MCP extends McpAgent<Env> {
             features,
             version,
             excludeTools,
+            readOnly,
         })
 
         for (const tool of allTools) {
