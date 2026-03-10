@@ -1,16 +1,3 @@
-// Package tui implements the Bubble Tea TUI for phrocs
-//
-// Layout:
-//
-//	┌───────────────────────────────────────────┐
-//	│  PostHog Dev                 ● N running  │  ← header
-//	├────────────────┬──────────────────────────┤
-//	│ ● backend      │ (process output)         │
-//	│ ● frontend     │                          │  ← sidebar + viewport
-//	│ ✗ capture      │                          │
-//	├────────────────┴──────────────────────────┤
-//	│ j next  k prev  r restart  q quit  ? help │  ← footer
-//	└───────────────────────────────────────────┘
 package tui
 
 import (
@@ -70,12 +57,14 @@ type Model struct {
 	height int
 	ready  bool
 
+	mouseScrollSpeed int
+
 	// Writes go to /tmp/phrocs-debug.log
 	log *log.Logger
 }
 
 // Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.)
-func New(mgr *process.Manager, logger *log.Logger) Model {
+func New(mgr *process.Manager, mouseScrollSpeed int, logger *log.Logger) Model {
 	keys := defaultKeyMap()
 
 	// Enable docker key only if lazydocker is installed
@@ -84,16 +73,17 @@ func New(mgr *process.Manager, logger *log.Logger) Model {
 	}
 
 	return Model{
-		mgr:           mgr,
-		procs:         mgr.Procs(),
-		cursor:        0,
-		sidebarOffset: 0,
-		focusedPane:   focusSidebar,
-		atBottom:      true,
-		keys:          keys,
-		help:          help.New(),
-		spinner:       spinner.New(spinner.WithSpinner(spinner.MiniDot)),
-		log:           logger,
+		mgr:              mgr,
+		procs:            mgr.Procs(),
+		cursor:           0,
+		sidebarOffset:    0,
+		focusedPane:      focusSidebar,
+		atBottom:         true,
+		mouseScrollSpeed: mouseScrollSpeed,
+		keys:             keys,
+		help:             help.New(),
+		spinner:          spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		log:              logger,
 	}
 }
 
@@ -416,6 +406,7 @@ func (m Model) applySize() Model {
 
 	if !m.ready {
 		m.viewport = viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(contentH))
+		m.viewport.MouseWheelDelta = m.mouseScrollSpeed
 		m.ready = true
 		m = m.loadActiveProc()
 	} else {

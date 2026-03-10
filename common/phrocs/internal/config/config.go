@@ -44,6 +44,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Scrollback == 0 {
 		cfg.Scrollback = 10_000
 	}
+	if cfg.MouseScrollSpeed == 0 {
+		cfg.MouseScrollSpeed = 3
+	}
 	return &cfg, nil
 }
 

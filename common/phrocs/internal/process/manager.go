@@ -21,7 +21,7 @@ func NewManager(cfg *config.Config) *Manager {
 	byName := make(map[string]*Process, len(names))
 
 	for _, name := range names {
-		proc := NewProcess(name, cfg.Procs[name])
+		proc := NewProcess(name, cfg.Procs[name], cfg.Scrollback)
 		procs = append(procs, proc)
 		byName[name] = proc
 	}

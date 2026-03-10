@@ -42,8 +42,6 @@ func (s Status) String() string {
 	}
 }
 
-const maxLines = 10_000
-
 // When a process changes state
 type StatusMsg struct {
 	Name   string
@@ -62,6 +60,7 @@ type Process struct {
 	Cfg  config.ProcConfig
 
 	mu           sync.Mutex
+	maxLines     int
 	status       Status
 	lines        []string
 	cmd          *exec.Cmd
@@ -70,12 +69,13 @@ type Process struct {
 	ready        bool // whether we've seen the ready pattern (or no pattern is set)
 }
 
-func NewProcess(name string, cfg config.ProcConfig) *Process {
+func NewProcess(name string, cfg config.ProcConfig, scrollback int) *Process {
 	p := &Process{
-		Name:   name,
-		Cfg:    cfg,
-		status: StatusStopped,
-		ready:  cfg.ReadyPattern == "", // ready if no pattern, otherwise wait for pattern
+		Name:     name,
+		Cfg:      cfg,
+		maxLines: scrollback,
+		status:   StatusStopped,
+		ready:    cfg.ReadyPattern == "", // ready if no pattern, otherwise wait for pattern
 	}
 	// Compile ready pattern if one exists
 	if cfg.ReadyPattern != "" {
@@ -267,7 +267,7 @@ func (p *Process) readLoop(r io.Reader, send func(tea.Msg)) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		p.mu.Lock()
-		if len(p.lines) >= maxLines {
+		if len(p.lines) >= p.maxLines {
 			// Discard oldest line to keep the buffer bounded.
 			p.lines = p.lines[1:]
 		}
