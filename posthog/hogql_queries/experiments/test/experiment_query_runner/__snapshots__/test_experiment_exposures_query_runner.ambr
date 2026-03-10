@@ -53,7 +53,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-773d-8fcb-2e3556b8804a', '018ce3cb-4a00-7951-aa01-232721e2e081']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7272-bdaf-679aea13b713', '018ce3cb-4a00-706f-b71b-9010116f0688']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -167,7 +167,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-741c-8562-2aecbb13ab10', '018ce3cb-4a00-7e60-bb3d-c1db0afd03a1']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7298-92b0-c56c59bc43b3', '018ce3cb-4a00-7a83-97d3-61122c8eebca']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -197,7 +197,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-74ab-b25d-5418f9c62146', '018ce3cb-4a00-7498-a5b4-0f15ea932a73']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7bb6-8a7a-132ab062200d', '018ce3cb-4a00-7579-a021-9e12c3914449']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -274,7 +274,7 @@
             argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC')) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7907-a89d-d575017608bc', '018ce3cb-4a00-78f1-a967-9d9a4f99ed84']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7dc7-bb80-1e5147b48a23', '018ce3cb-4a00-754c-8a8f-fed981e552ad']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -351,7 +351,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-72c5-a55c-3768feb0240d', '018ce3cb-4a00-7fcf-9edc-b872551460be']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7300-a3a0-74133c3b0a68', '018ce3cb-4a00-7ea5-90d8-bd8e29e3b93f']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -428,7 +428,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7028-8812-78309c4d0bce', '018ce3cb-4a00-7b49-83f8-ae1744d82224', '018ce3cb-4a00-75db-9126-bea97f86e8c8']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-28 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7823-af36-86f1242dd6b3', '018ce3cb-4a00-730c-8a3e-5ada59cc91bd', '018ce3cb-4a00-7086-b651-11ba7c335a27']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-28 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -505,7 +505,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-750e-a71c-9fc70bf9c4ea', '018ce3cb-4a00-7982-8b32-3169da1022f3']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7f25-ad5d-771a631773e9', '018ce3cb-4a00-7499-afc7-5ee46ba5052b']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -582,7 +582,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7f83-beb4-77a0c120e968', '018ce3cb-4a00-7dd6-817e-90e366bd6357']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-76c4-b916-4a7fd70c8b4e', '018ce3cb-4a00-7b3c-89f0-64334bef16bf']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -659,7 +659,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7043-9238-b16b1f5f80b7', '018ce3cb-4a00-7459-9ad5-401c07793402']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-77d3-9e0d-5982181967e7', '018ce3cb-4a00-7382-93fb-7d69354f97f3']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -736,7 +736,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7145-ba84-f098d69e2d69', '018ce3cb-4a00-7b0e-9124-abf68dfe61a3']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7c6f-85a2-ead532491f7d', '018ce3cb-4a00-737f-9495-aea5182210be']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
@@ -813,7 +813,7 @@
             if(ifNull(greater(uniqExact(t.variant), 1), 0), '$multiple', argMin(t.variant, toTimeZone(t.first_exposure_time, 'UTC'))) AS variant,
             min(toTimeZone(t.first_exposure_time, 'UTC')) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
-     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-77e3-b6b4-3fdc93d84922', '018ce3cb-4a00-7f17-a63f-d62c4ffe6f08']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
+     WHERE and(equals(t.team_id, 99999), in(t.job_id, ['018ce3cb-4a00-7648-a34d-fd7381be75cc', '018ce3cb-4a00-7822-85bb-8235bdb9ad33']), equals(t.team_id, 99999), greaterOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(t.first_exposure_time, 'UTC'), assumeNotNull(toDateTime('2024-01-07 00:00:00', 'UTC'))))
      GROUP BY entity_id)
   SELECT toDateOrNull(toString(deduplicated.first_exposure_time)) AS day,
          deduplicated.variant AS variant,
