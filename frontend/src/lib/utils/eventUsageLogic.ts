@@ -39,6 +39,7 @@ import {
 } from '~/queries/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
+    ChartDisplayType,
     CohortType,
     DashboardMode,
     DashboardTile,
@@ -221,8 +222,8 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
 
         // trends like
         payload.has_formula = !!getFormula(querySource)
-        payload.display = getDisplay(querySource)
-        payload.trend_type = isTrendsQuery(querySource) ? getDisplay(querySource) : undefined
+        payload.display = getDisplay(querySource) ?? (isTrendsQuery(querySource) ? ChartDisplayType.ActionsLineGraph : undefined)
+        payload.trend_type = isTrendsQuery(querySource) ? payload.display : undefined
         payload.compare = getCompareFilter(querySource)?.compare
         payload.compare_to = getCompareFilter(querySource)?.compare_to
 
