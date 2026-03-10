@@ -19,6 +19,7 @@ def get_flags_from_service(
     token: str,
     distinct_id: str,
     groups: dict[str, Any] | None = None,
+    person_properties: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Proxy a request to the Rust feature flags service /flags endpoint.
@@ -27,6 +28,7 @@ def get_flags_from_service(
         token: The project API token (the public token) for the team
         distinct_id: The distinct ID for the user
         groups: Optional groups for group-based flags (default: None)
+        person_properties: Optional person property overrides for flag evaluation (default: None)
 
     Returns:
         The full response from the flags service as a dict, typically containing:
@@ -58,6 +60,9 @@ def get_flags_from_service(
 
     if groups:
         payload["groups"] = groups
+
+    if person_properties:
+        payload["person_properties"] = person_properties
 
     params: dict[str, str] = {"v": "2"}
 

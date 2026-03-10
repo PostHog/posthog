@@ -10888,3 +10888,155 @@ class TestFeatureFlagLimits(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
+
+
+class TestFlagsPointInTime(APIBaseTest):
+    @patch("posthog.models.person.point_in_time_properties.build_person_properties_at_time")
+    @patch("posthog.models.person.point_in_time_properties.get_person_and_distinct_ids_for_identifier")
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_returns_evaluation_with_historical_properties(self, mock_get_flags, mock_get_person, mock_build_props):
+        person = Person.objects.create(team=self.team, distinct_ids=["user_123"])
+        mock_get_person.return_value = (person, ["user_123"])
+        mock_build_props.return_value = {"plan": "enterprise", "country": "US"}
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+            }
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/flags_point_in_time/",
+            {"distinct_id": "user_123", "timestamp": "2023-06-15T14:30:00Z"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "test-flag": {
+                "value": True,
+                "evaluation": {"reason": "condition_match", "condition_index": 0},
+            },
+        }
+
+    @patch("posthog.models.person.point_in_time_properties.build_person_properties_at_time")
+    @patch("posthog.models.person.point_in_time_properties.get_person_and_distinct_ids_for_identifier")
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_passes_historical_properties_to_service(self, mock_get_flags, mock_get_person, mock_build_props):
+        person = Person.objects.create(team=self.team, distinct_ids=["user_123"])
+        mock_get_person.return_value = (person, ["user_123"])
+        mock_build_props.return_value = {"plan": "enterprise"}
+        mock_get_flags.return_value = {"flags": {}}
+
+        self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/flags_point_in_time/",
+            {"distinct_id": "user_123", "timestamp": "2023-06-15T14:30:00Z"},
+        )
+
+        mock_get_flags.assert_called_once_with(
+            token=self.team.api_token,
+            distinct_id="user_123",
+            groups={},
+            person_properties={"plan": "enterprise"},
+        )
+
+    @patch("posthog.models.person.point_in_time_properties.get_person_and_distinct_ids_for_identifier")
+    def test_person_not_found_returns_404(self, mock_get_person):
+        mock_get_person.return_value = (None, [])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/flags_point_in_time/",
+            {"distinct_id": "nonexistent", "timestamp": "2023-06-15T14:30:00Z"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_missing_distinct_id_returns_400(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/flags_point_in_time/",
+            {"timestamp": "2023-06-15T14:30:00Z"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_missing_timestamp_returns_400(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/flags_point_in_time/",
+            {"distinct_id": "user_123"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_invalid_timestamp_returns_400(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/flags_point_in_time/",
+            {"distinct_id": "user_123", "timestamp": "not-a-date"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.models.person.point_in_time_properties.build_person_properties_at_time")
+    @patch("posthog.models.person.point_in_time_properties.get_person_and_distinct_ids_for_identifier")
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_includes_disabled_flags(self, mock_get_flags, mock_get_person, mock_build_props):
+        person = Person.objects.create(team=self.team, distinct_ids=["user_123"])
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="disabled-flag", active=False)
+        mock_get_person.return_value = (person, ["user_123"])
+        mock_build_props.return_value = {}
+        mock_get_flags.return_value = {"flags": {}}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/flags_point_in_time/",
+            {"distinct_id": "user_123", "timestamp": "2023-06-15T14:30:00Z"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["disabled-flag"] == {
+            "value": False,
+            "evaluation": {"reason": "disabled", "condition_index": None},
+        }
+
+    @patch("posthog.models.person.point_in_time_properties.build_person_properties_at_time")
+    @patch("posthog.models.person.point_in_time_properties.get_person_and_distinct_ids_for_identifier")
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_passes_groups_to_service(self, mock_get_flags, mock_get_person, mock_build_props):
+        person = Person.objects.create(team=self.team, distinct_ids=["user_123"])
+        mock_get_person.return_value = (person, ["user_123"])
+        mock_build_props.return_value = {}
+        mock_get_flags.return_value = {"flags": {}}
+
+        self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/flags_point_in_time/",
+            {
+                "distinct_id": "user_123",
+                "timestamp": "2023-06-15T14:30:00Z",
+                "groups": json.dumps({"company": "acme"}),
+            },
+        )
+
+        mock_get_flags.assert_called_once_with(
+            token=self.team.api_token,
+            distinct_id="user_123",
+            groups={"company": "acme"},
+            person_properties={},
+        )
+
+    @patch("posthog.models.person.point_in_time_properties.build_person_properties_at_time")
+    @patch("posthog.models.person.point_in_time_properties.get_person_and_distinct_ids_for_identifier")
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_forwards_include_set_once(self, mock_get_flags, mock_get_person, mock_build_props):
+        person = Person.objects.create(team=self.team, distinct_ids=["user_123"])
+        mock_get_person.return_value = (person, ["user_123"])
+        mock_build_props.return_value = {}
+        mock_get_flags.return_value = {"flags": {}}
+
+        self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/flags_point_in_time/",
+            {"distinct_id": "user_123", "timestamp": "2023-06-15T14:30:00Z", "include_set_once": "true"},
+        )
+
+        mock_build_props.assert_called_once()
+        call_kwargs = mock_build_props.call_args[1]
+        assert call_kwargs["include_set_once"] is True

@@ -1582,6 +1582,20 @@ class EvaluationReasonsQuerySerializer(serializers.Serializer):
     groups = GroupsJSONField()
 
 
+class FlagsPointInTimeQuerySerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
+    timestamp = serializers.DateTimeField(
+        required=True,
+        help_text="ISO datetime for the point in time (e.g., 2023-06-15T14:30:00Z)",
+    )
+    groups = GroupsJSONField()
+    include_set_once = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to include $set_once operations when building historical properties",
+    )
+
+
 class ActivityQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
     page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")
@@ -2729,6 +2743,81 @@ class FeatureFlagViewSet(
         )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
+        flags_data = result.get("flags", {})
+        flags_with_evaluation_reasons = {}
+
+        for flag_key, flag_data in flags_data.items():
+            value = (
+                flag_data.get("variant") if flag_data.get("variant") is not None else flag_data.get("enabled", False)
+            )
+
+            reason_data = flag_data.get("reason", {})
+            flags_with_evaluation_reasons[flag_key] = {
+                "value": value,
+                "evaluation": {
+                    "reason": reason_data.get("code", "unknown"),
+                    "condition_index": reason_data.get("condition_index"),
+                },
+            }
+
+        disabled_flags = FeatureFlag.objects.filter(team__project_id=self.project_id, active=False).values_list(
+            "key", flat=True
+        )
+
+        for flag_key in disabled_flags:
+            flags_with_evaluation_reasons[flag_key] = {
+                "value": False,
+                "evaluation": {
+                    "reason": "disabled",
+                    "condition_index": None,
+                },
+            }
+
+        return Response(flags_with_evaluation_reasons)
+
+    @validated_request(
+        query_serializer=FlagsPointInTimeQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=EvaluationReasonsResponseSerializer()),
+        },
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
+    def flags_point_in_time(self, request: request.Request, **kwargs):
+        from posthog.models.person.point_in_time_properties import (
+            build_person_properties_at_time,
+            get_person_and_distinct_ids_for_identifier,
+        )
+
+        distinct_id = request.validated_query_data["distinct_id"]
+        timestamp = request.validated_query_data["timestamp"]
+        groups = request.validated_query_data.get("groups", {})
+        include_set_once = request.validated_query_data.get("include_set_once", False)
+
+        if isinstance(groups, str):
+            groups = json.loads(groups) if groups else {}
+
+        person, distinct_ids = get_person_and_distinct_ids_for_identifier(
+            team_id=self.team.id,
+            distinct_id=distinct_id,
+        )
+
+        if not person or not distinct_ids:
+            raise exceptions.NotFound(f"Person with distinct_id '{distinct_id}' not found")
+
+        person_properties = build_person_properties_at_time(
+            team_id=self.team.id,
+            timestamp=timestamp,
+            distinct_ids=distinct_ids,
+            include_set_once=include_set_once,
+        )
+
+        result = get_flags_from_service(
+            token=self.team.api_token,
+            distinct_id=distinct_id,
+            groups=groups,
+            person_properties=person_properties,
+        )
+
         flags_data = result.get("flags", {})
         flags_with_evaluation_reasons = {}
 
