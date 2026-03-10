@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ChangeRequest } from '~/types'
+import { AvailableFeature, ChangeRequest, ChangeRequestState } from '~/types'
 
 import type { pendingApprovalsLogicType } from './pendingApprovalsLogicType'
 
@@ -37,7 +37,10 @@ export const pendingApprovalsLogic = kea<pendingApprovalsLogicType>([
     selectors({
         actionableChangeRequests: [
             (s) => [s.pendingChangeRequests],
-            (changeRequests): ChangeRequest[] => changeRequests.filter((cr) => cr.can_approve && !cr.user_decision),
+            (changeRequests): ChangeRequest[] =>
+                changeRequests.filter(
+                    (cr) => cr.state === ChangeRequestState.Pending && cr.can_approve && !cr.user_decision
+                ),
         ],
         actionableCount: [(s) => [s.actionableChangeRequests], (actionable): number => actionable.length],
         pendingCount: [(s) => [s.pendingChangeRequests], (pending): number => pending.length],

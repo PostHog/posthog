@@ -73,9 +73,9 @@ describe('pendingApprovalsLogic', () => {
                 expected: 0,
             },
             {
-                label: 'includes approved-state CRs that user can still act on',
+                label: 'excludes approved-state CRs even if user can approve',
                 changeRequests: [makeChangeRequest({ state: ChangeRequestState.Approved })],
-                expected: 1,
+                expected: 0,
             },
             {
                 label: 'filters correctly across mixed CRs',
@@ -85,7 +85,7 @@ describe('pendingApprovalsLogic', () => {
                     makeChangeRequest({ id: 'cr-3', user_decision: 'rejected' }),
                     makeChangeRequest({ id: 'cr-4', state: ChangeRequestState.Approved }),
                 ],
-                expected: 2,
+                expected: 1,
             },
         ])('$label', async ({ changeRequests, expected }) => {
             logic = pendingApprovalsLogic()

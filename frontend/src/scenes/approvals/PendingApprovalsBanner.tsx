@@ -17,7 +17,7 @@ export function PendingApprovalsBanner(): JSX.Element | null {
     const message =
         actionableCount > 0
             ? `${actionableCount} ${pluralize(actionableCount, 'change request', 'change requests', false)} ${actionableCount === 1 ? 'is' : 'are'} awaiting your decision`
-            : `${pendingCount} ${pluralize(pendingCount, 'change request', 'change requests', false)} ${pendingCount === 1 ? 'is' : 'are'} pending approval`
+            : `${pendingCount} ${pluralize(pendingCount, 'change request', 'change requests', false)} ${pendingCount === 1 ? 'is' : 'are'} awaiting action`
 
     return (
         <LemonBanner
